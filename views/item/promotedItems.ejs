@@ -1,0 +1,47 @@
+<!-- main item page starts here -->
+
+<%-include("../partials/header") %>
+
+<%-include("../partials/dropdown") %>
+
+<%-include("../partials/slideshow") %>
+
+<%-include("../partials/flash") %>
+
+
+   <% item.reverse() %>
+     <% if (item.length > 0) { %>
+<h2 style="text-align: center">Below is the list of promoted items</h2>
+     <div class="row">
+
+       <% item.forEach((item, index) => { %>
+       <div class="column1">
+           <a href="/itemmore/<%= item._id %>">
+           <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+           <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+           <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.... </h4>
+           <table>
+             <tr>
+               <td><p id="InitialPrice">AU$ <%= calculateInitialPrice(item.price) %></p></td>
+               <td><h3 id="realprice">AU$ <%= item.price %> </h3></td>
+             </tr>
+            </table>
+           </div>
+           </a>
+           </div>
+
+         <% }); %>
+
+         </div>
+
+         <% } else { %>
+         <p class="emptyitem">No item found now, please come back later.</p>
+         <% } %>
+
+      </div>
+
+
+
+<%-include("../partials/footer") %>
+
+<!-- main item page starts end here -->

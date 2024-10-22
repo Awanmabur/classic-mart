@@ -1,0 +1,106 @@
+
+  <style media="screen">
+  h1 {
+  margin: 50px 0 30px;
+  text-align: center;
+  color: #29d9d5;
+  }
+
+  .faq-container {
+  max-width: 100%;
+  margin: 0 auto;
+  margin: -40px 0;
+  }
+
+  .faq {
+  color: white;
+  background-color: transparent;
+  border: 2px solid #29d9d5;
+  border-radius: 10px;
+  margin: 20px 0;
+  padding: 30px;
+  position: relative;
+  overflow: hidden;
+  transition: 0.3s ease;
+  }
+
+  .faq-title {
+  margin: 0 35px 0 0;
+  }
+
+  .faq-toggle {
+  background-color: transparent;
+  color: white;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  padding: 0;
+  position: absolute;
+  top: 30px;
+  right: 30px;
+  height: 30px;
+  width: 30px;
+  }
+
+  .link-item {
+    display: inline-flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: white;
+  }
+
+  .number {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: -40px;
+  }
+
+  .text {
+    font-size: 12px;
+    text-align: center;
+  }
+  </style>
+
+  <section  id="faq">
+
+    <!-- <h1>All The Users</h1> -->
+      <div class="faq-container">
+     <% users.forEach(user => { %>
+        <div class="faq data-aos="fade-up" data-aos-delay="150"">
+          <h3 class="faq-title">
+            <a id="dark" style="margin-right: 50px;" href="/visit/<%= user._id %>"><i class="fa fa-2x fa-user" aria-hidden="true"></i> </a>
+
+            <a href="/visit/<%= user._id %>"><%= user.fname %> <%= user.lname %></a>
+
+            <a style="margin-left: 70px; margin-top: -55px"href="#" class="link-item">
+                <span class="number">items</span>
+                <span class="text"><%= user.postCount %></span>
+            </a>
+
+            <a style="margin-left: 70px" class="link-item">
+              <span class="number">followers</span>
+              <span class="text"><%= user.followers %></span>
+            </a>
+
+            <a style="margin-left: 70px" class="link-item">
+              <span class="number">likes</span>
+              <span class="text"><%= user.likes %></span>
+            </a>
+
+            <a style="margin-left: 100px"href="/visit/<%= user._id %>">more info </a>
+          </h3>
+
+          <a href="/visit/<%= user._id %>">
+            <button class="faq-toggle">
+              <i class="fas fa-chevron-right"></i>
+            </button>
+          </a>
+        </div>
+     <% }) %>
+      </div>
+
+  </section>

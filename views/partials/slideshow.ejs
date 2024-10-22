@@ -1,0 +1,33 @@
+<div style="width: 100%" id="slider" class="slider">
+    <!-- fade css -->
+
+<% promotedItems.forEach((item, index) => { %>
+    <div class="myslide fade">
+      <div class="txt">
+        <h2 class="item_title"><%= item.itemname %> </h2>
+        <p style="color:green; font-weight: normal;">Promotion status: <%= item.isPromoted ? "Promoted" : "Not Promoted" %></p>
+
+        <table>
+          <tr>
+            <td><h2 id="InitialPrice">AU$ <%= calculateInitialPrice(item.price) %></h2></td>
+            <td><h2 id="realprice">AU$ <%= item.price %></h2></td>
+          </tr>
+        </table>
+
+        <a id="more-btn" href="/itemmore/<%= item._id %>" class="btn btn-warning">View item</a>
+        <a id="more-btn" href="https://api.whatsapp.com/send?phone=256781977217" class="btn btn-warning">chat</a><br>
+
+
+       </div>
+      <img class="dot" onclick="currentSlideit(1)" id="slide" src="/uploads/<%= item.image1 %>" alt="item Image">
+     <!-- /fade css -->
+
+
+   </div>
+
+   <a class="prev" onclick="plusSlides(-1)">&#10094;</a>
+   <a class="next" onclick="plusSlides(1)">&#10095;</a>
+
+     <% }); %>
+    <!-- /onclick js -->
+  </div>

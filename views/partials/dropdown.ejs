@@ -1,0 +1,50 @@
+
+<header class="header">
+
+<div id="menu-btn"> <a href="/"><img src="/images/logo.png" width="40" alt=""></a> </div>
+
+ <a data-aos="zoom-in-left" data-aos-delay="150" href="/" class="logo">welcome to sera Akuan</a>
+
+   <nav class="navbar">
+     <a>
+       <form method="get">
+        <div id="searchUsers" class="instant-search">
+         <div class="instant-search__input-container">
+          <input id="desktop-search-input" name="q" class="instant-search__input" type="text" spellcheck="false" placeholder="Search any product you want">
+          <i class="material-icons instant-search__icon">search</i>
+         </div>
+        </div>
+       </form>
+      </a>
+
+    </nav>
+
+
+    <% if( !isProfileOwner ){ %>
+
+
+        <form action="" id="hiddensearch" class="search-bar">
+     	   <input id="mobile-search-input" type="text" name="search" pattern=".*\S.*" required>
+     	   <button class="search-btn">
+     		   <span>Search</span>
+     	   </button>
+        </form>
+
+        <a id="dark" href="/profile-home/"><i class="fa fa-2x fa-user" aria-hidden="true"></i> </a>
+        <button id="dark" onclick="myFunction()"><i class="fa fa-2x fa-adjust" aria-hidden="true"></i></button>
+        <a href="/login" class="login-btn">login</a>
+
+
+    <% } else { %>
+
+
+        <button id="dark" onclick="myFunction()"><i class="fa fa-2x fa-adjust" aria-hidden="true"></i></button>
+        <a href="/profile/<%= isProfileOwner._id %>" class="login-btn"><%= isProfileOwner.fname %> </a>
+        <a href="/logout" class="login-btn">Logout</a></li>
+
+
+    <% } %>
+
+</header>
+
+<div id="results" class="search-results"></div>

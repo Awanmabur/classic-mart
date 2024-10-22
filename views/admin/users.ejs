@@ -1,0 +1,102 @@
+<%-include("../partials/header") %>
+<%-include("../partials/flash") %>
+
+<body>
+
+   <div class="admin">
+     <h2 class="admin">Hello welcome to Admin Portal</h2>
+     <h3>Please behavior responsibily when you are here</h3>
+   </div>
+
+     <ul class="tab-list">
+        <button class="custom-btn btn-7"><span><li class="tab-header active" onclick="showTab(0)">All users</li></span></button>
+        <button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(1)">All Blogs</li></span></button>
+        <button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(2)">All Reviews</li></span></button>
+        <!-- <button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(3)">Tab 3</li></span></button>
+        <button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(4)">Tab 4</li></span></button> -->
+     </ul>
+
+
+ <div class="tabs">
+ <div id="trans" class="tab-content active">
+   <table style="width: auto" class="admintable">
+     <thead>
+      <tr>
+        <th>S/No</th>
+        <th>Signup update</th>
+        <th>EndDate</th>
+        <th>plan type</th>
+        <th>User Name</th>
+        <th>Email Address</th>
+        <th>Subscribe</th>
+        <th>Suspended</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% users.forEach(function(user,i) {  %>
+        <tr>
+          <td><%= i+1%></td>
+          <td><%= moment(user.createdAt).format("lll") %></td>
+          <td><%= moment(user.subscriptionExpiry).format("lll") %></td>
+          <td><%= user.subscriptionPlan %></td>
+          <td><%= user.fname %> <%= user.lname %></td>
+          <td><%= user.email %></td>
+          <td><form  style="width:80%;" action="/subscribe" method="POST">
+              <!-- <label for="plan">Choose a subscription plan:</label> -->
+              <select name="plan" id="plan" required>
+                <option value="monthly">Monthly ($10)</option>
+                <option value="quarterly">Quarterly ($25)</option>
+                <option value="annually">Annually ($90)</option>
+              </select>
+              <button type="submit">Submit</button>
+            </form>
+          </td>
+          <td><%= user.isSuspended ? 'Yes' : 'No' %></td>
+          <td>
+            <% if (!user.isSuspended) { %>
+              <form method="post" action="/suspendUser">
+                <input type="hidden" name="userId" value="<%= user._id %>">
+                <button type="submit">Suspend</button>
+              </form>
+            <% } else { %>
+              <form method="post" action="/unsuspendUser">
+                <input type="hidden" name="userId" value="<%= user._id %>">
+                <button type="submit">Unsuspend</button>
+              </form>
+            <% } %>
+          </td>
+          <!-- <td>
+            <% if (!user.isVerified) { %>
+              <form method="post" action="/isVerified">
+                <input type="hidden" name="userId" value="<%= user._id %>">
+                <button type="submit">Not verify</button>
+              </form>
+            <% } else { %>
+
+                <button>verified</button>
+
+            <% } %>
+          </td> -->
+          <td>
+            <form method="post" action="/deleteUser">
+              <input type="hidden" name="userId" value="<%= user._id %>">
+              <button type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table>
+
+</div>
+
+
+
+</div>
+
+</body>
+
+
+
+<%-include("../partials/footer") %>

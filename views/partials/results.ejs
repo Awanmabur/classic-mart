@@ -1,0 +1,29 @@
+
+<% item.reverse() %>
+  <% if (results.length === 0) { %>
+    <p class="emptyitem">No item found now, please come back later.</p>
+    <% } else { %>
+
+  <div class="row">
+
+    <% results.forEach(item => { %>
+    <div class="column1">
+        <a href="/itemmore/<%= item._id %>">
+        <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+        <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+        <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.... </h4>
+        <table>
+          <tr>
+            <td><p id="InitialPrice">AU$ <%= calculateInitialPrice(item.price) %></p></td>
+            <td><h3 id="realprice">AU$ <%= item.price %> </h3></td>
+          </tr>
+         </table>
+        </div>
+        </a>
+        </div>
+
+    <% }) %>
+
+      </div>
+ 
+    <% } %>

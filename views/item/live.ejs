@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Video Recorder</title>
+</head>
+<body>
+    <h1>Live Video Recorder</h1>
+    <video id="video" width="400" controls></video>
+    <br>
+    <button id="startButton">Start Recording</button>
+    <button id="stopButton">Stop Recording</button>
+    <button id="saveButton">Save to Database</button>
+
+    <script type="text/javascript">
+    const video = document.getElementById('video');
+const startButton = document.getElementById('startButton');
+const stopButton = document.getElementById('stopButton');
+const saveButton = document.getElementById('saveButton');
+let mediaRecorder;
+let recordedChunks = [];
+
+startButton.addEventListener('click', async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e) => {
+      recordedChunks.push(e.data);
+  };
+  mediaRecorder.start();
+});
+
+stopButton.addEventListener('click', () => {
+  mediaRecorder.stop();
+});
+
+saveButton.addEventListener('click', async () => {
+  const blob = new Blob(recordedChunks, { type: 'video/webm' });
+  const formData = new FormData();
+  formData.append('video', blob, 'video.webm');
+
+  await fetch('/upload', {
+      method: 'POST',
+      body: formData
+  });
+});
+
+    </script>
+</body>
+</html>

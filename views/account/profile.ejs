@@ -1,0 +1,336 @@
+<!-- index.ejs -->
+
+<%-include("../partials/header") %>
+<%-include("../partials/flash") %>
+
+<style media="screen">
+/* style.css */
+
+.tabs {
+  display: flex;
+  flex-direction: column;
+}
+
+#notsee{
+  display: none;
+}
+
+.tab-content {
+  display: none;
+  padding: 20px;
+  /*border: 1px solid #ccc;*/
+}
+
+.tab-content.active {
+  display: block;
+}
+
+
+/*services*/
+
+/* Clear floats after the columns */
+.row:after {
+ content: "";
+ display: table;
+ clear: both;
+}
+
+.column1 {
+ float: left;
+ width: 33.3%;
+ margin-top: 6px;
+ padding: 10px;
+}
+
+
+.column3 {
+ float: left;
+ width: 50%;
+ margin-top: 6px;
+ padding: 10px;
+ text-align: center;
+ color: white;
+ text-align: justify;
+}
+
+.heading {
+  width: 80%;
+  color: white;
+  text-align: justify;
+  margin-left: 10%
+}
+
+.image{
+  padding-left: 50px;
+}
+/* Responsive layout - when the screen is less than 600px wide, make the two columns stack on top of each other instead of next to each other */
+@media screen and (max-width: 600px) {
+ .column1 {
+   width: 100%;
+   margin-top: 0;
+ }
+
+ .column3 {
+   width: 100%;
+   margin-top: 0;
+   text-align: center;
+   color: white
+ }
+
+ .heading {
+   margin-top: 15%;
+   color: white;
+   text-align: justify;
+
+ }
+
+}
+
+
+/*services*/
+
+</style>
+
+
+<header>
+    <nav>
+        <ul class='nav-bar'>
+            <li class='logo'><a href='/dashboard'><img src='./images/logo.png'/></a></li>
+            <input type='checkbox' id='check' />
+            <span class="menu">
+                <li><a href="/dashboard">Home</a></li>
+                <li><a href="#"><% if(user.annualEndDate && user.annualEndDate > Date.now()){ %>
+                   Status:
+                    <span title="Your annually subscription will Expire in <%= moment(user.annualEndDate).format("lll") %> ">
+                      <%= annuallyRemainingDays > 0 ? 'Active' : 'Expired' %>
+                    </span>
+
+                <% } %>
+
+                <% if(user.quarterlyEndDate && user.quarterlyEndDate > Date.now()){ %>
+                  <!-- ... -->
+                 Status:
+                    <span title="Your quarterly subscription will Expire <%= moment(user.quarterlyEndDate).format("lll") %> ">
+                      <%= quarterlyRemainingDays > 0 ? 'Active' : 'Expired' %>
+                    </span>
+
+                  <!-- ... -->
+                <% } %>
+
+                <% if(user.monthlyEndDate && user.monthlyEndDate > Date.now()){ %>
+                  <!-- ... -->
+                   Status:
+                    <span title="Your monthly subscription will Expire in <%= moment(user.monthlyEndDate).format("lll") %> ">
+                      <%= monthlyRemainingDays > 0 ? 'Active' : 'Expired' %>
+                    </span>
+
+                  <!-- ... -->
+                <% } %>
+
+                <% if(user.trialStartDate && user.trialStartDate > Date.now()){ %>
+                  <!-- ... -->
+                   Status:
+                    <span title="Your free trial will Expire in <%= moment(user.trialStartDate).format("lll") %> ">
+                      <%= trialRemainingDays > 0 ? 'Active' : 'Expired' %>
+                    </span>
+
+               <!-- ... -->
+                <% } %>
+                 </a></li>
+                <li><a href="/report">Reports</a></li>
+                <li><a href="/usertransaction">Transactions</a></li>
+                <li  class="tab-header" onclick="showTab(1)"><a href="#">about</a></li>
+                <li  class="tab-header" onclick="showTab(2)"><a href="#">pricing</a></li>
+                <li  class="tab-header" onclick="showTab(3)"><a href="#">payment</a></li>
+                <li><a href="/logout" class="btn btn-outline-secondary">logout</a></li>
+                <label for="check" class="close-menu"><i class="fas fa-times"></i></label>
+            </span>
+            <label for="check" class="open-menu"><i class="fas fa-bars"></i></label>
+             <a id="logout" href="/logout">logout</a>
+        </ul>
+    </nav>
+    </header>
+
+    <div id="pdfbtn">
+    <!-- empty div -->
+    </div>
+
+ <li id="notsee" class="tab-header active" onclick="showTab(0)">All users</li>
+
+
+ <div class="tabs">
+
+ <div class="tab-content active">
+   <body>
+     <h2>Hello <%= user.username %> Welcome to your main account page</h2>
+     <h2>Your Current float is <%= user.balance %> <%= user.currency %></h2>
+
+ <div class="profile">
+   <h3 id="btn"><a href="/topup">Make Topup</a></h3>
+   <h3 id="btn"><a href="/correct">Correct Mistake</a></h3>
+ </div>
+
+
+  <div class="floating_btn">
+    <a target="_blank" href="https://chat.whatsapp.com/L9LiY4duymL3ol1XqqpDH8">
+      <div class="contact_icon">
+        <i class="fab fa-whatsapp" ></i>
+      </div>
+    </a>
+    <p class="text_icon"></p>
+  </div>
+
+</div>
+
+
+<div class="tab-content">
+  <section class="services" id="services">
+
+      <div class="heading">
+        <h1>about us</h1>
+      </div>
+
+      <div class="row">
+        <div class="column3"><div class="block" data-rotate-x="90deg" data-move-z="-500px" data-move-y="200px">
+          <img src="images/prt.jpg" width="100%" height="350" alt="">
+        </div>
+      </div>
+
+     <div class="column3"><div class="block" data-rotate-x="90deg" data-move-z="-500px" data-move-y="200px">
+          <h4> Smart Work is a cutting-edge company that harnesses the power of technology to transform the way we work. By leveraging innovative solutions, It was formed in 2016 with the aims to simplify tasks, enhance productivity, and create a seamless work experience. With a strong focus on work symbols, Smart Work pioneers the integration of technology into everyday work processes, empowering individuals and organizations to achieve new heights of efficiency and effectiveness.<br><br> With working technique and Workflow Automation:  Smart Work's intelligent automation tools like This mobile money transactions control save mobile agents from messing in fact we help people to streamline repetitive tasks and optimize workflows. By automating routine processes, professionals can free up time for more strategic and creative endeavors, ultimately increasing productivity and job satisfaction.
+          </h4>
+        </div>
+      </div>
+
+</section>
+  <!-- services section ends -->
+</div>
+
+
+<div class="tab-content" style="background-color: white; text-align: justify;">
+  <!-- services section starts  -->
+  <section class="services" id="services">
+
+      <div class="heading">
+        <p>our plan</p>
+      </div>
+
+      <div class="row">
+        <div class="column1"><div class="block" data-rotate-x="90deg" data-move-z="-500px" data-move-y="200px">
+          <img class="image" src="images/1mo.png" width="60%" height="200" alt="">
+          <h1>Monthly Subscription</h1>
+          <h4> Our monthly subscription offers you flexibility, three days trial and convenience. For just <strong>20,000 UGX</strong> for the first month and 10,000 ugx for the rest of the months, you gain access to our premium services, allowing you to enjoy the benefits on a month-to-month basis.
+        </div>
+      </div>
+
+
+        <div class="column1"><div class="block" data-rotate-x="90deg" data-move-z="-500px" data-move-y="200px">
+          <img class="image" src="images/3mo.png" width="60%" height="200" alt="">
+          <h1>Quarterly Subscription</h1>
+          <h4>
+            By signing up for our Quarterly plan for just <strong>30,000 UGX</strong> for three months with three days free trial, Enjoy uninterrupted access to our innovative tools, work symbols, and automation solutions while benefiting from a discounted rate compared to the monthly subscription.
+          </h4>
+        </div>
+      </div>
+
+        <div class="column1"><div class="block" data-rotate-x="90deg" data-move-z="-500px" data-move-y="200px">
+          <img class="image" src="images/1yr.png" width="60%" height="200" alt="">
+          <h1>Annual Subscription</h1>
+          <h4>
+            For long-term users committed to continuous growth and success, our annual subscription offers the most value. Paying just <strong>120,000 UGX</strong> for the whole year with three days trial, you secure a full year of premium access to our comprehensive suite of tools and resources.
+          </h4>
+        </div>
+      </div>
+
+</section>
+  <!-- services section ends -->
+</div>
+
+
+<div class="tab-content">
+  <!-- services section starts  -->
+  <section>
+      <div class="heading">
+        <h1>how to make payment</h1>
+        <p>Welcome to momo live book please follow the instructions below.</p>
+        <h4>
+
+
+1.The first thing you can do is to Sign Up <br>
+2. Log in to your dashboard<br>
+3. You have three days of free trial in which time you can explore how the system works for free.<br>
+4. If satisfied, you can choose and plan your choice.<br>
+                    <p>PAYMENT</p>
+5. You can pay us accordingly using MTN, Airtel mom and Mpesa using either of the following accounts;
+
+ 0781977217 registered John Ajuot magot, 0707180023 registered Aleer alier Chan kuot<br>
+
+6. When making payment you can write your email address clearly in the the field written "Reason"<br>
+
+7. You can wait two to three minutes for the system to make your plan effective.<br>
+8. After this stage, congratulations, you can continue with our e-book and save your money time and trust.<br>
+9. We have a live support 24/7 in case of any difficulties, to make sure you are enjoying this service happily, you can call or whatsapp us through 0781977217 or email us at awanmabur2@gmail.com<br>
+10. Thank you for using our system to make your work as easy as possible.<br>
+
+
+
+<p>IMPORTANCE OF THE SYSTEM AND HOW IT WORKS.</p>
+
+1. The main aim of this company is to help people solve their work-related problems by leveraging technology. <br>
+2. With this Momo e-book system you can handle all your Momo money problems including accountability, data safety, report compiling. The most interesting part is that you will be stress-free using LiveTECH system. Firstly, you will be able to monitor everything, anywhere, anytime. For second, you will know your daily earnings. Lastly, there will be precise and unambiguous monthly report. We guarantee there will be no misunderstanding, between the business owner and employees, in reporting.<br>
+3. It reduces expenses of buying books and calculators because we have a durable calculator in the system and infinity space to write and keep your reports and transactions.<br>
+4. Safety. All your Data is safe with us in case of any loss of the phone or laptop you will not lose your account with us we are backbone of your business.<br>
+5. PDF downloader, as a part of our system, we have a PDF file downloader where you can download your daily, weekly or monthly transactions for review or if you want to print it.<br>
+6. Reporting section, every user has reporting a section where they can compile and keep their reports for accountability purposes.<br>
+7. Simple and friendly dashboard where users can perform their daily transactions without any problem you can also do us favor by sharing this service to the target group.<br>
+8. We have an account section where users can perform float-related transactions. Note that the float transaction can be found in an account section in the transaction.<br>
+
+                       <p>HOW IT WORKS/STEPS</p>
+
+1. If you are owner, sign up for an account and you can explore it for 3 days free trial. After signing up, choose any plan of your choice and make (monthly, bi-monthly, quarterly, annual payment)<br>
+2. if you are user using mobile money for another person the owner will share with you the password and both of you can be accessing an account your boss will watch what you are doing and he can let you work without doubt.<br>
+3. The system is compartible in laptop, desktop, I pad, and smart phones. Everyone can use it without any difficulties at their respective capacities or convenience.
+4. To use the system, you have to use your Momo number. If you make transaction in your agent line after transactions you can record it in your dashboard and you will get records in your transaction.<br>
+5. if you put float to your line you make sure you also add the same float to the system for perfect usage.
+6. The system will calculate the total amount deposited and amount withdraw and balance so, if you load it float to line make sure you load the same amount exactly and you will have no difficulties at all.<br>
+7. To compile a daily report, the system calculate the total amount deposited a day, you substrate yesterday total in today's total to get daily withdrawals or deposits.
+8. We have a commenting section where you can include any thing we have not covered in the system.<br>
+9. We have a delete button to delete your data after printing PDF because after deleting everything you will not recover it again so be careful with that button.<br>
+10. You can also edit the reports but remember it will indicate "*modified" So be careful using this tools.<br>
+11. That all when you follow all these, you will never have problem with our system remember to share the system with your loved ones and guide them you can also follow us on all the social media presented.<br>
+
+ Thank you for trusting and believing in our system and don't forget to have a deal with us in case you have any other project which needs technology help we are ready to help we can do create any kind of website and web app for your business, including mobile app.<br> 
+
+                            PRIVACY
+We don't have any access to your transaction details whatsoever. No third party has access to your data entry. You can reset your user password if forgotten.
+        </h4>
+       </div>
+   </section>
+  <!-- services section ends -->
+</div>
+
+
+</div>
+
+
+
+<%-include("./share") %>
+<%-include("./footer") %>
+<%-include("../partials/footer") %>
+<script type="text/javascript">
+// JavaScript to handle tab switching
+
+function showTab(tabIndex) {
+  const tabHeaders = document.querySelectorAll('.tab-header');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  for (let i = 0; i < tabHeaders.length; i++) {
+    tabHeaders[i].classList.remove('active');
+    tabContents[i].classList.remove('active');
+  }
+
+  tabHeaders[tabIndex].classList.add('active');
+  tabContents[tabIndex].classList.add('active');
+}
+
+</script>

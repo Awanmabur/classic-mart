@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8">
+  <title>CodePen - Daily UI #001</title>
+  <link rel="stylesheet" href="./css/signup.css">
+
+</head>
+<body>
+<!-- partial:index.partial.html -->
+<%-include("../partials/flash") %>  
+<div class="main-container">
+  <h1 class="title">Sign up</h1>
+
+  <div class="main-container__content">
+    <div class="content__inputs">
+      <form action="/Register" autocomplete="off" method="post" class="content__input--form">
+        <label for="First-name">
+          <input name="fname" type="text" placeholder="First Name" required>
+        </label>
+        <label for="Last-name">
+          <input name="lname" type="text" placeholder="Last Name" required>
+        </label>
+        <label for="email">
+          <input type="email" name="email" placeholder="Email" required>
+        </label>
+        <label for="password">
+          <input name="password" type="password" placeholder="Password" required>
+        </label>
+        <button type="submit" class="button">Sign up</button>
+      </form>
+    </div>
+
+    <div class="content__submit">
+      <div class="button google-button">
+        <div class="google-button__google-icon"></div>
+        <p class="no-select">Sign up with Google</p>
+      </div>
+      <div class="button google-button">
+        <div class="google-button__google-icon"></div>
+        <p class="no-select">Sign up with Facebook</p>
+      </div>
+      <div class="content__submit--line"></div>
+      <p>
+        Already have an account?
+        <a href="/login">
+          <strong>Sign in</strong>
+        </a>
+      </p>
+      <div class="content__footer">
+        <p>
+          By clicking "Sign up" button above you agree to our
+          <a href="/">
+            <strong>terms of use</strong>
+          </a>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- partial -->
+
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!-- creating page starts here -->
+
+<%-include("../partials/header") %>
+
+<%-include("../partials/dropdown") %>
+
+<%-include("../partials/flash") %>
+
+<div id="contact">
+  <div class="create">
+    <span>create Product here</span>
+  </div>
+  <div class="row">
+    <form action="/create-Item" method="POST" enctype="multipart/form-data">
+    <div class="column" data-aos="zoom-in-left" data-aos-delay="180">
+
+      <label class="contact1">Product Name</label>
+      <input required="true" autocomplete="false" class="contact2" type="text" name="itemname" placeholder="Your product Name">
+      <label class="contact1">Product price</label>
+      <input required="true" autocomplete="false" class="contact2" type="number" min="5" name="price" placeholder="enetr your price">
+      <label class="contact1">Category</label>
+      <select name="category" required>
+        <option value="">Select Category</option>
+        <option value="women wear">women wear</option>
+        <option value="children wear">children wear</option>
+        <option value="ladies wear">ladies wear</option>
+        <option value="men wear">men wear</option>
+        <option value="ladies shoes">ladies shoes</option>
+        <option value="men shoes">men shoes</option>
+        <option value="decoration crochet">decoration crochet</option>
+        <option value="bedsheets">bedsheets</option>
+        <option value="pillow cases">pillow cases</option>
+        <option value="blowdry">blowdry</option>
+        <option value="african wear">african wear</option>
+
+      </select>
+      <label class="contact1" for="subject">Description</label>
+      <textarea required="true" autocomplete="false" id="subject" name="description" placeholder="Write something.." style="height:170px"></textarea>
+
+
+
+    </div>
+    <div class="column" data-aos="zoom-in-right" data-aos-delay="250">
+
+      <label class="contact1">Image 1</label>
+      <input class="contact2" type="file" name="image1" accept=".png, .jpg, .jpeg" required>
+      <label class="contact1">mage 2</label>
+      <input class="contact2" type="file" name="image2" accept=".png, .jpg, .jpeg" required>
+      <label class="contact1">Image 3</label>
+      <input class="contact2" type="file" name="image3" accept=".png, .jpg, .jpeg" required>
+      <label class="contact1">Image 4 (optional)</label>
+      <input class="contact2" type="file" name="image4" accept=".png, .jpg, .jpeg">
+      <label class="contact1">Image 5 (optional)</label>
+      <input class="contact2" type="file" name="image5" accept=".png, .jpg, .jpeg">
+      <input type="submit" value="Submit">
+      </form>
+    </div>
+  </div>
+</div>
+
+<%-include("../partials/footer") %>
+
+<!-- creating page starts end here -->

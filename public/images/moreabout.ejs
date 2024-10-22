@@ -1,0 +1,43 @@
+
+<section class="about" id="about">
+
+  <div class="container">
+    <div class="contact" style="text-align:center">
+      <span>About Me</span>
+    </div>
+    <div class="row">
+      <div id="about2" class="column" data-skew="90deg,90deg" data-aos="fade-left" data-aos-duration="1000">
+        <img id="text" src="/uploads/<%= blog.image %>" width="auto" height="400px"alt="">
+      </div>
+      <p><a href="/like/<%= blog._id %>/">Likes</a>: <%= blog.likes %> |
+        <a href="/share/<%= blog._id %>/">Share</a>: <%= blog.shares %> |
+        <a href="/love/<%= blog._id %>/">Loves</a>: <%= blog.loves %> |
+        <a href="/morePost/<%= blog._id %>/">comment</a>: <%= blog.comment %></p>
+      <div id="about1" class="column" data-scale="4" data-aos="fade-right" data-aos-duration="1000">
+
+        <p><%= blog.title %></p>
+
+      </div>
+      <div id="about1" class="column" data-scale="4" data-aos="fade-right" data-aos-duration="1000">
+
+        <p><%= blog.content %></p>
+
+      </div>
+    </div>
+  </div>
+
+  <form action="/comment/<%= blog._id %>" method="POST">
+    <input type="text" name="comment" placeholder="Add a comment...">
+    <input type="text" name="user" placeholder="Your Name">
+    <button type="submit">Comment</button>
+  </form>
+  <ul>
+    <% blog.comments.forEach(comment => { %>
+    <li><strong><%= comment.user %>:</strong> <%= comment.text %></li>
+    <% }) %>
+  </ul>
+  <a href="/edit-blogPost/<%= blog._id %>" class="btn btn-warning">Edit</a>
+  <form action="/delete-blogPost/<%= blog._id %>" method="POST">
+    <button type="submit">Delete</button>
+  </form>
+</section>

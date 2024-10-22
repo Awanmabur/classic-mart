@@ -1,0 +1,19 @@
+<!-- views/profile.ejs -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Profile </title>
+</head>
+<body>
+  <% if (items.length > 0) { %>
+      <h2>Results:</h2>
+      <ul>
+          <% items.forEach(item => { %>
+              <li><%= item.name %>: <%= item.description %></li>
+          <% }) %>
+      </ul>
+  <% } else if (query) { %>
+      <p>No results found, please come back again later.</p>
+  <% } %>
+</body>
+</html>

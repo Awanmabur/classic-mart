@@ -1,0 +1,133 @@
+ 
+<!-- overview page starts here -->
+
+<%-include("../partials/header") %>
+
+<%-include("../partials/dropdown") %>
+
+<div id="contact" class="container">
+  <div class="Preview">
+    <span>Product Overview</span>
+  </div>
+  <div class="row">
+
+    <div class="column" data-aos="zoom-in-left" data-aos-delay="180">
+      <!-- starts slide show -->
+
+      <div class="sliderit">
+      		<!-- fade css -->
+      		<div class="myslideit fade">
+      			<img src="/uploads/<%= item.image %>" alt="item Image" width="100%" height="auto" alt="">
+      		</div>
+
+      		<div class="myslideit fade">
+      			<div class="txt">
+      				<h1>July</h1>
+      				<p>This is the best photo of<br> July 2022</p>
+              <a href="tel: +211928901760" class="btn btn-outline-info btn-blue btn-lg px-3 me-md-2"><i id="call-logo"class="fa fa-phone" aria-hidden="true"></i> </a>
+              <a href="https://api.whatsapp.com/send?phone=256781977217" style="margin-left: 10px; "class="btn btn-outline-info btn-blue btn-lg px-3 me-md-2"><i class="fab fa-whatsapp" ></i> </a>
+      			</div>
+      			<img id="slide" src=".././images/app.jpg" width="100%" height="auto">
+      		</div>
+
+      		<div class="myslideit fade">
+      			<div class="txt">
+              <h1>April</h1>
+      				<p>This is the best photo of<br> April 2022</p>
+              <a href="tel: +211928901760" class="btn btn-outline-info btn-blue btn-lg px-3 me-md-2"><i id="call-logo"class="fa fa-phone" aria-hidden="true"></i> </a>
+              <a href="https://api.whatsapp.com/send?phone=256781977217" style="margin-left: 10px; "class="btn btn-outline-info btn-blue btn-lg px-3 me-md-2"><i class="fab fa-whatsapp" ></i> </a>
+      			</div>
+      			<img id="slide" src=".././images/s3.jpg" width="100%" height="auto">
+      		</div>
+
+      		<div class="myslideit fade">
+      			<div class="txt">
+              <h1>June</h1>
+      				<p>This is the best photo of<br> June 2022</p>
+              <a href="tel: +211928901760" class="btn btn-outline-info btn-blue btn-lg px-3 me-md-2"><i id="call-logo"class="fa fa-phone" aria-hidden="true"></i> </a>
+              <a href="https://api.whatsapp.com/send?phone=256781977217" style="margin-left: 10px; "class="btn btn-outline-info btn-blue btn-lg px-3 me-md-2"><i class="fab fa-whatsapp" ></i> </a>
+      			</div>
+      			<img id="slide" src=".././images/s4.jpg" width="100%" height="auto">
+      		</div>
+
+      		<div class="myslideit fade">
+      			<div class="txt">
+              <h1>March</h1>
+      				<p>This is the best photo of<br> March 2022</p>
+              <a href="tel: +211928901760" class="btn btn-outline-info btn-blue btn-lg px-3 me-md-2"><i id="call-logo"class="fa fa-phone" aria-hidden="true"></i> </a>
+              <a href="https://api.whatsapp.com/send?phone=256781977217" style="margin-left: 10px; "class="btn btn-outline-info btn-blue btn-lg px-3 me-md-2"><i class="fab fa-whatsapp" ></i> </a>
+      			</div>
+      			<img id="slide" src=".././images/s5.jpg" width="100%" height="auto">
+      		</div>
+      		<!-- /fade css -->
+
+      		<!-- onclick js -->
+      		<a class="prev" onclick="plusSlidesit(-1)">&#10094;</a>
+          <a class="next" onclick="plusSlidesit(1)">&#10095;</a>
+
+      		<div class="dotsboxit" style="text-align:center">
+      			<table>
+      				<tr>
+      					<td><img class="dotit" onclick="currentSlideit(1)" src="/uploads/<%= item.image %>" alt="item Image" width="100%" height="auto" alt=""></td>
+      					<td><img class="dotit" onclick="currentSlideit(2)" src=".././images/app.jpg"></td>
+      					<td><img class="dotit" onclick="currentSlideit(3)" src=".././images/s3.jpg"></td>
+      					<td><img class="dotit" onclick="currentSlideit(4)" src=".././images/s4.jpg"></td>
+      					<td><img class="dotit" onclick="currentSlideit(5)" src=".././images/s5.jpg"></td>
+      				</tr>
+      			</table>
+       		</div>
+      		<!-- /onclick js -->
+      	</div>
+      <!-- ends slide show -->
+
+    </div>
+
+    <div class="column" data-aos="zoom-in-right" data-aos-delay="250">
+      <h2 class="item_title"><%= item.itemname %> </h2>
+      <p style="color:white">Promotion status: <%= item.isPromoted ? "Promoted" : "Not Promoted" %></p>
+
+      <table>
+        <tr>
+          <td><h2 id="InitialPrice">AU$ <%= calculateInitialPrice(item.price) %></h2></td>
+          <td><h2 id="realprice">AU$ <%= item.price %></h2></td>
+        </tr>
+      </table>
+
+      <a id="more-btn" href="tel: <%= user.phonecall %>" class="btn btn-warning">call me</a>
+      <a id="more-btn" href="https://api.whatsapp.com/send?phone=<%= user.whatsapp %>" class="btn btn-warning">start chat</a><br>
+
+      <div class="description">
+        <h2>Product Description</h2>
+        <p><%= item.description %></p>
+      </div>
+
+        <a id="more-btn" href="/edit-item/<%= item._id %>" class="btn btn-warning">Edit</a>
+        <a id="more-btn" href="/delete-item/<%= item._id %>" class="btn btn-warning">Delete</a><br>
+
+        <% if (!item.isPromoted) { %>
+
+          <a id="more-btn" href="/promote/<%= item._id %>" class="btn btn-warning">Promote This Item</a><br>
+
+        <% } else { %>
+
+          <a id="more-btn" href="/remove-promotion/<%= item._id %>" class="btn btn-warning">Remove Promotion</a><br>
+
+        <% } %>
+
+    <div class="btn_wrap">
+        <span class="sharename">Share</span>
+        <div class="btn-container">
+            <a class="facebook" target="blank"><i id="share_icon" class="fab fa-facebook-f"></i></a>
+            <a class="telegram" target="blank"><i id="share_icon" class="fab fa-telegram"></i></a>
+            <a class="instagram" target="blank"><i id="share_icon" class="fab fa-instagram"></i></a>
+            <a class="whatsapp" target="blank"><i id="share_icon" class="fab fa-whatsapp"></i></a>
+        </div>
+    </div>
+
+    </div>
+  </div>
+</div>
+
+<%-include("../partials/footer") %>
+
+<!-- overview page end here -->

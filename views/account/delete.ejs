@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8">
+  <title>delete</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/meyer-reset/2.0/reset.min.css">
+  <link rel="stylesheet" href="./css/delete.css">
+
+</head>
+<body>
+
+<!-- partial:index.partial.html -->
+<div class='panel' id='js-panel'>
+  <div class='panel__content'>
+    <h4>Please be sure of what you are doing</h4>
+    <h2 id="subtitle">Do you really want to delete your Transactions?</h2>
+    <p id="paragraph">This action is final and you will be unable to recover any data</p>
+  </div>
+  <div class='panel__flaps'>
+    <div class='flap outer flap--left'></div>
+    <form id='flap_btn' class='flap flap__btn' action="/delete-all/" method="POST">
+      <input type="hidden" name="confirmed" value="true">
+      <button type="submit">Yes, I'm sure</button>
+    </form>
+    <a id='flap_btn' class='flap flap__btn' href='/usertransaction'>No, Cancel</a>
+    <div class='flap outer flap--right'></div>
+  </div>
+</div>
+
+<!-- partial -->
+  <script  src="./js/delete.js"></script>
+
+</body>
+</html>

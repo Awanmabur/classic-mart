@@ -1,0 +1,308 @@
+
+
+
+
+
+
+
+
+#share_icon {
+    opacity: 0;
+    font-size: 28px;
+    color: #1F1E1E;
+    will-change: transform;
+    -webkit-transform: scale(.1);
+            transform: scale(.1);
+    -webkit-transition: all .3s ease;
+    transition: all .3s ease;
+}
+
+.btn_wrap {
+    position: relative;
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -webkit-box-pack: center;
+        -ms-flex-pack: center;
+            justify-content: center;
+    -webkit-box-align: center;
+        -ms-flex-align: center;
+            align-items: center;
+    overflow: hidden;
+    cursor: pointer;
+    width: 240px;
+    height: 42px;
+    background-color: #EEEEED;
+    border-radius: 80px;
+    padding: 0 18px;
+    margin-top: 10px;
+    will-change: transform;
+    -webkit-transition: all .2s ease-in-out;
+    transition: all .2s ease-in-out;
+}
+
+.btn_wrap:hover {
+    /* transition-delay: .4s; */
+    -webkit-transform: scale(1.1);
+            transform: scale(1.1)
+}
+
+.sharename {
+    position: absolute;
+    z-index: 99;
+    width: 240px;
+    height: 72px;
+    border-radius: 80px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    font-size: 20px;
+    text-align: center;
+    line-height: 70px;
+    letter-spacing: 2px;
+    color: #EEEEED;
+    background-color: #1F1E1E;
+    padding: 0 18px;
+    -webkit-transition: all 1.2s ease;
+    transition: all 1.2s ease;
+}
+
+.btn-container {
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -ms-flex-pack: distribute;
+        justify-content: space-around;
+    -webkit-box-align: center;
+        -ms-flex-align: center;
+            align-items: center;
+    width: 240px;
+    height: 64px;
+    border-radius: 80px;
+}
+
+.btn-container #share_icon:nth-of-type(1) {
+            -webkit-transition-delay: 1.1s;
+                    transition-delay: 1.1s;
+}
+
+.btn-container #share_icon:nth-of-type(2) {
+            -webkit-transition-delay: .9s;
+                    transition-delay: .9s;
+}
+
+.btn-container #share_icon:nth-of-type(3) {
+            -webkit-transition-delay: .7s;
+                    transition-delay: .7s;
+}
+
+.btn-container #share_icon:nth-of-type(4) {
+            -webkit-transition-delay: .4s;
+                    transition-delay: .4s;
+}
+
+.btn_wrap:hover .sharename {
+    -webkit-transition-delay: .25s;
+            transition-delay: .25s;
+    -webkit-transform: translateX(-280px);
+            transform: translateX(-280px)
+}
+
+.btn_wrap:hover #share_icon {
+    opacity: 1;
+    -webkit-transform: scale(1);
+            transform: scale(1);
+}
+
+
+.dr {
+position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width:100px;
+}
+
+
+
+ .description{
+  font-size:1em;
+	color: white;
+  line-height: 1.5;
+	text-align: justify;
+}
+
+.description, h2{
+	color: white;
+	margin-top: 15px;
+	margin-bottom: 5px
+}
+
+/* slide show start */
+
+.sliderit{
+	position: relative;
+	width: 100%;
+	background: #2c3e50; /* darckblue */
+  margin-bottom: 10%;
+  border-radius: 5%
+}
+.myslideit{
+	height: 500px;
+	display: none;
+	overflow: hidden;
+  border-radius: 5%
+}
+
+.myslideit img {
+  width: 100%;
+  height: 90%;
+  object-fit: contain;
+}
+
+
+#slide{
+  width: 100%;
+  /*height: auto;*/
+  border-radius: 5%
+}
+
+.prev, .next{
+	position: absolute;
+	top: 50%;
+	transform: translate(0, -50%);
+	font-size: 50px;
+	padding: 15px;
+	cursor: pointer;
+	color: #fff;
+	transition: 0.1s;
+	user-select: none;
+}
+.prev:hover, .next:hover{
+	color: #00a7ff; /* blue */
+}
+.next{
+	right: 0;
+}
+.dotsbox{
+	position: absolute;
+	left: 50%;
+	transform: translate(-50%);
+	bottom: -75px;
+	cursor: pointer;
+}
+
+.dotit{
+	display: inline-block;
+  width: 100px;
+  height: 60px;
+	border: 3px solid #fff;
+	border-radius: 5%;
+	margin: 0 10px;
+	cursor: pointer;
+}
+/* /2 */
+
+/* javascript */
+.active, .dotit:hover{
+	border-color: #00a7ff; /* blue */
+}
+/* /javascript */
+
+/* muslide add fade */
+.fade {
+  -webkit-animation-name: fade;
+  -webkit-animation-duration: 1.5s;
+  animation-name: fade;
+  animation-duration: 1.5s;
+}
+
+@-webkit-keyframes fade {
+  from {opacity: 0.8}
+  to {opacity: 1}
+}
+
+@keyframes fade {
+  from {opacity: 0.8}
+  to {opacity: 1}
+}
+/* /muslide add fade */
+
+
+/* 4 */
+#slide{
+	transform: scale(1.5, 1.5);
+	-webkit-animation-name: zoomin;
+  	-webkit-animation-duration: 40s;
+  	animation-name: zoomin;
+  	animation-duration: 40s;
+}
+@-webkit-keyframes zoomin {
+  from {transform: scale(1, 1);}
+  to {transform: scale(1.5, 1.5);}
+}
+
+
+@keyframes zoomin {
+  from {transform: scale(1, 1);}
+  to {transform: scale(1.5, 1.5);}
+}
+/* /4 */
+
+
+
+/* 5 */
+@media screen and (max-width: 800px){
+  .myslideit, .sliderit {
+		max-height: 300px;
+    margin-top: -10px;
+    margin-bottom: 20%
+	}
+
+  .myslideit img {
+    width: 100%;
+    height: 90%;
+    object-fit: contain;
+  }
+
+  .dotit{
+  	display: inline-block;
+  	border: 3px solid #fff;
+  	border-radius: 5%;
+  	margin: 0 2px;
+  	cursor: pointer;
+    width: 60px;
+    height: 45px
+  }
+
+  .prev, .next{
+  	position: absolute;
+  	top: 50%;
+  	transform: translate(0, -50%);
+  	font-size: 35px;
+  	padding: 20px;
+  	cursor: pointer;
+  	color: #fff;
+  	transition: 0.1s;
+  	user-select: none;
+  }
+
+  #slide{
+    width: 100%;
+    height: 350px;
+  }
+
+  .dotsbox{
+  	position: absolute;
+  	left: 50%;
+  	transform: translate(-50%);
+  	bottom: -60px;
+  	cursor: pointer;
+  }
+
+  .active, .dotit:hover{
+  	border-color: #00a7ff; /* blue */
+  }
+
+
+}
+
+
+/* slide show ends */
