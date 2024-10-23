@@ -8,11 +8,7 @@
 
 
   <style media="screen">
-  h1 {
-  margin: 50px 0 30px;
-  text-align: center;
-  color: #29d9d5;
-  }
+
 
   .faq-container {
   max-width: 80%;
@@ -59,6 +55,7 @@
     flex-direction: column;
     text-decoration: none;
     color: white;
+    margin-left: 70px;
   }
 
   .number {
@@ -71,6 +68,39 @@
     font-size: 12px;
     text-align: center;
   }
+
+@media screen and (max-width: 480px) {
+  .link-item {
+    display: none;
+    flex-direction: column;
+    text-decoration: none;
+    color: white;
+    margin-left: 10px;
+  }
+
+  .faq-title {
+  margin: 0 0px;
+  }
+
+  .faq-container {
+  max-width: 100%;
+  margin: 0 auto;
+  margin-top: 55px
+  }
+
+  .faq {
+  color: white;
+  background-color: transparent;
+  border: 2px solid #29d9d5;
+  border-radius: 10px;
+  margin: 20px 0;
+  padding: 30px;
+  position: relative;
+  overflow: hidden;
+  transition: 0.3s ease;
+  }
+
+}
   </style>
 
   <section  id="faq">
@@ -79,26 +109,26 @@
      <% users.forEach(user => { %>
         <div class="faq data-aos="fade-up" data-aos-delay="150"">
           <h3 class="faq-title">
-            <a id="dark" style="margin-right: 50px;" href="/visit/<%= user._id %>"><i class="fa fa-2x fa-user" aria-hidden="true"></i> </a>
+            <a style="margin-left: -20px" href="/visit/<%= user._id %>"><i class="fa fa-2x fa-user" aria-hidden="true"></i> </a>
 
-            <a href="/visit/<%= user._id %>"><%= user.fname %> <%= user.lname %></a>
+            <a style="margin-left: 10px" href="/visit/<%= user._id %>"><%= user.fname %> <%= user.lname %></a>
 
-            <!-- <a style="margin-left: 70px; margin-top: -55px"href="#" class="link-item">
+            <a href="#" class="link-item">
                 <span class="number">items</span>
                 <span class="text"><%= myPosts %></span>
-            </a> -->
+            </a>
 
-            <a style="margin-left: 150px" class="link-item">
+            <a class="link-item">
               <span class="number">followers</span>
               <span class="text"><%= user.followers %></span>
             </a>
 
-            <a style="margin-left: 100px" class="link-item">
+            <a class="link-item">
               <span class="number">likes</span>
               <span class="text"><%= user.likes %></span>
             </a>
 
-            <a style="margin-left: 100px"href="/visit/<%= user._id %>">more info </a>
+            <a style="margin-left: 100px" class="link-item" href="/visit/<%= user._id %>">more info </a>
           </h3>
 
           <a href="/visit/<%= user._id %>">

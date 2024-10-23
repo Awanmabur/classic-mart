@@ -70,7 +70,7 @@ exports.create = async (req, res, next) => {
     const users = await User.find();
     const isProfileOwner = await User.findById(userId);
     const query = req.query.q;
-    res.render('./Item/create', {user, query, users, isProfileOwner});
+    res.render('./item/create', {user, query, users, isProfileOwner});
   } catch (error) {
     req.flash('error', 'There is problem getting your create page, please try again later.');
     return res.redirect('/profile');
