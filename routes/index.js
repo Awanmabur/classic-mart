@@ -31,20 +31,37 @@ router.get('/', authenticateToken, checkLoginStatus, async (req, res) => {
 
   const item = await Item.find({});
   const promotedItems = await Item.find({ isPromoted: true });
-  const bedsheets = await Item.find({ category: 'bedsheets', });
-  const womenwear = await Item.find({ category: 'women wear', });
-  const menwear = await Item.find({ category: 'men wear', });
-  const menshoes = await Item.find({ category: 'men shoes', });
-  const children = await Item.find({ category: 'children wear', });
-  const ladies = await Item.find({ category: 'ladies wear', });
-  const pillow = await Item.find({ category: 'pillow cases', });
-  const african = await Item.find({ category: 'african wear', });
-  const blowdry = await Item.find({ category: 'blowdry', });
-  const decoration = await Item.find({ category: 'decoration crochet', });
-  const ladiesshoes = await Item.find({ category: 'ladies shoes', });
+  const phones = await Item.find({ category: 'phones' });
+  const women = await Item.find({ category: 'women' });
+  const crafts = await Item.find({ category: 'crafts' });
+  const toy = await Item.find({ category: 'toy' });
+  const kids = await Item.find({ category: 'kids' });
+  const computers = await Item.find({ category: 'computers' });
+  const electronics = await Item.find({ category: 'electronics' });
+  const office = await Item.find({ category: 'office' });
+  const appliances = await Item.find({ category: 'appliances' });
+  const bags = await Item.find({ category: 'bags' });
+  const industrial = await Item.find({ category: 'industrial' });
+  const musical = await Item.find({ category: 'musical' });
+  const automotive = await Item.find({ category: 'automotive' });
+  const men = await Item.find({ category: 'men' });
+  const health = await Item.find({ category: 'health' });
+  const household = await Item.find({ category: 'household' });
+  const food = await Item.find({ category: 'men shoes' });
+  const pet = await Item.find({ category: 'pet' });
+  const sports = await Item.find({ category: 'sports' });
+  const home = await Item.find({ category: 'home' });
+  const garden = await Item.find({ category: 'garden' });
+  const jewelry = await Item.find({ category: 'jewelry' });
+  const beauty = await Item.find({ category: 'beauty' });
+  const baby = await Item.find({ category: 'baby' });
 
-  res.render("home/index", { query, user, isProfileOwner, users, item, promotedItems, african, blowdry, decoration,
-    bedsheets, womenwear, menwear, menshoes, children, ladies, pillow, ladiesshoes, calculateInitialPrice });
+  res.render("home/index", { query, user, isProfileOwner, users, item, promotedItems,
+    phones, computers, electronics, garden, home, household,
+    men, women, kids, baby, toy, pet, bags, crafts, industrial,
+    beauty, health, automotive, appliances, food,
+    jewelry, office, sports, musical, calculateInitialPrice
+  });
 });
 
 
@@ -56,20 +73,37 @@ router.get('/promoted', authenticateToken, checkLoginStatus, async (req, res) =>
   const query = req.query.q;
   const item = await Item.find({isPromoted: true});
   const promotedItems = await Item.find({ isPromoted: true });
-  const bedsheets = await Item.find({ category: 'bedsheets', });
-  const womenwear = await Item.find({ category: 'women wear', });
-  const menwear = await Item.find({ category: 'men wear', });
-  const menshoes = await Item.find({ category: 'men shoes', });
-  const children = await Item.find({ category: 'children wear', });
-  const ladies = await Item.find({ category: 'ladies wear', });
-  const pillow = await Item.find({ category: 'pillow cases', });
-  const african = await Item.find({ category: 'african wear', });
-  const blowdry = await Item.find({ category: 'blowdry', });
-  const decoration = await Item.find({ category: 'decoration crochet', });
-  const ladiesshoes = await Item.find({ category: 'ladies shoes', });
+  const phones = await Item.find({ category: 'phones' });
+  const women = await Item.find({ category: 'women' });
+  const crafts = await Item.find({ category: 'crafts' });
+  const toy = await Item.find({ category: 'toy' });
+  const kids = await Item.find({ category: 'kids' });
+  const computers = await Item.find({ category: 'computers' });
+  const electronics = await Item.find({ category: 'electronics' });
+  const office = await Item.find({ category: 'office' });
+  const appliances = await Item.find({ category: 'appliances' });
+  const bags = await Item.find({ category: 'bags' });
+  const industrial = await Item.find({ category: 'industrial' });
+  const musical = await Item.find({ category: 'musical' });
+  const automotive = await Item.find({ category: 'automotive' });
+  const men = await Item.find({ category: 'men' });
+  const health = await Item.find({ category: 'health' });
+  const household = await Item.find({ category: 'household' });
+  const food = await Item.find({ category: 'men shoes' });
+  const pet = await Item.find({ category: 'pet' });
+  const sports = await Item.find({ category: 'sports' });
+  const home = await Item.find({ category: 'home' });
+  const garden = await Item.find({ category: 'garden' });
+  const jewelry = await Item.find({ category: 'jewelry' });
+  const beauty = await Item.find({ category: 'beauty' });
+  const baby = await Item.find({ category: 'baby' });
 
-  res.render("Item/promotedItems", { query, user, isProfileOwner, promotedItems, users, item, african, blowdry, decoration,
-    bedsheets, womenwear, menwear, menshoes, children, ladies, pillow, ladiesshoes, calculateInitialPrice });
+  res.render("Item/promotedItems", { query, user, isProfileOwner, promotedItems, users, item,
+    phones, computers, electronics, garden, home, household,
+    men, women, kids, baby, toy, pet, bags, crafts, industrial,
+    beauty, health, automotive, appliances, food,
+    jewelry, office, sports, musical, calculateInitialPrice
+  });
 });
 
 

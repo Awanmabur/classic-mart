@@ -1,27 +1,42 @@
-<!-- item share page starts here -->
+<!-- main item page starts here -->
+
 
 <div id="trans">
   <table>
     <tr>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header active" onclick="showTab(0)">All_items</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(1)">women_wear</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(2)">Men Wear</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(3)">Ladies wear</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(4)">children wear</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(5)">ladies shoes</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(6)">men shoes</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(7)">decoration</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(8)">pillow case</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(9)">african wear</li></span></button></td>
-      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(10)">blowdry</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header active" onclick="showTab(0)">All</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(1)">women</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(2)">Men</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(3)">kids</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(4)">jewelry</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(5)">beauty</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(6)">phones</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(7)">computers</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(8)">home</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(9)">health</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(10)">office</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(11)">electronics</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(12)">garden</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(13)">food</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(14)">appliances</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(15)">household</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(16)">baby</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(17)">bags</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(18)">crafts</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(19)">automotive</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(20)">musical</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(21)">toy</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(22)">pet</li></span></button></td>
+      <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(23)">industrial</li></span></button></td>
    </tr>
   </table>
 </div>
 
- <div style="margin-top: -50px" id="column1">
+
+ <div  style="margin-top: -50px" id="column1">
  <div class="tab-content active">
 
-     <% item.reverse() %>
+   <% item.reverse() %>
      <% if (item.length > 0) { %>
 
      <div class="row">
@@ -31,11 +46,11 @@
            <a href="/itemmore/<%= item._id %>">
            <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
            <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
-           <h4 id="itemname"><%= item.itemname?.slice(0, 20) %>.. </h4>
+           <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.... </h4>
            <table>
              <tr>
-               <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-               <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+               <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+               <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
              </tr>
             </table>
            </div>
@@ -50,28 +65,28 @@
          <p class="emptyitem">No item found now, please come back later.</p>
          <% } %>
 
-     </div>
+      </div>
 
 
 <div class="tab-content">
 
     <% item.reverse() %>
-    <% if (womenwear.length > 0) { %>
+    <% if (women.length > 0) { %>
 
     <div class="row">
 
-      <% womenwear.forEach(item => { %>
-         <% if (item.category === 'women wear') { %>
+      <% women.forEach(item => { %>
+              <% if (item.category === 'women') { %>
 
       <div class="column1">
           <a href="/itemmore/<%= item._id %>">
           <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
           <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
-          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <h4><%= item.itemname?.slice(0, 15) %>... ↗ </h4>
           <table>
             <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
             </tr>
            </table>
           </div>
@@ -92,12 +107,12 @@
 <div class="tab-content">
 
    <% item.reverse() %>
-    <% if (menwear.length > 0) { %>
+    <% if (men.length > 0) { %>
 
     <div class="row">
 
-      <% menwear.forEach(item => { %>
-              <% if (item.category === 'men wear') { %>
+      <% men.forEach(item => { %>
+              <% if (item.category === 'men') { %>
 
       <div class="column1">
           <a href="/itemmore/<%= item._id %>">
@@ -106,8 +121,8 @@
           <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
           <table>
             <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
             </tr>
            </table>
           </div>
@@ -122,19 +137,19 @@
         <p class="emptyitem">No item found now, please come back later.</p>
         <% } %>
 
-  </div>
+    </div>
 
 
 
 <div class="tab-content">
 
-    <% item.reverse() %>
-    <% if (ladies.length > 0) { %>
+ <% item.reverse() %>
+    <% if (kids.length > 0) { %>
 
-    <div class="row">
+ <div class="row">
 
-      <% ladies.forEach(item => { %>
-              <% if (item.category === 'ladies wear') { %>
+      <% kids.forEach(item => { %>
+         <% if (item.category === 'kids') { %>
 
       <div class="column1">
           <a href="/itemmore/<%= item._id %>">
@@ -143,8 +158,46 @@
           <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
           <table>
             <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+        <% } %>
+
+       <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+    </div>
+
+
+
+<div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (jewelry.length > 0) { %>
+
+    <div class="row">
+
+      <% jewelry.forEach(item => { %>
+           <% if (item.category === 'jewelry') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
             </tr>
            </table>
           </div>
@@ -166,12 +219,48 @@
 <div class="tab-content">
 
     <% item.reverse() %>
-    <% if (children.length > 0) { %>
+    <% if (beauty.length > 0) { %>
 
     <div class="row">
 
-      <% children.forEach(item => { %>
-              <% if (item.category === 'children wear') { %>
+      <% beauty.forEach(item => { %>
+              <% if (item.category === 'beauty') { %>
+
+        <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+<div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (phones.length > 0) { %>
+
+    <div class="row">
+
+      <% phones.forEach(item => { %>
+              <% if (item.category === 'phones') { %>
 
       <div class="column1">
           <a href="/itemmore/<%= item._id %>">
@@ -180,8 +269,44 @@
           <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
           <table>
             <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+ </div>
+
+
+<div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (computers.length > 0) { %>
+
+    <div class="row">
+
+      <% computers.forEach(item => { %>
+              <% if (item.category === 'computers') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
             </tr>
            </table>
           </div>
@@ -203,12 +328,12 @@
 <div class="tab-content">
 
     <% item.reverse() %>
-    <% if (ladiesshoes.length > 0) { %>
+    <% if (home.length > 0) { %>
 
     <div class="row">
 
-      <% ladiesshoes.forEach(item => { %>
-              <% if (item.category === 'ladies shoes') { %>
+      <% home.forEach(item => { %>
+              <% if (item.category === 'home') { %>
 
       <div class="column1">
           <a href="/itemmore/<%= item._id %>">
@@ -217,44 +342,8 @@
           <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
           <table>
             <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
-            </tr>
-           </table>
-          </div>
-          </a>
-          </div>
-
-          <% } %>
-              <% }); %>
-        </div>
-
-        <% } else { %>
-        <p class="emptyitem">No item found now, please come back later.</p>
-        <% } %>
-
-  </div>
-
-
-<div class="tab-content">
-
-    <% item.reverse() %>
-    <% if (menshoes.length > 0) { %>
-
-    <div class="row">
-
-      <% menshoes.forEach(item => { %>
-              <% if (item.category === 'men shoes') { %>
-
-      <div class="column1">
-          <a href="/itemmore/<%= item._id %>">
-          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
-          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
-          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
-          <table>
-            <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
             </tr>
            </table>
           </div>
@@ -275,59 +364,22 @@
 <div class="tab-content">
 
     <% item.reverse() %>
-    <% if (decoration.length > 0) { %>
+    <% if (health.length > 0) { %>
 
     <div class="row">
 
-      <% decoration.forEach(item => { %>
-              <% if (item.category === 'decoration crochet') { %>
+      <% health.forEach(item => { %>
+              <% if (item.category === 'health') { %>
 
-      <div class="column1">
+       <div class="column1">
           <a href="/itemmore/<%= item._id %>">
           <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
           <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
           <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
           <table>
             <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
-            </tr>
-           </table>
-          </div>
-          </a>
-          </div>
-
-          <% } %>
-              <% }); %>
-        </div>
-
-        <% } else { %>
-        <p class="emptyitem">No item found now, please come back later.</p>
-        <% } %>
-
-   </div>
-
-
-
-<div class="tab-content">
-
-    <% item.reverse() %>
-    <% if (pillow.length > 0) { %>
-
-    <div class="row">
-
-      <% pillow.forEach(item => { %>
-              <% if (item.category === 'pillow cases') { %>
-
-      <div class="column1">
-          <a href="/itemmore/<%= item._id %>">
-          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
-          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
-          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
-          <table>
-            <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
             </tr>
            </table>
           </div>
@@ -345,15 +397,16 @@
     </div>
 
 
-<div class="tab-content">
+
+  <div class="tab-content">
 
     <% item.reverse() %>
-    <% if (african.length > 0) { %>
+    <% if (office.length > 0) { %>
 
     <div class="row">
 
-      <% african.forEach(item => { %>
-              <% if (item.category === 'african wear') { %>
+      <% office.forEach(item => { %>
+              <% if (item.category === 'office') { %>
 
       <div class="column1">
           <a href="/itemmore/<%= item._id %>">
@@ -362,8 +415,8 @@
           <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
           <table>
             <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
             </tr>
            </table>
           </div>
@@ -378,19 +431,18 @@
         <p class="emptyitem">No item found now, please come back later.</p>
         <% } %>
 
-   </div>
+  </div>
 
 
-
-<div class="tab-content">
+  <div class="tab-content">
 
     <% item.reverse() %>
-    <% if (blowdry.length > 0) { %>
+    <% if (electronics.length > 0) { %>
 
     <div class="row">
 
-      <% blowdry.forEach(item => { %>
-              <% if (item.category === 'blowdry') { %>
+      <% electronics.forEach(item => { %>
+              <% if (item.category === 'electronics') { %>
 
       <div class="column1">
           <a href="/itemmore/<%= item._id %>">
@@ -399,8 +451,8 @@
           <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
           <table>
             <tr>
-              <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-              <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
             </tr>
            </table>
           </div>
@@ -415,11 +467,445 @@
         <p class="emptyitem">No item found now, please come back later.</p>
         <% } %>
 
-   </div>
+  </div>
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (garden.length > 0) { %>
+
+    <div class="row">
+
+      <% garden.forEach(item => { %>
+              <% if (item.category === 'garden') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (food.length > 0) { %>
+
+    <div class="row">
+
+      <% food.forEach(item => { %>
+              <% if (item.category === 'food') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (appliances.length > 0) { %>
+
+    <div class="row">
+
+      <% appliances.forEach(item => { %>
+              <% if (item.category === 'appliances') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (household.length > 0) { %>
+
+    <div class="row">
+
+      <% household.forEach(item => { %>
+              <% if (item.category === 'household') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (baby.length > 0) { %>
+
+    <div class="row">
+
+      <% baby.forEach(item => { %>
+              <% if (item.category === 'baby') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (bags.length > 0) { %>
+
+    <div class="row">
+
+      <% bags.forEach(item => { %>
+              <% if (item.category === 'bags') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (crafts.length > 0) { %>
+
+    <div class="row">
+
+      <% crafts.forEach(item => { %>
+              <% if (item.category === 'crafts') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (automotive.length > 0) { %>
+
+    <div class="row">
+
+      <% automotive.forEach(item => { %>
+              <% if (item.category === 'automotive') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (musical.length > 0) { %>
+
+    <div class="row">
+
+      <% musical.forEach(item => { %>
+              <% if (item.category === 'musical') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (toy.length > 0) { %>
+
+    <div class="row">
+
+      <% toy.forEach(item => { %>
+              <% if (item.category === 'toy') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (pet.length > 0) { %>
+
+    <div class="row">
+
+      <% pet.forEach(item => { %>
+              <% if (item.category === 'pet') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
+
+  <div class="tab-content">
+
+    <% item.reverse() %>
+    <% if (industrial.length > 0) { %>
+
+    <div class="row">
+
+      <% industrial.forEach(item => { %>
+              <% if (item.category === 'industrial') { %>
+
+      <div class="column1">
+          <a href="/itemmore/<%= item._id %>">
+          <div class="block" data-rotate-y="180deg" data-move-z="-200px" data-move-x="-300px" data-aos="fade-left" data-aos-duration="1100">
+          <img src="/uploads/<%= item.image1 %>" alt="item Image" alt="">
+          <h4 id="itemname"><%= item.itemname?.slice(0, 15) %>.. 👉 ↗ </h4>
+          <table>
+            <tr>
+              <td><p id="InitialPrice"><%= item.currency %><%= calculateInitialPrice(item.price) %></p></td>
+              <td><h3 id="realprice"><%= item.currency %><%= item.price %> </h3></td>
+            </tr>
+           </table>
+          </div>
+          </a>
+          </div>
+
+          <% } %>
+              <% }); %>
+        </div>
+
+        <% } else { %>
+        <p class="emptyitem">No item found now, please come back later.</p>
+        <% } %>
+
+  </div>
+
+
 
 </div>
 
 </body>
 
 
-<!-- item share page end here -->
+<!-- main item page starts end here -->

@@ -18,6 +18,10 @@ const ItemSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  currency: {
+    type: String,
+    required: true
+  },
   description: {
     type: String,
     required: true
@@ -46,7 +50,7 @@ const ItemSchema = new mongoose.Schema({
    image5: {
        type: String,
        required: false
-     },    
+     },
   isPromoted: {
     type: Boolean,
     default: false,

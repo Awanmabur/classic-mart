@@ -693,6 +693,7 @@ background: linear-gradient(0deg, rgba(255,151,0,1) 0%, rgba(251,75,2,1) 100%);
   font-family: monospace;
   font-weight: lighter;
   text-align: left;
+  text-transform: lowercase;
 }
 
 #realprice{
@@ -702,6 +703,7 @@ background: linear-gradient(0deg, rgba(255,151,0,1) 0%, rgba(251,75,2,1) 100%);
   font-family: monospace;
   font-weight: normal;
   text-align: left;
+  text-transform: lowercase;
 }
 
 #itemname{

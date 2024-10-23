@@ -25,19 +25,36 @@ exports.index = async (req, res, next) => {
       const users = await User.find();
       const item = await Item.find({user:req.user});
       const promotedItems = await Item.find({ isPromoted: true });
-      const bedsheets = await Item.find({ category: 'bedsheets' });
-      const womenwear = await Item.find({ category: 'women wear' });
-      const menwear = await Item.find({ category: 'men wear' });
-      const menshoes = await Item.find({ category: 'men shoes' });
-      const children = await Item.find({ category: 'children wear' });
-      const ladies = await Item.find({ category: 'ladies wear' });
-      const pillow = await Item.find({ category: 'pillow cases' });
-      const african = await Item.find({ category: 'african wear' });
-      const blowdry = await Item.find({ category: 'blowdry' });
-      const decoration = await Item.find({ category: 'decoration crochet' });
-      const ladiesshoes = await Item.find({ category: 'ladies shoes' });
-      res.render('./item/index', { isProfileOwner, users, user, promotedItems, item, african, blowdry, decoration,
-        bedsheets, womenwear, menwear, menshoes, children, ladies, pillow, ladiesshoes, calculateInitialPrice });
+      const phones = await Item.find({ category: 'phones' });
+      const women = await Item.find({ category: 'women' });
+      const crafts = await Item.find({ category: 'crafts' });
+      const toy = await Item.find({ category: 'toy' });
+      const kids = await Item.find({ category: 'kids' });
+      const computers = await Item.find({ category: 'computers' });
+      const electronics = await Item.find({ category: 'electronics' });
+      const office = await Item.find({ category: 'office' });
+      const appliances = await Item.find({ category: 'appliances' });
+      const bags = await Item.find({ category: 'bags' });
+      const industrial = await Item.find({ category: 'industrial' });
+      const musical = await Item.find({ category: 'musical' });
+      const automotive = await Item.find({ category: 'automotive' });
+      const men = await Item.find({ category: 'men' });
+      const health = await Item.find({ category: 'health' });
+      const household = await Item.find({ category: 'household' });
+      const food = await Item.find({ category: 'men shoes' });
+      const pet = await Item.find({ category: 'pet' });
+      const sports = await Item.find({ category: 'sports' });
+      const home = await Item.find({ category: 'home' });
+      const garden = await Item.find({ category: 'garden' });
+      const jewelry = await Item.find({ category: 'jewelry' });
+      const beauty = await Item.find({ category: 'beauty' });
+      const baby = await Item.find({ category: 'baby' });
+      res.render('./item/index', { isProfileOwner, users, user, promotedItems, item,
+        phones, computers, electronics, garden, home, household,
+        men, women, kids, baby, toy, pet, bags, crafts,
+        beauty, health, automotive, appliances, food, industrial,
+        jewelry, office, sports, musical, calculateInitialPrice
+      });
   } catch (error) {
     req.flash('error', 'There is problem getting data, please try again later.');
     return res.redirect('/');
@@ -78,7 +95,7 @@ try {
   const user = await User.findById(userId);
   const owner = req.user;
 
-  const { itemname, category, price, description } = req.body;
+  const { itemname, category, price, currency, description } = req.body;
 
   const image1 = req.files['image1'] ? req.files['image1'][0].filename : null;
   const image2 = req.files['image2'] ? req.files['image2'][0].filename : null;
@@ -87,7 +104,7 @@ try {
   const image5 = req.files['image5'] ? req.files['image5'][0].filename : null;
 
   // If the image doesn't exist, save it to the database
-  const item = new Item({ user:userId, owner, image1, image2, image3, image4, image5, itemname, price, category, description });
+  const item = new Item({ user:userId, owner, image1, image2, image3, image4, image5, itemname, price, currency, category, description });
   user.Items.push(item);
 
   user.postCount += 1;
@@ -121,7 +138,7 @@ exports.edit = async (req, res, next) => {
 exports.update = async (req, res, next) => {
 try {
   const { id } = req.params;
-  const { itemname, category, price, description } = req.body;
+  const { itemname, category, price, currency, description } = req.body;
 
   const image1 = req.files['image1'] ? req.files['image1'][0].filename : null;
   const image2 = req.files['image2'] ? req.files['image2'][0].filename : null;
@@ -171,6 +188,7 @@ try {
   existingPost.description = description;
   existingPost.category = category;
   existingPost.price = price;
+  existingPost.currency = currency;
   existingPost.image1 = image1 || existingPost.image1; // Use the new image URL or keep the existing one
   existingPost.image2 = image2 || existingPost.image2;
   existingPost.image3 = image3 || existingPost.image3;
