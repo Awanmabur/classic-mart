@@ -452,7 +452,7 @@ margin: 8px 0;
 }
 
 .btn-7 {
-background: linear-gradient(0deg, rgba(255,151,0,1) 0%, rgba(251,75,2,1) 100%);
+  background: linear-gradient(0deg, rgba(44, 105, 141, 1) 0%, rgba(15, 51, 71, 1) 100%);
   line-height: 42px;
   padding: 0;
   border: -7px -7px 20px 0px rgba(255,255,255,.9),
@@ -473,7 +473,7 @@ background: linear-gradient(0deg, rgba(255,151,0,1) 0%, rgba(251,75,2,1) 100%);
   content: "";
   right: 0;
   bottom: 0;
-  background: rgba(251,75,2,1);
+  background-color: rgba(255, 255, 255, 1);
   box-shadow:
    -7px -7px 20px 0px rgba(255,255,255,.9),
    -4px -4px 5px 0px rgba(255,255,255,.9),
@@ -505,7 +505,7 @@ background: linear-gradient(0deg, rgba(255,151,0,1) 0%, rgba(251,75,2,1) 100%);
   content: "";
   left: 0;
   top: 0;
-  background: rgba(251,75,2,1);
+  background-color: rgba(255, 255, 255, 1);
   box-shadow:
    -7px -7px 20px 0px rgba(255,255,255,.9),
    -4px -4px 5px 0px rgba(255,255,255,.9),
