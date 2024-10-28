@@ -53,30 +53,30 @@ const UserSchema = new mongoose.Schema({
   },
   subscriptionExpiry: { type: Date },  // Expiration date for subscription
 
-  subscriptionStartDate: Date,
-  subscriptionDuration: Number,
-  trialStartDate: {
-    type: Date,
-    default: Date.now
-  },
-  monthlyEndDate: {
-    type: Date,
-    default: Date.now
-  },
-  quarterlyEndDate: {
-    type: Date,
-    default: null
-  },
-  annualEndDate: {
-    type: Date,
-    default: null
-  },
-  subscriptionType: {
-    type: String,
-    enum: ['trialStartDate', 'monthlyEndDate', 'quarterlyEndDate', "annualEndDate", "You have no plan yet", "your plan has expired" ],
-    required: true,
-    default: 'trialStartDate'
-  },
+  // subscriptionStartDate: Date,
+  // subscriptionDuration: Number,
+  // trialStartDate: {
+  //   type: Date,
+  //   default: Date.now
+  // },
+  // monthlyEndDate: {
+  //   type: Date,
+  //   default: Date.now
+  // },
+  // quarterlyEndDate: {
+  //   type: Date,
+  //   default: null
+  // },
+  // annualEndDate: {
+  //   type: Date,
+  //   default: null
+  // },
+  // subscriptionType: {
+  //   type: String,
+  //   enum: ['trialStartDate', 'monthlyEndDate', 'quarterlyEndDate', "annualEndDate", "You have no plan yet", "your plan has expired" ],
+  //   required: true,
+  //   default: 'trialStartDate'
+  // },
   likes: {
     type: Number,
     default: 0

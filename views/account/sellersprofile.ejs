@@ -34,8 +34,6 @@
   					</div>
   				</div>
 
-
-
             <div class="row clearfix">
               <ul class="row2tab clearfix">
 
@@ -43,17 +41,13 @@
 
                 <% if( !isProfileOwner ){ %>
 
-
                     <a href="/follow/<%= user._id %>"><li><i class="fa fa-check">follow</i></li></a>
                     <a href="/like/<%= user._id %>"><li><i class="fa fa-heart"><%= user.likedBy.includes(deviceId) ? 'Unlike' : 'Like' %></i></li></a>
 
-
                 <% } else { %>
-
 
                     <a href="/promoted"><li><i class="fa fa-heart">Promoted items</i></li></a>
                     <a href="/create-item"><li><i class="fa fa-check">Create Item</i></li></a>
-
 
                 <% } %>
 
@@ -72,31 +66,7 @@
   	</div>
   </div>
 
-
-
   <%-include("../account/main-index") %>
 
-
-<script type="text/javascript">
-document.getElementById('share-button').addEventListener('click', async () => {
-    if (navigator.share) {
-        try {
-            await navigator.share({
-                title: document.title,
-                text: 'Check out this page!',
-                url: encodeURI(window.location.href),
-            });
-            console.log('Page shared successfully');
-        } catch (error) {
-            console.error('Error sharing the page:', error);
-        }
-    } else {
-        alert('Web Share API not supported in this browser.');
-    }
-});
-
-</script>
-
-
-
+ 
 <!-- dashboard page end-->

@@ -51,34 +51,10 @@
 <!-- font awesome cdn link  -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 
-<style media="screen">
-/* style.css */
-
-.tabs {
-display: flex;
-flex-direction: column;
-}
-
-#notshow{
-  display: none;
-}
-
-
-.tab-content {
-display: none;
-/*padding: 20px;*/
-/*border: 1px solid #ccc;*/
-}
-
-.tab-content.active {
-display: block;
-}
-
-</style>
-
 </head>
-<body>
 
+
+<body>
 
 
 <%-include("../partials/flash") %>
@@ -95,7 +71,7 @@ display: block;
           <div class="sidebar-header">
             <div class="pro-sidebar-logo">
               <div>SA</div>
-              <h5> <a href="/">Sera Akuan</a> </h5>
+              <h5> <a style="color: white" href="/">Sera Akuan</a> </h5>
             </div>
           </div>
           <div class="sidebar-content">
@@ -124,7 +100,7 @@ display: block;
                           <span class="tab-header" onclick="showTab(10)" class="menu-title">Edit info</span>
                         </a>
                       </li>
-                       
+
                     </ul>
                   </div>
                 </li>
@@ -169,7 +145,7 @@ display: block;
                           <span class="tab-header" onclick="showTab(1)" class="menu-title">Create Item</span>
                         </a>
                       </li>
-                      <li class="menu-item">
+                      <li style="display:none" class="menu-item">
                         <a href="#">
                           <span class="tab-header" onclick="showTab(2)" class="menu-title">Go Live</span>
                         </a>
@@ -226,7 +202,7 @@ display: block;
                     </ul>
                   </div>
                 </li>
-                <li class="menu-header" style="padding-top: 20px"><span> EXTRA </span></li>
+                <li class="menu-header" style="padding-top: 20px"><span> OTHERS </span></li>
                 <li class="menu-item">
                   <a href="#">
                     <span class="menu-icon">
@@ -234,12 +210,12 @@ display: block;
                     </span>
                     <span class="menu-title">Notification</span>
                     <span class="menu-suffix">
-                      <span class="badge secondary">Beta</span>
+                      <span class="badge secondary">soon</span>
                     </span>
                   </a>
                 </li>
                 <li class="menu-item">
-                  <a href="#">
+                  <a href="tel:256781977217">
                     <span class="menu-icon">
                       <i class="ri-calendar-fill"></i>
                     </span>
@@ -252,7 +228,7 @@ display: block;
                       <i class="ri-service-fill"></i>
                     </span>
                     <span class="menu-title">Subscription status</span>
-                    <div class="dot
+                    <div class="dot-dash
                           <% if (percentageLeft > 69) { %>
                             green-dot
                           <% } else if (percentageLeft > 29) { %>
@@ -312,129 +288,25 @@ display: block;
           </div>
           <div>
 
-          </div>
-          <div>
+       </div>
+     <div>
 
-
-
-  <style media="screen">
-   input[class="search"] {
-   padding: 8px;
-   border: none;
-   border-radius: 10px;
-   width: 75%;
-   color: #59260b;
-   margin-left: 30px;
-   margin-top: 10px;
-   margin-right: 50px;
-   }
-   .phoneonly{
-     display: none;
-   }
-
-   @media screen and (max-width: 480px) {
-     .pconly, #pconly{
-       display: none;
-     }
-
-     .phoneonly{
-       display: inline;
-     }
-
-     input[class="search"] {
-     padding: 8px;
-     border: none;
-     border-radius: 10px;
-     width: 65%;
-     color: #59260b;
-     margin-left:20px;
-     margin-top: 10px;
-     margin-right: 50px;
-     position: absolute;
-     margin-bottom: -40px
-     }
-
-     .amokdit{
-       margin-top: -60px;
-       margin-bottom: -80px
-     }
-
-   }
-
-
-  </style>
 
     <!-- <div class=""> -->
-      <img class="phoneonly" style="margin-top: 10px; margin-left: 10px" src="/images/logo.png" width="40" alt="">
-      <input id="desktop-search-input" class="search" type="text" spellcheck="false" placeholder="Search any product you want">
+    <a href="/"><img class="phoneonly" style="margin-top: 10px; margin-left: 10px" src="/images/logo.png" width="40" alt=""></a>
+    <input style="margin-left: 32px; margin-top: 12px" id="desktop-search-input" class="search" type="text" spellcheck="false" placeholder="Search any product you want">
     <!-- </div> -->
     <a class="pconly" id="dark" style="margin-right: 40px;" href="/"><i class="fa fa-2x fa-user" aria-hidden="true"></i> </a>
     <a id="pconly" href="/logout" class="login-btn">Logout</a></li>
 
-    <div id="results"></div>
+<section class="results">
+  
+  <div id="results"></div>
 
+</section>
 
 
 <button id="notshow" class="tab-header" onclick="showTab(17)" type="button" name="button"></button>
-
-<style>
-    /* Common dot styling */
-    .dot {
-      height: 12px;
-      width: 12px;
-      border-radius: 50%;
-      display: inline-block;
-      position: relative;
-    }
-
-    /* Tooltip styling */
-    .tooltip {
-      display: none;
-      background-color: black;
-      color: white;
-      text-align: center;
-      border-radius: 5px;
-      padding: 5px;
-      position: absolute;
-      z-index: 1;
-      bottom: 125%; /* Position the tooltip above the dot */
-      left: 50%;
-      margin-left: -160px;
-      width: 200px;
-    }
-
-    .tooltip::after {
-      content: "";
-      position: absolute;
-      top: 100%; /* Bottom of the tooltip */
-      left: 50%;
-      margin-left: -5px;
-      border-width: 5px;
-      border-style: solid;
-      border-color: black transparent transparent transparent;
-    }
-
-    /* Show tooltip on hover */
-    .dot:hover .tooltip {
-      display: block;
-    }
-
-    /* Color classes for dot */
-    .green-dot {
-      background-color: green;
-    }
-
-    .yellow-dot {
-      background-color: yellow;
-    }
-
-    .red-dot {
-      background-color: red;
-    }
-  </style>
-
-
-
 
 <div>
 
@@ -444,17 +316,13 @@ display: block;
   <%-include("../account/main-index") %>
 </div>
 
-
-
 </div>
-
 
 <div class="tab-content">
 
   <%-include("../account/create") %>
 
 </div>
-
 
 <div class="tab-content">
 
@@ -480,11 +348,9 @@ display: block;
 </div>
 
 
-
 <div class="tab-content">
 <%-include("../account/main-index") %>
 </div>
-
 
 <div class="tab-content">
 
@@ -502,7 +368,6 @@ display: block;
 
 </div>
 
-
 <div class="tab-content">
 <%-include("../account/edit") %>
 </div>
@@ -511,7 +376,9 @@ display: block;
 </div>
 
           </div>
+
 <%-include("../partials/footer") %>
+
         </main>
         <div class="overlay"></div>
       </div>

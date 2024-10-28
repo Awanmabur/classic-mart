@@ -9,10 +9,9 @@
      <a>
        <form method="get">
         <div id="searchUsers" class="instant-search">
-         <div class="instant-search__input-container">
-          <input id="desktop-search-input" name="q" class="instant-search__input" type="text" spellcheck="false" placeholder="Search any product you want">
-          <i class="material-icons instant-search__icon">search</i>
-         </div>
+
+           <input id="desktop-search-input" class="search" type="text" spellcheck="false" placeholder="Search any product you want">
+
         </div>
        </form>
       </a>
@@ -22,24 +21,29 @@
 
     <% if( !isProfileOwner ){ %>
 
+      <div class="amok">
 
-        <form action="" id="hiddensearch" class="search-bar">
-     	   <input id="mobile-search-input" type="text" name="search" pattern=".*\S.*" required>
-     	   <button class="search-btn">
-     		   <span>Search</span>
-     	   </button>
-        </form>
+        <input id="mobile-search-input" class="search" type="text" spellcheck="false" placeholder="Search any product you want">
 
-        <a id="dark" href="/profile-home/"><i class="fa fa-2x fa-user" aria-hidden="true"></i> </a>
-        <button id="dark" onclick="myFunction()"><i class="fa fa-2x fa-adjust" aria-hidden="true"></i></button>
+      </div>
+
+        <a class="hiddensearch" id="dark" href="/profile-home/"><i class="fa fa-2x fa-user" aria-hidden="true"></i> </a>
+        <button class="hiddensearch" id="dark" onclick="myFunction()"><i class="fa fa-2x fa-adjust" aria-hidden="true"></i></button>
         <a href="/login" class="login-btn">login</a>
 
 
     <% } else { %>
 
+      <div class="amok">
 
-        <button id="dark" onclick="myFunction()"><i class="fa fa-2x fa-adjust" aria-hidden="true"></i></button>
-        <a href="/profile/<%= isProfileOwner._id %>" class="login-btn"><%= isProfileOwner.fname %> </a>
+        <input id="mobile-search-input" class="search" type="text" spellcheck="false" placeholder="Search any product you want">
+
+      </div>
+
+        <button class="hiddensearch" id="dark" onclick="myFunction()"><i class="fa fa-2x fa-adjust" aria-hidden="true"></i></button>
+        <!-- <div class="login-btn"> -->
+          <a class="hiddensearch" id="darkpro" href="/profile/<%= isProfileOwner._id %>"><%= isProfileOwner.fname %> </a>
+        <!-- </div> -->
         <a href="/logout" class="login-btn">Logout</a></li>
 
 

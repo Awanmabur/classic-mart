@@ -10,7 +10,7 @@
 <!-- dashboard page -->
 
 
-<body>
+<body class="homepro">
   <div class="profile-container">
   	<div class="innerwrap">
   		<section class="section1 clearfix">
@@ -26,8 +26,6 @@
               <% } else { %>
                 <img src="/images/logo.png" alt="">
               <% } %>
-
-
 
   						<h1><%= user.fname %> <%= user.lname %></h1>
   						<p><%= user.bios %> </p>
@@ -54,7 +52,7 @@
 
                     <a href="/follow/<%= user._id %>"><li><i class="fa fa-check">follow</i></li></a>
                     <a href="/like/<%= user._id %>"><li><i class="fa fa-heart"><%= user.likedBy.includes(deviceId) ? 'Unlike' : 'Like' %></i></li></a>
- 
+
                 <a href="https://api.whatsapp.com/send?phone=<%= user.whatsapp %>"><li><i class="fab fa-whatsapp">whatsapp chat</i></li></a>
               </ul>
             </div>
@@ -72,28 +70,6 @@
 
 
 <%-include("../account/main-index") %>
-
-
-<script type="text/javascript">
-document.getElementById('share-button').addEventListener('click', async () => {
-    if (navigator.share) {
-        try {
-            await navigator.share({
-                title: document.title,
-                text: 'Check out this page!',
-                url: encodeURI(window.location.href),
-            });
-            console.log('Page shared successfully');
-        } catch (error) {
-            console.error('Error sharing the page:', error);
-        }
-    } else {
-        alert('Web Share API not supported in this browser.');
-    }
-});
-
-</script>
-
 
 
 <!-- dashboard page end-->

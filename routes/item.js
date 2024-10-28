@@ -13,9 +13,7 @@ const {checkLoginStatus} = require("../middlewares/loginStatus");
 const items = require("../controllers/item");
 
 const {requireLogin} = require("../middlewares/loginrequest");
-
-const {payement} = require("../middlewares/payement");
-
+ 
 const {checkPostLimit} = require("../middlewares/checkPostLimit");
 
 // Set storage engine for multer

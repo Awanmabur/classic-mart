@@ -24,18 +24,6 @@ router.post('/suspendUser', requireLogin, superAdmin.suspendUser);
 
 router.post('/unsuspendUser', requireLogin, superAdmin.unsuspendUser);
 
-router.post('/monthly', admin, superAdmin.monthlySubscription);
-
-router.post('/quarterly', admin, superAdmin.quarterlySubscription);
-
-router.post('/annually', admin, superAdmin.annuallySubscription);
-
-router.post('/monthlycancellation', admin, superAdmin.monthlyCancellation);
-
-router.post('/quarterlycancellation', admin, superAdmin.quarterlyCancellation);
-
-router.post('/annuallycancellation', admin, superAdmin.annuallyCancellation);
-
 router.get('/search', admin, superAdmin.search);
 
 module.exports = router;

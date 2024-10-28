@@ -17,8 +17,6 @@ const {requireLogin} = require("../middlewares/loginrequest");
 
 const {checkLoginStatus} = require("../middlewares/loginStatus");
 
-const {payement} = require("../middlewares/payement");
-
 // Set storage engine for multer
 const storage = multer.diskStorage({
   destination: './public/uploads/',
@@ -75,9 +73,9 @@ router.get('/profile/:id', authenticateToken, checkLoginStatus, account.index);
 
 router.get('/visit/:id', authenticateToken, checkLoginStatus, account.visit);
 
-router.get("/edit-userInfo/:id", payement, requireLogin, account.edit );
+router.get("/edit-userInfo/:id", requireLogin, account.edit );
 
-router.post('/edit-user/:id', payement, upload.single('imageUrl'), requireLogin, account.update);
+router.post('/edit-user/:id', upload.single('imageUrl'), requireLogin, account.update);
 
 router.get('/like/:id', ensureDeviceId, account.likes );
 

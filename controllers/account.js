@@ -51,16 +51,16 @@ exports.index = async (req, res, next) => {
     const baby = await Item.find({ category: 'baby' });
     // Calculate the days left in the subscription
     let daysLeft = 0;
-let totalDays = 0;
-let percentageLeft = 0;
-let subscriptionValid = false;
+    let totalDays = 0;
+    let percentageLeft = 0;
+    let subscriptionValid = false;
 
-if (user.subscriptionExpiry) {
-  const currentTime = Date.now();
-  const expiryTime = user.subscriptionExpiry.getTime();
+   if (user.subscriptionExpiry) {
+     const currentTime = Date.now();
+     const expiryTime = user.subscriptionExpiry.getTime();
 
-  if (expiryTime > currentTime) {
-    subscriptionValid = true;
+     if (expiryTime > currentTime) {
+       subscriptionValid = true;
 
     // Calculate days left and total duration of subscription
     const timeLeft = expiryTime - currentTime;
