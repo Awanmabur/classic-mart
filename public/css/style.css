@@ -22,7 +22,7 @@ html::-webkit-scrollbar-track {
 }
 
 html::-webkit-scrollbar-thumb {
-  background: #29d9d5;
+  background: white;
   border-radius: 5rem;
 }
 
@@ -200,7 +200,7 @@ margin: 8px 0;
 }
 
 .header .navbar a:hover {
-  color: #29d9d5;
+  color: white;
 }
 
 .header .btn {
@@ -214,7 +214,7 @@ margin: 8px 0;
 }
 
 .logo i {
-  color: #29d9d5;
+  color: white;
   padding-right: .5rem;
 }
 
@@ -229,15 +229,15 @@ margin: 8px 0;
   display: inline-block;
   padding: 0.2rem 1.5rem;
   font-size: 1.7rem;
-  color: #29d9d5;
-  border: 0.2rem solid #29d9d5;
+  color: white;
+  border: 0.2rem solid white;
   border-radius: 5rem;
   cursor: pointer;
   background: none;
 }
 
 .login-btn:hover {
-  background: #29d9d5;
+  background: white;
   color: #111;
 }
 
@@ -254,7 +254,7 @@ margin: 8px 0;
 
 #dark:hover{
   cursor: pointer;
-  color: #29d9d5;
+  color: white;
 }
 
 #hiddensearch{
@@ -549,15 +549,15 @@ background: linear-gradient(0deg, rgba(255,151,0,1) 0%, rgba(251,75,2,1) 100%);
   display: inline-block;
   padding: 1rem 3rem;
   font-size: 1.7rem;
-  color: #29d9d5;
-  border: 0.2rem solid #29d9d5;
+  color: white;
+  border: 0.2rem solid white;
   border-radius: 5rem;
   cursor: pointer;
   background: none;
 }
 
 .btn:hover {
-  background: #29d9d5;
+  background: white;
   color: #111;
 }
 
@@ -578,7 +578,7 @@ margin-top: -40px
 .faq {
 color: white;
 background-color: transparent;
-border: 2px solid #29d9d5;
+border: 2px solid white;
 border-radius: 10px;
 margin: 20px 0;
 padding: 30px;
@@ -708,15 +708,15 @@ margin-right: 50px;
 #darkpro {
   padding: 0.5rem 0.8rem;
   font-size: 1.4rem;
-  color: #29d9d5;
-  border: 0.2rem solid #29d9d5;
+  color: white;
+  border: 0.2rem solid white;
   border-radius: 5rem;
   cursor: pointer;
   background: none;
 }
 
 #darkpro:hover {
-background-color: #29d9d5;
+background-color: white;
 color: black;
 }
 
@@ -756,7 +756,7 @@ color: black;
 
 #realprice{
   font-size: 20px;
-  color: yellow;
+  color: white;;
   padding-left: 20px;
   font-family: monospace;
   font-weight: normal;
@@ -813,12 +813,12 @@ color: black;
 
 .contact{
   font-size: 4rem;
-  color: #29d9d5;
+  color: white;
 }
 
 .contact1{
   font-size: 1.8rem;
-  color: #29d9d5;
+  color: white;
 }
 
  input[id=uploadsheet]{
@@ -842,7 +842,7 @@ color: black;
    margin-top: 1%;
    margin-bottom: -30px;
    font-size: 4rem;
-   color: yellow;
+   color: white;;
    text-align:center
  }
 
@@ -852,7 +852,7 @@ input[class=contact2], select, textarea {
  padding: 12px;
  border: 2px solid #ccc;
  border-radius: 25px;
- border-color: #29d9d5;
+ border-color: white;
  background-color: transparent;
  margin-top: 6px;
  margin-bottom: 16px;
@@ -861,7 +861,7 @@ input[class=contact2], select, textarea {
 }
 
 input[type=submit] {
- background-color: #29d9d5;
+ background-color: white;
  border-radius: 25px;
  color: white;
  padding: 12px 20px;
@@ -870,7 +870,7 @@ input[type=submit] {
 }
 
 input[type=submit]:hover {
- background-color: #29d9d5;
+ background-color: white;
 }
 
 
@@ -932,7 +932,7 @@ input[type=submit]:hover {
 
 .footer .box-container .box p i {
   padding-right: .5rem;
-  color: #29d9d5;
+  color: white;
   text-align: left;
 }
 
@@ -947,14 +947,14 @@ input[type=submit]:hover {
   font-size: 2rem;
   border-radius: 50%;
   font-size: 1.7rem;
-  border: 0.2rem solid #29d9d5;
-  color: #29d9d5;
+  border: 0.2rem solid white;
+  color: white;
   margin-right: .5rem;
   text-align: left;
 }*/
 
 .footer .box-container .box .share a:hover {
-  background: #29d9d5;
+  background: white;
   color: #111;
 }
 
@@ -966,7 +966,7 @@ input[type=submit]:hover {
 }
 
 .footer .box-container .box .links:hover {
-  color: #29d9d5;
+  color: white;
 }
 
 .footer .box-container .box .links:hover i {
@@ -975,13 +975,13 @@ input[type=submit]:hover {
 
 .footer .box-container .box .links i {
   padding-right: .5rem;
-  color: #29d9d5;
+  color: white;
 }
 
 .footer .box-container .box form .email {
   width: 100%;
   border-radius: 5rem;
-  border: 0.2rem solid #29d9d5;
+  border: 0.2rem solid white;
   background: none;
   font-size: 1.5rem;
   text-transform: none;
@@ -999,7 +999,7 @@ input[type=submit]:hover {
 }
 
 .credit span {
-  color: #29d9d5;
+  color: white;
 }
 
 /* footer ends */
@@ -1020,8 +1020,8 @@ input[type=submit]:hover {
    display: inline-block;
    padding: 0.5rem 0.8rem;
    font-size: 1.7rem;
-   color: #29d9d5;
-   border: 0.2rem solid #29d9d5;
+   color: white;
+   border: 0.2rem solid white;
    border-radius: 5rem;
    cursor: pointer;
    background: none;
@@ -1034,15 +1034,15 @@ input[type=submit]:hover {
    display: inline-block;
    padding: .4rem 2rem;
    font-size: 1.5rem;
-   color: #29d9d5;
-   border: 0.2rem solid #29d9d5;
+   color: white;
+   border: 0.2rem solid white;
    border-radius: 5rem;
    cursor: pointer;
    background: none;
  }
 
  .btn:hover {
-   background: #29d9d5;
+   background: white;
    color: #111;
  }
 
@@ -1080,7 +1080,7 @@ input[type=submit]:hover {
  .faq {
  color: white;
  background-color: transparent;
- border: 2px solid #29d9d5;
+ border: 2px solid white;
  border-radius: 10px;
  margin: 20px 0;
  padding: 30px;
@@ -1093,8 +1093,8 @@ input[type=submit]:hover {
  #darkpro {
    padding: 0.5rem 0.8rem;
    font-size: 1.7rem;
-   color: #29d9d5;
-   border: 0.2rem solid #29d9d5;
+   color: white;
+   border: 0.2rem solid white;
    border-radius: 5rem;
    cursor: pointer;
    background: none;
@@ -1124,7 +1124,7 @@ input[type=submit]:hover {
 
  #realprice{
    font-size: 14px;
-   color: yellow;
+   color: white;;
    padding-left: 10px;
    font-family: monospace;
    font-weight: normal;
@@ -1160,7 +1160,7 @@ input[type=submit]:hover {
    line-height: 1.5;
    letter-spacing: 2px;
    font-weight: normal;
-   color: yellow;
+   color: white;;
    margin-left: -30%;
    padding: 0 20%;
    margin-bottom: 10%
@@ -1195,7 +1195,7 @@ input[type=submit]:hover {
     margin-top: 8%;
     margin-bottom: 15px;
     font-size: 3rem;
-    color: yellow;
+    color: white;;
     text-align:center
   }
 
@@ -1319,7 +1319,7 @@ input[type=submit]:hover {
 
 
  #darkpro {
-  color: #29d9d5;
+  color: white;
 }
 
 #darkpro:hover {
@@ -1385,8 +1385,8 @@ input[class="search"] {
    display: inline-block;
    padding: 0.5rem 0.8rem;
    font-size: 1.7rem;
-   color: #29d9d5;
-   border: 0.2rem solid #29d9d5;
+   color: white;
+   border: 0.2rem solid white;
    border-radius: 5rem;
    cursor: pointer;
    background: none;
@@ -1399,15 +1399,15 @@ input[class="search"] {
    display: inline-block;
    padding: .4rem 2rem;
    font-size: 1.5rem;
-   color: #29d9d5;
-   border: 0.2rem solid #29d9d5;
+   color: white;
+   border: 0.2rem solid white;
    border-radius: 5rem;
    cursor: pointer;
    background: none;
  }
 
  .btn:hover {
-   background: #29d9d5;
+   background: white;
    color: #111;
  }
 
@@ -1445,7 +1445,7 @@ input[class="search"] {
  .faq {
  color: white;
  background-color: transparent;
- border: 2px solid #29d9d5;
+ border: 2px solid white;
  border-radius: 10px;
  margin: 20px 0;
  padding: 30px;
@@ -1505,7 +1505,7 @@ input[class="search"] {
 
  #realprice{
    font-size: 14px;
-   color: yellow;
+   color: white;;
    padding-left: 10px;
    font-family: monospace;
    font-weight: normal;
@@ -1537,7 +1537,7 @@ input[class="search"] {
    line-height: 1.5;
    letter-spacing: 2px;
    font-weight: normal;
-   color: yellow;
+   color: white;;
    margin-left: -30%;
    padding: 0 20%;
    margin-bottom: 10%
@@ -1572,7 +1572,7 @@ input[class="search"] {
     margin-top: 20%;
     margin-bottom: 15px;
     font-size: 3rem;
-    color: yellow;
+    color: white;;
     text-align:center
   }
 
@@ -1702,8 +1702,8 @@ input[class="search"] {
  #darkpro {
    padding: 0.5rem 0.8rem;
    font-size: 1.7rem;
-   color: #29d9d5;
-   border: 0.2rem solid #29d9d5;
+   color: white;
+   border: 0.2rem solid white;
    border-radius: 5rem;
    cursor: pointer;
    background: none;
