@@ -131,4 +131,22 @@ router.get('/search', authenticateToken, checkLoginStatus, async (req, res) => {
 
 
 
+// terms route
+router.get('/terms', async (req, res) => {
+  res.render('partials/terms');
+});
+
+
+// pricing route
+router.get('/pricing', async (req, res) => {
+  res.render('partials/pricing');
+});
+
+
+// pricing route
+router.get('/about', async (req, res) => {
+  res.render('partials/about');
+});
+
+
 module.exports = router;
