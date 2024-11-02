@@ -18,7 +18,7 @@ html::-webkit-scrollbar {
 }
 
 html::-webkit-scrollbar-track {
-  background: #111;
+  background: black;
 }
 
 html::-webkit-scrollbar-thumb {
@@ -238,7 +238,7 @@ margin: 8px 0;
 
 .login-btn:hover {
   background: white;
-  color: #111;
+  color: black;
 }
 
 .dark-mode {
@@ -558,7 +558,7 @@ margin: 8px 0;
 
 .btn:hover {
   background: white;
-  color: #111;
+  color: black;
 }
 
 
@@ -837,13 +837,13 @@ color: black;
   border: 5px dashed #ccc;
   border-radius: 5px;
   border-color: #cd7700;
-  color: #006699;
+  color: black;
  }
 
  .create{
    margin-bottom: -35px;
    font-size: 4rem;
-   color: #ff9900;
+   color: black;
    text-align:center
  }
 
@@ -866,13 +866,13 @@ input[class=contact2], select, textarea {
  margin-top: 6px;
  margin-bottom: 16px;
  resize: vertical;
- color: white;
+ color: black;
 }
 
 input[type=submit] {
  background-color: white;
  border-radius: 25px;
- color: white;
+ color: black;
  padding: 12px 20px;
  border: none;
  cursor: pointer;
@@ -964,7 +964,7 @@ input[type=submit]:hover {
 
 .footer .box-container .box .share a:hover {
   background: white;
-  color: #111;
+  color: black;
 }
 
 .footer .box-container .box .links {
@@ -1052,7 +1052,7 @@ input[type=submit]:hover {
 
  .btn:hover {
    background: white;
-   color: #111;
+   color: black;
  }
 
 
@@ -1417,7 +1417,7 @@ input[class="search"] {
 
  .btn:hover {
    background: white;
-   color: #111;
+   color: black;
  }
 
 
