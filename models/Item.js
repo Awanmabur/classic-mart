@@ -31,23 +31,23 @@ const ItemSchema = new mongoose.Schema({
     required: true,
     min: 5
   },
-  image1: {
-     type: String,
-     required: false
-   },
-  image2: {
-    type: String,
-    required: false
-   },
-  image3: {
-     type: String,
-     required: false
-   },
-   image4: {
+  image1_id: {
+      type: String,
+      required: false
+    },  
+  image2_id: {
       type: String,
       required: false
     },
-   image5: {
+  image3_id: {
+      type: String,
+      required: false
+    },
+  image4_id: {
+      type: String,
+      required: false
+    },
+  image5_id: {
        type: String,
        required: false
      },

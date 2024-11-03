@@ -1,5 +1,6 @@
 const express = require("express");
 const router = require("express").Router();
+const cloudinary = require('cloudinary').v2;
 const Item = require('../models/Item');
 const User = require('../models/User');
 const {checkLoginStatus} = require("../middlewares/loginStatus");

@@ -7,7 +7,8 @@ const Item = require('../models/Item');
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const jwtSecret = process.env.PRIVATE_KEY;
-
+const cloudinary = require('cloudinary').v2;
+const sharp = require('sharp');
 
 // Add this function definition before app.get('/'...)
 function calculateInitialPrice(realPrice) {
@@ -96,15 +97,39 @@ try {
   const owner = req.user;
 
   const { itemname, category, price, currency, description } = req.body;
+  const files = req.files;
+  // Upload each image and retrieve its public_id
+   const uploadedImages = await Promise.all(
+     ['image1', 'image2', 'image3', 'image4', 'image5'].map( async (field) => {
+       if (req.files[field]) {
 
-  const image1 = req.files['image1'] ? req.files['image1'][0].filename : null;
-  const image2 = req.files['image2'] ? req.files['image2'][0].filename : null;
-  const image3 = req.files['image3'] ? req.files['image3'][0].filename : null;
-  const image4 = req.files['image4'] ? req.files['image4'][0].filename : null;
-  const image5 = req.files['image5'] ? req.files['image5'][0].filename : null;
+         const buffer = await sharp(files[field][0].buffer)
+           .resize(800)
+           .jpeg({ quality: 80 })
+           .toBuffer();
+
+         return new Promise((resolve, reject) => {
+           cloudinary.uploader.upload_stream({ folder: 'classic_mart' }, (error, result) => {
+             if (error) reject(error);
+             else resolve(result.public_id);
+           }).end(req.files[field][0].buffer);
+         });
+       }
+       return null; // Return null for optional images that are not uploaded
+     })
+   );
 
   // If the image doesn't exist, save it to the database
-  const item = new Item({ user:userId, owner, image1, image2, image3, image4, image5, itemname, price, currency, category, description });
+  const item = new Item({
+  user:userId, owner, currency,
+  image1_id: uploadedImages[0],
+  image2_id: uploadedImages[1],
+  image3_id: uploadedImages[2],
+  image4_id: uploadedImages[3] || null,
+  image5_id: uploadedImages[4] || null,
+  itemname, price, category, description
+});
+
   user.Items.push(item);
 
   user.postCount += 1;
@@ -140,12 +165,6 @@ try {
   const { id } = req.params;
   const { itemname, category, price, currency, description } = req.body;
 
-  const image1 = req.files['image1'] ? req.files['image1'][0].filename : null;
-  const image2 = req.files['image2'] ? req.files['image2'][0].filename : null;
-  const image3 = req.files['image3'] ? req.files['image3'][0].filename : null;
-  const image4 = req.files['image4'] ? req.files['image4'][0].filename : null;
-  const image5 = req.files['image5'] ? req.files['image5'][0].filename : null;
-
   // Find the existing blog post by ID
   const existingPost = await Item.findById({ _id: id });
         if (!existingPost) {
@@ -153,35 +172,34 @@ try {
           return res.redirect('/profile');
         }
 
-  // Delete the old image if a new image was uploaded
-  if (image1 && existingPost.image1) {
-    const imagePath = path.join(__dirname, '../public/uploads', existingPost.image1 || null);
-    fs.unlinkSync(imagePath); // Delete the old image file
+  const files = req.files;
+  const imageFields = ['image1', 'image2', 'image3', 'image4', 'image5'];
+  // Update images if new ones are uploaded
+  for (let i = 0; i < imageFields.length; i++) {
+    const field = imageFields[i];
+    if (files[field]) {
+      // Delete the old image from Cloudinary
+      if (existingPost[`${field}_id`]) {
+        await cloudinary.uploader.destroy(existingPost[`${field}_id`]);
+      }
+
+      // Compress and upload the new image
+      const buffer = await sharp(files[field][0].buffer)
+        .resize(800)
+        .jpeg({ quality: 80 })
+        .toBuffer();
+
+      // Upload the new image to Cloudinary
+      const uploadedImage = await new Promise((resolve, reject) => {
+        cloudinary.uploader.upload_stream({ folder: 'classic_mart' }, (error, result) => {
+          if (error) reject(error);
+          else resolve(result.public_id);
+        }).end(buffer);
+      });
+      existingPost[`${field}_id`] = uploadedImage; // Update the public_id with the new image
+    }
   }
 
-  // Delete the old image if a new image was uploaded
-  if (image2 && existingPost.image2) {
-    const imagePath = path.join(__dirname, '../public/uploads', existingPost.image2);
-    fs.unlinkSync(imagePath); // Delete the old image file
-  }
-
-  // Delete the old image if a new image was uploaded
-  if (image3 && existingPost.image3) {
-    const imagePath = path.join(__dirname, '../public/uploads', existingPost.image3);
-    fs.unlinkSync(imagePath); // Delete the old image file
-  }
-
-  // Delete the old image if a new image was uploaded
-  if (image4 && existingPost.image4) {
-    const imagePath = path.join(__dirname, '../public/uploads', existingPost.image4);
-    fs.unlinkSync(imagePath); // Delete the old image file
-  }
-
-  // Delete the old image if a new image was uploaded
-  if (image5 && existingPost.image5) {
-    const imagePath = path.join(__dirname, '../public/uploads', existingPost.image5);
-    fs.unlinkSync(imagePath); // Delete the old image file
-  }
 
   // Update the blog post with the new data
   existingPost.itemname = itemname;
@@ -189,11 +207,7 @@ try {
   existingPost.category = category;
   existingPost.price = price;
   existingPost.currency = currency;
-  existingPost.image1 = image1 || existingPost.image1; // Use the new image URL or keep the existing one
-  existingPost.image2 = image2 || existingPost.image2;
-  existingPost.image3 = image3 || existingPost.image3;
-  existingPost.image4 = image4 || existingPost.image4;
-  existingPost.image5 = image5 || existingPost.image5;
+
   // Save the updated blog post
   await existingPost.save();
   req.flash('success', 'You have successfully updated one item.');
@@ -219,48 +233,39 @@ exports.show = async (req, res, next) => {
 };
 
 
-// ***route for deleting image and associated text ***
+
+// ** Route to delete a post and its associated images from Cloudinary **
 exports.destroy = async (req, res, next) => {
-  const postId = req.params.postId;
-  const item = await Item.findById(postId);
+  try {
+    const post = req.params.postId;
+    const item = await Item.findById(post);
 
-  Item.findById(postId, (err, post) => {
-    if (err || !post) {
-      req.flash('error', 'The item you are trying to check is not available')
-      return res.redirect('/profile');
-    }
+    if (!post) {
+          req.flash('error', 'The item you are trying to check is not available')
+          return res.redirect('/profile');
+        }
+    // Collect all image public IDs to delete from Cloudinary
+    const imageIds = [
+      item.image1_id,
+      item.image2_id,
+      item.image3_id,
+      item.image4_id,
+      item.image5_id,
+    ].filter(id => id); // Filter out any null values
 
-    if (postId) {
-        // Check and delete images if they exist
-        if (item.image) {
-            fs.unlinkSync(path.join(__dirname, '../public/uploads', item.image));
-        }
-        if (item.image1) {
-            fs.unlinkSync(path.join(__dirname, '../public/uploads', item.image1));
-        }
-        if (item.image2) {
-            fs.unlinkSync(path.join(__dirname, '../public/uploads', item.image2));
-        }
-        if (item.image3) {
-            fs.unlinkSync(path.join(__dirname, '../public/uploads', item.image3));
-        }
-        if (item.image4) {
-            fs.unlinkSync(path.join(__dirname, '../public/uploads', item.image4));
-        }
+    // Delete images from Cloudinary
+    await Promise.all(imageIds.map(id => {
+      return cloudinary.uploader.destroy(id);
+    }));
 
-     }
-
-
-    // Delete the post from the database
-    Item.findByIdAndRemove(postId, (err) => {
-      if (err) {
-        req.flash('error', 'There is Error while deleting this product');
-        return res.redirect('/profile');
-      }
-      req.flash('success', 'You have successfully deteted one item');
-      res.redirect('/profile');
-    });
-  });
+    // Now delete the post from the database
+    await Item.findByIdAndRemove(post);
+    req.flash('success', 'You have successfully deteted one item');
+    res.redirect('/profile');
+  } catch (error) {
+    req.flash('error', 'There is Error while deleting this product');
+    return res.redirect('/profile');
+  }
 };
 
 

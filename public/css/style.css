@@ -867,6 +867,7 @@ input[class=contact2], select, textarea {
  margin-bottom: 16px;
  resize: vertical;
  color: grey;
+ text-transform: lowercase;
 }
 
 input[type=submit] {

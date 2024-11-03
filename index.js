@@ -7,6 +7,8 @@ const cookieParser = require('cookie-parser');
 const bodyParser = require('body-parser');
 const session = require('cookie-session');
 const flash = require('connect-flash');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const User = require("./models/User");
 const app = express();
 
@@ -31,7 +33,7 @@ app.use(express.urlencoded({ extended: true }));
 
 
 app.use(cookieParser());
- 
+
 // Configure express-flash and express-session
 app.use(session({
   secret: 'jwtSecret',
@@ -39,6 +41,8 @@ app.use(session({
   saveUninitialized: false,
 }));
 
+
+app.locals.cloudinary = cloudinary;
 
 app.use(flash());
 

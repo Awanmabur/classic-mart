@@ -17,23 +17,23 @@
       		<!-- fade css -->
 
       		<div class="myslideit fade">
-      			<img id="slide" src="/uploads/<%= item.image1 %>" alt="item Image" width="100%" height="auto" alt="">
+      			<img id="slide" src="<%= cloudinary.url(item.image1_id) %>" alt="item Image" width="100%" height="auto" alt="">
       		</div>
 
       		<div class="myslideit fade">
-      			<img id="slide" src="/uploads/<%= item.image2 %>" alt="item Image" width="100%" height="auto" alt="">
+      			<img id="slide" src="<%= cloudinary.url(item.image2_id) %>" alt="item Image" width="100%" height="auto" alt="">
       		</div>
 
       		<div class="myslideit fade">
-      			<img id="slide" src="/uploads/<%= item.image3 %>" alt="item Image" width="100%" height="auto" alt="">
+      			<img id="slide" src="<%= cloudinary.url(item.image3_id) %>" alt="item Image" width="100%" height="auto" alt="">
       		</div>
 
       		<div class="myslideit fade">
-      			<img id="slide" src="/uploads/<%= item.image4 %>" alt="item Image" width="100%" height="auto" alt="">
+      			<img id="slide" src="<%= cloudinary.url(item.image4_id) %>" alt="item Image" width="100%" height="auto" alt="">
       		</div>
 
           <div class="myslideit fade">
-      			<img id="slide" src="/uploads/<%= item.image5  %>" alt="item Image" width="100%" height="auto" alt="">
+      			<img id="slide" src="<%= cloudinary.url(item.image5_id) %>" alt="item Image" width="100%" height="auto" alt="">
       		</div>
 
       		<!-- /fade css -->
@@ -45,11 +45,11 @@
       		<div class="dotsboxit" style="text-align:center">
       			<table>
       				<tr>
-      					<td><img class="dotit" onclick="currentSlideit(1)" src="/uploads/<%= item.image1  %>" alt="item Image" width="100%" height="auto" alt=""></td>
-                <td><img class="dotit" onclick="currentSlideit(2)" src="/uploads/<%= item.image2 %>" alt="item Image1" width="100%" height="auto" alt=""></td>
-                <td><img class="dotit" onclick="currentSlideit(3)" src="/uploads/<%= item.image3 %>" alt="item Image2" width="100%" height="auto" alt=""></td>
-                <td><img class="dotit" onclick="currentSlideit(4)" src="/uploads/<%= item.image4 %>" alt="item Image3" width="100%" height="auto" alt=""></td>
-                <td><img class="dotit" onclick="currentSlideit(5)" src="/uploads/<%= item.image5 %>" alt="item Image4" width="100%" height="auto" alt=""></td>
+      					<td><img class="dotit" onclick="currentSlideit(1)" src="<%= cloudinary.url(item.image1_id) %>" alt="item Image" width="100%" height="auto" alt=""></td>
+                <td><img class="dotit" onclick="currentSlideit(2)" src="<%= cloudinary.url(item.image2_id) %>" alt="item Image1" width="100%" height="auto" alt=""></td>
+                <td><img class="dotit" onclick="currentSlideit(3)" src="<%= cloudinary.url(item.image3_id) %>" alt="item Image2" width="100%" height="auto" alt=""></td>
+                <td><img class="dotit" onclick="currentSlideit(4)" src="<%= cloudinary.url(item.image4_id) %>" alt="item Image3" width="100%" height="auto" alt=""></td>
+                <td><img class="dotit" onclick="currentSlideit(5)" src="<%= cloudinary.url(item.image5_id) %>" alt="item Image4" width="100%" height="auto" alt=""></td>
       					<!-- <td><img class="dotit" onclick="currentSlideit(2)" src=".././images/app.jpg"></td>
       					<td><img class="dotit" onclick="currentSlideit(3)" src=".././images/s3.jpg"></td>
       					<td><img class="dotit" onclick="currentSlideit(4)" src=".././images/s4.jpg"></td>

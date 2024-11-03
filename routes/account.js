@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require("fs")
+const cloudinary = require('cloudinary').v2;
 
 const account = require("../controllers/account");
 const jwt = require('jsonwebtoken');

@@ -3,6 +3,8 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require("fs")
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const Item = require('../models/Item');
 
@@ -13,33 +15,20 @@ const {checkLoginStatus} = require("../middlewares/loginStatus");
 const items = require("../controllers/item");
 
 const {requireLogin} = require("../middlewares/loginrequest");
- 
+
 const {checkPostLimit} = require("../middlewares/checkPostLimit");
 
-// Set storage engine for multer
-const storage = multer.diskStorage({
-  destination: './public/uploads/',
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + file.originalname);
-  }
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, // Your Cloudinary cloud name
+  api_key: process.env.CLOUDINARY_API_KEY,       // Your Cloudinary API key
+  api_secret: process.env.CLOUDINARY_API_SECRET, // Your Cloudinary API secret
 });
 
-// const upload = multer({ storage: storage });
-const upload = multer({
-  storage,
-  // limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
-  fileFilter: (req, file, cb) => {
-    // Check file format
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg'];
-    if (allowedMimeTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      req.fileValidationError = 'Only JPEG, PNG, and jpg images are allowed!';
-      cb(null, false);
-    }
-  },
-});
-
+// Set up Cloudinary storage
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
 // Middleware to check file size
 const checkFileSize = (req, res, next) => {
@@ -49,7 +38,8 @@ const checkFileSize = (req, res, next) => {
 
   for (let key in req.files) {
     if (req.files[key][0].size > 2 * 1024 * 1024) {
-      return res.status(400).send(`${key} exceeds the 2MB limit.`);
+      req.flash('error', `${key} exceeds the 2MB limit.`);
+      return res.redirect('/profile');
     }
   }
 

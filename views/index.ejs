@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Posts with Images</title>
+</head>
+<body>
+  <h1>Create a New Post</h1>
+  <form action="/create" method="POST" enctype="multipart/form-data">
+    <input type="text" name="title" placeholder="Title" required><br>
+    <textarea name="content" placeholder="Content" required></textarea><br>
+    <input type="file" name="image1" required><br>
+    <input type="file" name="image2" required><br>
+    <input type="file" name="image3" required><br>
+    <button type="submit">Create Post</button>
+  </form>
+
+  <h2>All Posts</h2>
+  <% posts.forEach(post => { %>
+    <div>
+      <h3><%= post.title %></h3>
+      <p><%= post.content %></p>
+      <img src="<%= cloudinary.url(post.image1_id) %>" alt="Image 1" style="width:100px;">
+      <img src="<%= cloudinary.url(post.image2_id) %>" alt="Image 2" style="width:100px;">
+      <img src="<%= cloudinary.url(post.image3_id) %>" alt="Image 3" style="width:100px;">
+
+      <!-- Edit form -->
+      <form action="/edit/<%= post._id %>" method="POST" enctype="multipart/form-data">
+        <input type="text" name="title" value="<%= post.title %>" required><br>
+        <textarea name="content" required><%= post.content %></textarea><br>
+        <input type="file" name="image1"><br>
+        <input type="file" name="image2"><br>
+        <input type="file" name="image3"><br>
+        <button type="submit">Edit Post</button>
+      </form>
+
+      <!-- Delete form -->
+      <form action="/delete/<%= post._id %>" method="POST" style="display:inline;">
+        <button type="submit">Delete Post</button>
+      </form>
+    </div>
+  <% }) %>
+</body>
+</html>
