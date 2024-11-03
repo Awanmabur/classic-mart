@@ -61,7 +61,7 @@ exports.register = async (req, res, next) => {
       expiresIn: '1h',
     });
     req.session.token = token;
-    req.flash('welcome', 'welcome to the best first online selling platform');
+    req.flash('welcome', 'welcome to the number one online selling platform in south sudan');
     res.redirect('/profile');
   } catch (error) {
     req.flash('error', 'There is Error while sigining up, please try again later');

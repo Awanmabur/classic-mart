@@ -13,8 +13,8 @@
         <h4 style="margin-top: -10px" id="itemname"><%= item.itemname?.slice(0, 25) %>.... </h4>
         <table>
           <tr>
-            <td><p id="InitialPrice">AU$<%= calculateInitialPrice(item.price) %></p></td>
-            <td><h3 id="realprice">AU$<%= item.price %> </h3></td>
+            <td><p id="InitialPrice"><%= item.currency %> <%= calculateInitialPrice(item.price) %></p></td>
+            <td><h3 id="realprice"><%= item.currency %> <%= item.price %> </h3></td>
           </tr>
          </table>
         </div>
