@@ -1,4 +1,6 @@
 require('dotenv').config()
+const { SitemapStream, streamToPromise } = require('sitemap');
+const { createGzip } = require('zlib');
 const express =require('express');
 const path = require('path');
 const mongoose = require('mongoose');
@@ -62,16 +64,28 @@ app.use(function (req, res, next) {
   next();
 });
 
-app.get('/image-proxy', async (req, res) => {
-    const imageUrl = req.query.url;
-    try {
-        const response = await axios.get(imageUrl, { responseType: 'stream' });
-        res.setHeader('Content-Type', response.headers['content-type']);
-        response.data.pipe(res);
-    } catch (error) {
-        res.status(500).send('Error fetching image');
-    }
+app.get('/sitemap.xml', (req, res) => {
+    res.header('Content-Type', 'application/xml');
+    res.header('Content-Encoding', 'gzip');
+
+    const sitemap = new SitemapStream({ hostname: 'https://www.junubmart.com/' });
+    const pipeline = sitemap.pipe(createGzip());
+
+    sitemap.write({ url: '/', changefreq: 'daily', priority: 1.0 });
+    sitemap.write({ url: '/about', changefreq: 'monthly', priority: 0.8 });
+    sitemap.end();
+
+    streamToPromise(pipeline).then(sm => res.send(sm)).catch((err) => {
+        console.error(err);
+        res.status(500).end();
+    });
 });
+
+app.get('/robots.txt', (req, res) => {
+    res.type('text/plain');
+    res.sendFile(path.join(__dirname, 'public/robots.txt'));
+});
+
 // ***********************************Routes ********************************//
 app.use(require("./routes/index"))
 app.use(require("./routes/users"))
