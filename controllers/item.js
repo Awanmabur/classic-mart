@@ -99,25 +99,31 @@ try {
   const { itemname, category, price, currency, description } = req.body;
   const files = req.files;
   // Upload each image and retrieve its public_id
-   const uploadedImages = await Promise.all(
-     ['image1', 'image2', 'image3', 'image4', 'image5'].map( async (field) => {
-       if (req.files[field]) {
+  // Process images using sharp and upload to Cloudinary
+const uploadedImages = await Promise.all(
+ ['image1', 'image2', 'image3', 'image4', 'image5'].map(async (field) => {
+   if (req.files[field]) {
+     // Resize the image and convert to buffer
+     const buffer = await sharp(req.files[field][0].buffer)
+       .resize(800)
+       .jpeg({ quality: 80 })
+       .toBuffer();
 
-         const buffer = await sharp(files[field][0].buffer)
-           .resize(800)
-           .jpeg({ quality: 80 })
-           .toBuffer();
+     // Upload image buffer to Cloudinary
+     return new Promise((resolve, reject) => {
+       cloudinary.uploader.upload_stream(
+         { folder: 'classic_mart' },
+         (error, result) => {
+           if (error) reject(error);
+           else resolve(result.public_id);
+         }
+       ).end(buffer); // Use the processed buffer here
+     });
+   }
+   return null; // Return null for optional images that are not uploaded
+ })
+);
 
-         return new Promise((resolve, reject) => {
-           cloudinary.uploader.upload_stream({ folder: 'classic_mart' }, (error, result) => {
-             if (error) reject(error);
-             else resolve(result.public_id);
-           }).end(req.files[field][0].buffer);
-         });
-       }
-       return null; // Return null for optional images that are not uploaded
-     })
-   );
 
   // If the image doesn't exist, save it to the database
   const item = new Item({
