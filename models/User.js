@@ -38,7 +38,7 @@ const UserSchema = new mongoose.Schema({
   phonecall: {
     type: String
   },
-  image: {
+  image_id: {
     type: String,
   },
   role : { type: String, enum: {

@@ -14,7 +14,7 @@
                   <% }); %>
 
               <% } else { %>
-                <img src="/images/logo.png" alt="">
+                <img src="https://res.cloudinary.com/drz8slibo/image/upload/<%= user.image_id %>" alt="item Image">
               <% } %>
 
   						<h1><%= user.fname %> <%= user.lname %></h1>
@@ -68,5 +68,5 @@
 
   <%-include("../account/main-index") %>
 
- 
+
 <!-- dashboard page end-->

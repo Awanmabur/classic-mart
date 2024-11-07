@@ -18,28 +18,16 @@ const {requireLogin} = require("../middlewares/loginrequest");
 
 const {checkLoginStatus} = require("../middlewares/loginStatus");
 
-// Set storage engine for multer
-const storage = multer.diskStorage({
-  destination: './public/uploads/',
-  filename: (req, file, cb) => {
-    cb(null, file.originalname)
-  }
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, // Your Cloudinary cloud name
+  api_key: process.env.CLOUDINARY_API_KEY,       // Your Cloudinary API key
+  api_secret: process.env.CLOUDINARY_API_SECRET, // Your Cloudinary API secret
 });
 
-// const upload = multer({ storage: storage });
-const upload = multer({
-  storage,
-  fileFilter: (req, file, cb) => {
-    // Check file format
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg'];
-    if (allowedMimeTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      req.fileValidationError = 'Only JPEG, PNG, and jpg images are allowed!';
-      cb(null, false);
-    }
-  },
-});
+// Set up Cloudinary storage
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
 
 const ensureDeviceId = (req, res, next) => {

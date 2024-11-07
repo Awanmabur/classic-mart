@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const Item = require('../models/Item');
 const User = require("../models/User");
+const cloudinary = require('cloudinary').v2;
+const sharp = require('sharp');
 
 
 // Add this function definition before app.get('/'...)
@@ -256,39 +258,49 @@ exports.edit = async (req, res, next) => {
 };
 
 
+
+
 // ***edit update route***
 exports.update = async (req, res, next) => {
 try {
   const { id } = req.params;
   const { bios, fname, lname, whatsapp, phonecall } = req.body;
-  // Check if an image was uploaded
-  let imageUrl;
-  if (req.file) {
-    imageUrl = req.file.filename;
-  }
-
-  if (req.fileValidationError) {
-    return res.status(400).json({ error: req.fileValidationError });
-  }
-  // Check the size of the uploaded image
-  if (imageUrl && req.file.size > 5 * 1024 * 1024) {
-    fs.unlinkSync(req.file.path);
-    req.flash('error', 'Image size exceeds the limit (2MB).');
-    return res.redirect('/profile');
-  }
-
   // Find the existing blog post by ID
   const existingPost = await User.findById({ _id: id });
         if (!existingPost) {
-          req.flash('error', 'This post is not available')
+          req.flash('error', 'The item you are trying to check is not available')
           return res.redirect('/profile');
         }
 
-  // Delete the old image if a new image was uploaded
-  if (imageUrl && existingPost.image) {
-    const imagePath = path.join(__dirname, '../public/uploads', existingPost.image);
-    fs.unlinkSync(imagePath); // Delete the old image file
-  }
+        const file = req.file; // Assuming you're using a single file upload (e.g., `upload.single('image')` in multer)
+
+       // Check if a new image was uploaded
+       if (file) {
+         // Delete the old image from Cloudinary if it exists
+         if (existingPost.image_id) {
+           await cloudinary.uploader.destroy(existingPost.image_id);
+         }
+
+         // Compress and upload the new image
+         const buffer = await sharp(file.buffer)
+           .resize(800)
+           .jpeg({ quality: 80 })
+           .toBuffer();
+
+         // Upload the new image to Cloudinary
+         const uploadedImage = await new Promise((resolve, reject) => {
+           cloudinary.uploader.upload_stream(
+             { folder: 'classic_mart' },
+             (error, result) => {
+               if (error) reject(error);
+               else resolve(result.public_id);
+             }
+           ).end(buffer);
+         });
+
+         // Update the public_id with the new image
+         existingPost.image_id = uploadedImage;
+       }
 
   // Update the blog post with the new data
   existingPost.bios = bios;
@@ -296,15 +308,14 @@ try {
   existingPost.lname = lname;
   existingPost.whatsapp = whatsapp;
   existingPost.phonecall = phonecall;
-  existingPost.image = imageUrl || existingPost.image; // Use the new image URL or keep the existing one
 
   // Save the updated blog post
   await existingPost.save();
-  req.flash('success', 'You have successfully updated your profile.');
+  req.flash('success', 'You have successfully updated one item.');
   res.redirect('/profile');
 
 } catch (error) {
-  req.flash('error', 'there is problem updating your post');
+  req.flash('error', 'there is problem updating your item');
   return res.redirect('/profile');
-}
+  }
 };
