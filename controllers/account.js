@@ -101,8 +101,14 @@ exports.index = async (req, res, next) => {
 exports.subscription = async (req, res, next) => {
  try {
   const { plan } = req.body;
-  const userId = req.user;
-  const user = await User.findById(userId);
+ 
+  const email = req.body.email;
+  // find user with email address
+  const user = await User.findOne({ email:{ $regex: `^${email}$`, $options: 'i' } });
+     if (!user) {
+       req.flash('error', 'Email does not exists');
+       return res.redirect('/signup');
+  }
 
   // Set subscription expiry based on the selected plan
   let duration;

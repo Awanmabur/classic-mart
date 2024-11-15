@@ -44,10 +44,12 @@
           <td><%= user.email %></td>
           <td><form  style="width:80%;" action="/subscribe" method="POST">
               <!-- <label for="plan">Choose a subscription plan:</label> -->
+              <input type="hidden" name="email" value="<%= user.email %>">
               <select name="plan" id="plan" required>
+
                 <option value="monthly">Monthly ($10)</option>
                 <option value="quarterly">Quarterly ($25)</option>
-                <option value="annually">Annually ($90)</option>
+                <option value="annually">Annually ($100)</option>
               </select>
               <button type="submit">Submit</button>
             </form>

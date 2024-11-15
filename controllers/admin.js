@@ -127,7 +127,7 @@ exports.deleteUser = async (req, res, next) => {
     }
   });
 };
- 
+
 
 // ***deleteUser route***
 exports.suspendUser = async (req, res, next) => {
