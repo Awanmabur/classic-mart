@@ -76,7 +76,7 @@
 
     const link = encodeURI(window.location.href);
     const msg = encodeURIComponent('Please check this awesome product');
-    const title = encodeURIComponent(`$ <%= item.itemname %> `);
+    const title = encodeURIComponent('.item_title');
 
     const fb = document.querySelector('.facebook');
     fb.href = `https://www.facebook.com/share.php?u=${link}`;
