@@ -55,6 +55,14 @@ function authenticateToken(req, res, next) {
 }
 
 
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
 
 router.get('/profile/', authenticateToken, checkLoginStatus, account.index);
 
@@ -76,9 +84,10 @@ router.post('/subscribe', authenticateToken, checkLoginStatus, account.subscript
 router.get('/profile-home', async (req, res) => {
   const userId = req.user;
   const users = await User.find();
+  const shuffledPosts = shuffleArray([...item]);
   const isProfileOwner = await User.findById(userId);
   const myPosts = await Item.countDocuments({user:req.user});
-   res.render('account/allusers', { users, isProfileOwner, myPosts });
+   res.render('account/allusers', { users:shuffledPosts, isProfileOwner, myPosts });
 });
 
 module.exports = router;
