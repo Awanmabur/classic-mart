@@ -66,11 +66,11 @@ router.get('/', authenticateToken, checkLoginStatus, async (req, res) => {
   const beauty = await Item.find({ category: 'beauty' });
   const baby = await Item.find({ category: 'baby' });
 
-  res.render("home/index", { query, user, isProfileOwner, users, item:shuffledPosts, promotedItems,
-    phones, computers, electronics, garden, home, household,
-    men, women, kids, baby, toy, pet, bags, crafts, industrial,
-    beauty, health, automotive, appliances, food,
-    jewelry, office, sports, musical, calculateInitialPrice
+  res.render("home/index", { query, user, isProfileOwner, users, item:shuffledPosts, promotedItems:shuffledPosts,
+    phones:shuffledPosts, computers:shuffledPosts, electronics:shuffledPosts, garden:shuffledPosts, home:shuffledPosts, household:shuffledPosts,
+    men:shuffledPosts, women:shuffledPosts, kids:shuffledPosts, baby:shuffledPosts, toy:shuffledPosts, pet:shuffledPosts, bags:shuffledPosts, crafts:shuffledPosts, industrial:shuffledPosts,
+    beauty:shuffledPosts, health:shuffledPosts, automotive:shuffledPosts, appliances:shuffledPosts, food:shuffledPosts,
+    jewelry:shuffledPosts, office:shuffledPosts, sports:shuffledPosts, musical:shuffledPosts, calculateInitialPrice
   });
 });
 
@@ -129,7 +129,7 @@ router.get('/search', authenticateToken, checkLoginStatus, async (req, res) => {
   const isProfileOwner = await User.findById(userId);
   const promotedItems = await Item.find({ isPromoted: true });
   if (!query) {
-    return res.render('partials/results', { results: [], item, promotedItems, users, calculateInitialPrice, isProfileOwner, query });
+    return res.render('partials/results', { results: [], item:shuffledPosts, promotedItems, users, calculateInitialPrice, isProfileOwner, query });
   }
 
   const regex = new RegExp(query, 'i'); // case-insensitive search
@@ -139,7 +139,7 @@ router.get('/search', authenticateToken, checkLoginStatus, async (req, res) => {
           { description: { $regex: query, $options: 'i' } }
       ]
   });
-  res.render('partials/results', { results, users, item:shuffledPosts, promotedItems, isProfileOwner, calculateInitialPrice, query });
+  res.render('partials/results', { results:shuffledPosts, users, item:shuffledPosts, promotedItems:shuffledPosts, isProfileOwner, calculateInitialPrice, query });
 });
 
 

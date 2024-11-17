@@ -12,6 +12,15 @@ function calculateInitialPrice(realPrice) {
     return Math.round(initialPrice / 10) * 15; // Round to the nearest 10
 }
 
+
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
 // ***index route***
 exports.index = async (req, res, next) => {
   try {
@@ -27,6 +36,7 @@ exports.index = async (req, res, next) => {
 
     const promotedItems = await Item.find({ isPromoted: true });
     const item = await Item.find({user:req.user});
+    const shuffledPosts = shuffleArray([...item]);
     const phones = await Item.find({ category: 'phones' });
     const women = await Item.find({ category: 'women' });
     const crafts = await Item.find({ category: 'crafts' });
@@ -85,7 +95,7 @@ exports.index = async (req, res, next) => {
   }
 }
 
-    res.render('./account/dashboard', { subscriptionValid, daysLeft, totalDays, percentageLeft, query, deviceId, isProfileOwner, userId, users, user, myPosts, oneUser, promotedItems, item,
+    res.render('./account/dashboard', { subscriptionValid, daysLeft, totalDays, percentageLeft, query, deviceId, isProfileOwner, userId, users, user, myPosts, oneUser, promotedItems, item:shuffledPosts,
       phones, computers, electronics, garden, home, household,
       men, women, kids, baby, toy, pet, bags, crafts,
       beauty, health, automotive, appliances, food, industrial,
@@ -101,7 +111,7 @@ exports.index = async (req, res, next) => {
 exports.subscription = async (req, res, next) => {
  try {
   const { plan } = req.body;
- 
+
   const email = req.body.email;
   // find user with email address
   const user = await User.findOne({ email:{ $regex: `^${email}$`, $options: 'i' } });
@@ -166,6 +176,7 @@ exports.visit = async (req, res, next) => {
     const myPosts = await Item.countDocuments({ owner: user._id });
     const promotedItems = await Item.find({ isPromoted: true });
     const item = await Item.find({user});
+    const shuffledPosts = shuffleArray([...item]);
     const bedsheets = await Item.find({ category: 'bedsheets' });
     const womenwear = await Item.find({ category: 'women wear' });
     const menwear = await Item.find({ category: 'men wear' });
@@ -178,7 +189,7 @@ exports.visit = async (req, res, next) => {
     const decoration = await Item.find({ category: 'decoration crochet' });
     const ladiesshoes = await Item.find({ category: 'ladies shoes' });
 
-    res.render('./account/usersprofile', { currentUser, query, visit, deviceId, isProfileOwner, profileId, userId, users, user, myPosts, oneUser, promotedItems, item, african, blowdry, decoration,
+    res.render('./account/usersprofile', { currentUser, query, visit, deviceId, isProfileOwner, profileId, userId, users, user, myPosts, oneUser, promotedItems, item:shuffledPosts, african, blowdry, decoration,
       bedsheets, womenwear, menwear, menshoes, children, ladies, pillow, ladiesshoes, calculateInitialPrice });
  } catch (error) {
     req.flash('error', 'There is problem getting your dashboard, please try again later.');
