@@ -23,6 +23,14 @@ function authenticateToken(req, res, next) {
   });
 }
 
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
 router.get('/', authenticateToken, checkLoginStatus, async (req, res) => {
   const userId = req.user;
   const query = req.query.q;
@@ -31,6 +39,7 @@ router.get('/', authenticateToken, checkLoginStatus, async (req, res) => {
   const isProfileOwner = await User.findById(userId);
 
   const item = await Item.find({});
+  const shuffledPosts = shuffleArray([...item]);
   const promotedItems = await Item.find({ isPromoted: true });
   const phones = await Item.find({ category: 'phones' });
   const women = await Item.find({ category: 'women' });
@@ -57,7 +66,7 @@ router.get('/', authenticateToken, checkLoginStatus, async (req, res) => {
   const beauty = await Item.find({ category: 'beauty' });
   const baby = await Item.find({ category: 'baby' });
 
-  res.render("home/index", { query, user, isProfileOwner, users, item, promotedItems,
+  res.render("home/index", { query, user, isProfileOwner, users, item:shuffledPosts, promotedItems,
     phones, computers, electronics, garden, home, household,
     men, women, kids, baby, toy, pet, bags, crafts, industrial,
     beauty, health, automotive, appliances, food,
@@ -73,7 +82,9 @@ router.get('/promoted', authenticateToken, checkLoginStatus, async (req, res) =>
   const isProfileOwner = await User.findById(userId);
   const query = req.query.q;
   const item = await Item.find({isPromoted: true});
+
   const promotedItems = await Item.find({ isPromoted: true });
+  const shuffledPosts = shuffleArray([...promotedItems]);
   const phones = await Item.find({ category: 'phones' });
   const women = await Item.find({ category: 'women' });
   const crafts = await Item.find({ category: 'crafts' });
@@ -99,7 +110,7 @@ router.get('/promoted', authenticateToken, checkLoginStatus, async (req, res) =>
   const beauty = await Item.find({ category: 'beauty' });
   const baby = await Item.find({ category: 'baby' });
 
-  res.render("Item/promotedItems", { query, user, isProfileOwner, promotedItems, users, item,
+  res.render("Item/promotedItems", { query, user, isProfileOwner, promotedItems:shuffledPosts, users, item:shuffledPosts,
     phones, computers, electronics, garden, home, household,
     men, women, kids, baby, toy, pet, bags, crafts, industrial,
     beauty, health, automotive, appliances, food,
@@ -113,6 +124,7 @@ router.get('/search', authenticateToken, checkLoginStatus, async (req, res) => {
   const { query } = req.query;
   const userId = req.user;
   const item = await Item.find({ });
+  const shuffledPosts = shuffleArray([...item]);
   const users = await User.find();
   const isProfileOwner = await User.findById(userId);
   const promotedItems = await Item.find({ isPromoted: true });
@@ -127,7 +139,7 @@ router.get('/search', authenticateToken, checkLoginStatus, async (req, res) => {
           { description: { $regex: query, $options: 'i' } }
       ]
   });
-  res.render('partials/results', { results, users, item, promotedItems, isProfileOwner, calculateInitialPrice, query });
+  res.render('partials/results', { results, users, item:shuffledPosts, promotedItems, isProfileOwner, calculateInitialPrice, query });
 });
 
 
