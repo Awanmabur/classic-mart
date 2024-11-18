@@ -7,7 +7,14 @@
       <td><button class="custom-btn btn-7"><span><li class="tab-header active" onclick="showTab(0)">All</li></span></button></td>
       <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(1)">women</li></span></button></td>
       <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(2)">Men</li></span></button></td>
+     <% if (kids.length > 0) { %>
+       <% if (item.category === 'kids') { %>
       <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(3)">kids</li></span></button></td>
+      <% } %>
+           
+      <% } else { %>
+      <p class="emptyitem">No</p>
+      <% } %>
       <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(4)">jewelry</li></span></button></td>
       <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(5)">beauty</li></span></button></td>
       <td><button class="custom-btn btn-7"><span><li class="tab-header" onclick="showTab(6)">phones</li></span></button></td>
