@@ -90,4 +90,9 @@ router.get('/profile-home', async (req, res) => {
    res.render('account/allusers', { users:shuffledPosts, isProfileOwner, myPosts });
 });
 
+// Home Route
+router.get('/contact', async (req, res) => {
+   res.render('account/contact');
+});
+
 module.exports = router;
