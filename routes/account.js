@@ -82,6 +82,7 @@ router.post('/subscribe', authenticateToken, checkLoginStatus, account.subscript
 
 // Home Route
 router.get('/profile-home', async (req, res) => {
+  const item = await Item.find({});
   const userId = req.user;
   const users = await User.find();
   const shuffledPosts = shuffleArray([...item]);
