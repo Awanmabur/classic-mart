@@ -160,8 +160,8 @@ exports.visit = async (req, res, next) => {
     const visit = await User.findById(req.params.id);
     const query = req.query.q;
     const userId = req.user;
-     const currentUser = req.user;
-    const user = await User.findById(visit);
+    const currentUser = req.user;
+    const user = await User.find();
 
     const deviceId = req.body.deviceId;
     const profileId = await User.findById(req.params.id);

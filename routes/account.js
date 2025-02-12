@@ -82,13 +82,19 @@ router.post('/subscribe', authenticateToken, checkLoginStatus, account.subscript
 
 // Home Route
 router.get('/profile-home', async (req, res) => {
+  try {
   const item = await Item.find({});
   const userId = req.user;
+  const user = await User.findById(userId);
   const users = await User.find();
   const shuffledPosts = shuffleArray([...item]);
   const isProfileOwner = await User.findById(userId);
   const myPosts = await Item.countDocuments({user:req.user});
    res.render('account/allusers', { users:shuffledPosts, isProfileOwner, myPosts });
+ } catch (error) {
+   req.flash('error', 'There is problem getting your dashboard, please try again later.');
+   return res.redirect('/');
+ }
 });
 
 // Home Route
