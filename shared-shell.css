@@ -1,0 +1,22 @@
+/* Internal storefront pages reuse the homepage header, search, newsletter and footer. */
+.shared-site-header .browse-button { text-decoration: none; }
+.shared-utility-bar a.text-button,
+.shared-utility-bar .language-button { text-decoration: none; }
+.shared-site-footer .footer-link {
+  display: inline-block;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-decoration: none;
+}
+.shared-newsletter { margin-top: 24px; }
+.onboarding-skipbar { width: min(1240px, calc(100% - 32px)); margin: 18px auto 0; }
+
+/* Auth and onboarding pages intentionally have no marketplace header or footer. */
+.auth-standalone-page .auth-main { min-height: 100vh; padding-top: 28px; padding-bottom: 28px; }
+.auth-standalone-page.onboarding-page .onboarding-shell { min-height: 100vh; }
+
+@media (max-width: 760px) {
+  .shared-newsletter { margin-top: 24px; }
+  .auth-standalone-page .auth-main { min-height: 100dvh; padding-top: 12px; padding-bottom: 24px; }
+}

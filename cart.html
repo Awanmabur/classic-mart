@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+<meta content="Complete your Classic Mart order through Cart, Checkout and Confirm steps." name="description"/>
+<meta content="#ff6500" name="theme-color"/>
+<title>Cart &amp; Checkout — Classic Mart</title>
+<link href="https://dummyjson.com" rel="preconnect"/>
+<link href="styles.css" rel="stylesheet"/>
+<link href="storefront-pages.css" rel="stylesheet"/>
+</head>
+<body class="storefront-page checkout-page">
+<a class="skip-link" href="#cartContent">Skip to checkout</a><div class="utility-bar">
+<div class="container utility-inner">
+<button class="utility-location text-button" data-open="locationModal" type="button">
+<img alt="" aria-hidden="true" src="https://api.iconify.design/fa6-solid/location-dot.svg"/>
+        Deliver to <strong id="deliveryLocation">New York, USA</strong>
+</button>
+<div class="shipping-note">
+<img alt="" aria-hidden="true" src="https://api.iconify.design/fa6-solid/truck-fast.svg"/>
+<strong>Free Shipping</strong> on orders over $59
+      </div>
+<nav aria-label="Utility navigation" class="utility-links">
+<a class="text-button" href="signup.html?role=seller">Sell on Classic Mart</a>
+<a class="text-button utility-text-link" href="sellers.html">Seller Center</a><a class="text-button utility-text-link" href="promoters.html">Promoters Center</a>
+<a class="text-button" href="track-order.html">Track Order</a>
+<a class="text-button" href="help.html">Help &amp; Support</a>
+<button aria-expanded="false" class="language-button" id="languageButton" type="button">
+<img alt="" aria-hidden="true" src="https://api.iconify.design/fa6-solid/globe.svg"/> EN | USD
+          <img alt="" aria-hidden="true" class="tiny-icon" src="https://api.iconify.design/fa6-solid/chevron-down.svg"/>
+</button>
+</nav>
+</div>
+</div><header class="site-header" id="top">
+<div class="container header-main">
+<a aria-label="Classic Mart home" class="brand" href="index.html#top">
+<span class="brand-word">Classic<span>Mart</span></span>
+<small>Everything, for everyone</small>
+</a>
+<form class="search-bar" id="searchForm" role="search">
+<label class="sr-only" for="searchCategory">Product category</label>
+<select aria-label="Product category" class="category-select" id="searchCategory">
+<option value="all">All Categories</option>
+<option value="electronics">Electronics</option>
+<option value="fashion">Fashion</option>
+<option value="home">Home &amp; Kitchen</option>
+<option value="beauty">Beauty &amp; Health</option>
+<option value="sports">Sports &amp; Outdoors</option>
+<option value="books">Books &amp; Stationery</option>
+</select>
+<label class="sr-only" for="searchInput">Search products</label>
+<input autocomplete="off" id="searchInput" placeholder="Search for products, brands and more..." type="search"/>
+<button class="search-button" type="submit">
+<img alt="" aria-hidden="true" src="https://api.iconify.design/fa6-solid/magnifying-glass.svg"/><span>Search</span>
+</button>
+<div aria-label="Search suggestions" class="search-suggestions" id="searchSuggestions" role="listbox"></div>
+</form>
+<div class="header-actions">
+<a aria-label="Open your Classic Mart profile" class="header-action header-action-link" href="profile.html">
+<span class="header-action-icon"><img alt="" aria-hidden="true" src="assets/icons/user.svg"/></span>
+<span class="header-action-copy"><small>Your account</small><strong>Profile</strong></span>
+<img alt="" aria-hidden="true" class="header-chevron" src="assets/icons/chevron-right.svg"/>
+</a>
+<a aria-label="Open your wishlist" class="header-action wishlist-trigger" href="wishlist.html"><span class="header-action-icon"><img alt="" aria-hidden="true" src="assets/icons/heart-regular.svg"/></span><span class="header-action-copy"><small>Saved items</small><strong>Wishlist</strong></span><b class="count-badge wishlist-count-badge" data-wishlist-count="">0</b></a><a aria-label="Open your full cart and checkout" class="header-action cart-trigger" href="cart.html" id="cartTrigger">
+<span class="header-action-icon"><img alt="" aria-hidden="true" src="assets/icons/cart-shopping.svg"/></span>
+<span class="header-action-copy"><small>Your basket</small><strong>Cart</strong></span>
+<b class="count-badge" id="cartCount">0</b>
+</a>
+</div>
+</div>
+<div class="nav-shell">
+<div class="container nav-inner">
+<button aria-controls="categoryPanel" aria-expanded="false" class="browse-button" id="menuToggle" type="button">
+<img alt="" aria-hidden="true" src="https://api.iconify.design/fa6-solid/bars.svg"/>
+<span>Browse Categories</span>
+<img alt="" aria-hidden="true" class="browse-chevron" src="https://api.iconify.design/fa6-solid/chevron-down.svg"/>
+</button>
+<nav aria-label="Primary navigation" class="primary-nav" id="primaryNav">
+<span class="primary-nav-main">
+<a class="active" href="index.html#top">Home</a>
+<a href="categories.html">Categories <span class="tiny-badge">9</span></a>
+<a href="products.html?view=deals">Flash Deals <span class="hot-badge">HOT</span></a>
+<a href="products.html?view=new">New Arrivals</a>
+<a href="products.html?view=brands">Top Brands</a>
+<a href="index.html#features">Features <img alt="" aria-hidden="true" src="https://api.iconify.design/fa6-solid/chevron-down.svg"/></a>
+<a href="wishlist.html">Wishlist</a></span>
+<span aria-label="Featured marketplace links" class="primary-nav-end">
+<a href="products.html?view=deals">Best Deals</a>
+<a class="classic-live-link" href="products.html?view=fresh"><span aria-hidden="true" class="live-dot"></span>Classic Live</a>
+</span>
+</nav>
+<button aria-label="Open search" class="mobile-search-button" id="mobileSearchButton" type="button">
+<img alt="" aria-hidden="true" src="https://api.iconify.design/fa6-solid/magnifying-glass.svg"/>
+</button>
+</div>
+</div>
+</header>
+<main class="checkout-main page-shell" id="cartContent">
+<header class="checkout-heading">
+<div>
+<span>Secure order flow</span>
+<h1>Complete your purchase.</h1>
+</div>
+<p>Review your basket, add delivery and payment details, then confirm everything before placing the order.</p>
+</header>
+<nav aria-label="Checkout progress" class="checkout-steps">
+<button aria-current="step" class="checkout-step active" data-step-jump="1" type="button">
+<b>1</b><span><strong>Cart</strong><small>Review items</small></span>
+</button>
+<span aria-hidden="true" class="checkout-step-line"></span>
+<button class="checkout-step" data-step-jump="2" disabled="" type="button">
+<b>2</b><span><strong>Checkout</strong><small>Delivery &amp; payment</small></span>
+</button>
+<span aria-hidden="true" class="checkout-step-line"></span>
+<button class="checkout-step" data-step-jump="3" disabled="" type="button">
+<b>3</b><span><strong>Confirm</strong><small>Place order</small></span>
+</button>
+</nav>
+<section aria-labelledby="cartStepTitle" class="checkout-screen active" data-checkout-screen="1">
+<div class="cart-page-grid">
+<section aria-labelledby="cartStepTitle" class="cart-page-card">
+<div class="cart-card-head">
+<div><span class="checkout-card-kicker">Step 1 of 3</span><h2 id="cartStepTitle">Shopping Cart</h2><p id="cartPageCount">0 items in your cart</p></div>
+<button class="clear-cart-button" id="clearCartButton" type="button">Clear cart</button>
+</div>
+<div class="cart-page-items" id="cartPageItems"></div>
+<div class="cart-empty-page" hidden="" id="cartEmptyPage">
+<span class="cart-empty-icon"><img alt="" src="assets/icons/cart-shopping.svg"/></span>
+<h2>Your cart is ready for something good.</h2>
+<p>Explore products, compare details and add the items you want to order.</p>
+<a href="index.html#trending">Start shopping</a>
+</div>
+</section>
+<aside aria-labelledby="cartSummaryTitle" class="cart-page-card cart-summary-card">
+<div class="cart-card-head"><div><span class="checkout-card-kicker">Order total</span><h2 id="cartSummaryTitle">Summary</h2><p>Clear costs before checkout</p></div></div>
+<div class="cart-summary-body">
+<div class="cart-summary-row"><span>Subtotal</span><strong data-total-subtotal="">$0.00</strong></div>
+<div class="cart-summary-row"><span>Shipping</span><strong data-total-shipping="">Free</strong></div>
+<div class="cart-summary-row discount-summary-row" hidden=""><span>Discount</span><strong data-total-discount="">−$0.00</strong></div>
+<div class="cart-summary-row total"><span>Total</span><strong data-total-final="">$0.00</strong></div>
+<form class="cart-coupon" id="couponForm">
+<label for="couponInput">Have a promo code?</label>
+<div class="cart-coupon-wrap"><input autocomplete="off" id="couponInput" placeholder="Try CLASSIC10" type="text"/><button type="submit">Apply</button></div>
+<p class="cart-coupon-status" id="couponStatus" role="status"></p>
+</form>
+<button class="checkout-primary-button" id="goToCheckout" type="button"><span>Continue to Checkout</span><img alt="" src="assets/icons/chevron-right.svg"/></button>
+<a class="checkout-secondary-link" href="index.html#trending"><img alt="" src="assets/icons/chevron-left.svg"/>Continue shopping</a>
+<div class="cart-security">
+<div><span><img alt="" src="assets/icons/lock.svg"/></span><div><strong>Secure checkout</strong><small>Protected payment and buyer support.</small></div></div>
+<div><span><img alt="" src="assets/icons/rotate-left.svg"/></span><div><strong>7 days return policy</strong><small>Simple return request from your account.</small></div></div>
+<div><span><img alt="" src="assets/icons/truck-fast.svg"/></span><div><strong>Free shipping over $59</strong><small>Shipping is calculated from your subtotal.</small></div></div>
+</div>
+</div>
+</aside>
+</div>
+<section aria-labelledby="recommendTitle" class="cart-recommended" id="cartRecommendations">
+<div class="cart-recommended-head"><div><h2 id="recommendTitle">You may also like</h2><p>Add a useful extra without leaving your cart.</p></div></div>
+<div class="cart-recommended-grid" id="cartRecommendedGrid">
+<article class="cart-recommend-card">
+<a class="cart-recommend-image" href="index.html?product=14#trending"><img alt="Wireless headphones" loading="lazy" src="assets/products/wireless-headphones.svg"/></a>
+<div class="cart-recommend-copy"><span class="cart-recommend-category">Electronics</span><a href="index.html?product=14#trending"><h3>Wireless Headphones</h3></a><p>Comfortable everyday audio</p><div class="cart-recommend-rating"><span aria-hidden="true">★</span><strong>4.8</strong><small>Trusted pick</small></div><div class="cart-recommend-price"><strong>$39.99</strong><button aria-label="Add Wireless Headphones to cart" data-recommend-add="14" type="button"><img alt="" src="assets/icons/cart-plus.svg"/><span>Add</span></button></div></div>
+</article>
+<article class="cart-recommend-card">
+<a class="cart-recommend-image" href="index.html?product=16#trending"><img alt="Smart watch" loading="lazy" src="assets/products/smart-watch.svg"/></a>
+<div class="cart-recommend-copy"><span class="cart-recommend-category">Accessories</span><a href="index.html?product=16#trending"><h3>Smart Watch</h3></a><p>Fitness and notification tracking</p><div class="cart-recommend-rating"><span aria-hidden="true">★</span><strong>4.8</strong><small>Trusted pick</small></div><div class="cart-recommend-price"><strong>$74.99</strong><button aria-label="Add Smart Watch to cart" data-recommend-add="16" type="button"><img alt="" src="assets/icons/cart-plus.svg"/><span>Add</span></button></div></div>
+</article>
+<article class="cart-recommend-card">
+<a class="cart-recommend-image" href="index.html?product=19#trending"><img alt="City backpack" loading="lazy" src="assets/products/city-backpack.svg"/></a>
+<div class="cart-recommend-copy"><span class="cart-recommend-category">Fashion</span><a href="index.html?product=19#trending"><h3>City Backpack</h3></a><p>Padded laptop compartment</p><div class="cart-recommend-rating"><span aria-hidden="true">★</span><strong>4.7</strong><small>Trusted pick</small></div><div class="cart-recommend-price"><strong>$34.99</strong><button aria-label="Add City Backpack to cart" data-recommend-add="19" type="button"><img alt="" src="assets/icons/cart-plus.svg"/><span>Add</span></button></div></div>
+</article>
+<article class="cart-recommend-card">
+<a class="cart-recommend-image" href="index.html?product=13#trending"><img alt="Modern table lamp" loading="lazy" src="assets/products/table-lamp.svg"/></a>
+<div class="cart-recommend-copy"><span class="cart-recommend-category">Home</span><a href="index.html?product=13#trending"><h3>Modern Table Lamp</h3></a><p>Warm ambient desk lighting</p><div class="cart-recommend-rating"><span aria-hidden="true">★</span><strong>4.7</strong><small>Trusted pick</small></div><div class="cart-recommend-price"><strong>$64.99</strong><button aria-label="Add Modern Table Lamp to cart" data-recommend-add="13" type="button"><img alt="" src="assets/icons/cart-plus.svg"/><span>Add</span></button></div></div>
+</article>
+</div>
+</section>
+</section>
+<section aria-labelledby="checkoutStepTitle" class="checkout-screen" data-checkout-screen="2" hidden="">
+<form id="checkoutDetailsForm" novalidate="">
+<div class="checkout-layout">
+<div class="checkout-form-stack">
+<section class="checkout-panel-card">
+<div class="checkout-panel-head"><span>Step 2 of 3</span><div><h2 id="checkoutStepTitle">Contact &amp; delivery</h2><p>Tell us where the order should go and how to contact you.</p></div></div>
+<div class="checkout-fields-grid">
+<label class="checkout-field full"><span>Full name</span><input autocomplete="name" id="checkoutName" name="name" placeholder="Your full name" required="" type="text"/></label>
+<label class="checkout-field"><span>Email address</span><input autocomplete="email" id="checkoutEmail" name="email" placeholder="you@example.com" required="" type="email"/></label>
+<label class="checkout-field"><span>Phone number</span><input autocomplete="tel" id="checkoutPhone" name="phone" placeholder="e.g. +256 700 000 000" required="" type="tel"/></label>
+<label class="checkout-field full"><span>Street address</span><input autocomplete="street-address" id="checkoutAddress" name="address" placeholder="Building, street and area" required="" type="text"/></label>
+<label class="checkout-field"><span>City / town</span><input autocomplete="address-level2" id="checkoutCity" name="city" placeholder="Kampala" required="" type="text"/></label>
+<label class="checkout-field"><span>Country</span><select id="checkoutCountry" name="country" required=""><option value="">Choose country</option><option>Uganda</option><option>Kenya</option><option>South Sudan</option><option>Tanzania</option><option>Rwanda</option><option>Other</option></select></label>
+<label class="checkout-field full"><span>Delivery note <small>(optional)</small></span><textarea id="checkoutNote" name="note" placeholder="Landmark, preferred delivery time or special instructions" rows="3"></textarea></label>
+</div>
+</section>
+<section class="checkout-panel-card">
+<div class="checkout-panel-head compact"><span>Delivery</span><div><h2>Choose a delivery method</h2><p>The final delivery estimate appears on your confirmation.</p></div></div>
+<div class="checkout-choice-list">
+<label class="checkout-choice active"><input checked="" name="delivery" type="radio" value="standard"/><span class="choice-icon"><img alt="" src="assets/icons/truck-fast.svg"/></span><span><strong>Standard delivery</strong><small>3–5 business days</small></span><b>Free over $59</b></label>
+<label class="checkout-choice"><input name="delivery" type="radio" value="express"/><span class="choice-icon"><img alt="" src="assets/icons/bolt.svg"/></span><span><strong>Express delivery</strong><small>1–2 business days</small></span><b>+$9.99</b></label>
+<label class="checkout-choice"><input name="delivery" type="radio" value="pickup"/><span class="choice-icon"><img alt="" src="assets/icons/store.svg"/></span><span><strong>Store pickup</strong><small>Collect from a selected Classic Mart point</small></span><b>Free</b></label>
+</div>
+</section>
+<section class="checkout-panel-card">
+<div class="checkout-panel-head compact"><span>Payment</span><div><h2>Select a payment method</h2><p>This front-end demo does not charge any real payment method.</p></div></div>
+<div aria-label="Payment method" class="payment-tabs" role="radiogroup">
+<label class="payment-tab active"><input checked="" name="payment" type="radio" value="card"/><img alt="" src="assets/icons/credit-card.svg"/><span>Card</span></label>
+<label class="payment-tab"><input name="payment" type="radio" value="mobile"/><img alt="" src="assets/icons/mobile-screen-button.svg"/><span>Mobile money</span></label>
+<label class="payment-tab"><input name="payment" type="radio" value="cash"/><img alt="" src="assets/icons/basket-shopping.svg"/><span>Cash on delivery</span></label>
+</div>
+<div class="payment-details" data-payment-panel="card">
+<div class="checkout-fields-grid">
+<label class="checkout-field full"><span>Name on card</span><input autocomplete="cc-name" id="cardName" placeholder="Name shown on card" type="text"/></label>
+<label class="checkout-field full"><span>Card number</span><input autocomplete="cc-number" id="cardNumber" inputmode="numeric" maxlength="19" placeholder="0000 0000 0000 0000" type="text"/></label>
+<label class="checkout-field"><span>Expiry date</span><input autocomplete="cc-exp" id="cardExpiry" inputmode="numeric" maxlength="5" placeholder="MM/YY" type="text"/></label>
+<label class="checkout-field"><span>Security code</span><input autocomplete="cc-csc" id="cardCvv" inputmode="numeric" maxlength="4" placeholder="CVV" type="password"/></label>
+</div>
+</div>
+<div class="payment-details" data-payment-panel="mobile" hidden="">
+<div class="checkout-fields-grid">
+<label class="checkout-field"><span>Network</span><select id="mobileNetwork"><option value="">Choose network</option><option>MTN Mobile Money</option><option>Airtel Money</option><option>Other mobile wallet</option></select></label>
+<label class="checkout-field"><span>Wallet phone number</span><input id="mobileMoneyPhone" placeholder="e.g. +256 700 000 000" type="tel"/></label>
+</div>
+<p class="payment-note">A payment approval prompt would be sent to this phone number in a production checkout.</p>
+</div>
+<div class="payment-details" data-payment-panel="cash" hidden="">
+<div class="cash-notice"><img alt="" src="assets/icons/circle-check.svg"/><div><strong>Pay when your order arrives</strong><small>Keep the exact amount ready. Availability may depend on the delivery location and order value.</small></div></div>
+</div>
+<label class="checkout-checkbox"><input checked="" id="billingSame" type="checkbox"/><span>Billing address is the same as the delivery address.</span></label>
+</section>
+</div>
+<aside class="checkout-order-card">
+<div class="checkout-order-head"><span>Order summary</span><strong id="checkoutItemCount">0 items</strong></div>
+<div class="checkout-mini-items" id="checkoutMiniItems"></div>
+<div class="checkout-order-totals">
+<div><span>Subtotal</span><strong data-total-subtotal="">$0.00</strong></div>
+<div><span>Shipping</span><strong data-total-shipping="">Free</strong></div>
+<div class="discount-summary-row" hidden=""><span>Discount</span><strong data-total-discount="">−$0.00</strong></div>
+<div class="grand"><span>Total</span><strong data-total-final="">$0.00</strong></div>
+</div>
+<div class="checkout-navigation vertical">
+<button class="checkout-primary-button" id="goToConfirm" type="submit"><span>Review &amp; Confirm</span><img alt="" src="assets/icons/chevron-right.svg"/></button>
+<button class="checkout-back-button" data-checkout-prev="1" type="button"><img alt="" src="assets/icons/chevron-left.svg"/>Back to Cart</button>
+</div>
+</aside>
+</div>
+</form>
+</section>
+<section aria-labelledby="confirmStepTitle" class="checkout-screen" data-checkout-screen="3" hidden="">
+<div class="confirm-layout">
+<div class="confirm-stack">
+<section class="checkout-panel-card confirm-hero-card">
+<span class="confirm-lock"><img alt="" src="assets/icons/lock.svg"/></span>
+<div><span>Step 3 of 3</span><h2 id="confirmStepTitle">Confirm your order.</h2><p>Check your products, delivery details and payment choice. You can go back and edit anything before placing the order.</p></div>
+</section>
+<section class="checkout-panel-card">
+<div class="confirm-section-head"><div><span>Products</span><h3>Your items</h3></div><button data-checkout-prev="1" type="button">Edit cart</button></div>
+<div class="confirm-items" id="confirmItems"></div>
+</section>
+<div class="confirm-info-grid">
+<section class="checkout-panel-card">
+<div class="confirm-section-head"><div><span>Delivery</span><h3>Shipping details</h3></div><button data-checkout-prev="2" type="button">Edit</button></div>
+<div class="confirm-detail" id="confirmDelivery"></div>
+</section>
+<section class="checkout-panel-card">
+<div class="confirm-section-head"><div><span>Payment</span><h3>Payment method</h3></div><button data-checkout-prev="2" type="button">Edit</button></div>
+<div class="confirm-detail" id="confirmPayment"></div>
+</section>
+</div>
+</div>
+<aside class="checkout-order-card confirm-order-card">
+<div class="checkout-order-head"><span>Final total</span><strong>Ready to place</strong></div>
+<div class="checkout-order-totals">
+<div><span>Subtotal</span><strong data-total-subtotal="">$0.00</strong></div>
+<div><span>Shipping</span><strong data-total-shipping="">Free</strong></div>
+<div class="discount-summary-row" hidden=""><span>Discount</span><strong data-total-discount="">−$0.00</strong></div>
+<div class="grand"><span>Total</span><strong data-total-final="">$0.00</strong></div>
+</div>
+<label class="checkout-checkbox confirm-terms"><input id="confirmTerms" type="checkbox"/><span>I confirm that the order details are correct and agree to the marketplace terms.</span></label>
+<p class="confirm-error" id="confirmError" role="alert"></p>
+<button class="checkout-primary-button place-order-button" id="placeOrderButton" type="button"><img alt="" src="assets/icons/lock.svg"/><span>Place Demo Order</span></button>
+<button class="checkout-back-button" data-checkout-prev="2" type="button"><img alt="" src="assets/icons/chevron-left.svg"/>Back to Checkout</button>
+<div class="confirm-security-note"><img alt="" src="assets/icons/circle-check.svg"/><span><strong>Protected checkout</strong><small>No real payment is processed in this front-end demonstration.</small></span></div>
+</aside>
+</div>
+</section>
+<section aria-live="polite" class="order-complete-card" hidden="" id="orderComplete">
+<span class="order-complete-icon"><img alt="" src="assets/icons/circle-check.svg"/></span>
+<span>Order confirmed</span>
+<h2>Thank you for shopping with Classic Mart.</h2>
+<p id="orderCompleteMessage"></p>
+<div class="order-complete-actions"><a href="index.html">Return to marketplace</a><button id="copyOrderNumber" type="button"><img alt="" src="assets/icons/link.svg"/>Copy order number</button></div>
+</section>
+</main>
+<div aria-live="polite" class="page-toast" id="pageToast" role="status"></div>
+<section class="newsletter">
+<div class="container newsletter-inner">
+<div class="newsletter-message"><span><img alt="" src="https://api.iconify.design/fa6-solid/envelope.svg"/></span><div><strong>Stay in the Loop!</strong><small>Get exclusive deals, new arrivals and shopping tips.</small></div></div>
+<form id="subscribeForm"><label class="sr-only" for="emailInput">Email address</label><input id="emailInput" placeholder="Enter your email address" required="" type="email"/><button type="submit">Subscribe</button></form>
+<div class="newsletter-perks"><span><img alt="" src="https://api.iconify.design/fa6-solid/percent.svg"/><b>Exclusive Deals</b></span><span><img alt="" src="https://api.iconify.design/fa6-solid/gift.svg"/><b>New Arrivals</b></span><span><img alt="" src="https://api.iconify.design/fa6-solid/location-dot.svg"/><b>Shopping Tips</b></span></div>
+</div>
+</section><footer class="site-footer">
+<div class="container footer-grid">
+<div class="footer-about">
+<a class="brand footer-brand" href="index.html#top"><span class="brand-word">Classic<span>Mart</span></span></a>
+<p>Your one-stop marketplace for products from trusted sellers, with secure checkout and customer support.</p>
+<div class="socials"><a aria-label="Facebook" href="https://facebook.com" rel="noreferrer" target="_blank"><img alt="" src="https://api.iconify.design/fa6-brands/facebook-f.svg"/></a><a aria-label="X" href="https://x.com" rel="noreferrer" target="_blank"><img alt="" src="https://api.iconify.design/fa6-brands/x-twitter.svg"/></a><a aria-label="Instagram" href="https://instagram.com" rel="noreferrer" target="_blank"><img alt="" src="https://api.iconify.design/fa6-brands/instagram.svg"/></a><a aria-label="YouTube" href="https://youtube.com" rel="noreferrer" target="_blank"><img alt="" src="https://api.iconify.design/fa6-brands/youtube.svg"/></a><a aria-label="Pinterest" href="https://pinterest.com" rel="noreferrer" target="_blank"><img alt="" src="https://api.iconify.design/fa6-brands/pinterest.svg"/></a></div>
+</div>
+<div><h3>Shop</h3><a href="categories.html">All Categories</a><a href="products.html?view=deals">Flash Deals</a><a href="products.html?view=new">New Arrivals</a><a href="products.html?view=brands">Top Brands</a><a class="footer-link" href="signup.html?role=seller">Sell on Classic Mart</a><a href="sellers.html">Browse Sellers</a><a href="promoters.html">Promoters Center</a><a href="wishlist.html">My Wishlist</a><a href="profile.html">My Profile</a></div>
+<div><h3>Customer Service</h3><a class="footer-link" href="help.html">Help Center</a><a class="footer-link" href="track-order.html">Track Order</a><a class="footer-link" href="returns.html">Returns &amp; Refunds</a><a class="footer-link" href="shipping.html">Shipping Info</a><a class="footer-link" href="contact.html">Contact Us</a></div>
+<div><h3>About Us</h3><a class="footer-link" href="about.html">About Classic Mart</a><a class="footer-link" href="careers.html">Careers</a><a class="footer-link" href="press.html">Press &amp; News</a><a class="footer-link" href="sellers.html">Seller Center</a></div>
+<div><h3>Policies</h3><a class="footer-link" href="privacy.html">Privacy Policy</a><a class="footer-link" href="terms.html">Terms of Service</a><a class="footer-link" href="cookies.html">Cookie Policy</a><a class="footer-link" href="payment-policy.html">Payment Policy</a></div>
+<div class="app-download"><h3>Download Our App</h3><p>Shop on the go with our mobile app.</p><a aria-label="Download on the App Store" class="app-badge" href="#"><img alt="" src="https://api.iconify.design/fa6-brands/apple.svg"/><span>Download on the<strong>App Store</strong></span></a><a aria-label="Get it on Google Play" class="app-badge" href="#"><img alt="" src="https://api.iconify.design/fa6-brands/google-play.svg"/><span>GET IT ON<strong>Google Play</strong></span></a></div>
+</div>
+<div class="container footer-bottom"><span>© 2026 Classic Mart. All rights reserved.</span><span>Secure payments · Buyer protection · Trusted sellers</span></div>
+</footer><script src="cart-store.js"></script>
+<script src="cart-page.js"></script>
+<script src="shared-shell.js"></script></body>
+</html>

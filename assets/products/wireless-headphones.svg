@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480">
+  <rect width="640" height="480" rx="36" fill="#f6f7f9"/>
+  <circle cx="320" cy="235" r="150" fill="#fff1e8"/>
+  <path d="M190 255v-36c0-78 58-137 130-137s130 59 130 137v36" fill="none" stroke="#1f2937" stroke-width="30" stroke-linecap="round"/>
+  <rect x="150" y="235" width="88" height="145" rx="38" fill="#ff6500"/>
+  <rect x="402" y="235" width="88" height="145" rx="38" fill="#ff6500"/>
+  <rect x="172" y="260" width="44" height="92" rx="20" fill="#fff" opacity=".9"/>
+  <rect x="424" y="260" width="44" height="92" rx="20" fill="#fff" opacity=".9"/>
+  <text x="320" y="430" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#253044">Wireless Headphones</text>
+</svg>

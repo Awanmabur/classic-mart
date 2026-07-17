@@ -1,0 +1,4 @@
+node_modules/
+.env
+data/classicfinhub-db.json
+npm-debug.log*
