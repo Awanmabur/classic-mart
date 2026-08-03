@@ -1,0 +1,597 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Classic Mart External API",
+    "version": "1.0.0",
+    "description": "Versioned mobile and seller integration APIs backed by the same Classic Mart catalogue, cart, order, payment, inventory and fulfilment authority as the web application."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current Classic Mart origin"
+    }
+  ],
+  "paths": {
+    "/api/v1/mobile/auth/login": {
+      "post": {
+        "summary": "Sign in a verified Classic Mart account from an approved mobile client",
+        "responses": {
+          "201": {
+            "description": "Opaque access and refresh tokens"
+          },
+          "401": {
+            "description": "Invalid credentials"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/auth/refresh": {
+      "post": {
+        "summary": "Rotate a mobile refresh token",
+        "responses": {
+          "200": {
+            "description": "Rotated access and refresh tokens"
+          },
+          "401": {
+            "description": "Invalid, expired or reused refresh token"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/auth/logout": {
+      "post": {
+        "summary": "Revoke the current mobile session",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session revoked"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/catalogue": {
+      "get": {
+        "summary": "Read the published country catalogue",
+        "parameters": [
+          {
+            "name": "country",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 2
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-authoritative published catalogue"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/products/{id}": {
+      "get": {
+        "summary": "Read one published product",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Published product"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/me": {
+      "get": {
+        "summary": "Read the current mobile account",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/cart": {
+      "get": {
+        "summary": "Read the server cart",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live cart"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Clear the server cart",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cleared cart"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/cart/items": {
+      "post": {
+        "summary": "Add a live catalogue item to the server cart",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Updated cart"
+          },
+          "409": {
+            "description": "Stock or product state conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/cart/items/{variantId}": {
+      "patch": {
+        "summary": "Set a cart item quantity",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "variantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated cart"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove a cart item",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "variantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated cart"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/checkout/review": {
+      "post": {
+        "summary": "Create a server-calculated checkout review",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Checkout review with server totals"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/orders": {
+      "get": {
+        "summary": "List customer orders",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated customer orders"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create an order from a valid checkout review",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Pending-payment or COD order"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/orders/{id}": {
+      "get": {
+        "summary": "Read one owned order",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current server order state"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/orders/{id}/payment-intents": {
+      "post": {
+        "summary": "Initiate payment using the existing verified payment service",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Payment intent"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/push-devices": {
+      "get": {
+        "summary": "List registered push devices",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Push devices"
+          }
+        }
+      },
+      "post": {
+        "summary": "Register or refresh a push device",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Push device registered"
+          }
+        }
+      }
+    },
+    "/api/v1/mobile/push-devices/{id}": {
+      "delete": {
+        "summary": "Revoke a push device",
+        "security": [
+          {
+            "mobileBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Push device revoked"
+          }
+        }
+      }
+    },
+    "/api/v1/seller/products": {
+      "get": {
+        "summary": "List products for the API key store",
+        "security": [
+          {
+            "sellerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped products"
+          }
+        }
+      }
+    },
+    "/api/v1/seller/inventory": {
+      "get": {
+        "summary": "List store inventory with optimistic-concurrency version",
+        "security": [
+          {
+            "sellerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped inventory"
+          }
+        }
+      }
+    },
+    "/api/v1/seller/inventory/{id}/adjust": {
+      "post": {
+        "summary": "Adjust scoped inventory",
+        "security": [
+          {
+            "sellerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Adjusted inventory"
+          },
+          "409": {
+            "description": "Stale inventory version or idempotency conflict"
+          },
+          "428": {
+            "description": "If-Match required"
+          }
+        }
+      }
+    },
+    "/api/v1/seller/orders": {
+      "get": {
+        "summary": "List seller orders for the API key store",
+        "security": [
+          {
+            "sellerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped seller orders"
+          }
+        }
+      }
+    },
+    "/api/v1/seller/orders/{id}/{action}": {
+      "post": {
+        "summary": "Execute a controlled seller fulfilment action",
+        "security": [
+          {
+            "sellerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "processing",
+                "pick",
+                "pack",
+                "dispatch"
+              ]
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated seller order"
+          },
+          "409": {
+            "description": "Invalid order/warehouse state"
+          }
+        }
+      }
+    },
+    "/api/v1/seller/webhooks/test": {
+      "post": {
+        "summary": "Queue a signed test webhook event",
+        "security": [
+          {
+            "sellerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Webhook test queued"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "mobileBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Opaque Classic Mart mobile access token"
+      },
+      "sellerApiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Classic Mart seller API key"
+      }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          "requestId": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Mobile"
+    },
+    {
+      "name": "Seller integrations"
+    }
+  ]
+}

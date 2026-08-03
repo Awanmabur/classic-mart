@@ -1,0 +1,5 @@
+import mongoose from 'mongoose';
+const { Schema }=mongoose;
+const schema=new Schema({publicId:{type:String,required:true,unique:true,immutable:true,index:true},ownerUserId:{type:Schema.Types.ObjectId,ref:'User',required:true,index:true},country:{type:String,required:true,uppercase:true,index:true},contextType:{type:String,enum:['return','dispute','trust_case','support','delivery_verification'],required:true,index:true},contextPublicId:{type:String,required:true,index:true},documentType:{type:String,enum:['general','identity','vehicle','permit'],default:'general',index:true},storageKey:{type:String,required:true,select:false},mimeType:{type:String,enum:['image/webp'],required:true},size:{type:Number,required:true,min:1,max:8*1024*1024},status:{type:String,enum:['ready','quarantined','rejected'],default:'ready',index:true},description:{type:String,maxlength:300,default:''}},{timestamps:true});
+schema.index({contextType:1,contextPublicId:1,createdAt:-1});
+export const EvidenceDocument=mongoose.model('EvidenceDocument',schema);

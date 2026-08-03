@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+  <meta content="#1165df" name="theme-color"/>
+  <title><%= roleLabel(user.role) %> Dashboard — Classic Mart</title>
+  <link href="/dashboard.css" rel="stylesheet"/>
+  <link href="/dashboard-workspaces.css" rel="stylesheet"/>
+  <link href="/server-ui.css" rel="stylesheet"/>
+</head>
+<body data-workspace="<%= user.role %>">
+  <svg aria-hidden="true" class="svg-sprite">
+    <symbol id="i-cart" viewBox="0 0 24 24"><path d="M3 4h2l2.1 10.2a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 1.9-1.4L21 8H7"/><circle cx="10" cy="20" r="1.35"/><circle cx="18" cy="20" r="1.35"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="5" height="5" rx="1"/><rect x="15" y="4" width="5" height="5" rx="1"/><rect x="4" y="15" width="5" height="5" rx="1"/><rect x="15" y="15" width="5" height="5" rx="1"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"/><path d="M5 10v11h14V10M9 21v-7h6v7"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 5.1-8 11-8 11S4 15.1 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  </svg>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-area">
+        <button aria-label="Open navigation" class="round-icon mobile-menu" id="mobileMenuBtn" type="button"><svg><use href="#i-menu"></use></svg></button>
+        <a class="brand" href="/dashboard"><svg class="brand-cart"><use href="#i-cart"></use></svg><span class="brand-copy"><strong>Classic Mart</strong><small>Everything, for everyone</small></span></a>
+      </div>
+      <div class="server-workspace-title"><span>Secure workspace</span><strong><%= roleLabel(user.role) %></strong></div>
+      <div class="top-spacer"></div>
+      <div class="top-actions">
+        <a class="categories-button" href="/"><svg><use href="#i-home"></use></svg><span>Marketplace</span></a>
+        <a class="profile-button" href="/account/profile">
+          <span class="server-avatar"><%= user.name.split(/\s+/).slice(0,2).map(part => part[0]).join('').toUpperCase() %></span>
+          <span><strong>Hi, <%= user.name.split(' ')[0] %></strong><small><%= roleLabel(user.role) %></small></span>
+        </a>
+      </div>
+    </header>
+    <aside class="sidebar" id="sidebar">
+      <nav class="side-navigation">
+        <a class="side-link <%= section === 'overview' ? 'active' : '' %>" href="/dashboard"><svg><use href="#i-grid"></use></svg><span>Overview</span></a>
+        <a class="side-link <%= section === 'profile' ? 'active' : '' %>" href="/account/profile"><svg><use href="#i-user"></use></svg><span>Profile Settings</span></a>
+        <a class="side-link <%= section === 'security' ? 'active' : '' %>" href="/account/security"><svg><use href="#i-shield"></use></svg><span>Password &amp; Security</span></a><a class="side-link" href="/account/apps"><svg><use href="#i-shield"></use></svg><span>Connected Apps</span></a>
+        <a class="side-link <%= section === 'messages' ? 'active' : '' %>" href="/account/messages"><svg><use href="#i-cart"></use></svg><span>Marketplace Messages</span></a>
+        <a class="side-link" href="/account/rewards"><svg><use href="#i-cart"></use></svg><span>Rewards & Referrals</span></a>
+        <% if (hasPermission(user, 'business:manage') || businessMemberships?.length || businessInvitations?.length) { %><p class="nav-section-label">Business</p><a class="side-link" href="/business"><svg><use href="#i-grid"></use></svg><span>Business Buying</span></a><% } %><% if (hasPermission(user, 'seller:manage')) { %><p class="nav-section-label">Seller</p><a class="side-link" href="/seller/onboarding"><svg><use href="#i-shield"></use></svg><span>Seller Verification</span></a><a class="side-link" href="/seller/products"><svg><use href="#i-grid"></use></svg><span>Products</span></a><a class="side-link" href="/seller/inventory"><svg><use href="#i-cart"></use></svg><span>Inventory</span></a><a class="side-link" href="/seller/growth"><svg><use href="#i-grid"></use></svg><span>Growth & Pricing</span></a><% } %>
+        <% if (hasPermission(user, 'catalogue:moderate')) { %><p class="nav-section-label">Trust</p><a class="side-link" href="/moderation/products"><svg><use href="#i-shield"></use></svg><span>Product Moderation</span></a><a class="side-link" href="/moderation/verifications"><svg><use href="#i-user"></use></svg><span>Seller Reviews</span></a><% } %>
+        <% if (hasPermission(user, 'finance:manage') || hasPermission(user, 'finance:country')) { %><p class="nav-section-label">Money</p><a class="side-link" href="/finance"><svg><use href="#i-cart"></use></svg><span>Finance &amp; Ledger</span></a><% } %>
+        <% if (['country_admin','super_admin'].includes(user.role)) { %><p class="nav-section-label">Administration</p><a class="side-link" href="/admin"><svg><use href="#i-grid"></use></svg><span>Admin Control Centre</span></a><% } %>
+      </nav>
+      <section class="sidebar-club-card">
+        <span class="sidebar-crown"><svg><use href="#i-shield"></use></svg></span>
+        <h3>Verified Foundation</h3>
+        <p class="member-copy"><%= user.emailVerifiedAt ? 'Email verified' : 'Verification required' %></p>
+        <p>Role, country, sessions and account changes are enforced on the server.</p>
+      </section>
+      <form action="/logout" method="post">
+        <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+        <button class="logout-button" type="submit"><svg><use href="#i-logout"></use></svg><span>Log Out</span></button>
+      </form>
+    </aside>
+    <button aria-label="Close navigation" class="sidebar-overlay" id="sidebarOverlay" type="button"></button>
+    <main class="dashboard page-host">
+      <% if (flash) { %><div class="server-flash <%= flash.type %>" role="status"><strong><%= flash.message %></strong><% if (flash.details) { %><small><%= flash.details %></small><% } %></div><% } %>
+      <% if (section === 'overview') { %>
+        <section class="role-welcome panel">
+          <div><span class="role-live"><i></i>Account active</span><h2>Welcome back, <%= user.name %>.</h2><p>Your secure <%= roleLabel(user.role) %> workspace is ready.</p><div><a class="primary-button" href="/account/profile">Complete profile</a><a class="outline-button" href="/account/security">Review security</a></div></div>
+          <div class="role-welcome-score"><small>Profile</small><strong><%= user.onboardingCompletedAt ? '100' : '70' %>%</strong><span>Server verified</span></div>
+        </section>
+        <section class="role-metric-grid">
+          <article class="role-metric panel"><span class="role-metric-icon tone-1"><svg><use href="#i-check"></use></svg></span><div><small>Email</small><strong><%= user.emailVerifiedAt ? 'Verified' : 'Pending' %></strong><span><%= user.email %></span></div></article>
+          <article class="role-metric panel"><span class="role-metric-icon tone-2"><svg><use href="#i-user"></use></svg></span><div><small>Workspace</small><strong><%= roleLabel(user.role) %></strong><span>Permission scoped</span></div></article>
+          <article class="role-metric panel"><span class="role-metric-icon tone-3"><svg><use href="#i-shield"></use></svg></span><div><small>Active sessions</small><strong><%= devices.filter(device => !device.revokedAt).length %></strong><span>Revocable devices</span></div></article>
+          <article class="role-metric panel"><span class="role-metric-icon tone-4"><svg><use href="#i-pin"></use></svg></span><div><small>Country</small><strong><%= country.name %></strong><span><%= currency %></span></div></article>
+        </section>
+        <section class="role-overview-grid">
+          <article class="role-activity-feed panel">
+            <div class="role-panel-head"><div><h2>Foundation status</h2><p>Real server-authoritative identity controls</p></div><span class="role-live"><i></i>Healthy</span></div>
+            <article><span class="tone-1"><svg><use href="#i-lock"></use></svg></span><div><strong>Argon2id password protection</strong><small>Passwords are hashed and never returned to the browser.</small></div></article>
+            <article><span class="tone-2"><svg><use href="#i-shield"></use></svg></span><div><strong>Revocable sessions</strong><small>Every signed-in device can be reviewed and revoked.</small></div></article>
+            <article><span class="tone-3"><svg><use href="#i-pin"></use></svg></span><div><strong>Country and currency context</strong><small>Current context: <%= country.code %> · <%= currency %>.</small></div></article>
+          </article>
+          <article class="role-focus-panel panel">
+            <div class="role-panel-head compact"><div><h2>Account details</h2><p>Current authoritative values</p></div></div>
+            <div class="server-detail-list">
+              <p><span>Public ID</span><strong><%= user.publicId %></strong></p>
+              <p><span>Phone</span><strong><%= user.phone %></strong></p>
+              <p><span>Joined</span><strong><%= formatDate(user.createdAt) %></strong></p>
+              <p><span>Last sign-in</span><strong><%= formatDate(user.security.lastLoginAt) %></strong></p>
+            </div>
+          </article>
+          <article class="role-focus-panel panel">
+            <div class="role-panel-head compact"><div><h2>Low-data mode</h2><p>Reduce large product media on slower or expensive connections.</p></div></div>
+            <form action="/account/preferences/low-data" method="post" class="role-inline-form">
+              <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+              <input name="enabled" type="hidden" value="<%= user.preferences?.lowData ? 'false' : 'true' %>"/>
+              <span class="role-status <%= user.preferences?.lowData ? 'good' : 'warn' %>"><%= user.preferences?.lowData ? 'Enabled' : 'Standard media' %></span>
+              <button class="outline-button" type="submit"><%= user.preferences?.lowData ? 'Use standard media' : 'Enable low-data mode' %></button>
+            </form>
+          </article>
+        </section>
+        <% if (storeInvitations?.length) { %>
+          <section class="panel role-form-section">
+            <div class="role-panel-head"><div><h2>Store staff invitations</h2><p>Accept only invitations you recognize. Store permissions are scoped by staff role.</p></div></div>
+            <div class="server-detail-list">
+              <% storeInvitations.forEach(invite => { %><div class="catalog-row"><div><strong><%= invite.storeId?.name || 'Seller store' %></strong><small><%= invite.role %> access · <%= invite.storeId?.country || '' %></small></div><div class="catalogue-table-actions"><form method="post" action="/account/store-invitations/<%= invite.publicId %>/accept"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="primary-button" type="submit">Accept</button></form><form method="post" action="/account/store-invitations/<%= invite.publicId %>/reject"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="outline-button" type="submit">Decline</button></form></div></div><% }) %>
+            </div>
+          </section>
+        <% } %>
+        <% if (productAlerts?.length) { %>
+          <section class="panel role-form-section">
+            <div class="role-panel-head"><div><h2>Shopping alerts</h2><p>Price-drop and restock alerts are evaluated from current marketplace price and available inventory.</p></div></div>
+            <div class="server-detail-list">
+              <% productAlerts.forEach(alert => { %><p><span><%= alert.type === 'restock' ? 'Restock' : 'Price drop' %> · <%= alert.productPublicId %></span><strong><%= alert.status === 'triggered' ? `Triggered ${formatDate(alert.triggeredAt)}` : 'Watching' %></strong></p><% }) %>
+            </div>
+          </section>
+        <% } %>
+        <% if (orders?.length) { %>
+          <section class="panel role-form-section">
+            <div class="role-panel-head"><div><h2>Your orders</h2><p>Real server orders, receipts and tracking.</p></div><a class="outline-button" href="/track-order">Track another order</a></div>
+            <div class="role-workflow-grid">
+              <% orders.forEach(order => { %><article><div><strong><%= order.publicId %></strong><p><%= String(order.status).replaceAll('_',' ') %> · <%= formatMoney(order.totals.totalMinor, order.totals.currency) %> · <%= formatDate(order.createdAt) %></p><div><a class="outline-button" href="/track-order?order=<%= encodeURIComponent(order.publicId) %>">Track</a> <a class="outline-button" href="/orders/<%= encodeURIComponent(order.publicId) %>/receipt">Receipt</a></div></div></article><% }) %>
+            </div>
+          </section>
+        <% } %>
+        <% if (hasPermission(user, 'business:manage') || hasPermission(user, 'seller:manage') || hasPermission(user, 'catalogue:moderate') || hasPermission(user, 'promoter:manage') || hasPermission(user, 'delivery:manage') || hasPermission(user, 'warehouse:manage') || hasPermission(user, 'finance:manage') || hasPermission(user, 'finance:country') || hasPermission(user, 'support:manage') || ['country_admin','super_admin'].includes(user.role) || storeMemberships?.length) { %>
+          <section class="panel role-form-section catalogue-dashboard-links">
+            <div class="role-panel-head"><div><h2>Operational workspaces</h2><p>Open only the server-authorized workspaces assigned to your account or store membership.</p></div></div>
+            <div class="role-workflow-grid">
+              <% (businessInvitations||[]).forEach(inv=>{ %><article><span class="role-step current">B</span><div><strong>Business invitation</strong><p>You were invited to <%=inv.organizationId?.companyName||'a business organization'%> as <%=inv.role%>.</p><form method="post" action="/business/invitations/<%=inv.publicId%>/accept"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><button class="outline-button" type="submit">Accept invitation</button></form></div></article><% }) %><% if (hasPermission(user, 'business:manage') || businessMemberships?.length || businessInvitations?.length) { %><article><span class="role-step current">B</span><div><strong>Business procurement</strong><p>Company profile, team spending controls, budgets, approvals, quotations, purchase orders and repeat procurement.</p><a class="outline-button" href="/business">Open Business Buying</a></div></article><% } %><% if (hasPermission(user, 'seller:manage') || storeMemberships?.length) { %><article><span class="role-step current">1</span><div><strong>Seller operations</strong><p>Verification, products, orders, inventory, messages and scoped staff tools.</p><a class="outline-button" href="/seller">Open Seller Workspace</a> <a class="outline-button" href="/seller/growth">Growth & Pricing</a> <a class="outline-button" href="/seller/ai">Seller AI</a></div></article><% } %>
+              <% if (hasPermission(user, 'promoter:manage')) { %><article><span class="role-step current">2</span><div><strong>Promoter Center</strong><p>Verification, approved campaigns, tracked links, attribution and earnings.</p><a class="outline-button" href="/promoter">Open Promoter Center</a></div></article><% } %>
+              <% if (hasPermission(user, 'delivery:manage')) { %><article><span class="role-step current">3</span><div><strong>Delivery Partner</strong><p>Offers, assignments, custody proof, failed attempts and return-to-sender.</p><a class="outline-button" href="/delivery">Open Delivery Workspace</a></div></article><% } %>
+              <% if (hasPermission(user, 'warehouse:manage') || ['country_admin','super_admin'].includes(user.role)) { %><article><span class="role-step current">4</span><div><strong>Warehouse & logistics</strong><p>Receiving, put-away, picking, packing, dispatch, transfers and cycle counts.</p><a class="outline-button" href="/operations/logistics">Open Logistics</a></div></article><% } %>
+              <% if (hasPermission(user, 'finance:manage') || hasPermission(user, 'finance:country') || user.role==='super_admin') { %><article><span class="role-step current">5</span><div><strong>Finance operations</strong><p>Payments, reconciliation, refunds, ledger, payout verification, approvals and COD settlement.</p><a class="outline-button" href="/finance">Open Finance</a> <a class="outline-button" href="/operations/logistics">COD reconciliation</a></div></article><% } %>
+              <% if (hasPermission(user, 'support:manage') || hasPermission(user, 'trust:manage') || ['country_admin','super_admin'].includes(user.role)) { %><article><span class="role-step current">6</span><div><strong>Support & trust</strong><p>Returns, disputes, tickets, reviews, evidence, risk signals and enforcement.</p><a class="outline-button" href="/operations/support">Open Support</a> <a class="outline-button" href="/operations/support/ai">Support AI</a></div></article><% } %>
+              <% if (['country_admin','super_admin'].includes(user.role)) { %><article><span class="role-step current">7</span><div><strong>Admin control centre</strong><p>Attention queues, country configuration, CMS, approvals, reporting, growth, exports, incidents and read-only impersonation.</p><a class="outline-button" href="/admin">Open Admin</a> <a class="outline-button" href="/admin/ai">AI governance</a></div></article><% } %>
+              <% if (hasPermission(user, 'catalogue:moderate')) { %><article><span class="role-step current">8</span><div><strong>Product moderation</strong><p>Review content and sanitized media before publication.</p><a class="outline-button" href="/moderation/products">Open Product Queue</a></div></article><article><span class="role-step current">9</span><div><strong>Seller verification</strong><p>Review KYC/KYB documents and appeals.</p><a class="outline-button" href="/moderation/verifications">Open Verification Queue</a></div></article><% } %>
+            </div>
+          </section>
+        <% } %>
+      <% } %>
+      <% if (section === 'profile') { %>
+        <div class="page-heading role-page-heading"><div><span class="eyebrow">Account</span><h1>Profile Settings</h1><p>Update server-backed identity and country preferences.</p></div></div>
+        <section class="panel role-form-section">
+          <form action="/account/profile" class="dashboard-form" method="post">
+            <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+            <div class="form-row"><label>Full name<input maxlength="120" name="name" required value="<%= user.name %>"/></label><label>Email address<input disabled value="<%= user.email %>"/></label></div>
+            <div class="form-row"><label>Phone number<input maxlength="30" name="phone" required value="<%= user.phone %>"/></label><label>Country<select name="country"><% countries.forEach(item => { %><option <%= item.code === user.country ? 'selected' : '' %> value="<%= item.code %>"><%= item.name %></option><% }) %></select></label></div>
+            <div class="form-row"><label>Currency<select name="currency"><% [...new Set(countries.map(item => item.currency))].forEach(item => { %><option <%= item === user.currency ? 'selected' : '' %> value="<%= item %>"><%= item %></option><% }) %></select></label><label>Language<select name="locale"><option <%= user.locale === 'en-UG' ? 'selected' : '' %> value="en-UG">English (Uganda)</option><option <%= user.locale === 'en-KE' ? 'selected' : '' %> value="en-KE">English (Kenya)</option><option <%= user.locale === 'en-US' ? 'selected' : '' %> value="en-US">English (International)</option></select></label></div>
+            <label class="check-row"><input <%= user.consents.marketing ? 'checked' : '' %> name="marketing" type="checkbox"/> Receive useful, consent-based offers</label>
+            <button class="primary-button" type="submit">Save Profile</button>
+          </form>
+        </section>
+      <% } %>
+      <% if (section === 'messages') { %>
+        <div class="page-heading role-page-heading"><div><span class="eyebrow">Marketplace messages</span><h1>Marketplace Messages</h1><p>Your direct seller and promoter conversations.</p></div></div>
+        <section class="panel role-form-section"><div class="role-panel-head"><div><h2>Conversations</h2><p>Messages are stored on the server; seller replies appear here.</p></div></div>
+          <% if (!sellerContacts.length && !(promoterContacts||[]).length) { %><p>No marketplace conversations yet.</p><% } %>
+          <div class="role-workflow-grid"><% sellerContacts.forEach(thread => { %><article><div><strong><a href="/sellers/<%=thread.storeId?.slug || ''%>"><%=thread.storeId?.name || 'Seller'%></a> · <%=thread.subject%></strong><p><strong>You:</strong> <%=thread.message%></p><% (thread.replies || []).forEach(reply=>{ %><p><strong><%=reply.sender==='seller'?'Seller':'You'%>:</strong> <%=reply.body%> <small>· <%=formatDate(reply.at)%></small></p><% }) %><small>Status: <%=thread.status%> · Last activity <%=formatDate(thread.lastMessageAt || thread.updatedAt)%></small>
+            <% if(thread.status!=='resolved'){%><form method="post" action="/account/messages/<%=thread.publicId%>/reply" class="dashboard-form"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><textarea name="message" minlength="2" maxlength="2000" required rows="3" placeholder="Reply to the seller"></textarea><button class="primary-button" type="submit">Send reply</button></form><%}%></div></article><% }) %><% (promoterContacts||[]).forEach(thread=>{ const promoterName=thread.promoterUserId?.roleProfile?.publicName||thread.promoterUserId?.name||'Promoter'; %><article><div><strong><%=promoterName%> · <%=thread.subject%></strong><p><strong>You:</strong> <%=thread.message%></p><% (thread.replies||[]).forEach(reply=>{%><p><strong><%=reply.sender==='promoter'?'Promoter':'You'%>:</strong> <%=reply.body%> <small>· <%=formatDate(reply.at)%></small></p><%})%><small>Status: <%=thread.status%> · Last activity <%=formatDate(thread.lastMessageAt||thread.updatedAt)%></small><% if(thread.status!=='resolved'){%><form method="post" action="/account/promoter-messages/<%=thread.publicId%>/reply" class="dashboard-form"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><textarea name="message" minlength="2" maxlength="2000" required rows="3" placeholder="Reply to the promoter"></textarea><button class="primary-button" type="submit">Send reply</button></form><%}%></div></article><%})%></div>
+        </section>
+      <% } %>
+      <% if (section === 'security') { %>
+        <div class="page-heading role-page-heading"><div><span class="eyebrow">Account protection</span><h1>Password &amp; Security</h1><p>Change your password and revoke devices you no longer use.</p></div></div>
+        <div class="role-content-grid server-security-grid">
+          <section class="panel role-form-section">
+            <div class="role-panel-head"><div><h2>Change password</h2><p>Other sessions are revoked after a successful change.</p></div></div>
+            <form action="/account/password" class="dashboard-form" method="post">
+              <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+              <label>Current password<input autocomplete="current-password" name="currentPassword" required type="password"/></label>
+              <label>New password<input autocomplete="new-password" id="newPassword" maxlength="128" minlength="12" name="password" placeholder="12+ characters, mixed case and a number" required type="password"/></label>
+              <label>Confirm password<input autocomplete="new-password" id="confirmNewPassword" maxlength="128" minlength="12" name="confirmPassword" required type="password"/></label>
+              <button class="primary-button" type="submit">Update Password</button>
+            </form>
+          </section>
+          <section class="panel role-form-section">
+            <div class="role-panel-head"><div><h2>Authenticator MFA</h2><p><%= user.security?.mfaEnabled ? 'Enabled. Sign-in requires a current authenticator or one unused recovery code.' : (mfaRequired ? 'Required for your role before other protected workspaces can be used.' : 'Optional additional protection for this account.') %></p></div><span class="role-status <%= user.security?.mfaEnabled ? 'good' : (mfaRequired ? 'warn' : 'neutral') %>"><%= user.security?.mfaEnabled ? 'Enabled' : (mfaRequired ? 'Required' : 'Optional') %></span></div>
+            <% if (mfaRecoveryCodes?.length) { %><div class="server-flash success"><strong>Save these one-time recovery codes now.</strong><p>They are shown only once. Keep them offline and do not share them.</p><div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px"><% mfaRecoveryCodes.forEach(item => { %><code style="border:1px solid #d8dee8;border-radius:10px;padding:8px;background:#fff"><%= item %></code><% }) %></div></div><% } %>
+            <% if (!user.security?.mfaEnabled) { %>
+              <% if (!mfaEnrollment) { %><form class="dashboard-form" method="post" action="/account/mfa/begin"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><label>Current password<input type="password" name="currentPassword" autocomplete="current-password" required></label><button class="primary-button" type="submit">Start MFA setup</button></form><% } else { %>
+                <div class="server-detail-list"><p><span>Authenticator secret</span><strong style="word-break:break-all"><%=mfaEnrollment.secret%></strong></p><p><span>Setup URI</span><strong style="word-break:break-all;font-size:12px"><%=mfaEnrollment.uri%></strong></p></div><p>Add the secret to Google Authenticator, Microsoft Authenticator, 1Password, Authy or another TOTP app, then enter the current 6-digit code.</p><form class="dashboard-form" method="post" action="/account/mfa/confirm"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><label>Authenticator code<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><button class="primary-button" type="submit">Enable MFA</button></form>
+              <% } %>
+            <% } else { %>
+              <form class="dashboard-form" method="post" action="/account/mfa/recovery-codes"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><label>Current password<input type="password" name="currentPassword" autocomplete="current-password" required></label><label>Current authenticator or recovery code<input type="text" name="code" autocomplete="one-time-code" maxlength="32" required></label><button class="outline-button" type="submit">Generate new recovery codes</button></form>
+              <% if (!mfaRequired) { %><form class="dashboard-form" method="post" action="/account/mfa/disable"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><label>Current password<input type="password" name="currentPassword" autocomplete="current-password" required></label><label>Current authenticator or recovery code<input type="text" name="code" autocomplete="one-time-code" maxlength="32" required></label><button class="outline-button" type="submit">Disable MFA</button></form><% } %>
+            <% } %>
+          </section>
+          <section class="panel role-activity-feed server-device-panel">
+            <div class="role-panel-head"><div><h2>Signed-in devices</h2><p>Current and recently revoked sessions.</p></div></div>
+            <% devices.forEach(device => { %>
+              <article>
+                <span class="<%= device.revokedAt ? 'tone-2' : 'tone-3' %>"><svg><use href="#i-shield"></use></svg></span>
+                <div><strong><%= device.label %><%= device.publicId === currentDeviceId ? ' · This device' : '' %></strong><small>Last active <%= formatDate(device.lastSeenAt) %><%= device.revokedAt ? ` · Revoked ${formatDate(device.revokedAt)}` : '' %></small></div>
+                <% if (!device.revokedAt) { %><form action="/account/devices/<%= device.publicId %>/revoke" method="post"><input name="_csrf" type="hidden" value="<%= csrfToken %>"/><button class="outline-button" type="submit"><%= device.publicId === currentDeviceId ? 'Sign out' : 'Revoke' %></button></form><% } %>
+              </article>
+            <% }); %>
+          </section>
+        </div>
+      <% } %>
+    </main>
+  </div>
+  <script src="/identity.js"></script>
+  <script src="/dashboard.js"></script>
+<script src="/image-fallback.js"></script></body>
+</html>

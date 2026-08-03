@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en" data-low-data="<%= (typeof user !== 'undefined' && user?.preferences?.lowData) ? 'true' : 'false' %>">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+  <title><%= status %> — Classic Mart</title>
+  <link href="/styles.css" rel="stylesheet"/>
+  <link href="/storefront-pages.css" rel="stylesheet"/>
+  <link href="/server-ui.css" rel="stylesheet"/>
+</head>
+<body class="storefront-page auth-standalone-page">
+  <main class="server-error-page">
+    <article class="auth-card auth-form-card server-error-card">
+      <span class="auth-kicker">Request <%= requestId %></span>
+      <h1><%= status %></h1>
+      <h2><%= code.replaceAll('_', ' ') %></h2>
+      <p><%= message %></p>
+      <div class="server-error-actions">
+        <a class="auth-submit" href="/">Marketplace</a>
+        <% if (status === 401) { %><a class="auth-social-button" href="/login">Sign in</a><% } else { %><a class="auth-social-button" href="/">Return home</a><% } %>
+      </div>
+    </article>
+  </main>
+<script src="/image-fallback.js"></script></body>
+</html>

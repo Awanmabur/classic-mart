@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+  <meta content="#ff6500" name="theme-color"/>
+  <title>Verify Email — Classic Mart</title>
+  <link href="/styles.css" rel="stylesheet"/>
+  <link href="/storefront-pages.css" rel="stylesheet"/>
+</head>
+<body class="storefront-page auth-compact-page auth-standalone-page">
+  <a class="skip-link" href="#authContent">Skip to email verification</a>
+  <main class="auth-main page-shell" id="authContent">
+    <section aria-label="Verify your Classic Mart email" class="auth-grid recovery-grid">
+      <article class="auth-card auth-showcase recovery-showcase">
+        <div>
+          <span class="auth-showcase-badge"><img alt="" src="/assets/icons/envelope.svg"/>Email verification</span>
+          <div class="auth-showcase-copy">
+            <h1>Protect your <span>Classic Mart account.</span></h1>
+            <p>Verification confirms that you control the email address connected to your account.</p>
+            <div class="auth-benefits">
+              <div class="auth-benefit"><span><img alt="" src="/assets/icons/lock.svg"/></span><div><strong>Single-use code</strong><small>The six-digit code expires after ten minutes.</small></div></div>
+              <div class="auth-benefit"><span><img alt="" src="/assets/icons/circle-check.svg"/></span><div><strong>Verified identity</strong><small>Continue safely to your role setup.</small></div></div>
+            </div>
+          </div>
+        </div>
+      </article>
+      <article class="auth-card auth-form-card recovery-form-card">
+        <div class="auth-form-head">
+          <span class="auth-kicker">Verify email</span>
+          <h2>Enter your six-digit code.</h2>
+          <p>The code was prepared for <strong><%= user.email %></strong>.</p>
+        </div>
+        <form action="/verify-email" class="auth-form" method="post">
+          <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+          <label class="auth-field">
+            <span>Verification code</span>
+            <span class="auth-input-wrap"><img alt="" src="/assets/icons/circle-check.svg"/><input autocomplete="one-time-code" inputmode="numeric" maxlength="6" name="code" pattern="\d{6}" placeholder="Six-digit code" required type="text"/></span>
+          </label>
+          <p aria-live="polite" class="auth-message<%= pageError ? ' error' : '' %>" role="status"><%= pageError || flash?.message || '' %></p>
+          <% if (flash?.details) { %><p class="auth-message"><%= flash.details %></p><% } %>
+          <button class="auth-submit" type="submit">Verify My Email</button>
+        </form>
+        <form action="/verify-email/resend" class="auth-form compact-server-form" method="post">
+          <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+          <button class="auth-social-button full-server-button" type="submit">Send a New Code</button>
+        </form>
+        <form action="/logout" class="auth-form compact-server-form" method="post">
+          <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+          <button class="auth-text-button" type="submit">Use another account</button>
+        </form>
+      </article>
+    </section>
+  </main>
+<script src="/image-fallback.js"></script></body>
+</html>

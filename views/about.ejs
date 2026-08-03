@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+
+<html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/><meta content="Classic Mart brings buyers, verified sellers and trusted promoters together in one responsive marketplace." name="description"/><meta content="#ff6200" name="theme-color"/><title>About Classic Mart — Classic Mart</title><link href="/styles.css" rel="stylesheet"/><link href="/storefront-pages.css" rel="stylesheet"/><link href="/shared-shell.css" rel="stylesheet"/><link href="/marketplace-pages.css" rel="stylesheet"/><link href="/info-pages.css" rel="stylesheet"/></head><body class="info-body"><a class="skip-link" href="#mainContent">Skip to content</a><div class="utility-bar">
+<div class="container utility-inner">
+<button class="utility-location text-button" data-open="locationModal" type="button">
+<img alt="" aria-hidden="true" src="/assets/icons/location-dot.svg"/>
+        Deliver to <strong id="deliveryLocation"><%= deliveryLocation || country?.name || "Uganda" %></strong>
+</button>
+<div class="shipping-note">
+<img alt="" aria-hidden="true" src="/assets/icons/truck-fast.svg"/>
+<strong>Delivery pricing</strong> calculated for your country at checkout
+      </div>
+<nav aria-label="Utility navigation" class="utility-links">
+<a class="text-button" href="/signup?role=seller">Sell on Classic Mart</a>
+<a class="text-button utility-text-link" href="/sellers">Seller Center</a><a class="text-button utility-text-link" href="/promoters">Promoters Center</a>
+<a class="text-button" href="/track-order">Track Order</a>
+<a class="text-button" href="/help">Help &amp; Support</a>
+<button aria-expanded="false" class="language-button" id="languageButton" type="button">
+<img alt="" aria-hidden="true" src="/assets/icons/globe.svg"/> <%= country?.locale?.split("-")[0].toUpperCase() || "EN" %> | <%= currency || country?.currency || "UGX" %>
+          <img alt="" aria-hidden="true" class="tiny-icon" src="/assets/icons/chevron-down.svg"/>
+</button>
+</nav>
+</div>
+</div><header class="site-header" id="top">
+<div class="container header-main">
+<a aria-label="Classic Mart home" class="brand" href="/#top">
+<img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"/>
+<small>Everything, for everyone</small>
+</a>
+<form class="search-bar" id="searchForm" role="search">
+<label class="sr-only" for="searchCategory">Product category</label>
+<select aria-label="Product category" class="category-select" id="searchCategory">
+<option value="all">Loading categories…</option>
+</select>
+<label class="sr-only" for="searchInput">Search products</label>
+<input autocomplete="off" id="searchInput" placeholder="Search for products, brands and more..." type="search"/>
+<div class="search-tool-actions" aria-label="Alternative search options">
+<button aria-label="Search by image" class="search-tool-button" data-image-search type="button" title="Search by image"><img alt="" aria-hidden="true" src="/assets/icons/camera.svg"/></button>
+<button aria-label="Search by voice" class="search-tool-button" data-voice-search type="button" title="Search by voice"><img alt="" aria-hidden="true" src="/assets/icons/microphone.svg"/></button>
+<input accept="image/jpeg,image/png,image/webp,image/avif" class="sr-only" data-image-search-input type="file"/>
+</div>
+<button class="search-button" type="submit">
+<img alt="" aria-hidden="true" src="/assets/icons/magnifying-glass.svg"/><span>Search</span>
+</button>
+<div aria-label="Search suggestions" class="search-suggestions" id="searchSuggestions" role="listbox"></div>
+</form>
+<div class="header-actions">
+<a aria-label="Open your Classic Mart profile" class="header-action header-action-link" href="/dashboard">
+<span class="header-action-icon"><img alt="" aria-hidden="true" src="/assets/icons/user.svg"/></span>
+<span class="header-action-copy"><small>Your account</small><strong>Profile</strong></span>
+<img alt="" aria-hidden="true" class="header-chevron" src="/assets/icons/chevron-right.svg"/>
+</a>
+<a aria-label="Open your wishlist" class="header-action wishlist-trigger" href="/wishlist"><span class="header-action-icon"><img alt="" aria-hidden="true" src="/assets/icons/heart-regular.svg"/></span><span class="header-action-copy"><small>Saved items</small><strong>Wishlist</strong></span><b class="count-badge wishlist-count-badge" data-wishlist-count="">0</b></a><a aria-label="Open your full cart and checkout" class="header-action cart-trigger" href="/cart" id="cartTrigger">
+<span class="header-action-icon"><img alt="" aria-hidden="true" src="/assets/icons/cart-shopping.svg"/></span>
+<span class="header-action-copy"><small>Your basket</small><strong>Cart</strong></span>
+<b class="count-badge" id="cartCount">0</b>
+</a>
+</div>
+</div>
+<div class="nav-shell">
+<div class="container nav-inner">
+<button aria-controls="categoryPanel" aria-expanded="false" class="browse-button" id="menuToggle" type="button">
+<img alt="" aria-hidden="true" src="/assets/icons/bars.svg"/>
+<span>Browse Categories</span>
+<img alt="" aria-hidden="true" class="browse-chevron" src="/assets/icons/chevron-down.svg"/>
+</button>
+<nav aria-label="Primary navigation" class="primary-nav" id="primaryNav">
+<span class="primary-nav-main">
+<a class="active" href="/#top">Home</a>
+<a href="/categories">Categories <span class="tiny-badge">—</span></a>
+<a href="/products?view=deals">Flash Deals <span class="hot-badge">HOT</span></a>
+<a href="/products?view=new">New Arrivals</a>
+<a href="/products?view=brands">Top Brands</a>
+<a href="/#features">Features <img alt="" aria-hidden="true" src="/assets/icons/chevron-down.svg"/></a>
+<a href="/wishlist">Wishlist</a><a href="/compare">Compare</a></span>
+<span aria-label="Featured marketplace links" class="primary-nav-end">
+<a href="/products?view=deals">Best Deals</a>
+<a class="classic-live-link" href="/products?view=fresh"><span aria-hidden="true" class="live-dot"></span>Classic Live</a>
+</span>
+</nav>
+<button aria-label="Open search" class="mobile-search-button" id="mobileSearchButton" type="button">
+<img alt="" aria-hidden="true" src="/assets/icons/magnifying-glass.svg"/>
+</button>
+</div>
+</div>
+</header><main class="info-main" id="mainContent"><section class="info-hero"><div class="container"><nav aria-label="Breadcrumb" class="catalog-breadcrumb"><a href="/">Home</a><span>›</span><strong>About Classic Mart</strong></nav><span class="info-kicker">Marketplace built around clear choices</span><h1>About Classic Mart</h1><p>Classic Mart brings buyers, verified sellers and trusted promoters together in one responsive marketplace.</p></div></section><div class="container info-content"><div class="info-grid three"><article><h2>Clear discovery</h2><p>Search, categories and curated collections help shoppers compare products without unnecessary complexity.</p></article><article><h2>Trusted participation</h2><p>Seller and promoter profiles provide transparent specialties, ratings and marketplace history.</p></article><article><h2>Buyer support</h2><p>Order tracking, returns guidance and support pathways stay visible throughout the shopping journey.</p></article></div><section class="info-section"><h2>Our marketplace promise</h2><p>We design every step around understandable pricing, useful product information, secure checkout patterns and responsive support. Classic Mart validates catalogue, cart, order and payment state on the server; online payment entry is handled by the configured hosted provider.</p></section></div></main><section class="newsletter">
+<div class="container newsletter-inner">
+<div class="newsletter-message"><span><img alt="" src="/assets/icons/envelope.svg"/></span><div><strong>Stay in the Loop!</strong><small>Get exclusive deals, new arrivals and shopping tips.</small></div></div>
+<form class="newsletter-form" data-newsletter-form id="newsletterForm" novalidate>
+<label class="sr-only" for="newsletterEmail">Email address</label>
+<input autocomplete="email" id="newsletterEmail" maxlength="254" name="email" placeholder="Enter your email address" required type="email"/>
+<button type="submit">Subscribe</button>
+<p aria-live="polite" class="newsletter-status" data-newsletter-status></p>
+</form>
+<div class="newsletter-perks"><span><img alt="" src="/assets/icons/percent.svg"/><b>Exclusive Deals</b></span><span><img alt="" src="/assets/icons/gift.svg"/><b>New Arrivals</b></span><span><img alt="" src="/assets/icons/location-dot.svg"/><b>Shopping Tips</b></span></div>
+</div>
+</section><footer class="site-footer">
+<div class="container footer-grid">
+<div class="footer-about">
+<a class="brand footer-brand" href="/#top"><img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"/></a>
+<p>Your one-stop marketplace for products from trusted sellers, with secure checkout and customer support.</p>
+<div class="socials" aria-label="Official Classic Mart social channels are not published yet"><span aria-label="Facebook channel not published" title="Official Facebook channel not published yet"><img alt="" src="/assets/icons/facebook-f.svg"/></span><span aria-label="X channel not published" title="Official X channel not published yet"><img alt="" src="/assets/icons/x-twitter.svg"/></span><span aria-label="Instagram channel not published" title="Official Instagram channel not published yet"><img alt="" src="/assets/icons/instagram.svg"/></span><span aria-label="YouTube channel not published" title="Official YouTube channel not published yet"><img alt="" src="/assets/icons/youtube.svg"/></span><span aria-label="Pinterest channel not published" title="Official Pinterest channel not published yet"><img alt="" src="/assets/icons/pinterest.svg"/></span></div>
+</div>
+<div><h3>Shop</h3><a href="/categories">All Categories</a><a href="/products?view=deals">Flash Deals</a><a href="/products?view=new">New Arrivals</a><a href="/products?view=brands">Top Brands</a><a class="footer-link" href="/signup?role=seller">Sell on Classic Mart</a><a href="/sellers">Browse Sellers</a><a href="/promoters">Promoters Center</a><a href="/wishlist">My Wishlist</a><a href="/dashboard">My Profile</a></div>
+<div><h3>Customer Service</h3><a class="footer-link" href="/help">Help Center</a><a class="footer-link" href="/track-order">Track Order</a><a class="footer-link" href="/returns">Returns &amp; Refunds</a><a class="footer-link" href="/shipping">Shipping Info</a><a class="footer-link" href="/contact">Contact Us</a></div>
+<div><h3>About Us</h3><a class="footer-link" href="/about">About Classic Mart</a><a class="footer-link" href="/careers">Careers</a><a class="footer-link" href="/press">Press &amp; News</a><a class="footer-link" href="/sellers">Seller Center</a></div>
+<div><h3>Policies</h3><a class="footer-link" href="/privacy">Privacy Policy</a><a class="footer-link" href="/terms">Terms of Service</a><a class="footer-link" href="/cookies">Cookie Policy</a><a class="footer-link" href="/payments">Payment Policy</a></div>
+<div class="app-download"><h3>Classic Mart App</h3><p>Install the secure Classic Mart PWA for an app-like experience using the same live marketplace data.</p><a class="app-badge" href="/app"><img alt="" src="/assets/icons/mobile-screen-button.svg"/><span>INSTALL<strong>Classic Mart</strong></span></a></div>
+</div>
+<div class="container footer-bottom"><span>© 2026 Classic Mart. All rights reserved.</span><span>Secure payments · Buyer protection · Trusted sellers</span></div>
+</footer><div aria-live="polite" class="page-toast" id="pageToast" role="status"></div><script src="/cart-store.js"></script>
+<script src="/info-pages.js"></script><script src="/shared-shell.js"></script><script src="/image-fallback.js"></script><script src="/country-switcher.js"></script><script src="/search-tools.js"></script><script src="/newsletter.js"></script></body></html>

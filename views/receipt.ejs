@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Receipt <%= order.id %> — Classic Mart</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/marketplace-pages.css">
+  <style>
+    .receipt-page{max-width:900px;margin:32px auto;padding:0 16px}.receipt-card{background:#fff;border:1px solid #e7e7e7;border-radius:24px;padding:24px}.receipt-head,.receipt-total-row{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.receipt-meta{color:#666}.receipt-table{width:100%;border-collapse:collapse;margin:22px 0}.receipt-table th,.receipt-table td{text-align:left;padding:12px 8px;border-bottom:1px solid #eee}.receipt-table th:last-child,.receipt-table td:last-child{text-align:right}.receipt-totals{margin-left:auto;max-width:360px}.receipt-total-row{padding:7px 0}.receipt-total-row strong{font-size:1.12rem}.receipt-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.receipt-actions a,.receipt-actions button{border-radius:999px}@media(max-width:640px){.receipt-head{display:block}.receipt-table{font-size:.92rem}.receipt-card{padding:18px}}@media print{.receipt-actions{display:none}.receipt-page{margin:0;max-width:none}.receipt-card{border:0;padding:0}.receipt-card{box-shadow:none}}
+  </style>
+</head>
+<body>
+<main class="receipt-page">
+  <section class="receipt-card" aria-labelledby="receiptTitle">
+    <div class="receipt-head">
+      <div><img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"><h1 id="receiptTitle">Order receipt</h1><p class="receipt-meta">Order <strong><%= order.id %></strong></p></div>
+      <div class="receipt-meta"><p>Status: <strong><%= String(order.status).replaceAll('_',' ') %></strong></p><p><%= order.createdAt ? new Date(order.createdAt).toLocaleString() : '' %></p><p><%= order.paymentMethod.toUpperCase() %> · <%= String(order.deliveryMethod).replaceAll('_',' ') %></p></div>
+    </div>
+    <table class="receipt-table">
+      <thead><tr><th>Item</th><th>Qty</th><th>Total</th></tr></thead>
+      <tbody><% order.items.forEach(item=>{ %><tr><td><strong><%= item.title %></strong><br><small><%= item.variant %></small></td><td><%= item.quantity %></td><td><%= formatMoney(item.lineTotalMinor, item.currency) %></td></tr><% }) %></tbody>
+    </table>
+    <div class="receipt-totals">
+      <div class="receipt-total-row"><span>Subtotal</span><span><%= formatMoney(order.totals.subtotalMinor, order.totals.currency) %></span></div>
+      <div class="receipt-total-row"><span>Shipping</span><span><%= formatMoney(order.totals.shippingMinor, order.totals.currency) %></span></div>
+      <div class="receipt-total-row"><span>Discount</span><span>-<%= formatMoney(order.totals.discountMinor, order.totals.currency) %></span></div>
+      <div class="receipt-total-row"><span>Tax</span><span><%= formatMoney(order.totals.taxMinor, order.totals.currency) %></span></div>
+      <div class="receipt-total-row"><strong>Total</strong><strong><%= formatMoney(order.totals.totalMinor, order.totals.currency) %></strong></div>
+    </div>
+    <p class="receipt-meta">This receipt reflects the immutable purchase snapshot recorded by Classic Mart. Payment status remains authoritative on the server.</p>
+    <div class="receipt-actions"><button type="button" onclick="window.print()">Print receipt</button><a class="primary" href="/track-order?order=<%= encodeURIComponent(order.id) %>">Track order</a><% if(order.isGuest){ %><a href="/signup?next=<%= encodeURIComponent('/track-order?order='+order.id) %>">Create account</a><% } %></div>
+  </section>
+</main>
+</body>
+</html>

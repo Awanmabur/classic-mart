@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+  <meta content="#ff6500" name="theme-color"/>
+  <title>Choose Your Role — Classic Mart</title>
+  <link href="/styles.css" rel="stylesheet"/>
+  <link href="/storefront-pages.css" rel="stylesheet"/>
+  <link href="/onboarding-role.css" rel="stylesheet"/>
+  <link href="/server-ui.css" rel="stylesheet"/>
+</head>
+<body class="role-onboarding-page">
+  <main class="role-onboarding-shell">
+    <header class="role-onboarding-header">
+      <a class="brand" href="/"><img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"/><small>Everything, for everyone</small></a>
+      <div class="role-step-label"><span>Secure account setup</span><div><i class="active"></i><i class="active"></i><i></i></div></div>
+    </header>
+    <section class="role-onboarding-card">
+      <form action="/onboarding" class="server-onboarding-form" method="post">
+        <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+        <div class="role-heading">
+          <span>Welcome, <b><%= user.name %></b></span>
+          <h1>How will you use Classic Mart?</h1>
+          <p>Choose your primary workspace and complete the profile fields. Operational roles are still verified before sensitive features are enabled.</p>
+        </div>
+        <div class="role-grid">
+          <% const roles = [
+            ['customer','cart-shopping.svg','Customer','Shop, save products, track orders and manage returns.','Best for everyday shopping'],
+            ['seller','store.svg','Seller','Create a storefront, list products and manage customer orders.','For shops and product businesses'],
+            ['promoter','share-nodes.svg','Promoter','Recommend approved products and track transparent earnings.','For creators and affiliates'],
+            ['business','box.svg','Business Buyer','Buy supplies for a team, office, school or organisation.','For bulk and repeat purchases'],
+            ['delivery','truck-fast.svg','Delivery Partner','Manage verified delivery work and proof.','For couriers and logistics teams']
+          ]; %>
+          <% roles.forEach(([value, icon, label, description, note]) => { %>
+            <label class="role-card">
+              <input <%= values.role === value ? 'checked' : '' %> name="role" required type="radio" value="<%= value %>"/>
+              <span class="role-icon"><img alt="" src="/assets/icons/<%= icon %>"/></span>
+              <strong><%= label %></strong><small><%= description %></small><em><%= note %></em>
+            </label>
+          <% }); %>
+        </div>
+        <div class="role-heading details-heading">
+          <span>Profile details</span><h2>Tell us the essentials.</h2>
+          <p>These details are stored securely on the server and can be updated later.</p>
+        </div>
+        <div class="role-form-grid">
+          <label class="role-field">Public profile name<input maxlength="100" name="publicName" placeholder="Name shown in your workspace" required value="<%= values.publicName || user.name %>"/></label>
+          <label class="role-field">Business or channel name<input maxlength="140" name="businessName" placeholder="Optional for customers" value="<%= values.businessName || '' %>"/></label>
+          <label class="role-field">Main focus<input maxlength="120" name="focus" placeholder="Products, category or buying needs" value="<%= values.focus || '' %>"/></label>
+          <label class="role-field">Location<input maxlength="180" name="location" placeholder="City, country" required value="<%= values.location || 'Kampala, Uganda' %>"/></label>
+          <label class="role-field">Transport mode<input maxlength="80" name="transport" placeholder="Delivery roles only" value="<%= values.transport || '' %>"/></label>
+          <label class="role-field">Team size<input maxlength="30" name="teamSize" placeholder="Business buyers or teams" value="<%= values.teamSize || '' %>"/></label>
+          <label class="role-field full">About this profile<textarea maxlength="1000" name="bio" placeholder="A short, accurate description" rows="4"><%= values.bio || '' %></textarea></label>
+        </div>
+        <p class="role-server-message<%= pageError ? ' error' : '' %>"><%= pageError || flash?.message || '' %></p>
+        <div class="role-step-actions server-role-actions">
+          <a class="role-back" href="/">Back to marketplace</a>
+          <button class="role-next" type="submit">Complete Secure Setup</button>
+        </div>
+      </form>
+    </section>
+  </main>
+<script src="/image-fallback.js"></script></body>
+</html>

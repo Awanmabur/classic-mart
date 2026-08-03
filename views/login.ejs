@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+
+<html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
+<meta content="Sign in to Classic Mart to manage orders, saved products and delivery details." name="description"/>
+<meta content="#ff6500" name="theme-color"/>
+<title>Sign In — Classic Mart</title>
+<link href="/styles.css" rel="stylesheet"/>
+<link href="/storefront-pages.css" rel="stylesheet"/>
+</head>
+<body class="storefront-page auth-standalone-page">
+<a class="skip-link" href="#authContent">Skip to sign in</a>
+<main class="auth-main page-shell" id="authContent">
+<section aria-label="Classic Mart sign in" class="auth-grid">
+<article class="auth-card auth-showcase">
+<div>
+<span class="auth-showcase-badge"><img alt="" src="/assets/icons/gift.svg"/>A better way to shop</span>
+<div class="auth-showcase-copy">
+<h1>Welcome back to <span>Classic Mart.</span></h1>
+<p>Sign in for faster checkout, live order updates, saved products and offers selected around what you actually shop for.</p>
+<div class="auth-benefits">
+<div class="auth-benefit"><span><img alt="" src="/assets/icons/truck-fast.svg"/></span><div><strong>Track every order</strong><small>Clear delivery progress from checkout to arrival.</small></div></div>
+<div class="auth-benefit"><span><img alt="" src="/assets/icons/heart-regular.svg"/></span><div><strong>Keep your favourites</strong><small>Return to products you saved from any device.</small></div></div>
+<div class="auth-benefit"><span><img alt="" src="/assets/icons/lock.svg"/></span><div><strong>Shop with confidence</strong><small>Protected checkout and buyer support.</small></div></div>
+</div>
+</div>
+</div>
+<div class="auth-social-proof">
+<div aria-hidden="true" class="auth-avatars"><span>AM</span><span>JN</span><span>SK</span></div>
+<div><strong>Trusted by growing communities</strong><small>Useful products, transparent prices and responsive support.</small></div>
+</div>
+</article>
+<article class="auth-card auth-form-card">
+<div class="auth-form-head">
+<span class="auth-kicker">Customer account</span>
+<h2>Sign in and continue shopping.</h2>
+<p>Use your verified email address or phone number with your secure password.</p>
+</div>
+<form action="/login" class="auth-form" id="signInForm" method="post">
+<input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+<input name="next" type="hidden" value="<%= next %>"/>
+<label class="auth-field">
+<span>Email or phone number</span>
+<span class="auth-input-wrap"><img alt="" src="/assets/icons/user.svg"/><input autocomplete="username" id="signInIdentity" name="identity" placeholder="Email address or phone number" required="" type="text" value="<%= values.identity %>"/></span>
+</label>
+<label class="auth-field">
+<span>Password</span>
+<span class="auth-input-wrap"><img alt="" src="/assets/icons/lock.svg"/><input autocomplete="current-password" id="signInPassword" maxlength="128" name="password" placeholder="Enter your password" required="" type="password"/><button aria-label="Show password" class="password-toggle" data-password-toggle="signInPassword" type="button"><img alt="" src="/assets/icons/eye.svg"/></button></span>
+</label>
+<div class="auth-row">
+<label class="auth-check"><input checked="" name="remember" type="checkbox"/>Keep me signed in</label>
+<a class="auth-text-link" href="/forgot-password" id="forgotPassword">Forgot password?</a>
+</div>
+<p aria-live="polite" class="auth-message<%= pageError ? ' error' : '' %>" id="authMessage" role="status"><%= pageError || flash?.message || '' %></p>
+<% if (flash?.details) { %><p class="auth-message"><%= flash.details %></p><% } %>
+<button class="auth-submit" type="submit">Sign In to Classic Mart</button>
+</form>
+<p class="auth-switch">New to Classic Mart? <a href="/signup">Create your free account</a></p>
+<p class="auth-legal">By continuing, you agree to the Classic Mart <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
+</article>
+</section>
+</main>
+<div aria-live="polite" class="page-toast" id="pageToast" role="status"></div>
+<script src="/identity.js"></script>
+<script src="/image-fallback.js"></script></body>
+</html>

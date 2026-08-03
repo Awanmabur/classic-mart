@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+.classic-mart
+storage/uploads
+coverage
+artifacts
+*.log
+npm-debug.log*
+*.zip
+*.sha256
+
+storage/exports/

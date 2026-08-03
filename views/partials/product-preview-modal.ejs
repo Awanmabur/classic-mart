@@ -1,0 +1,13 @@
+<div class="modal-backdrop" hidden id="modalBackdrop"></div>
+<section aria-describedby="productModalDescription" aria-labelledby="productModalTitle" aria-modal="true" class="modal product-detail-modal" hidden id="productModal" role="dialog">
+  <div aria-label="Product preview actions" class="product-modal-toolbar">
+    <button aria-expanded="false" aria-haspopup="menu" aria-label="Share product" class="modal-toolbar-button" data-share-product data-share-url id="productModalShare" type="button"><img alt="" src="/assets/icons/share-nodes.svg"/></button>
+    <button aria-label="Save product" aria-pressed="false" class="modal-toolbar-button" data-wishlist id="productModalWishlist" type="button"><img alt="" src="/assets/icons/heart-regular.svg"/></button>
+    <button aria-label="Close product preview" class="modal-toolbar-button modal-toolbar-close" data-close-modal data-close-product-preview type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
+  </div>
+  <div aria-label="Share product options" class="product-share-menu" hidden id="productShareMenu" role="menu">
+    <a id="productShareWhatsApp" rel="noopener noreferrer" role="menuitem" target="_blank"><img alt="" src="/assets/icons/whatsapp.svg"/><span>WhatsApp</span></a>
+    <button data-copy-product data-share-url id="productShareCopy" role="menuitem" type="button"><img alt="" src="/assets/icons/link.svg"/><span>Copy link</span></button>
+  </div>
+  <div class="product-modal-content" id="productModalContent"></div>
+</section>

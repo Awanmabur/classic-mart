@@ -1,4 +1,35 @@
+# Dependencies
 node_modules/
+
+# Local environment and secrets
 .env
-data/classicfinhub-db.json
+.env.*
+!.env.example
+
+# Classic Mart self-managed local MongoDB state
+.classic-mart/
+
+# Runtime uploads and generated data
+storage/uploads/*
+!storage/uploads/.gitkeep
+coverage/
+artifacts/
+
+# Logs and diagnostics
+*.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build/release artifacts
+*.zip
+*.sha256
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+storage/exports/
