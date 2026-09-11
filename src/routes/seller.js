@@ -12,7 +12,10 @@ import {
   InventoryMovement,
   Order,
   Parcel,
+  ReturnRequest,
   SellerOrder,
+  SellerReturnCase,
+  SellerShipment,
   Shipment,
   Product,
   ProductMedia,
@@ -35,8 +38,10 @@ import {
 import { noStore } from '../middleware/request.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { loadSellerStore, requireStoreCapability } from '../middleware/store.js';
+import { getOrCreateStore } from '../services/store.js';
 import { setFlash } from '../middleware/view.js';
 import { writeAudit } from '../services/audit.js';
+import { refreshOrderLifecycle } from '../services/order-state.js';
 import {
   calculateQualityScore,
   formatMinorUnits,
@@ -48,6 +53,7 @@ import { getCountries } from '../services/country.js';
 import { clearStorefrontCache } from '../services/storefront.js';
 import { adjustStock, createInventoryLot, setInventoryLotStatus, setStockCondition } from '../services/inventory.js';
 import {
+  sanitizeAndStoreEvidenceImage,
   sanitizeAndStoreProductImage,
   sanitizeAndStoreVerificationDocument,
   uploadProductImage,
@@ -56,6 +62,7 @@ import {
 import { addOutboxEvent } from '../services/outbox.js';
 import { createApiClient, createWebhookEndpoint, developerPortalData, revokeApiClient, revokeWebhookEndpoint, rotateApiClient, rotateWebhookSecret, SELLER_API_SCOPES, WEBHOOK_EVENTS, queueWebhookEvent } from '../services/stage11.js';
 import { createWarehouseTask, executeWarehouseTask } from '../services/logistics.js';
+import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 import {
   bulkImportSchema,
   brandRequestSchema,
@@ -68,6 +75,8 @@ import {
   verificationSchema,
   warehouseSchema,
 } from '../validation/catalogue.js';
+
+function escapeSellerSearch(value){return String(value||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 
 const router = Router();
 const uploadLimiter = rateLimit({
@@ -98,7 +107,7 @@ router.use(
   loadSellerStore,
 );
 router.use(['/seller/onboarding','/seller/store','/seller/staff'], requireStoreCapability('staff'));
-router.use(['/seller/messages','/seller/questions'], requireStoreCapability('support'));
+router.use(['/seller/messages','/seller/questions','/seller/returns'], requireStoreCapability('support'));
 router.use('/seller/orders', requireStoreCapability('fulfilment'));
 router.use(['/seller/products','/seller/brands'], requireStoreCapability('catalogue'));
 router.use('/seller/developers', requireStoreCapability('staff'));
@@ -161,15 +170,22 @@ router.get('/seller', (_request, response) =>
   response.redirect('/seller/products'),
 );
 
+router.post('/seller/workspace', asyncHandler(async (request, response) => {
+  const storePublicId = String(request.body.storePublicId || '').trim();
+  if (!storePublicId || storePublicId.length > 100) throw new AppError('Choose a valid seller workspace.', 422, 'SELLER_WORKSPACE_INVALID');
+  const access = await getOrCreateStore(request.user, { preferredStorePublicId: storePublicId, strictPreferred: true });
+  if (request.session) request.session.activeStorePublicId = access.store.publicId;
+  await writeAudit(request, 'seller.workspace.selected', { targetType: 'store', targetPublicId: access.store.publicId, country: access.store.country });
+  response.redirect('/seller/products');
+}));
+
 router.get(
   '/seller/messages',
   asyncHandler(async (request, response) => {
-    const contacts = await SellerContactRequest.find({ storeId: request.store._id })
-      .populate('customerUserId', 'name')
-      .sort({ lastMessageAt: -1, createdAt: -1 })
-      .limit(100)
-      .lean();
-    return renderWorkspace(request, response, { section: 'messages', contacts });
+    const base={storeId:request.store._id},pageSize=50,field='lastMessageAt';
+    const [rows,total]=await Promise.all([SellerContactRequest.find(cursorScope(base,request.query.after,{field,direction:-1})).populate('customerUserId','name').sort(cursorSort(field,-1)).limit(pageSize+1).lean(),SellerContactRequest.countDocuments(base)]);
+    const page=pageResult(rows,{field,limit:pageSize,total});
+    return renderWorkspace(request, response, { section: 'messages', contacts:page.items, queuePage:page.page });
   }),
 );
 
@@ -208,11 +224,11 @@ router.post(
 router.get(
   '/seller/questions',
   asyncHandler(async (request, response) => {
-    const questions = await ProductQuestion.find({ storeId: request.store._id })
-      .sort({ status: 1, createdAt: -1 })
-      .limit(100)
-      .lean();
-    return renderWorkspace(request, response, { section: 'questions', questions });
+    const questionStatus=['open','answered'].includes(String(request.query.status||''))?String(request.query.status):'open';
+    const base={storeId:request.store._id,status:questionStatus},pageSize=50;
+    const [rows,total]=await Promise.all([ProductQuestion.find(cursorScope(base,request.query.after)).sort(cursorSort()).limit(pageSize+1).lean(),ProductQuestion.countDocuments(base)]);
+    const page=pageResult(rows,{limit:pageSize,total});
+    return renderWorkspace(request, response, { section: 'questions', questions:page.items, questionStatus, queuePage:page.page });
   }),
 );
 
@@ -372,6 +388,10 @@ router.post(
     verification.declarationAcceptedAt = new Date();
     verification.submittedAt = new Date();
     verification.reviewReason = '';
+    verification.assignedUserId = undefined;
+    verification.assignedAt = undefined;
+    verification.escalatedAt = undefined;
+    verification.escalationReason = '';
     await verification.save();
     await addOutboxEvent({
       type: 'seller.verification_submitted',
@@ -404,6 +424,10 @@ router.post(
       );
     }
     verification.status = 'appealed';
+    verification.assignedUserId = undefined;
+    verification.assignedAt = undefined;
+    verification.escalatedAt = undefined;
+    verification.escalationReason = '';
     verification.appeal = { message: input.message, submittedAt: new Date() };
     await verification.save();
     await writeAudit(request, 'seller.verification_appealed', {
@@ -448,25 +472,67 @@ router.post('/seller/staff/:publicId/revoke', workflowLimiter, asyncHandler(asyn
   setFlash(request, 'success', 'Store access revoked.'); response.redirect('/seller/staff');
 }));
 
+router.get('/seller/returns', asyncHandler(async (request, response) => {
+  const pageSize=50,clauses=[{storeId:request.store._id}],status=String(request.query.status||'').trim(),search=String(request.query.q||'').trim().slice(0,80),overdue=String(request.query.overdue||'')==='1';
+  if(['pending','acknowledged','contested','escalated','resolved'].includes(status))clauses.push({status});
+  if(search){const re=new RegExp(escapeSellerSearch(search),'i');clauses.push({$or:[{publicId:re},{returnPublicId:re},{orderPublicId:re},{'items.sku':re},{'items.title':re},{'items.variantTitle':re}]});}
+  if(overdue)clauses.push({status:{$ne:'resolved'},$or:[{respondedAt:{$exists:false}},{respondedAt:null}],slaDueAt:{$lt:new Date()}});
+  const base=clauses.length===1?clauses[0]:{$and:clauses};
+  const [rows,total]=await Promise.all([
+    SellerReturnCase.find(cursorScope(base,request.query.after)).populate('evidenceDocumentIds','publicId description createdAt').sort(cursorSort()).limit(pageSize+1).lean(),
+    SellerReturnCase.countDocuments(base),
+  ]);
+  const page=pageResult(rows,{limit:pageSize,total}),returnIds=page.items.map(row=>row.returnRequestId),orderIds=[...new Set(page.items.map(row=>row.orderPublicId))];
+  const returnRows=returnIds.length?await ReturnRequest.find({_id:{$in:returnIds}}).select('publicId status reason details resolution items evidenceDocumentIds returnShipmentPublicId refundPublicId replacementOrderPublicId timeline').lean():[];
+  const returnById=new Map(returnRows.map(row=>[String(row._id),row])),shipmentPublicIds=returnRows.map(row=>row.returnShipmentPublicId).filter(Boolean);
+  const [shipments,sellerOrders]=await Promise.all([
+    shipmentPublicIds.length?Shipment.find({publicId:{$in:shipmentPublicIds},kind:'return'}).select('publicId status mode deliveredAt createdAt updatedAt').lean():[],
+    orderIds.length?SellerOrder.find({orderPublicId:{$in:orderIds},storeId:request.store._id}).select('orderPublicId publicId currency items status').lean():[],
+  ]);
+  const shipmentByPublicId=new Map(shipments.map(row=>[row.publicId,row])),sellerOrderByOrder=new Map(sellerOrders.map(row=>[row.orderPublicId,row])),now=Date.now();
+  const returnCases=page.items.map(row=>{
+    const ret=returnById.get(String(row.returnRequestId)),sellerOrder=sellerOrderByOrder.get(row.orderPublicId),lineById=new Map((ret?.items||[]).map(item=>[String(item.orderLineId),item]));
+    return {...row,
+      slaOverdue:Boolean(!row.respondedAt&&row.status!=='resolved'&&row.slaDueAt&&new Date(row.slaDueAt).getTime()<now),
+      returnRequest:ret?{publicId:ret.publicId,status:ret.status,reason:ret.reason,details:ret.details,resolution:ret.resolution,refundPublicId:ret.refundPublicId||'',replacementOrderPublicId:ret.replacementOrderPublicId||'',customerEvidenceCount:Array.isArray(ret.evidenceDocumentIds)?ret.evidenceDocumentIds.length:0,shipment:shipmentByPublicId.get(ret.returnShipmentPublicId)||null}:null,
+      items:(row.items||[]).map(item=>{const inspection=lineById.get(String(item.orderLineId));return {...item,warehouseInspectionStatus:inspection?.warehouseInspectionStatus||'',stockDisposition:inspection?.stockDisposition||'',inspectedQuantity:Number(inspection?.inspectedQuantity||0),warehouseInspectedAt:inspection?.warehouseInspectedAt||null,financialSnapshotReady:Number.isSafeInteger(Number(item.sellerReceivableReversalMinor))&&Number.isSafeInteger(Number(item.platformFeeReversalMinor))};}),
+      sellerOrderPublicId:sellerOrder?.publicId||'',currency:sellerOrder?.currency||request.store.currency,
+    };
+  });
+  const params=new URLSearchParams();if(status)params.set('status',status);if(search)params.set('q',search);if(overdue)params.set('overdue','1');
+  return renderWorkspace(request,response,{section:'returns',returnCases,queuePage:page.page,returnFilters:{status,search,overdue},returnFilterQuery:params.toString()});
+}));
+router.post('/seller/returns/:publicId/respond', workflowLimiter, asyncHandler(async(request,response)=>{
+  const action=String(request.body.action||'');if(!['acknowledged','contested','escalated'].includes(action))throw new AppError('Choose a valid return response.',422,'SELLER_RETURN_RESPONSE_INVALID');
+  const message=String(request.body.message||'').trim().slice(0,2000);if(['contested','escalated'].includes(action)&&message.length<10)throw new AppError('Explain the seller return response in at least 10 characters.',422,'SELLER_RETURN_RESPONSE_REQUIRED');
+  const row=await SellerReturnCase.findOne({publicId:request.params.publicId,storeId:request.store._id,status:{$ne:'resolved'}});if(!row)throw new AppError('Seller return case not found.',404,'SELLER_RETURN_NOT_FOUND');
+  row.status=action;row.responseMessage=message;row.respondedByUserId=request.user._id;row.respondedAt=new Date();row.timeline.push({type:`seller_return.${action}`,message:message||`Seller marked the return ${action}.`,actorUserId:request.user._id});await row.save();
+  await writeAudit(request,`seller.return_${action}`,{targetType:'seller_return_case',targetPublicId:row.publicId,country:row.country,metadata:{returnPublicId:row.returnPublicId}});setFlash(request,'success','Seller return response recorded for marketplace support.');response.redirect('/seller/returns');
+}));
+router.post('/seller/returns/:publicId/evidence', upload(uploadVerificationImage), asyncHandler(async(request,response)=>{
+  const row=await SellerReturnCase.findOne({publicId:request.params.publicId,storeId:request.store._id,status:{$ne:'resolved'}});if(!row)throw new AppError('Seller return case not found.',404,'SELLER_RETURN_NOT_FOUND');
+  const evidence=await sanitizeAndStoreEvidenceImage({file:request.file,user:request.user,country:row.country,contextType:'seller_return',contextPublicId:row.publicId,description:String(request.body.description||'Seller return evidence').slice(0,300)});
+  if(!row.evidenceDocumentIds.some(id=>String(id)===String(evidence._id)))row.evidenceDocumentIds.push(evidence._id);row.timeline.push({type:'seller_return.evidence_added',message:'Seller added private evidence for support review.',actorUserId:request.user._id});await row.save();
+  await writeAudit(request,'seller.return_evidence_added',{targetType:'seller_return_case',targetPublicId:row.publicId,country:row.country,metadata:{evidence:evidence.publicId}});setFlash(request,'success','Seller evidence uploaded for support review.');response.redirect('/seller/returns');
+}));
+
 async function sellerOrderContext(request, publicOrderId = null) {
-  const query = { storeId: request.store._id };
-  if (publicOrderId) query.publicId = publicOrderId;
-  const orders = await SellerOrder.find(query).sort({ createdAt: -1 }).limit(publicOrderId ? 1 : 100).lean();
-  const orderPublicIds = orders.map((order) => order.orderPublicId);
-  const shipmentRows = orderPublicIds.length ? await Shipment.find({ orderPublicId: { $in: orderPublicIds }, kind: 'outbound' }).select('publicId orderPublicId status').lean() : [];
-  const shipmentIds = shipmentRows.map((row) => row._id);
-  const parcels = shipmentIds.length ? await Parcel.find({ shipmentId: { $in: shipmentIds }, storePublicId: request.store.publicId }).lean() : [];
-  const shipmentByOrder = new Map(shipmentRows.map((row) => [row.orderPublicId, row]));
-  const parcelByOrder = new Map();
-  for (const parcel of parcels) parcelByOrder.set(parcel.orderPublicId, parcel);
-  return orders.map((order) => ({ ...order, shipment: shipmentByOrder.get(order.orderPublicId) || null, parcel: parcelByOrder.get(order.orderPublicId) || null }));
+  const base={storeId:request.store._id};if(publicOrderId)base.publicId=publicOrderId;const pageSize=50;
+  const [rows,total]=publicOrderId?await Promise.all([SellerOrder.find(base).sort(cursorSort()).limit(1).lean(),Promise.resolve(1)]):await Promise.all([SellerOrder.find(cursorScope(base,request.query.after)).sort(cursorSort()).limit(pageSize+1).lean(),SellerOrder.countDocuments(base)]);
+  const page=publicOrderId?{items:rows,page:{hasMore:false,next:'',count:rows.length,total:rows.length}}:pageResult(rows,{limit:pageSize,total});
+  const orders=page.items,orderPublicIds=orders.map(order=>order.orderPublicId);
+  const shipmentRows=orderPublicIds.length?await Shipment.find({orderPublicId:{$in:orderPublicIds},kind:'outbound'}).select('publicId orderPublicId status parcelCount').lean():[];
+  const sellerOrderIds=orders.map(row=>row._id);const sellerShipments=sellerOrderIds.length?await SellerShipment.find({sellerOrderId:{$in:sellerOrderIds},storeId:request.store._id}).select('publicId sellerOrderId sellerOrderPublicId rootShipmentPublicId parcelPublicId status lineCount quantity handedOverAt deliveredAt').lean():[];
+  const shipmentIds=shipmentRows.map(row=>row._id);const parcels=shipmentIds.length?await Parcel.find({shipmentId:{$in:shipmentIds},storePublicId:request.store.publicId}).lean():[];
+  const shipmentByOrder=new Map(shipmentRows.map(row=>[row.orderPublicId,row])),parcelByOrder=new Map(),sellerShipmentBySellerOrder=new Map(sellerShipments.map(row=>[String(row.sellerOrderId),row]));for(const parcel of parcels)parcelByOrder.set(parcel.orderPublicId,parcel);
+  return {orders:orders.map(order=>({...order,shipment:shipmentByOrder.get(order.orderPublicId)||null,sellerShipment:sellerShipmentBySellerOrder.get(String(order._id))||null,parcel:parcelByOrder.get(order.orderPublicId)||null})),page:page.page};
 }
 
 router.get(
   '/seller/orders',
   asyncHandler(async (request, response) => {
-    const sellerOrders = await sellerOrderContext(request);
-    return renderWorkspace(request, response, { section: 'orders', orders: sellerOrders });
+    const result=await sellerOrderContext(request);
+    return renderWorkspace(request,response,{section:'orders',orders:result.orders,queuePage:result.page});
   }),
 );
 
@@ -480,6 +546,7 @@ router.post(
     order.status = 'processing';
     order.timeline.push({ type: 'fulfilment.processing', message: 'Seller started fulfilment.' });
     await order.save();
+    await refreshOrderLifecycle(order.orderId);
     await writeAudit(request, 'seller.order_processing', { targetType: 'seller_order', targetPublicId: order.publicId });
     setFlash(request, 'success', 'Order moved to processing.');
     response.redirect('/seller/orders');
@@ -499,6 +566,8 @@ router.post(
     if (!shipment) throw new AppError('Shipment has not been created for this order.', 409, 'SHIPMENT_NOT_READY');
     const parcel = await Parcel.findOne({ shipmentId: shipment._id, storePublicId: request.store.publicId });
     if (!parcel) throw new AppError('Seller parcel was not found.', 404, 'PARCEL_NOT_FOUND');
+    const sellerShipment=await SellerShipment.findOne({sellerOrderId:order._id,storeId:request.store._id,rootShipmentId:shipment._id,parcelId:parcel._id});
+    if(!sellerShipment)throw new AppError('Seller shipment is missing for this fulfilment. Reconcile the order before warehouse actions.',409,'SELLER_SHIPMENT_REQUIRED');
     const warehouse = await Warehouse.findOne({ storeId: request.store._id, active: true }).sort({ createdAt: 1 });
     if (!warehouse) throw new AppError('Create an active warehouse before fulfilling orders.', 409, 'WAREHOUSE_REQUIRED');
     const task = await createWarehouseTask({ warehouseId: warehouse._id, storeId: request.store._id, orderId: order.orderId, shipmentId: shipment._id, parcelId: parcel._id, type: action, reference: order.publicId, notes: `Seller fulfilment ${action}`, assignedUserId: request.user._id, quantity: 0 });
@@ -512,7 +581,8 @@ router.post(
       order.timeline.push({ type: 'fulfilment.processing', message: 'Seller started warehouse fulfilment.' });
     }
     await order.save();
-    await writeAudit(request, `seller.order_${action}`, { targetType: 'seller_order', targetPublicId: order.publicId, metadata: { parcelPublicId: freshParcel.publicId, parcelStatus: freshParcel.status } });
+    await refreshOrderLifecycle(order.orderId);
+    await writeAudit(request, `seller.order_${action}`, { targetType: 'seller_order', targetPublicId: order.publicId, metadata: { sellerShipmentPublicId:sellerShipment.publicId, parcelPublicId: freshParcel.publicId, parcelStatus: freshParcel.status } });
     setFlash(request, 'success', `Parcel ${action} completed.`);
     response.redirect('/seller/orders');
   }),
@@ -520,7 +590,7 @@ router.post(
 
 
 router.get('/seller/developers', asyncHandler(async (request,response)=>{
-  const data=await developerPortalData(request.user,request.store);
+  const data=await developerPortalData(request.user,request.store,request.query);
   response.render('developer-portal',{...data,revealedSecret:null,revealedKey:null});
 }));
 router.post('/seller/developers/clients', asyncHandler(async(request,response)=>{
@@ -554,11 +624,10 @@ router.get(
       : '';
     const query = { storeId: request.store._id };
     if (status) query.status = status;
-    const products = await Product.find(query)
-      .populate('categoryId', 'name')
-      .sort({ updatedAt: -1 })
-      .limit(100)
-      .lean();
+    const pageSize=50;
+    const [productRows,totalProducts]=await Promise.all([Product.find(cursorScope(query,request.query.after,{field:'updatedAt'})).populate('categoryId','name').sort(cursorSort('updatedAt',-1)).limit(pageSize+1).lean(),Product.countDocuments(query)]);
+    const productPage=pageResult(productRows,{field:'updatedAt',limit:pageSize,total:totalProducts});
+    const products=productPage.items;
     const counts = await Product.aggregate([
       { $match: { storeId: request.store._id } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
@@ -568,6 +637,7 @@ router.get(
       products,
       counts: Object.fromEntries(counts.map((item) => [item._id, item.count])),
       status,
+      queuePage:productPage.page,
     });
   }),
 );
@@ -675,6 +745,7 @@ router.post(
       title: input.title,
       slug,
       description: input.description,
+      videoUrl: input.videoUrl,
       countries: input.countries,
       tags: input.tags,
       qualityScore: calculateQualityScore({
@@ -760,6 +831,7 @@ router.post(
     Object.assign(product, {
       title: input.title,
       description: input.description,
+      videoUrl: input.videoUrl,
       categoryId: category._id,
       brandId: brand?._id,
       countries: input.countries,
@@ -889,10 +961,10 @@ router.post(
       throw new AppError('Product is locked during review.', 409, 'PRODUCT_LOCKED');
     }
     const input = mediaMetadataSchema.parse(request.body);
-    const count = await ProductMedia.countDocuments({ productId: product._id });
-    if (count >= 12) {
+    const count = await ProductMedia.countDocuments({ productId: product._id, status: { $ne: 'rejected' } });
+    if (count >= 5) {
       throw new AppError(
-        'A product can have at most 12 images.',
+        'A product can have at most 5 images.',
         422,
         'MEDIA_LIMIT',
       );
@@ -991,9 +1063,9 @@ router.post(
       ProductVariant.countDocuments({ productId: product._id, active: true }),
       ProductMedia.countDocuments({ productId: product._id, status: 'ready' }),
     ]);
-    if (!variantCount || !mediaCount) {
+    if (!variantCount || mediaCount < 3 || mediaCount > 5) {
       throw new AppError(
-        'Add at least one active variant and one valid image.',
+        'Add at least one active variant and between 3 and 5 valid product images.',
         422,
         'PRODUCT_INCOMPLETE',
       );
@@ -1013,9 +1085,27 @@ router.post(
         'QUALITY_TOO_LOW',
       );
     }
+    const moderationCategory = await Category.findById(product.categoryId).select('restricted').lean();
     product.status = 'submitted';
     product.moderation.submittedAt = new Date();
+    product.moderation.assignedUserId = undefined;
+    product.moderation.assignedAt = undefined;
+    product.moderation.escalatedAt = undefined;
+    product.moderation.escalationReason = '';
+    product.moderation.secondReviewRequired = false;
+    product.moderation.firstApprovalByUserId = undefined;
+    product.moderation.firstApprovalAt = undefined;
+    product.moderation.firstApprovalReason = '';
     product.moderation.reason = '';
+    product.moderation.assignedUserId = null;
+    product.moderation.assignedAt = undefined;
+    product.moderation.escalatedAt = undefined;
+    product.moderation.escalationReason = '';
+    product.moderation.riskLevel = moderationCategory?.restricted ? 'high' : 'standard';
+    product.moderation.secondReviewRequired = Boolean(moderationCategory?.restricted);
+    product.moderation.firstApprovalByUserId = null;
+    product.moderation.firstApprovalAt = undefined;
+    product.moderation.firstApprovalReason = '';
     await product.save();
     await addOutboxEvent({
       type: 'catalogue.product_submitted',
@@ -1091,32 +1181,44 @@ router.post(
 router.get(
   '/seller/inventory',
   asyncHandler(async (request, response) => {
-    const [warehouses, variants, stock, movements, lots] = await Promise.all([
-      Warehouse.find({ storeId: request.store._id, active: true })
-        .sort({ name: 1 })
-        .lean(),
-      ProductVariant.find({ storeId: request.store._id, active: true })
-        .populate('productId', 'title')
-        .sort({ sku: 1 })
-        .lean(),
-      StockItem.find({ storeId: request.store._id })
-        .populate('warehouseId', 'name')
-        .populate('variantId', 'sku title')
-        .sort({ updatedAt: -1 })
-        .lean({ virtuals: true }),
-      InventoryMovement.find({ storeId: request.store._id })
-        .sort({ createdAt: -1 })
-        .limit(30)
-        .lean(),
-      InventoryLot.find({ storeId: request.store._id }).populate('warehouseId','name').populate('variantId','sku title').sort({createdAt:-1}).limit(100).lean(),
+    const pageSize=50,movementBase={storeId:request.store._id},lotBase={storeId:request.store._id};
+    const stockQ=String(request.query.stockQ||'').trim().slice(0,120),stockState=String(request.query.stockState||'all'),idleDays=Math.max(0,Math.min(3650,Number(request.query.idleDays||0)||0));
+    const variantMatch={storeId:request.store._id,active:true};
+    if(stockQ){const rx=new RegExp(escapeSellerSearch(stockQ),'i');const products=await Product.find({storeId:request.store._id,title:rx}).select('_id').lean();variantMatch.$or=[{sku:rx},{title:rx},{productId:{$in:products.map(row=>row._id)}}];}
+    const matchedVariantIds=stockQ?await ProductVariant.find(variantMatch).distinct('_id'):[];
+    const availableExpr={$subtract:['$onHand',{$add:['$reserved','$damaged','$quarantined']}]};
+    const stockBase={storeId:request.store._id};
+    if(stockQ)stockBase.variantId={$in:matchedVariantIds};
+    if(stockState==='out')stockBase.$expr={$lte:[availableExpr,0]};
+    else if(stockState==='low')stockBase.$expr={$and:[{$gt:[availableExpr,0]},{$lte:[availableExpr,'$reorderPoint']}]};
+    else if(stockState==='healthy')stockBase.$expr={$gt:[availableExpr,'$reorderPoint']};
+    if(idleDays)stockBase.updatedAt={$lte:new Date(Date.now()-idleDays*86400000)};
+    const [warehouses,variants,stockRows,stockTotal,movementRows,lotRows,movementTotal,lotTotal,stockSummaryRows] = await Promise.all([
+      Warehouse.find({ storeId: request.store._id, active: true }).sort({ name: 1 }).lean(),
+      ProductVariant.find({ storeId: request.store._id, active: true }).populate('productId', 'title').sort({ sku: 1 }).lean(),
+      StockItem.find(cursorScope(stockBase,request.query.stockAfter)).populate('warehouseId','name').populate('variantId','sku title').sort(cursorSort()).limit(pageSize+1).lean({virtuals:true}),
+      StockItem.countDocuments(stockBase),
+      InventoryMovement.find(cursorScope(movementBase,request.query.movementsAfter)).sort(cursorSort()).limit(pageSize+1).lean(),
+      InventoryLot.find(cursorScope(lotBase,request.query.lotsAfter)).populate('warehouseId','name').populate('variantId','sku title').sort(cursorSort()).limit(pageSize+1).lean(),
+      InventoryMovement.countDocuments(movementBase),InventoryLot.countDocuments(lotBase),
+      StockItem.aggregate([{$match:{storeId:request.store._id}},{$project:{onHand:1,available:{$subtract:['$onHand',{$add:['$reserved','$damaged','$quarantined']}]},reorderPoint:1}},{$group:{_id:null,onHand:{$sum:'$onHand'},available:{$sum:'$available'},lowStock:{$sum:{$cond:[{$lte:['$available','$reorderPoint']},1,0]}},outOfStock:{$sum:{$cond:[{$lte:['$available',0]},1,0]}}}}]),
     ]);
+    const stockPage=pageResult(stockRows,{limit:pageSize,total:stockTotal});
+    const stockIds=stockPage.items.map(row=>row._id);
+    const [movementAgeRows,lotAgeRows]=stockIds.length?await Promise.all([
+      InventoryMovement.aggregate([
+        {$match:{storeId:request.store._id,stockItemId:{$in:stockIds}}},
+        {$group:{_id:'$stockItemId',firstRecordedAt:{$min:'$createdAt'},lastMovementAt:{$max:'$createdAt'},lastSaleAt:{$max:{$cond:[{$eq:['$type','sale']},'$createdAt',null]}}}},
+      ]),
+      InventoryLot.aggregate([{$match:{storeId:request.store._id,stockItemId:{$in:stockIds},status:'active'}},{$group:{_id:'$stockItemId',oldestActiveLotAt:{$min:'$createdAt'}}}]),
+    ]):[[],[]];
+    const movementAgeByStock=new Map(movementAgeRows.map(row=>[String(row._id),row])),lotAgeByStock=new Map(lotAgeRows.map(row=>[String(row._id),row]));
+    const now=Date.now();stockPage.items=stockPage.items.map(row=>{const available=Number(row.onHand||0)-Number(row.reserved||0)-Number(row.damaged||0)-Number(row.quarantined||0),movement=movementAgeByStock.get(String(row._id))||{},lot=lotAgeByStock.get(String(row._id))||{},ageAnchor=lot.oldestActiveLotAt||movement.firstRecordedAt||row.createdAt,lastActivity=movement.lastMovementAt||row.updatedAt||row.createdAt;return{...row,available,replenishmentState:available<=0?'out':available<=Number(row.reorderPoint||0)?'low':'healthy',firstRecordedAt:movement.firstRecordedAt||null,lastMovementAt:movement.lastMovementAt||null,lastSaleAt:movement.lastSaleAt||null,oldestActiveLotAt:lot.oldestActiveLotAt||null,recordedAgeDays:ageAnchor?Math.max(0,Math.floor((now-new Date(ageAnchor).getTime())/86400000)):null,idleDays:lastActivity?Math.max(0,Math.floor((now-new Date(lastActivity).getTime())/86400000)):null};});
+    const movementPage=pageResult(movementRows,{limit:pageSize,total:movementTotal}),lotPage=pageResult(lotRows,{limit:pageSize,total:lotTotal});
+    const stockSummary=stockSummaryRows[0]||{onHand:0,available:0,lowStock:0,outOfStock:0};
     return renderWorkspace(request, response, {
-      section: 'inventory',
-      warehouses,
-      variants,
-      stock,
-      movements,
-      lots,
+      section:'inventory',warehouses,variants,stock:stockPage.items,stockSummary,stockFilters:{stockQ,stockState,idleDays},movements:movementPage.items,lots:lotPage.items,
+      queuePages:{stock:stockPage.page,movements:movementPage.page,lots:lotPage.page},
     });
   }),
 );

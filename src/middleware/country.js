@@ -5,6 +5,7 @@ export async function countryContext(request, response, next) {
   try {
     const cookies = parseCookies(request.get('cookie'));
     const requested =
+      request.user?.shoppingCountry ||
       request.user?.country ||
       cookies.cm_country ||
       request.get('cf-ipcountry') ||

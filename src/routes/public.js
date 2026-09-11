@@ -8,9 +8,23 @@ import { activeSponsoredProducts } from '../services/seller-growth.js';
 
 const router = Router();
 
+function decoratePromotedProduct(product, offer) {
+  if (!offer) return product;
+  return {
+    ...product,
+    sponsored: Boolean(offer.sponsored),
+    sponsoredDisclosure: offer.disclosure,
+    promoterCommissionBps: Number(offer.promoterCommissionBps) || 0,
+    promoterCampaignId: offer.promoterCampaignId || '',
+  };
+}
+
 async function decorateSponsored(catalogue, countryCode) {
-  const map = await activeSponsoredProducts(countryCode);
-  return { ...catalogue, products: (catalogue.products || []).map((product) => map.has(product.id) ? { ...product, sponsored: true, sponsoredDisclosure: map.get(product.id).disclosure } : product) };
+  const map = await activeSponsoredProducts(countryCode, (catalogue.products || []).map((product) => product.id));
+  return {
+    ...catalogue,
+    products: (catalogue.products || []).map((product) => decoratePromotedProduct(product, map.get(product.id))),
+  };
 }
 
 
@@ -136,6 +150,9 @@ router.get('/products/:productId', async (request, response, next) => {
       },
     }).replace(/</g, '\\u003c');
     const catalogue = await getStorefront(request.country).then((row) => decorateSponsored(row, request.country.code));
+    if (!catalogue.products.some((item) => item.id === product.id)) {
+      catalogue.products = [product, ...catalogue.products];
+    }
     return response.render('index', {
       initialStorefront: catalogue,
       initialStorefrontJson: JSON.stringify(catalogue).replace(/</g, '\\u003c'),

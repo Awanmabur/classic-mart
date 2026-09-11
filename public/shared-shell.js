@@ -14,24 +14,39 @@
     });
   }
 
-  const mobileSearchButton = document.querySelector('#mobileSearchButton');
-  mobileSearchButton?.addEventListener('click', () => {
-    const search = document.querySelector('#searchForm');
-    if (!search) return;
-    search.classList.toggle('mobile-open');
-    if (search.classList.contains('mobile-open')) {
-      document.querySelector('#searchInput')?.focus();
-    }
-  });
+  function ensureMobileBottomNav() {
+    if (document.querySelector('.mobile-bottom-nav')) return;
+    const nav = document.createElement('nav');
+    nav.className = 'mobile-bottom-nav';
+    nav.setAttribute('aria-label', 'Mobile navigation');
+    const current = window.location.pathname;
+    const items = [
+      ['/', 'house.svg', 'Home', ''],
+      ['/categories', 'table-cells-large.svg', 'Categories', ''],
+      ['/signup?role=seller', 'plus.svg', 'Sell', 'mobile-bottom-nav__sell'],
+      ['/wishlist', 'heart-regular.svg', 'Wishlist', ''],
+      ['/dashboard', 'user.svg', 'Profile', ''],
+    ];
+    nav.innerHTML = items.map(([href, icon, label, extraClass]) => {
+      const active = !extraClass && (href === '/' ? current === '/' : current === href || current.startsWith(`${href}/`));
+      const classes = [active ? 'active' : '', extraClass].filter(Boolean).join(' ');
+      return `<a href="${href}" class="${classes}" ${active ? 'aria-current="page"' : ''}${extraClass ? ' aria-label="Sell on Classic Mart"' : ''}><img alt="" aria-hidden="true" src="/assets/icons/${icon}"><span>${label}</span></a>`;
+    }).join('');
+    document.body.appendChild(nav);
 
-  document.addEventListener('click', (event) => {
-    if (window.innerWidth > 760) return;
-    const search = document.querySelector('#searchForm.mobile-open');
-    if (!search) return;
-    if (!search.contains(event.target) && !event.target.closest('#mobileSearchButton')) {
-      search.classList.remove('mobile-open');
-    }
-  });
+    let revealTimer = 0;
+    const reveal = () => nav.classList.remove('is-scrolling');
+    window.addEventListener('scroll', () => {
+      if (window.innerWidth > 760) return;
+      nav.classList.add('is-scrolling');
+      window.clearTimeout(revealTimer);
+      revealTimer = window.setTimeout(reveal, 420);
+    }, { passive: true });
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 760) reveal();
+    }, { passive: true });
+  }
+  ensureMobileBottomNav();
 
   // The homepage browse button opens its panel; internal pages open the full Categories page.
   document.querySelector('#menuToggle')?.addEventListener('click', () => {
@@ -56,7 +71,7 @@
       const categorySelect = document.querySelector('#searchCategory');
       if (categorySelect && Array.isArray(catalogue.categories)) {
         const selected = categorySelect.value || 'all';
-        categorySelect.innerHTML = '<option value="all">All Categories</option>' + catalogue.categories.map((category) => `<option value="${String(category.slug || '').replace(/"/g, '&quot;')}">${String(category.name || '')}</option>`).join('');
+        categorySelect.innerHTML = '<option value="all">All Categories</option>' + catalogue.categories.map((category) => `<option value="${String(category.id || category.slug || '').replace(/"/g, '&quot;')}">${String(category.name || '')}</option>`).join('');
         if ([...categorySelect.options].some((option) => option.value === selected)) categorySelect.value = selected;
       }
       document.querySelectorAll('a[href="/categories"] .tiny-badge').forEach((badge) => { badge.textContent = String(catalogue.categories?.length || 0); });

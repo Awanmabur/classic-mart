@@ -1,0 +1,125 @@
+services:
+  - type: web
+    name: classic-mart
+    runtime: docker
+    plan: 1c-2g
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    numInstances: 1
+    healthCheckPath: /health/ready
+    maxShutdownDelaySeconds: 30
+    autoDeployTrigger: checksPass
+    preDeployCommand: npm run migrate:apply && npm run bootstrap:production && npm run production:data-check
+    disk:
+      name: classic-mart-data
+      mountPath: /var/data
+      sizeGB: 10
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: BASE_URL
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: TOKEN_PEPPER
+        generateValue: true
+      - key: DATA_ENCRYPTION_KEY
+        generateValue: true
+      - key: SECURITY_INTEGRITY_KEY
+        generateValue: true
+      - key: TRUST_PROXY
+        value: 1
+      - key: PRIVILEGED_MFA_REQUIRED
+        value: true
+      - key: IDS_ENABLED
+        value: true
+      - key: IPS_ENABLED
+        value: true
+      - key: STORAGE_PERSISTENCE
+        value: mounted
+      - key: PERSISTENT_STORAGE_ROOT
+        value: /var/data/classic-mart
+      - key: MEDIA_STORAGE_DRIVER
+        value: r2
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_REGION
+        value: auto
+      - key: R2_TIMEOUT_MS
+        value: 10000
+      - key: MALWARE_SCAN_MODE
+        value: clamscan
+      - key: CLAMAV_PATH
+        value: /usr/bin/clamscan
+      - key: MAIL_MODE
+        value: smtp
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_SECURE
+        value: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMS_MODE
+        value: twilio
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
+        sync: false
+      - key: ADMIN_NAME
+        value: Classic Mart Super Admin
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PHONE
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PESAPAL_SANDBOX
+        value: false
+      - key: PESAPAL_BASE_URL
+        value: https://pay.pesapal.com/v3
+      - key: PESAPAL_CONSUMER_KEY
+        sync: false
+      - key: PESAPAL_CONSUMER_SECRET
+        sync: false
+      - key: PESAPAL_TIMEOUT_MS
+        value: 10000
+      - key: SIEM_MODE
+        value: http
+      - key: SIEM_FORMAT
+        value: json
+      - key: SIEM_URL
+        sync: false
+      - key: SIEM_TOKEN
+        sync: false
+      - key: SIEM_TIMEOUT_MS
+        value: 5000
+      - key: ORIGIN_GUARD_MODE
+        value: off
+      - key: LAUNCH_COUNTRIES
+        value: UG
+      - key: DR_MAX_RPO_MINUTES
+        value: 60
+      - key: DR_MAX_RTO_MINUTES
+        value: 240
+      - key: DR_EVIDENCE_MAX_AGE_DAYS
+        value: 90

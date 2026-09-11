@@ -94,9 +94,7 @@
 <a class="classic-live-link" href="#fresh-finds"><span aria-hidden="true" class="live-dot"></span>Classic Live</a>
 </span>
 </nav>
-<button aria-label="Open search" class="mobile-search-button" id="mobileSearchButton" type="button">
-<img alt="" aria-hidden="true" src="/assets/icons/magnifying-glass.svg"/>
-</button>
+
 </div>
 </div>
 </header>
@@ -143,11 +141,13 @@
 <div class="section-heading">
 <h2>Shop by Category</h2>
 <div class="section-heading-actions">
-<button class="section-link" data-show-all-categories="" type="button">View All Categories <img alt="" src="/assets/icons/chevron-right.svg"/></button>
-<button aria-label="Show more categories" class="section-next-button" data-scroll-next="categoryRow" type="button"><img alt="" src="/assets/icons/chevron-right.svg"/></button>
+<button aria-label="Jump to more categories" class="section-link category-more-button" data-category-more type="button"><span data-category-more-label>More</span> <img alt="" aria-hidden="true" src="/assets/icons/chevron-right.svg"/></button>
+<button aria-label="Show more categories" class="section-next-button" data-scroll-next="categoryRow" type="button"><img alt="" aria-hidden="true" src="/assets/icons/chevron-right.svg"/></button>
+<a class="section-link category-view-all" href="/categories">View All <img alt="" src="/assets/icons/chevron-right.svg"/></a>
 </div>
 </div>
-<div class="category-row horizontal-scroll" id="categoryRow"><% if (typeof initialStorefront !== 'undefined' && initialStorefront?.categories?.length) { initialStorefront.categories.forEach(category => { %><button class="category-card" data-category-jump="<%= category.id %>" type="button"><span class="category-image"><img alt="<%= category.name %>" loading="lazy" decoding="async" src="<%= category.image || '/assets/product-placeholder.svg' %>"/></span><span><%= category.name %></span></button><% }); } %></div>
+<% const homepagePrimaryCategoryIds = ['electronics','fashion','home-living','beauty','sports-fitness','automotive','books','groceries','baby','office']; const homepagePrimaryCategories = homepagePrimaryCategoryIds.map(id => (initialStorefront?.categories || []).find(category => category.id === id)).filter(Boolean); const homepageExtraCategories = (initialStorefront?.categories || []).filter(category => !homepagePrimaryCategoryIds.includes(category.id)); const homepageOrderedCategories = [...homepagePrimaryCategories, ...homepageExtraCategories]; %>
+<div class="category-row horizontal-scroll" id="categoryRow"><% homepageOrderedCategories.forEach(category => { %><button class="category-card" data-category-jump="<%= category.id %>" type="button"><span class="category-image"><img alt="<%= category.name %>" loading="lazy" decoding="async" src="<%= category.image || '/assets/product-placeholder.svg' %>"/></span><span><%= category.name %></span></button><% }); %></div>
 </section>
 <section class="store-section" id="trending">
 <div class="section-heading">
@@ -160,7 +160,7 @@
 </div>
 <div class="slider-shell">
 <button aria-label="Previous products" class="slider-arrow prev" data-target="trendingGrid" type="button"><img alt="" src="/assets/icons/chevron-left.svg"/></button>
-<div class="product-grid horizontal-scroll mobile-one-half" id="trendingGrid"><% if (typeof initialStorefront !== 'undefined' && initialStorefront?.products?.length) { initialStorefront.products.slice(0,12).forEach(product => { %><article class="product-card" data-product-preview="<%= product.id %>" data-product-id="<%= product.id %>" data-category="<%= product.category %>" data-brand="<%= product.brand %>" data-price="<%= product.price %>" data-rating="<%= product.rating || 0 %>" tabindex="0" role="button" aria-label="Open <%= product.name %> preview"><div class="product-image"><span class="product-badge badge-orange"><%= product.badge || 'Available' %></span><img alt="<%= product.name %>" loading="lazy" decoding="async" src="<%= product.image || '/assets/product-placeholder.svg' %>"/><span class="category-badge"><%= product.categoryName || product.category %></span></div><div class="product-info"><h3><%= product.name %></h3><div class="product-meta-row"><div class="price"><strong><%= product.currency %> <%= Number(product.price || 0).toLocaleString(initialStorefront.country?.locale || 'en-UG') %></strong><% if (product.oldPrice > product.price) { %><del><%= product.currency %> <%= Number(product.oldPrice).toLocaleString(initialStorefront.country?.locale || 'en-UG') %></del><% } %></div><div class="rating"><span class="rating-star" aria-hidden="true">★</span><strong><%= product.reviews ? Number(product.rating || 0).toFixed(1) : 'New' %></strong><span>(<%= product.reviews || 0 %>)</span></div></div><button class="add-cart" data-add-cart="<%= product.id %>" type="button">Add to cart</button></div></article><% }); } %></div>
+<div class="product-grid horizontal-scroll mobile-one-half" id="trendingGrid"><% if (typeof initialStorefront !== 'undefined' && initialStorefront?.products?.length) { initialStorefront.products.slice(0,12).forEach(product => { %><article class="product-card" data-product-preview="<%= product.id %>" data-product-id="<%= product.id %>" data-category="<%= product.category %>" data-brand="<%= product.brand %>" data-price="<%= product.price %>" data-rating="<%= product.rating || 0 %>" tabindex="0" role="button" aria-label="Open <%= product.name %> preview"><div class="product-image"><span class="product-badge badge-orange"><%= product.badge || 'Available' %></span><img alt="<%= product.name %>" loading="lazy" decoding="async" src="<%= product.image || '/assets/product-placeholder.svg' %>"/><span class="category-badge"><%= product.categoryName || product.category %></span><% if (Number(product.promoterCommissionBps || 0) > 0) { const promAmount = Number(product.price || 0) * Number(product.promoterCommissionBps || 0) / 10000; %><span class="promoter-badge" title="<%= product.sponsoredDisclosure || 'Promoters may earn this amount on qualifying purchases.' %>">Prom <%= product.currency %> <%= promAmount.toLocaleString(initialStorefront.country?.locale || 'en-UG', { maximumFractionDigits: ['UGX','RWF'].includes(product.currency) ? 0 : 2 }) %></span><% } else if (product.sponsored) { %><span class="promoter-badge" title="<%= product.sponsoredDisclosure || 'Sponsored placement.' %>">Sponsored</span><% } %></div><div class="product-info"><h3><%= product.name %></h3><div class="product-meta-row"><div class="price"><strong><%= product.currency %> <%= Number(product.price || 0).toLocaleString(initialStorefront.country?.locale || 'en-UG') %></strong></div><div class="rating"><span class="rating-star" aria-hidden="true">★</span><strong><%= product.reviews ? Number(product.rating || 0).toFixed(1) : 'New' %></strong><span>(<%= product.reviews || 0 %>)</span></div></div><button class="add-cart" data-add-cart="<%= product.id %>" type="button">Add to cart</button></div></article><% }); } %></div>
 <button aria-label="Next products" class="slider-arrow next" data-target="trendingGrid" type="button"><img alt="" src="/assets/icons/chevron-right.svg"/></button>
 </div>
 </section>
@@ -171,11 +171,11 @@
 <p>Limited time offers</p>
 </div>
 <div aria-label="Deal countdown" class="countdown">
-<span><strong>Live</strong><small>Deals</small></span>
+<span><strong id="dealHours">00</strong><small>Hours</small></span>
 <b>:</b>
-<span><strong id="minutes">45</strong><small>Mins</small></span>
+<span><strong id="dealMinutes">00</strong><small>Mins</small></span>
 <b>:</b>
-<span><strong id="seconds">28</strong><small>Secs</small></span>
+<span><strong id="dealSeconds">00</strong><small>Secs</small></span>
 </div>
 <div class="deal-actions">
 <button class="button button-outline-light" data-view-products="deals" type="button">View All Deals</button>
@@ -186,16 +186,7 @@
 </section>
 <section class="store-section" id="brands">
 <div class="section-heading"><h2>Top Brands</h2><div class="section-heading-actions"><button class="section-link" data-open="brandModal" type="button">View All Brands <img alt="" src="/assets/icons/chevron-right.svg"/></button><button aria-label="Show more brands" class="section-next-button" data-scroll-next="brandRow" type="button"><img alt="" src="/assets/icons/chevron-right.svg"/></button></div></div>
-<div class="brand-row horizontal-scroll" id="brandRow">
-<button class="brand-card" data-brand="Samsung" type="button"><span class="brand-samsung">SAMSUNG</span></button>
-<button class="brand-card" data-brand="Apple" type="button"><img alt="Apple" src="/assets/icons/apple.svg"/></button>
-<button class="brand-card" data-brand="Sony" type="button"><span class="brand-sony">SONY</span></button>
-<button class="brand-card" data-brand="Nike" type="button"><span class="brand-nike">NIKE</span></button>
-<button class="brand-card" data-brand="Adidas" type="button"><span class="brand-adidas">adidas</span></button>
-<button class="brand-card" data-brand="Philips" type="button"><span class="brand-philips">PHILIPS</span></button>
-<button class="brand-card" data-brand="Levi's" type="button"><span class="brand-levis">LEVI'S</span></button>
-<button class="brand-card" data-brand="Canon" type="button"><span class="brand-canon">Canon</span></button>
-</div>
+<div class="brand-row horizontal-scroll" id="brandRow"><% if (typeof initialStorefront !== 'undefined' && initialStorefront?.brands?.length) { initialStorefront.brands.forEach(brand => { %><button class="brand-card" data-brand="<%= brand.name %>" type="button"><span class="brand-wordmark"><%= brand.name %></span></button><% }); } %></div>
 </section>
 <section class="store-section" id="new-arrivals">
 <div class="section-heading">

@@ -3130,3 +3130,9 @@ img {
     font-size: 10.5px;
   }
 }
+
+
+/* Accessibility motion override: keep this at the end of the stylesheet. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
+}

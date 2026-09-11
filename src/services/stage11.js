@@ -11,6 +11,7 @@ import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import { authenticate } from './auth.js';
 import { getCountry } from './country.js';
 import { writeAudit } from './audit.js';
+import { cursorScope, cursorSort, pageResult } from './pagination.js';
 import {
   ApiClient,
   ApiIdempotency,
@@ -51,30 +52,28 @@ export async function queuePushNotification({userId,userPublicId='',title,body,d
   const event=await OutboxEvent.create({eventId:publicId('evt'),type:'mobile.push',aggregateType:'user',aggregatePublicId:userPublicId||String(userId),payload:{userId:String(userId),title:String(title||'Classic Mart').slice(0,120),body:String(body||'').slice(0,500),deepLink:String(deepLink||'/').slice(0,500)}});
   return event;
 }
-export async function processPushOutbox({limit=50}={}){
+export async function processPushOutbox({limit=50,workerId=`push:${process.pid}`,leaseMs=60_000}={}){
   if(!pushGatewayConfigured()) return {providerConfigured:false,checked:0,processed:0,failed:0};
   let gateway; try{gateway=new URL(env.stage11.pushGatewayUrl);}catch{throw new AppError('PUSH_GATEWAY_URL is invalid.',500,'PUSH_GATEWAY_INVALID');}
   if(env.isProduction && gateway.protocol!=='https:') throw new AppError('Production push gateway must use HTTPS.',500,'PUSH_GATEWAY_INSECURE');
-  const events=await OutboxEvent.find({type:'mobile.push',status:{$in:['pending','failed']},availableAt:{$lte:new Date()}}).sort({createdAt:1}).limit(Math.min(Math.max(Number(limit)||50,1),100));
-  let processed=0,failed=0;
-  for(const event of events){
-    event.status='processing';event.attempts+=1;await event.save();
+  let checked=0,processed=0,failed=0;
+  for(let i=0;i<Math.min(Math.max(Number(limit)||50,1),100);i++){
+    const now=new Date();const event=await OutboxEvent.findOneAndUpdate(
+      {type:'mobile.push',availableAt:{$lte:now},$or:[{status:{$in:['pending','failed']}},{status:'processing',lockedUntil:{$lte:now}}]},
+      {$set:{status:'processing',lockedBy:workerId,lockedUntil:new Date(now.getTime()+leaseMs)},$inc:{attempts:1}},
+      {sort:{createdAt:1},returnDocument:'after'},
+    );
+    if(!event)break;checked+=1;
     try{
       const devices=await PushDevice.find({userId:event.payload?.userId,status:'active'}).select('+tokenEncrypted').lean();
-      if(!devices.length){event.status='processed';event.processedAt=new Date();event.lastError='No active push devices.';processed+=1;await event.save();continue;}
+      if(!devices.length){event.status='processed';event.processedAt=new Date();event.lastError='No active push devices.';processed+=1;event.lockedBy='';event.lockedUntil=null;await event.save();continue;}
       let delivered=0;
-      for(const device of devices){
-        const payload={platform:device.platform,token:decryptSensitive(device.tokenEncrypted),title:event.payload.title,body:event.payload.body,deepLink:event.payload.deepLink,eventId:event.eventId};
-        const raw=JSON.stringify(payload);const timestamp=Math.floor(Date.now()/1000).toString();
-        const response=await fetch(gateway,{method:'POST',headers:{'content-type':'application/json','user-agent':'Classic-Mart-Push/1.0','x-classic-mart-event-id':event.eventId,'x-classic-mart-timestamp':timestamp,'x-classic-mart-signature':`v1=${pushSignature(timestamp,raw)}`},body:raw,redirect:'error',signal:AbortSignal.timeout(8000)});
-        if(response.ok){delivered+=1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:0,lastSeenAt:new Date()}});}else{const failures=Number(device.failureCount||0)+1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:failures,status:failures>=5?'invalid':'active'}});}
-      }
-      if(delivered<1) throw new Error('Push gateway did not accept any active device delivery.');
-      event.status='processed';event.processedAt=new Date();event.lastError='';processed+=1;
-    }catch(error){event.status='failed';event.lastError=String(error.message||error).slice(0,1000);event.availableAt=new Date(Date.now()+Math.min(60,2**Math.min(8,event.attempts))*60_000);failed+=1;}
-    await event.save();
+      for(const device of devices){const payload={platform:device.platform,token:decryptSensitive(device.tokenEncrypted),title:event.payload.title,body:event.payload.body,deepLink:event.payload.deepLink,eventId:event.eventId};const raw=JSON.stringify(payload),timestamp=Math.floor(Date.now()/1000).toString();const response=await fetch(gateway,{method:'POST',headers:{'content-type':'application/json','user-agent':'Classic-Mart-Push/1.0','x-classic-mart-event-id':event.eventId,'x-classic-mart-timestamp':timestamp,'x-classic-mart-signature':`v1=${pushSignature(timestamp,raw)}`},body:raw,redirect:'error',signal:AbortSignal.timeout(8000)});if(response.ok){delivered+=1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:0,lastSeenAt:new Date()}});}else{const failures=Number(device.failureCount||0)+1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:failures,status:failures>=5?'invalid':'active'}});}}
+      if(delivered<1)throw new Error('Push gateway did not accept any active device delivery.');event.status='processed';event.processedAt=new Date();event.lastError='';processed+=1;
+    }catch(error){event.status=event.attempts>=10?'dead':'failed';event.lastError=String(error.message||error).slice(0,1000);event.availableAt=new Date(Date.now()+Math.min(60,2**Math.min(8,event.attempts))*60_000);failed+=1;}
+    event.lockedBy='';event.lockedUntil=null;await event.save();
   }
-  return {providerConfigured:true,checked:events.length,processed,failed};
+  return {providerConfigured:true,checked,processed,failed};
 }
 
 export async function issueMobileTokens(user, input, request) {
@@ -116,7 +115,8 @@ export async function authenticateMobile(request,_response,next){
   }catch(e){next(e);}
 }
 export async function revokeMobileSession(user,publicIdValue,reason='user_revoked'){const session=await MobileSession.findOne({publicId:publicIdValue,userId:user._id,revokedAt:null});if(!session)throw new AppError('Connected app session was not found.',404,'MOBILE_SESSION_NOT_FOUND');session.revokedAt=new Date();session.revokedReason=reason;await session.save();return session;}
-export async function listMobileSessions(user){return MobileSession.find({userId:user._id}).select('publicId deviceName platform lastUsedAt createdAt revokedAt revokedReason').sort({createdAt:-1}).limit(40).lean();}
+export async function mobileSessionsPage(user,rawCursor='',limit=50){const size=Math.max(1,Math.min(100,Number(limit)||50)),base={userId:user._id};const [rows,total]=await Promise.all([MobileSession.find(cursorScope(base,rawCursor)).select('publicId deviceName platform lastUsedAt createdAt revokedAt revokedReason').sort(cursorSort()).limit(size+1).lean(),MobileSession.countDocuments(base)]);return pageResult(rows,{limit:size,total});}
+export async function listMobileSessions(user){return (await mobileSessionsPage(user,'',100)).items;}
 export function mobileServiceRequest(request){return {user:request.mobileUser,country:request.mobileCountry,session:{cartKey:request.mobileSession.cartKey,checkoutReview:request.mobileSession.checkoutReview||null},ip:request.ip,get:request.get.bind(request),log:request.log||{warn(){}}};}
 export async function persistMobileCheckout(request,serviceRequest){request.mobileSession.checkoutReview=serviceRequest.session.checkoutReview||null;request.mobileSession.markModified('checkoutReview');await request.mobileSession.save();}
 
@@ -133,6 +133,51 @@ async function consumeApiQuota(client){const window=nowMinute();if(!client.quota
   const used=await ApiClient.findOneAndUpdate({_id:client._id,status:'active',quotaWindowAt:client.quotaWindowAt,quotaCount:{$lt:client.requestsPerMinute}},{$inc:{quotaCount:1},$set:{lastUsedAt:new Date()}},{returnDocument:'after'});if(!used)throw new AppError('API request quota exceeded.',429,'API_QUOTA_EXCEEDED');return used;}
 export async function authenticateApiClient(request,_response,next){try{const raw=bearer(request);if(!/^cmk_[A-Za-z0-9]+\./.test(raw))throw new AppError('Seller API key required.',401,'API_KEY_REQUIRED');const prefix=raw.slice(4).split('.',1)[0];const client=await ApiClient.findOne({keyPrefix:prefix,status:'active',$or:[{expiresAt:null},{expiresAt:{$gt:new Date()}}]}).select('+secretHash');const candidate=hashToken(raw);if(!client||!safeEqual(client.secretHash,candidate))throw new AppError('Seller API key is invalid.',401,'API_KEY_INVALID');request.apiClient=await consumeApiQuota(client);request.apiStore=await mongoose.model('Store').findById(client.storeId);if(!request.apiStore||request.apiStore.status!=='verified')throw new AppError('Seller store is unavailable.',403,'STORE_UNAVAILABLE');next();}catch(e){next(e);}}
 export function requireApiScope(scope){return (request,_response,next)=>request.apiClient?.scopes?.includes(scope)?next():next(new AppError('API key does not include the required scope.',403,'API_SCOPE_FORBIDDEN'));}
+export async function executeExternalIdempotency(request, operation, { leaseMs = 60_000 } = {}) {
+  const key = String(request.get('idempotency-key') || '').trim();
+  if (!key || key.length > 160) throw new AppError('A valid Idempotency-Key header is required for this mutation.', 422, 'IDEMPOTENCY_KEY_REQUIRED');
+  if (!request.apiClient?._id) throw new AppError('Authenticated API client is required.', 401, 'API_KEY_REQUIRED');
+  const fingerprint = requestHash({ method: request.method, path: request.originalUrl || request.url, body: request.body ?? null });
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + IDEMPOTENCY_MS);
+  let row = await ApiIdempotency.findOne({ apiClientId: request.apiClient._id, key });
+  if (row && row.requestHash !== fingerprint) throw new AppError('This idempotency key was already used for a different request.', 409, 'IDEMPOTENCY_KEY_REUSED');
+  if (row?.status === 'completed') return { statusCode: row.statusCode, body: row.responseBody || {}, replayed: true };
+  if (row?.status === 'in_progress' && row.lockedUntil && row.lockedUntil > now) throw new AppError('An identical request is already being processed.', 409, 'IDEMPOTENCY_IN_PROGRESS');
+  if (!row) {
+    try {
+      row = await ApiIdempotency.create({ apiClientId: request.apiClient._id, key, requestHash: fingerprint, status: 'in_progress', lockedUntil: new Date(now.getTime() + leaseMs), expiresAt });
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      row = await ApiIdempotency.findOne({ apiClientId: request.apiClient._id, key });
+      if (!row || row.requestHash !== fingerprint) throw new AppError('This idempotency key was already used for a different request.', 409, 'IDEMPOTENCY_KEY_REUSED');
+      if (row.status === 'completed') return { statusCode: row.statusCode, body: row.responseBody || {}, replayed: true };
+      throw new AppError('An identical request is already being processed.', 409, 'IDEMPOTENCY_IN_PROGRESS');
+    }
+  } else {
+    const claimed = await ApiIdempotency.findOneAndUpdate(
+      { _id: row._id, requestHash: fingerprint, $or: [{ status: 'failed' }, { status: 'in_progress', lockedUntil: { $lte: now } }] },
+      { $set: { status: 'in_progress', lockedUntil: new Date(now.getTime() + leaseMs), failureCode: '', failureMessage: '', expiresAt } },
+      { returnDocument: 'after' },
+    );
+    if (!claimed) throw new AppError('An identical request is already being processed.', 409, 'IDEMPOTENCY_IN_PROGRESS');
+    row = claimed;
+  }
+  try {
+    const result = await operation();
+    const statusCode = Number(result?.statusCode || 200);
+    const body = result?.body ?? {};
+    await ApiIdempotency.updateOne({ _id: row._id, status: 'in_progress' }, { $set: { status: 'completed', statusCode, responseBody: body, lockedUntil: null, expiresAt } });
+    return { statusCode, body, replayed: false };
+  } catch (error) {
+    await ApiIdempotency.updateOne(
+      { _id: row._id, status: 'in_progress' },
+      { $set: { status: 'failed', lockedUntil: null, failureCode: String(error?.code || 'OPERATION_FAILED').slice(0, 100), failureMessage: String(error?.message || error).slice(0, 500), expiresAt } },
+    );
+    throw error;
+  }
+}
+
 export async function auditExternalApi(request,action,{targetType='api_client',targetPublicId='',metadata={}}={}){
   return writeAudit(request,action,{actor:{_id:request.apiClient?.createdByUserId,publicId:`api:${request.apiClient?.publicId||'unknown'}`},targetType,targetPublicId:targetPublicId||request.apiClient?.publicId,country:request.apiStore?.country,metadata:{apiClientId:request.apiClient?.publicId,scopes:request.apiClient?.scopes,...metadata}});
 }
@@ -146,9 +191,26 @@ export async function rotateWebhookSecret({user,store,publicId:endpointPublicId}
 export async function revokeWebhookEndpoint({user,store,publicId:endpointPublicId}){const member=await StoreMember.findOne({userId:user._id,storeId:store._id});if(!membershipCanDevelop(member))throw new AppError('Only store owners/admins can revoke webhooks.',403,'WEBHOOK_FORBIDDEN');const endpoint=await WebhookEndpoint.findOne({publicId:endpointPublicId,storeId:store._id,status:{$ne:'revoked'}});if(!endpoint)throw new AppError('Webhook endpoint not found.',404,'WEBHOOK_NOT_FOUND');endpoint.status='revoked';endpoint.revokedAt=new Date();await endpoint.save();return endpoint;}
 export async function queueWebhookEvent({storeId,eventType,resourcePublicId,payload}){if(!WEBHOOK_EVENTS.includes(eventType))return 0;const endpoints=await WebhookEndpoint.find({storeId,status:'active',events:eventType}).lean();const eventId=`evt_${hashValue(`${eventType}:${resourcePublicId}:${Date.now()}:${randomToken(8)}`).slice(0,36)}`;let count=0;for(const endpoint of endpoints){try{await WebhookDelivery.create({publicId:publicId('whd'),endpointId:endpoint._id,storeId,eventId,eventType,payload:{resourcePublicId,...payload},nextAttemptAt:new Date()});count++;}catch(e){if(e?.code!==11000)throw e;}}return count;}
 export function webhookSignature(secret,timestamp,body){return `v1=${crypto.createHmac('sha256',secret).update(`${timestamp}.${body}`).digest('hex')}`;}
-export async function deliverWebhookBatch({limit=30}={}){const rows=await WebhookDelivery.find({status:{$in:['queued','failed']},nextAttemptAt:{$lte:new Date()}}).sort({nextAttemptAt:1}).limit(Math.min(Math.max(Number(limit)||30,1),100));let delivered=0,failed=0;for(const row of rows){const endpoint=await WebhookEndpoint.findOne({_id:row.endpointId,status:'active'}).select('+secretEncrypted');if(!endpoint){row.status='dead';row.errorMessage='Endpoint unavailable';await row.save();continue;}try{const timestamp=Math.floor(Date.now()/1000).toString();const body=JSON.stringify({id:row.eventId,type:row.eventType,createdAt:new Date().toISOString(),data:row.payload});const secret=decryptSensitive(endpoint.secretEncrypted);const response=await postPinnedWebhook(endpoint.url,{'content-type':'application/json','user-agent':'Classic-Mart-Webhook/1.0','x-classic-mart-event-id':row.eventId,'x-classic-mart-timestamp':timestamp,'x-classic-mart-signature':webhookSignature(secret,timestamp,body)},body);row.attempt+=1;row.lastAttemptAt=new Date();row.responseStatus=response.status;row.responseHash=crypto.createHash('sha256').update(response.body).digest('hex');endpoint.lastDeliveryAt=new Date();if(response.ok){row.status='delivered';row.deliveredAt=new Date();row.errorMessage='';endpoint.lastSuccessAt=new Date();endpoint.failureCount=0;delivered++;}else{row.status=row.attempt>=5?'dead':'failed';row.nextAttemptAt=new Date(Date.now()+Math.min(60,2**row.attempt)*60_000);row.errorMessage=`HTTP ${response.status}`;endpoint.failureCount+=1;failed++;}await row.save();await endpoint.save();}catch(e){row.attempt+=1;row.lastAttemptAt=new Date();row.status=row.attempt>=5?'dead':'failed';row.nextAttemptAt=new Date(Date.now()+Math.min(60,2**row.attempt)*60_000);row.errorMessage=String(e.message||'Delivery failed').slice(0,500);endpoint.lastDeliveryAt=new Date();endpoint.failureCount+=1;await row.save();await endpoint.save();failed++;}}return {delivered,failed};}
+export async function deliverWebhookBatch({limit=30,workerId=`webhook:${process.pid}`,leaseMs=60_000}={}){
+  let delivered=0,failed=0,checked=0;
+  for(let i=0;i<Math.min(Math.max(Number(limit)||30,1),100);i++){
+    const now=new Date();const row=await WebhookDelivery.findOneAndUpdate(
+      {nextAttemptAt:{$lte:now},$or:[{status:{$in:['queued','failed']}},{status:'processing',lockedUntil:{$lte:now}}]},
+      {$set:{status:'processing',lockedBy:workerId,lockedUntil:new Date(now.getTime()+leaseMs)},$inc:{attempt:1}},
+      {sort:{nextAttemptAt:1},returnDocument:'after'},
+    );
+    if(!row)break;checked+=1;
+    const endpoint=await WebhookEndpoint.findOne({_id:row.endpointId,status:'active'}).select('+secretEncrypted');
+    if(!endpoint){row.status='dead';row.errorMessage='Endpoint unavailable';row.lockedBy='';row.lockedUntil=null;await row.save();continue;}
+    try{
+      const timestamp=Math.floor(Date.now()/1000).toString(),body=JSON.stringify({id:row.eventId,type:row.eventType,createdAt:new Date().toISOString(),data:row.payload}),secret=decryptSensitive(endpoint.secretEncrypted),response=await postPinnedWebhook(endpoint.url,{'content-type':'application/json','user-agent':'Classic-Mart-Webhook/1.0','x-classic-mart-event-id':row.eventId,'x-classic-mart-timestamp':timestamp,'x-classic-mart-signature':webhookSignature(secret,timestamp,body)},body);
+      row.lastAttemptAt=new Date();row.responseStatus=response.status;row.responseHash=crypto.createHash('sha256').update(response.body).digest('hex');endpoint.lastDeliveryAt=new Date();
+      if(response.ok){row.status='delivered';row.deliveredAt=new Date();row.errorMessage='';endpoint.lastSuccessAt=new Date();endpoint.failureCount=0;delivered++;}
+      else{row.status=row.attempt>=5?'dead':'failed';row.nextAttemptAt=new Date(Date.now()+Math.min(60,2**row.attempt)*60_000);row.errorMessage=`HTTP ${response.status}`;endpoint.failureCount+=1;failed++;}
+    }catch(e){row.lastAttemptAt=new Date();row.status=row.attempt>=5?'dead':'failed';row.nextAttemptAt=new Date(Date.now()+Math.min(60,2**row.attempt)*60_000);row.errorMessage=String(e.message||'Delivery failed').slice(0,500);endpoint.lastDeliveryAt=new Date();endpoint.failureCount+=1;failed++;}
+    row.lockedBy='';row.lockedUntil=null;await row.save();await endpoint.save();
+  }
+  return {checked,delivered,failed};
+}
 
-export async function executeExternalIdempotency(request,operation){const key=String(request.get('idempotency-key')||'').trim();if(key.length<8||key.length>160)throw new AppError('A valid Idempotency-Key header is required for this write.',422,'IDEMPOTENCY_REQUIRED');const hash=requestHash(request.body);let record;try{record=await ApiIdempotency.create({apiClientId:request.apiClient._id,key,requestHash:hash,status:'in_progress',expiresAt:new Date(Date.now()+IDEMPOTENCY_MS)});}catch(e){if(e?.code!==11000)throw e;const existing=await ApiIdempotency.findOne({apiClientId:request.apiClient._id,key}).lean();if(!existing)throw e;if(existing.requestHash!==hash)throw new AppError('This idempotency key was already used with a different request.',409,'IDEMPOTENCY_CONFLICT');if(existing.status==='completed')return {replayed:true,statusCode:existing.statusCode,body:existing.responseBody};throw new AppError('An identical request is already being processed.',409,'IDEMPOTENCY_IN_PROGRESS');}
-  try{const result=await operation();record.status='completed';record.statusCode=result.statusCode||200;record.responseBody=result.body;await record.save();return {replayed:false,...result};}catch(e){await ApiIdempotency.deleteOne({_id:record._id});throw e;}}
-
-export async function developerPortalData(user,store){const [clients,webhooks,deliveries]=await Promise.all([ApiClient.find({storeId:store._id}).select('-secretHash').sort({createdAt:-1}).lean(),WebhookEndpoint.find({storeId:store._id}).select('-secretEncrypted').sort({createdAt:-1}).lean(),WebhookDelivery.find({storeId:store._id}).sort({createdAt:-1}).limit(50).lean()]);return {clients,webhooks,deliveries,scopes:SELLER_API_SCOPES,events:WEBHOOK_EVENTS};}
+export async function developerPortalData(user,store,paging={}){const size=50,deliveryBase={storeId:store._id};const [clients,webhooks,deliveryRows,deliveryTotal]=await Promise.all([ApiClient.find({storeId:store._id}).select('-secretHash').sort({createdAt:-1}).lean(),WebhookEndpoint.find({storeId:store._id}).select('-secretEncrypted').sort({createdAt:-1}).lean(),WebhookDelivery.find(cursorScope(deliveryBase,paging.deliveriesAfter)).sort(cursorSort()).limit(size+1).lean(),WebhookDelivery.countDocuments(deliveryBase)]);const deliveryPage=pageResult(deliveryRows,{limit:size,total:deliveryTotal});return {clients,webhooks,deliveries:deliveryPage.items,deliveryPage:deliveryPage.page,scopes:SELLER_API_SCOPES,events:WEBHOOK_EVENTS};}

@@ -37,6 +37,9 @@ const countrySettingSchema = new mongoose.Schema(
       pickupEnabled: { type: Boolean, default: true },
       defaultStandardSlaHours: { type: Number, min: 1, max: 720, default: 72 },
       defaultExpressSlaHours: { type: Number, min: 1, max: 720, default: 24 },
+      requirePhotoForCod: { type: Boolean, default: true },
+      requireSignatureForDelivery: { type: Boolean, default: false },
+      requirePhotoForFailedAttempt: { type: Boolean, default: true },
     },
     growth: {
       loyaltyEnabled: { type: Boolean, default: true },
@@ -44,6 +47,7 @@ const countrySettingSchema = new mongoose.Schema(
       giftCardsEnabled: { type: Boolean, default: true },
       loyaltyPointsPer1000Minor: { type: Number, min: 0, max: 10000, default: 1 },
       referralRewardPoints: { type: Number, min: 0, max: 1000000, default: 100 },
+      promoterCommissionBps: { type: Number, min: 0, max: 5000, default: 300 },
     },
     policyVersion: { type: String, maxlength: 40, default: '2026-07' },
   },

@@ -6,17 +6,21 @@ import { LoyaltyAccount, LoyaltyEntry, Referral } from '../models/index.js';
 import { ensureReferralCode, redeemGiftCard } from '../services/stage9.js';
 import { setFlash } from '../middleware/view.js';
 import { writeAudit } from '../services/audit.js';
+import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 
 const router=Router();
 router.use('/account/rewards',noStore,requireAuth,requireVerified,requireOnboarding);
 router.get('/account/rewards',asyncHandler(async(req,res)=>{
   const referral=await ensureReferralCode(req.user);
-  const [account,entries,referrals]=await Promise.all([
+  const pageSize=40,entryBase={userId:req.user._id},referralBase={referrerUserId:req.user._id,referredUserId:{$ne:null}};
+  const [account,entryRows,referralRows,entryTotal,referralTotal]=await Promise.all([
     LoyaltyAccount.findOne({userId:req.user._id}).lean(),
-    LoyaltyEntry.find({userId:req.user._id}).sort({createdAt:-1}).limit(50).lean(),
-    Referral.find({referrerUserId:req.user._id,referredUserId:{$ne:null}}).populate('referredUserId','name publicId').sort({createdAt:-1}).limit(50).lean(),
+    LoyaltyEntry.find(cursorScope(entryBase,req.query.entriesAfter)).sort(cursorSort()).limit(pageSize+1).lean(),
+    Referral.find(cursorScope(referralBase,req.query.referralsAfter)).populate('referredUserId','name publicId').sort(cursorSort()).limit(pageSize+1).lean(),
+    LoyaltyEntry.countDocuments(entryBase),Referral.countDocuments(referralBase),
   ]);
-  res.render('rewards',{account,entries,referral,referrals});
+  const entryPage=pageResult(entryRows,{limit:pageSize,total:entryTotal}),referralPage=pageResult(referralRows,{limit:pageSize,total:referralTotal});
+  res.render('rewards',{account,entries:entryPage.items,referral,referrals:referralPage.items,queuePages:{entries:entryPage.page,referrals:referralPage.page}});
 }));
 router.post('/account/rewards/gift-card',asyncHandler(async(req,res)=>{
   const result=await redeemGiftCard({user:req.user,code:req.body.code});

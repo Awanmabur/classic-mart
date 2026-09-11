@@ -1,5 +1,6 @@
 import pino from 'pino';
 import { env } from './env.js';
+import { getTraceContext } from '../core/trace.js';
 
 export const logger = pino({
   level:
@@ -23,5 +24,9 @@ export const logger = pino({
   base: {
     service: 'classic-mart',
     environment: env.nodeEnv,
+  },
+  mixin() {
+    const trace = getTraceContext();
+    return trace ? { traceId: trace.traceId, spanId: trace.spanId, parentSpanId: trace.parentSpanId || undefined } : {};
   },
 });

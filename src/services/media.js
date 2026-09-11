@@ -1,12 +1,11 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import multer from 'multer';
 import sharp from 'sharp';
-import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import { scanUpload } from './malware.js';
+import { deleteMediaObject, putMediaObject } from './object-storage.js';
 import { EvidenceDocument, ProductMedia, VerificationDocument } from '../models/index.js';
 
 const acceptedInputTypes = new Set([
@@ -18,7 +17,7 @@ const acceptedInputTypes = new Set([
 
 export const uploadProductImage = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 8 },
+  limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 8, fieldArrayIndexLimit: 16 },
   fileFilter(_request, file, callback) {
     if (!acceptedInputTypes.has(file.mimetype)) {
       return callback(
@@ -35,7 +34,7 @@ export const uploadProductImage = multer({
 
 export const uploadVerificationImage = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 8 },
+  limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 8, fieldArrayIndexLimit: 16 },
   fileFilter(_request, file, callback) {
     if (!acceptedInputTypes.has(file.mimetype)) {
       return callback(
@@ -99,14 +98,12 @@ async function sanitizeImage(file) {
 
 async function writeSanitizedImage(directoryName, sanitized) {
   const filename = `${crypto.randomUUID()}.webp`;
-  const directory = path.join(env.uploadDir, directoryName);
-  const absolutePath = path.join(directory, filename);
-  await fs.mkdir(directory, { recursive: true, mode: 0o750 });
-  await fs.writeFile(absolutePath, sanitized.data, { mode: 0o640, flag: 'wx' });
-  return {
-    absolutePath,
-    storageKey: `${directoryName}/${filename}`,
-  };
+  const storageKey = `${directoryName}/${filename}`;
+  await putMediaObject(storageKey, sanitized.data, {
+    contentType: 'image/webp',
+    cacheControl: 'private, no-store',
+  });
+  return { storageKey };
 }
 
 export async function sanitizeAndStoreProductImage({
@@ -147,8 +144,8 @@ export async function sanitizeAndStoreProductImage({
       status: 'ready',
     });
   } catch (error) {
-    await fs.unlink(stored.absolutePath).catch(() => {});
-    await fs.unlink(thumbnailStored.absolutePath).catch(() => {});
+    await deleteMediaObject(stored.storageKey).catch(() => {});
+    await deleteMediaObject(thumbnailStored.storageKey).catch(() => {});
     throw error;
   }
 }
@@ -183,7 +180,7 @@ export async function sanitizeAndStoreVerificationDocument({
         .digest('hex'),
     });
   } catch (error) {
-    await fs.unlink(stored.absolutePath).catch(() => {});
+    await deleteMediaObject(stored.storageKey).catch(() => {});
     throw error;
   }
 }
@@ -199,19 +196,7 @@ export async function sanitizeAndStoreEvidenceImage({ file, user, country, conte
       status: 'ready', description: String(description || '').slice(0, 300),
     });
   } catch (error) {
-    await fs.unlink(stored.absolutePath).catch(() => {});
+    await deleteMediaObject(stored.storageKey).catch(() => {});
     throw error;
   }
-}
-
-export function resolveUploadPath(storageKey) {
-  if (!/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+\.webp$/.test(storageKey)) {
-    throw new AppError('Media not found.', 404, 'MEDIA_NOT_FOUND');
-  }
-  const base = path.resolve(env.uploadDir);
-  const target = path.resolve(base, storageKey);
-  if (!target.startsWith(`${base}${path.sep}`)) {
-    throw new AppError('Media not found.', 404, 'MEDIA_NOT_FOUND');
-  }
-  return target;
 }

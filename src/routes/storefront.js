@@ -35,6 +35,7 @@ import { activeSponsoredProducts } from '../services/seller-growth.js';
 import { publicPromoter, publicPromoters } from '../services/promoters.js';
 import { scanUpload } from '../services/malware.js';
 import { visualSearchProducts } from '../services/visual-search.js';
+import { cursorScope, pageResult } from '../services/pagination.js';
 
 const router = Router();
 
@@ -47,7 +48,7 @@ const visualSearchLimit = rateLimit({
 
 const visualSearchUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 6 * 1024 * 1024, files: 1, fields: 2 },
+  limits: { fileSize: 6 * 1024 * 1024, files: 1, fields: 2, fieldArrayIndexLimit: 16 },
   fileFilter(_request, file, callback) {
     if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.mimetype)) {
       return callback(new AppError('Upload a JPEG, PNG, WebP or AVIF image.', 422, 'VISUAL_SEARCH_TYPE_INVALID'));
@@ -57,9 +58,23 @@ const visualSearchUpload = multer({
 }).single('image');
 
 
+function decoratePromotedProduct(product, offer) {
+  if (!offer) return product;
+  return {
+    ...product,
+    sponsored: Boolean(offer.sponsored),
+    sponsoredDisclosure: offer.disclosure,
+    promoterCommissionBps: Number(offer.promoterCommissionBps) || 0,
+    promoterCampaignId: offer.promoterCampaignId || '',
+  };
+}
+
 async function withSponsored(catalogue, countryCode) {
-  const sponsored = await activeSponsoredProducts(countryCode);
-  return { ...catalogue, products: (catalogue.products || []).map((product) => sponsored.has(product.id) ? { ...product, sponsored: true, sponsoredDisclosure: sponsored.get(product.id).disclosure } : product) };
+  const sponsored = await activeSponsoredProducts(countryCode, (catalogue.products || []).map((product) => product.id));
+  return {
+    ...catalogue,
+    products: (catalogue.products || []).map((product) => decoratePromotedProduct(product, sponsored.get(product.id))),
+  };
 }
 
 
@@ -197,13 +212,9 @@ router.get('/api/v1/storefront/visual-search-results', async (request, response,
       response.set('Cache-Control', 'private, no-store');
       return response.json({ products: [], count: 0 });
     }
-    const [baseProducts, sponsored] = await Promise.all([
-      publishedProductsByPublicIds(saved.productIds, request.country),
-      activeSponsoredProducts(request.country.code),
-    ]);
-    const products = baseProducts.map((product) => sponsored.has(product.id)
-      ? { ...product, sponsored: true, sponsoredDisclosure: sponsored.get(product.id).disclosure }
-      : product);
+    const baseProducts = await publishedProductsByPublicIds(saved.productIds, request.country);
+    const sponsored = await activeSponsoredProducts(request.country.code, baseProducts.map((product) => product.id));
+    const products = baseProducts.map((product) => decoratePromotedProduct(product, sponsored.get(product.id)));
     response.set('Cache-Control', 'private, no-store');
     return response.json({ products, count: products.length });
   } catch (error) { return next(error); }
@@ -278,12 +289,22 @@ router.get(
         throw new AppError('Product not found.', 404, 'PRODUCT_NOT_FOUND');
       }
       const mongoProduct = await Product.findOne({ publicId: product.id, status: 'published', countries: request.country.code }).select('_id').lean();
-      const [reviews, questions] = mongoProduct ? await Promise.all([
-        Review.find({ productId: mongoProduct._id, country: request.country.code, status: 'published' }).select('publicId rating title body verifiedPurchase publishedAt').sort({ publishedAt: -1 }).limit(50).lean(),
-        ProductQuestion.find({ productId: mongoProduct._id, country: request.country.code, status: 'answered' }).select('publicId question answer createdAt').sort({ createdAt: -1 }).limit(50).lean(),
-      ]) : [[], []];
+      let reviewPage={items:[],page:{count:0,total:0,hasMore:false,next:''}},questionPage={items:[],page:{count:0,total:0,hasMore:false,next:''}},ratingDistribution={1:0,2:0,3:0,4:0,5:0};
+      if(mongoProduct){
+        const reviewBase={productId:mongoProduct._id,country:request.country.code,status:'published',verifiedPurchase:true},questionBase={productId:mongoProduct._id,country:request.country.code,status:'answered'},initialLimit=4;
+        const [reviewRows,reviewTotal,questionRows,questionTotal,ratingRows]=await Promise.all([
+          Review.find(reviewBase).select('publicId rating title body verifiedPurchase publishedAt').sort({publishedAt:-1,_id:-1}).limit(initialLimit+1).lean(),
+          Review.countDocuments(reviewBase),
+          ProductQuestion.find(questionBase).select('publicId question answer createdAt').sort({createdAt:-1,_id:-1}).limit(initialLimit+1).lean(),
+          ProductQuestion.countDocuments(questionBase),
+          Review.aggregate([{$match:reviewBase},{$group:{_id:'$rating',count:{$sum:1}}}]),
+        ]);
+        reviewPage=pageResult(reviewRows,{field:'publishedAt',limit:initialLimit,total:reviewTotal});
+        questionPage=pageResult(questionRows,{limit:initialLimit,total:questionTotal});
+        ratingDistribution=Object.fromEntries([1,2,3,4,5].map((rating)=>[rating,Number(ratingRows.find((row)=>Number(row._id)===rating)?.count||0)]));
+      }
       response.set('Cache-Control', 'public, max-age=10, stale-while-revalidate=30');
-      const sponsored = await activeSponsoredProducts(request.country.code); response.json({ product: { ...product, ...(sponsored.has(product.id) ? { sponsored: true, sponsoredDisclosure: sponsored.get(product.id).disclosure } : {}), reviewItems: reviews, questions } });
+      const sponsored = await activeSponsoredProducts(request.country.code, [product.id]); response.json({ product: { ...decoratePromotedProduct(product, sponsored.get(product.id)), reviewItems: reviewPage.items, questions: questionPage.items, reviewPage:reviewPage.page, questionPage:questionPage.page, ratingDistribution } });
     } catch (error) {
       next(error);
     }
@@ -292,7 +313,8 @@ router.get(
 
 router.get('/api/v1/storefront/sellers', async (request, response, next) => {
   try {
-    const sellers = await publishedSellers(request.country);
+    const sellerPage = await publishedSellers(request.country,{after:request.query.after,limit:request.query.limit});
+    const sellers = sellerPage.items;
     const followed = request.user
       ? new Set(
           (await statePayload(request.user._id, request.country)).followedStores,
@@ -308,6 +330,7 @@ router.get('/api/v1/storefront/sellers', async (request, response, next) => {
         followed: followed.has(seller.slug),
       })),
       csrfToken: request.user ? request.session.csrfToken : null,
+      page: sellerPage.page,
     });
   } catch (error) {
     next(error);
@@ -318,7 +341,7 @@ router.get(
   '/api/v1/storefront/sellers/:slug',
   async (request, response, next) => {
     try {
-      const seller = await publishedSeller(request.params.slug, request.country);
+      const seller = await publishedSeller(request.params.slug, request.country,{after:request.query.after,limit:request.query.limit});
       if (!seller) {
         throw new AppError('Seller not found.', 404, 'SELLER_NOT_FOUND');
       }
@@ -346,12 +369,13 @@ router.get(
 
 router.get('/api/v1/storefront/promoters', async (request, response, next) => {
   try {
-    const rows = await publicPromoters(request.country);
+    const promoterPage = await publicPromoters(request.country,{after:request.query.after,limit:request.query.limit});
+    const rows = promoterPage.items;
     const state = request.user ? await stateFor(request.user._id) : null;
     const followed = new Set((state?.followedPromoterUserIds || []).map(String));
     const promoters = rows.map(({ userMongoId, earnedMinor, ...row }) => ({ ...row, followed: followed.has(userMongoId) }));
     response.set('Cache-Control', request.user ? 'private, no-store' : 'public, max-age=10');
-    response.json({ promoters, csrfToken: request.user ? request.session.csrfToken : null });
+    response.json({ promoters, csrfToken: request.user ? request.session.csrfToken : null, page: promoterPage.page });
   } catch (error) { next(error); }
 });
 
@@ -693,15 +717,18 @@ router.post('/api/v1/storefront/search/:searchId/click', async (request, respons
 
 router.get('/api/v1/storefront/alerts', requireAuth, async (request, response, next) => {
   try {
-    const alerts = await ProductAlert.find({ userId: request.user._id, country: request.country.code }).select('-productId -userId').sort({ createdAt: -1 }).lean();
-    response.set('Cache-Control','private, no-store').json({ alerts });
+    const limit=Math.max(1,Math.min(100,Number(request.query.limit)||50));const base={userId:request.user._id,country:request.country.code};
+    const [rows,total]=await Promise.all([ProductAlert.find(cursorScope(base,request.query.after)).select('-productId -userId').sort({createdAt:-1,_id:-1}).limit(limit+1).lean(),ProductAlert.countDocuments(base)]);
+    const page=pageResult(rows,{limit,total});
+    response.set('Cache-Control','private, no-store').json({ alerts:page.items,page:page.page });
   } catch (error) { next(error); }
 });
 
 router.post('/api/v1/storefront/alerts/:productId', requireAuth, requireVerified, async (request, response, next) => {
   try {
     const input = alertSchema.parse(request.body);
-    const { product } = await resolveProduct(request);
+    const { product, publicProduct } = await resolveProduct(request);
+    if(input.type==='restock'&&Number(publicProduct.stock||0)>0)throw new AppError('This product is already in stock.',409,'PRODUCT_ALREADY_IN_STOCK');
     const priceRow = await ProductVariant.findOne({ productId: product._id, active: true }).sort({ priceMinor: 1 }).select('priceMinor').lean();
     const firstPrice = Number(priceRow?.priceMinor);
     const row = await ProductAlert.findOneAndUpdate(
@@ -715,7 +742,7 @@ router.post('/api/v1/storefront/alerts/:productId', requireAuth, requireVerified
 
 router.delete('/api/v1/storefront/alerts/:alertId', requireAuth, async (request, response, next) => {
   try {
-    const result = await ProductAlert.updateOne({ publicId: request.params.alertId, userId: request.user._id }, { $set:{ status:'cancelled' } });
+    const result = await ProductAlert.updateOne({ publicId: request.params.alertId, userId: request.user._id, country:request.country.code }, { $set:{ status:'cancelled' } });
     if (!result.matchedCount) throw new AppError('Alert not found.',404,'ALERT_NOT_FOUND');
     response.status(204).end();
   } catch (error) { next(error); }
@@ -724,8 +751,10 @@ router.delete('/api/v1/storefront/alerts/:alertId', requireAuth, async (request,
 router.get('/api/v1/storefront/products/:productId/questions', async (request, response, next) => {
   try {
     const { product } = await resolveProduct(request);
-    const questions = await ProductQuestion.find({ productId: product._id, country: request.country.code, status:'answered' }).select('publicId question answer createdAt').sort({createdAt:-1}).limit(100).lean();
-    response.set('Cache-Control','public, max-age=30').json({ questions });
+    const base={productId:product._id,country:request.country.code,status:'answered'},limit=Math.min(Math.max(Number(request.query.limit)||50,10),100);
+    const [rows,total]=await Promise.all([ProductQuestion.find(cursorScope(base,request.query.after)).select('publicId question answer createdAt').sort({createdAt:-1,_id:-1}).limit(limit+1).lean(),ProductQuestion.countDocuments(base)]);
+    const questionPage=pageResult(rows,{limit,total});
+    response.set('Cache-Control','public, max-age=30').json({ questions:questionPage.items, page:questionPage.page });
   } catch (error) { next(error); }
 });
 

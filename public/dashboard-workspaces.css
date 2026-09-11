@@ -1199,3 +1199,9 @@ body:not([data-workspace="customer"]) .role-welcome > div:first-child {
 body:not([data-workspace="customer"]) .role-welcome-score {
   z-index: 3;
 }
+
+
+/* Accessibility motion override: keep this at the end of the stylesheet. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
+}

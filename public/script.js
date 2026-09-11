@@ -4,19 +4,43 @@
   const qs = (selector, root = document) => root.querySelector(selector);
   const qsa = (selector, root = document) => [...root.querySelectorAll(selector)];
 
+  const PRIMARY_CATEGORY_IDS = [
+    'electronics', 'fashion', 'home-living', 'beauty', 'sports-fitness',
+    'automotive', 'books', 'groceries', 'baby', 'office',
+  ];
+
+  function orderedCategories() {
+    const byId = new Map(categories.map((category) => [category.id, category]));
+    const primary = PRIMARY_CATEGORY_IDS.map((id) => byId.get(id)).filter(Boolean);
+    const extras = categories.filter((category) => !PRIMARY_CATEGORY_IDS.includes(category.id));
+    return [...primary, ...extras];
+  }
+
   function normalizeProduct(product) {
     return {
       ...product,
       images: product.images?.length ? product.images : [product.image],
+      barcode: String(product.barcode || product.variants?.[0]?.barcode || ''),
+      videoUrl: String(product.videoUrl || ''),
+      attributes: product.attributes && typeof product.attributes === 'object' ? product.attributes : {},
+      publishedAt: product.publishedAt || '',
+      qualityScore: Math.max(0, Math.min(100, Number(product.qualityScore) || 0)),
+      policyVersion: String(product.policyVersion || ''),
+      deliveryOptions: product.deliveryOptions && typeof product.deliveryOptions === 'object' ? product.deliveryOptions : {},
+      ratingDistribution: product.ratingDistribution && typeof product.ratingDistribution === 'object' ? product.ratingDistribution : { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
       availabilityStatus: product.stock > 0 ? "In stock" : "Out of stock",
       warrantyInformation: product.attributes?.warranty || "Seller warranty terms were not provided",
-      shippingInformation: "Delivery options are shown at checkout",
-      returnPolicy: "Return eligibility is shown before purchase",
+      shippingInformation: Number(product.freeStandardShippingThreshold) > 0 ? `Free standard delivery on eligible orders from ${money(Number(product.freeStandardShippingThreshold), product.currency || displayCurrency)}; final delivery options are shown at checkout.` : "Delivery options and fees are shown at checkout",
+      returnPolicy: Number(product.returnWindowDays) > 0 ? `${Number(product.returnWindowDays)}-day return window for eligible items; final eligibility is frozen with the order.` : "Return eligibility is shown before purchase",
       weight: product.variants?.[0]?.weightGrams
         ? `${(product.variants[0].weightGrams / 1000).toFixed(2)} kg`
         : "Not provided",
       minimumOrderQuantity: 1,
-      reviewItems: [],
+      paymentMethods: Array.isArray(product.paymentMethods) ? product.paymentMethods : [],
+      reviewItems: Array.isArray(product.reviewItems) ? product.reviewItems : [],
+      questions: Array.isArray(product.questions) ? product.questions : [],
+      reviewPage: product.reviewPage || { count: 0, total: 0, hasMore: false, next: '' },
+      questionPage: product.questionPage || { count: 0, total: 0, hasMore: false, next: '' },
       tags: [product.categoryName, product.brand].filter(Boolean),
       badgeTone: product.badge === "Deal" ? "red" : product.badge === "New Arrival" ? "teal" : "orange"
     };
@@ -35,6 +59,7 @@
   const initialStorefront = readInitialStorefront();
   let categories = Array.isArray(initialStorefront.categories) ? initialStorefront.categories : [];
   let products = (Array.isArray(initialStorefront.products) ? initialStorefront.products : []).map(normalizeProduct);
+  let brands = Array.isArray(initialStorefront.brands) ? initialStorefront.brands : [];
   let displayLocale = initialStorefront.country?.locale || "en-UG";
   let displayCurrency = initialStorefront.country?.currency || "UGX";
   const state = {
@@ -48,6 +73,7 @@
     lastFocused: null,
     deepLinkOpened: false,
     recentRecorded: new Set(),
+    dealCountdownTimer: null,
   };
   const previewState = { productId: '', variantId: '', quantity: 1 };
 
@@ -58,6 +84,7 @@
       if (!response.ok) throw new Error(payload.error?.message || "Catalogue request failed");
       categories = Array.isArray(payload.categories) ? payload.categories : [];
       products = (Array.isArray(payload.products) ? payload.products : []).map(normalizeProduct);
+      brands = Array.isArray(payload.brands) ? payload.brands : [];
       displayLocale = payload.country?.locale || displayLocale;
       displayCurrency = payload.country?.currency || displayCurrency;
       const priceRange = qs('#priceRange');
@@ -99,6 +126,13 @@
     return new Intl.NumberFormat(displayLocale, { style: 'currency', currency }).format(value);
   }
 
+  function deliveryTimeLabel(hours) {
+    const value = Math.max(1, Number(hours) || 1);
+    if (value < 24) return `${Math.ceil(value)} hour${Math.ceil(value) === 1 ? '' : 's'}`;
+    const days = Math.ceil(value / 24);
+    return `${days} day${days === 1 ? '' : 's'}`;
+  }
+
   function reviewCount(value) {
     if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K`;
     return String(value);
@@ -107,6 +141,14 @@
   function starMarkup(rating) {
     const rounded = Math.round(rating);
     return `${'★'.repeat(rounded)}${'☆'.repeat(5 - rounded)}`;
+  }
+
+  function feedbackReviewMarkup(review) {
+    return `<article class="preview-review" data-review-id="${escapeHtml(review.publicId || '')}"><div class="review-avatar">V</div><div class="review-content"><div class="review-head"><div><strong>Verified buyer</strong><small>${review.verifiedPurchase ? 'Verified purchase' : 'Published review'}</small></div><span aria-label="${Number(review.rating) || 5} out of 5 stars">${starMarkup(Number(review.rating) || 5)}</span></div><p>${escapeHtml(review.body || review.title || 'Verified purchase review.')}</p><div class="review-meta"><span>${review.publishedAt ? new Date(review.publishedAt).toLocaleDateString() : 'Published review'}</span></div></div></article>`;
+  }
+
+  function feedbackQuestionMarkup(item) {
+    return `<article data-question-id="${escapeHtml(item.publicId || '')}"><strong>${escapeHtml(item.question)}</strong><p>${escapeHtml(item.answer?.body || item.answer || '')}</p></article>`;
   }
 
   function compactRatingMarkup(product) {
@@ -178,8 +220,8 @@
       button.setAttribute('aria-disabled', String(unavailable));
     }
     const addLabel = addButton?.querySelector('[data-preview-add-label]');
-    if (addLabel) addLabel.textContent = unavailable ? 'Out of stock' : `Add ${quantity} to Cart`;
-    if (buyButton) buyButton.textContent = unavailable ? 'Out of stock' : `Buy ${quantity} Now`;
+    if (addLabel) addLabel.textContent = unavailable ? 'Out of stock' : 'Add to Cart';
+    if (buyButton) buyButton.textContent = unavailable ? 'Out of stock' : 'Buy Now';
     const shareUrl = new URL(`/products/${encodeURIComponent(product.id)}`, window.location.origin).toString();
     const whatsapp = qs('.preview-whatsapp-button');
     if (whatsapp) {
@@ -219,7 +261,19 @@
     return `badge-${product.badgeTone || 'orange'}`;
   }
 
+  function promoterAmount(product) {
+    const bps = Math.max(0, Math.min(5000, Number(product?.promoterCommissionBps) || 0));
+    const price = Math.max(0, Number(product?.price) || 0);
+    if (!bps || !price) return '';
+    return money(price * bps / 10000, product.currency || displayCurrency);
+  }
+
   function sponsoredBadge(product) {
+    const amount = promoterAmount(product);
+    if (amount) {
+      const disclosure = product.sponsoredDisclosure || 'Promoters may earn the displayed amount on qualifying Classic Mart purchases.';
+      return `<span class="promoter-badge" title="${escapeHtml(`${disclosure} Estimated promoter earning: ${amount}.`)}">Prom ${escapeHtml(amount)}</span>`;
+    }
     return product.sponsored ? `<span class="promoter-badge" title="${escapeHtml(product.sponsoredDisclosure || 'Sponsored placement')}">Sponsored</span>` : '';
   }
 
@@ -252,7 +306,7 @@
         <div class="product-info">
           <h3>${escapeHtml(product.name)}</h3>
           <div class="product-meta-row">
-            <div class="price"><strong>${money(product.price, product.currency)}</strong><del>${money(product.oldPrice, product.currency)}</del></div>
+            <div class="price"><strong>${money(product.price, product.currency)}</strong></div>
             <div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div>
           </div>
           <button class="add-cart" data-add-cart="${product.id}" type="button">Add to cart</button>
@@ -261,7 +315,9 @@
   }
 
   function compactProductCard(product) {
-    const discount = Math.round((1 - product.price / product.oldPrice) * 100);
+    const compareAt = Number(product.oldPrice || 0);
+    const livePrice = Number(product.price || 0);
+    const discount = compareAt > livePrice && compareAt > 0 ? Math.max(1, Math.round((1 - livePrice / compareAt) * 100)) : 0;
     return `
       <article class="compact-product" data-product-preview="${product.id}" data-product-id="${product.id}" tabindex="0" role="button" aria-label="Open ${escapeHtml(product.name)} preview">
         <div class="compact-image">
@@ -272,7 +328,7 @@
         </div>
         <h3>${escapeHtml(product.name)}</h3>
         <div class="product-meta-row">
-          <div class="price"><strong>${money(product.price, product.currency)}</strong><del>${money(product.oldPrice, product.currency)}</del></div>
+          <div class="price"><strong>${money(product.price, product.currency)}</strong></div>
           <div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div>
         </div>
         <div class="sold">Sold: ${product.sold}</div>
@@ -304,27 +360,84 @@
   function renderCategories() {
     const target = qs('#categoryRow');
     if (!target) return;
-    target.innerHTML = categories.map(category => `
-      <button class="category-card" data-category-jump="${category.id}" type="button">
+    const ordered = orderedCategories();
+    const visibleCategories = ordered;
+    target.innerHTML = visibleCategories.map((category, index) => `
+      <button class="category-card ${index >= PRIMARY_CATEGORY_IDS.length ? 'category-extra' : ''}" data-category-jump="${escapeHtml(category.id)}" type="button">
         <span class="category-image">${imageWithFallback(category.image, category.name)}</span>
         <span>${escapeHtml(category.name)}</span>
       </button>`).join('');
+    const more = qs('[data-category-more]');
+    if (more) {
+      const hasExtraCategories = ordered.length > PRIMARY_CATEGORY_IDS.length;
+      more.hidden = !hasExtraCategories;
+      const label = more.querySelector('[data-category-more-label]');
+      if (label) label.textContent = 'More';
+    }
+  }
+
+  function approvedBrandMark(name) {
+    const brand = String(name || '').trim();
+    const key = brand.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const known = {
+      samsung: ['brand-samsung', 'SAMSUNG'],
+      sony: ['brand-sony', 'SONY'],
+      nike: ['brand-nike', 'NIKE'],
+      adidas: ['brand-adidas', 'adidas'],
+      philips: ['brand-philips', 'PHILIPS'],
+      levis: ['brand-levis', "LEVI'S"],
+      canon: ['brand-canon', 'Canon'],
+    };
+    if (key === 'apple') return '<img alt="Apple" src="/assets/icons/apple.svg">';
+    const mark = known[key];
+    if (mark) return `<span class="${mark[0]}">${escapeHtml(mark[1])}</span>`;
+    return `<span class="brand-wordmark">${escapeHtml(brand)}</span>`;
   }
 
   function renderBrands() {
     const target = qs('#brandRow');
     if (!target) return;
-    const brands = [...new Set(products.map(product => product.brand).filter(Boolean))];
-    target.innerHTML = brands.map(brand => `
+    const liveBrands = brands.length
+      ? brands.map((brand) => typeof brand === 'string' ? brand : brand.name)
+      : [...new Set(products.map((product) => product.brand).filter(Boolean))];
+    target.innerHTML = liveBrands.filter(Boolean).map((brand) => `
       <button class="brand-card" data-brand="${escapeHtml(brand)}" type="button">
-        <span>${escapeHtml(brand)}</span>
+        ${approvedBrandMark(brand)}
       </button>`).join('');
   }
 
   function categoryIcon(categoryId) {
     const icons = {
-      electronics: 'mobile-screen-button.svg', fashion: 'shirt.svg', home: 'house.svg', beauty: 'wand-magic-sparkles.svg',
-      sports: 'football.svg', toys: 'puzzle-piece.svg', automotive: 'car.svg', books: 'book.svg', pets: 'paw.svg', grocery: 'basket-shopping.svg'
+      electronics: 'mobile-screen-button.svg',
+      fashion: 'shirt.svg',
+      'home-living': 'house.svg',
+      beauty: 'wand-magic-sparkles.svg',
+      'sports-fitness': 'football.svg',
+      automotive: 'car.svg',
+      books: 'book.svg',
+      groceries: 'basket-shopping.svg',
+      baby: 'gift.svg',
+      office: 'box.svg',
+      'phones-tablets': 'mobile-screen-button.svg',
+      computers: 'mobile-screen-button.svg',
+      'tv-audio': 'youtube.svg',
+      gaming: 'puzzle-piece.svg',
+      shoes: 'shirt.svg',
+      'bags-accessories': 'gift.svg',
+      'jewelry-watches': 'tags.svg',
+      'personal-care': 'wand-magic-sparkles.svg',
+      'health-wellness': 'circle-check.svg',
+      'kitchen-appliances': 'house.svg',
+      'furniture-decor': 'house.svg',
+      toys: 'puzzle-piece.svg',
+      'kids-fashion': 'shirt.svg',
+      'school-supplies': 'book.svg',
+      'tools-home-improvement': 'box.svg',
+      'garden-outdoor': 'house.svg',
+      pets: 'paw.svg',
+      'travel-luggage': 'gift.svg',
+      'gifts-crafts': 'gift.svg',
+      'business-industrial': 'box.svg',
     };
     return icons[categoryId] || 'tags.svg';
   }
@@ -344,7 +457,8 @@
     const panel = qs('#categoryPanel[data-dynamic-categories]');
     if (panel && categories.length) {
       const viewAll = panel.querySelector('.view-all')?.outerHTML || '<a class="view-all" href="/categories"><img alt="" aria-hidden="true" src="/assets/icons/table-cells-large.svg"><span>View All Categories</span><img alt="" aria-hidden="true" src="/assets/icons/chevron-right.svg"></a>';
-      panel.innerHTML = categories.map(category => `<button data-category="${escapeHtml(category.id)}" type="button"><img alt="" aria-hidden="true" src="/assets/icons/${categoryIcon(category.id)}"><span>${escapeHtml(category.name)}</span></button>`).join('') + viewAll;
+      const primaryCategories = orderedCategories().slice(0, PRIMARY_CATEGORY_IDS.length);
+      panel.innerHTML = primaryCategories.map(category => `<button data-category="${escapeHtml(category.id)}" type="button"><img alt="" aria-hidden="true" src="/assets/icons/${categoryIcon(category.id)}"><span>${escapeHtml(category.name)}</span></button>`).join('') + viewAll;
     }
 
     const filterCategories = qs('#homepageFilterCategories');
@@ -365,11 +479,37 @@
       : '<div class="product-search-empty"><strong>No matching products</strong><span>Try another product name, brand, or category.</span></div>';
   }
 
+  function updateDailyDealCountdown() {
+    const hours = qs('#dealHours');
+    const minutes = qs('#dealMinutes');
+    const seconds = qs('#dealSeconds');
+    if (!hours || !minutes || !seconds) return;
+    const now = new Date();
+    const end = new Date(now);
+    end.setHours(24, 0, 0, 0);
+    const remaining = Math.max(0, end.getTime() - now.getTime());
+    const totalSeconds = Math.floor(remaining / 1000);
+    hours.textContent = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+    minutes.textContent = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+    seconds.textContent = String(totalSeconds % 60).padStart(2, '0');
+  }
+
+  function startDailyDealCountdown() {
+    updateDailyDealCountdown();
+    if (state.dealCountdownTimer) clearInterval(state.dealCountdownTimer);
+    state.dealCountdownTimer = setInterval(updateDailyDealCountdown, 1000);
+  }
+
   function renderDeals() {
     const target = qs('#dealGrid');
     if (!target) return;
-    const dealProducts = products.slice().sort((a, b) => ((b.oldPrice - b.price) / b.oldPrice) - ((a.oldPrice - a.price) / a.oldPrice)).slice(0, 12);
-    target.innerHTML = dealProducts.map(compactProductCard).join('');
+    const dealProducts = products
+      .filter((product) => Number(product.oldPrice || 0) > Number(product.price || 0))
+      .sort((a, b) => ((Number(b.oldPrice) - Number(b.price)) / Number(b.oldPrice)) - ((Number(a.oldPrice) - Number(a.price)) / Number(a.oldPrice)))
+      .slice(0, 12);
+    target.innerHTML = dealProducts.length
+      ? dealProducts.map(compactProductCard).join('')
+      : '<div class="product-search-empty"><strong>No live deals right now</strong><span>New discounted products will appear here automatically.</span></div>';
   }
 
   function renderRecommended() {
@@ -639,26 +779,33 @@
       if (icon) icon.src = wishlistIcon(wished);
     }
 
-    const reviewMarkup = reviewItems.length ? reviewItems.map((review, index) => `
-      <article class="preview-review">
-        <div class="review-avatar">${escapeHtml(('V').charAt(0).toUpperCase())}</div>
-        <div class="review-content">
-          <div class="review-head"><div><strong>${escapeHtml('Verified buyer')}</strong><small>Verified purchase</small></div><span aria-label="${Number(review.rating) || 5} out of 5 stars">${starMarkup(Number(review.rating) || 5)}</span></div>
-          <p>${escapeHtml(review.body || review.title || 'Verified purchase review.')}</p>
-          <div class="review-meta"><span>${review.publishedAt ? new Date(review.publishedAt).toLocaleDateString() : 'Verified review'}</span></div>
-        </div>
-      </article>`).join('') : '<p class="empty-preview-copy">Customer feedback will appear here after verified purchases.</p>';
+    const reviewMarkup = reviewItems.length ? reviewItems.map(feedbackReviewMarkup).join('') : '<p class="empty-preview-copy">Customer feedback will appear here after verified purchases.</p>';
 
-    const ratingRows = [
-      { stars: 5, value: product.reviews ? Math.min(92, Math.max(0, Math.round(product.rating * 16))) : 0 },
-      { stars: 4, value: 0 },
-      { stars: 3, value: 0 },
-      { stars: 2, value: 0 },
-      { stars: 1, value: 0 }
-    ].map(row => `<div class="rating-breakdown-row"><span>${row.stars} ★</span><i><b style="width:${row.value}%"></b></i><small>${row.value}%</small></div>`).join('');
+    const ratingTotal = Math.max(0, Number(product.reviews) || 0);
+    const ratingRows = [5, 4, 3, 2, 1].map((stars) => {
+      const count = Math.max(0, Number(product.ratingDistribution?.[stars] ?? product.ratingDistribution?.[String(stars)]) || 0);
+      const value = ratingTotal ? Math.round((count / ratingTotal) * 100) : 0;
+      return `<div class="rating-breakdown-row"><span>${stars} ★</span><i><b style="width:${value}%"></b></i><small>${count}</small></div>`;
+    }).join('');
 
     const tagMarkup = (product.tags || [product.category, 'quality checked', 'buyer protected']).slice(0, 4)
       .map(tag => `<span>${escapeHtml(String(tag).replaceAll('-', ' '))}</span>`).join('');
+    const attributeMarkup = Object.entries(product.attributes || {}).filter(([, value]) => String(value || '').trim()).slice(0, 20).map(([name, value]) => `<div><dt>${escapeHtml(String(name).replaceAll('_', ' '))}</dt><dd>${escapeHtml(value)}</dd></div>`).join('');
+    const promoterEarning = Math.max(0, Number(product.promoterCommissionBps) || 0) > 0 ? product.price * Math.max(0, Number(product.promoterCommissionBps) || 0) / 10000 : 0;
+    const publishedLabel = product.publishedAt ? new Date(product.publishedAt).toLocaleDateString() : 'Published listing';
+    const videoMarkup = product.videoUrl ? `<a class="preview-video-link" href="${escapeHtml(product.videoUrl)}" target="_blank" rel="noopener noreferrer">Watch product video ↗</a>` : '';
+    const variantDetailMarkup = (product.variants || []).map((variant) => {
+      const options = Object.entries(variant.options || {}).map(([key, value]) => `${escapeHtml(key)}: ${escapeHtml(value)}`).join(' · ');
+      return `<article class="preview-variant-detail"><div><strong>${escapeHtml(variant.title || 'Default')}</strong><small>${options || 'Standard option'}</small></div><div><span>${money(Number(variant.price || product.price), variant.currency || product.currency)}</span><small>${Math.max(0, Number(variant.stock) || 0)} in stock</small></div><dl><div><dt>SKU</dt><dd>${escapeHtml(variant.sku || 'Not provided')}</dd></div>${variant.barcode ? `<div><dt>Barcode</dt><dd>${escapeHtml(variant.barcode)}</dd></div>` : ''}${Number(variant.weightGrams) > 0 ? `<div><dt>Weight</dt><dd>${(Number(variant.weightGrams)/1000).toFixed(2)} kg</dd></div>` : ''}</dl></article>`;
+    }).join('');
+    const paymentMarkup = (product.paymentMethods || []).map((method) => ({card:'Card',mobile:'Mobile money',cod:'Cash on delivery'}[method] || method).replaceAll('_',' ')).join(' · ');
+    const deliveryOptions = product.deliveryOptions || {};
+    const standardDeliveryLabel = deliveryOptions.standardEnabled === false ? 'Not available' : `Usually within ${deliveryTimeLabel(deliveryOptions.standardSlaHours || 72)}`;
+    const expressDeliveryLabel = deliveryOptions.expressEnabled ? `Usually within ${deliveryTimeLabel(deliveryOptions.expressSlaHours || 24)}` : 'Not available';
+    const pickupLabel = deliveryOptions.pickupEnabled ? 'Available at eligible pickup points' : 'Not available';
+    const sellerVerifiedLabel = product.seller?.verifiedAt ? new Date(product.seller.verifiedAt).toLocaleDateString() : (product.seller?.verified ? 'Verified seller' : 'Verification unavailable');
+    const mediaSummary = `${images.length} image${images.length === 1 ? '' : 's'}${product.videoUrl ? ' · video available' : ''}`;
+
 
     const relatedProducts = products
       .filter(item => item.id !== product.id)
@@ -676,7 +823,7 @@
         <div class="preview-related-image">${imageWithFallback(item.image, item.name)}</div>
         <div class="preview-related-copy">
           <h4>${escapeHtml(item.name)}</h4>
-          <div><strong>${money(item.price, item.currency)}</strong><span>${item.reviews ? `${item.rating.toFixed(1)} ★` : 'New'}</span></div>
+          <div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${item.reviews ? `${item.rating.toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div>
           <button type="button" data-add-cart="${item.id}">Add to cart</button>
         </div>
       </article>`).join('');
@@ -696,9 +843,11 @@
           <div class="product-modal-copy">
             <div class="preview-badges"><span class="product-badge ${badgeClass(product)}">${escapeHtml(product.badge)}</span><span class="verified-badge"><img src="/assets/icons/circle-check.svg" alt=""> Verified listing</span></div>
             <h2 id="productModalTitle">${escapeHtml(product.name)}</h2>
+            <div class="preview-title-meta"><a href="/products?brand=${encodeURIComponent(product.brandSlug || product.brand)}">${escapeHtml(product.brand)}</a><span>${product.reviews ? `${Number(product.rating || 0).toFixed(1)} ★ · ${reviewCount(product.reviews)} reviews` : 'New · no verified reviews yet'}</span><span>${reviewCount(product.sold || 0)} sold</span></div>
 
             <div class="preview-price-row"><strong id="previewUnitPrice">${money(product.price, product.currency)}</strong><del id="previewOldPrice" ${product.oldPrice > product.price ? '' : 'hidden'}>${product.oldPrice > product.price ? money(product.oldPrice, product.currency) : ''}</del><span id="previewDiscount" ${discount ? '' : 'hidden'}>${discount ? `Save ${discount}%` : ''}</span></div>
-            <div class="preview-payment-note"><img src="/assets/icons/credit-card.svg" alt=""><span>Pay securely at checkout. Taxes and delivery are calculated before confirmation.</span></div>
+            <div class="preview-value-row">${promoterEarning > 0 ? `<span>Promoter earns <strong>${money(promoterEarning, product.currency)}</strong></span>` : ''}<span>Listed ${escapeHtml(publishedLabel)}</span>${videoMarkup}</div>
+            <div class="preview-payment-note"><img src="/assets/icons/credit-card.svg" alt=""><span>${paymentMarkup ? `Payment options: ${escapeHtml(paymentMarkup)}. ` : ''}Taxes and delivery are calculated before confirmation.</span></div>
             <p class="preview-description" id="productModalDescription">${escapeHtml(product.description)}</p>
 
             <div class="preview-stock-line"><span class="stock-dot"></span><strong id="previewAvailability">${escapeHtml(product.availabilityStatus)}</strong><span id="previewVariantTitle">${escapeHtml(initialVariant?.title || product.subtitle || 'Default option')}</span><span id="previewStockCount">${product.stock} unit${Number(product.stock) === 1 ? '' : 's'} ready to order</span><span class="preview-sku" id="previewSku">SKU: ${escapeHtml(product.sku)}</span></div>
@@ -714,17 +863,43 @@
             </div>
 
             <div class="preview-purchase-actions" aria-label="Purchase actions">
-              <button class="button button-primary preview-cart-button" data-modal-add-cart="${product.id}" type="button"><img src="/assets/icons/cart-plus.svg" alt=""><span data-preview-add-label>Add 1 to Cart</span></button>
-              <button class="buy-now-button" data-buy-now="${product.id}" type="button">Buy 1 Now</button>
+              <button class="button button-primary preview-cart-button" data-modal-add-cart="${product.id}" type="button"><img src="/assets/icons/cart-plus.svg" alt=""><span data-preview-add-label>Add to Cart</span></button>
+              <button class="buy-now-button" data-buy-now="${product.id}" type="button">Buy Now</button>
               <a class="preview-whatsapp-button" href="${whatsappUrl}" target="_blank" rel="noopener noreferrer" aria-label="Chat about this product on WhatsApp"><img class="whatsapp-logo" src="/assets/icons/whatsapp.svg" alt=""><strong>WhatsApp</strong></a>
             </div>
           </div>
         </div>
 
         <section class="preview-information-grid" aria-label="Shopping information">
-          <article><img src="/assets/icons/rotate-left.svg" alt=""><div><strong>Returns</strong><small>Eligibility follows the return policy confirmed with your order</small></div></article>
+          <article><img src="/assets/icons/rotate-left.svg" alt=""><div><strong>Returns</strong><small>${escapeHtml(product.returnPolicy)}</small></div></article>
           <article><img src="/assets/icons/circle-check.svg" alt=""><div><strong>Warranty</strong><small>${escapeHtml(product.warrantyInformation)}</small></div></article>
-          <article><img src="/assets/icons/headset.svg" alt=""><div><strong>Support</strong><small>Help before and after your purchase</small></div></article>
+          <article><img src="/assets/icons/headset.svg" alt=""><div><strong>Delivery</strong><small>${escapeHtml(product.shippingInformation)}</small></div></article>
+        </section>
+
+        <section class="preview-panel preview-buying-details" aria-label="Buying details">
+          <div class="preview-panel-heading"><span>Buying details</span><h3>Delivery, protection and listing facts</h3></div>
+          <div class="preview-buying-cards">
+            <article class="preview-buying-card">
+              <div class="preview-buying-card-heading"><span>Delivery &amp; payment</span><strong>How you receive and pay</strong></div>
+              <dl class="preview-buying-grid">
+                <div><dt>Standard delivery</dt><dd>${escapeHtml(standardDeliveryLabel)}</dd></div>
+                <div><dt>Express delivery</dt><dd>${escapeHtml(expressDeliveryLabel)}</dd></div>
+                <div><dt>Pickup</dt><dd>${escapeHtml(pickupLabel)}</dd></div>
+                <div><dt>Returns</dt><dd>${Math.max(0, Number(product.returnWindowDays) || 0) ? `${Math.max(0, Number(product.returnWindowDays) || 0)} days for eligible items` : 'Eligibility shown before purchase'}</dd></div>
+                <div><dt>Payment</dt><dd>${escapeHtml(paymentMarkup || 'Shown at checkout')}</dd></div>
+              </dl>
+            </article>
+            <article class="preview-buying-card">
+              <div class="preview-buying-card-heading"><span>Listing &amp; seller</span><strong>Product and marketplace facts</strong></div>
+              <dl class="preview-buying-grid">
+                <div><dt>Product ID</dt><dd>${escapeHtml(product.id)}</dd></div>
+                <div><dt>Product media</dt><dd>${escapeHtml(mediaSummary)}</dd></div>
+                <div><dt>Seller verification</dt><dd>${escapeHtml(sellerVerifiedLabel)}</dd></div>
+                ${Number(product.qualityScore) > 0 ? `<div><dt>Listing completeness</dt><dd>${Math.round(Number(product.qualityScore))}%</dd></div>` : ''}
+                ${product.policyVersion ? `<div><dt>Marketplace policy</dt><dd>${escapeHtml(product.policyVersion)}</dd></div>` : ''}
+              </dl>
+            </article>
+          </div>
         </section>
 
         <div class="product-preview-extra">
@@ -740,12 +915,14 @@
           </section>
           <section class="preview-panel">
             <div class="preview-panel-heading"><span>Details</span><h3>Specifications</h3></div>
-            <dl class="spec-list"><div><dt>Brand</dt><dd>${escapeHtml(product.brand)}</dd></div><div><dt>SKU</dt><dd>${escapeHtml(product.sku)}</dd></div><div><dt>Category</dt><dd>${escapeHtml(categoryLabel(product.category))}</dd></div><div><dt>Dimensions</dt><dd>${escapeHtml(dimensions)}</dd></div><div><dt>Weight</dt><dd>${escapeHtml(product.weight)}</dd></div><div><dt>Minimum order</dt><dd>${product.minimumOrderQuantity} unit</dd></div></dl>
+            <dl class="spec-list"><div><dt>Brand</dt><dd>${escapeHtml(product.brand)}</dd></div><div><dt>SKU</dt><dd>${escapeHtml(product.sku)}</dd></div>${product.barcode ? `<div><dt>Barcode</dt><dd>${escapeHtml(product.barcode)}</dd></div>` : ''}<div><dt>Category</dt><dd>${escapeHtml(categoryLabel(product.category))}</dd></div><div><dt>Dimensions</dt><dd>${escapeHtml(dimensions)}</dd></div><div><dt>Weight</dt><dd>${escapeHtml(product.weight)}</dd></div><div><dt>Minimum order</dt><dd>${product.minimumOrderQuantity} unit</dd></div><div><dt>Published</dt><dd>${escapeHtml(publishedLabel)}</dd></div>${attributeMarkup}</dl>
           </section>
           <section class="preview-panel seller-panel">
             <div class="seller-logo">${escapeHtml(product.seller.name.charAt(0).toUpperCase())}</div><div><span>Sold by</span><h3>${escapeHtml(product.seller.name)}</h3><p>${escapeHtml(product.seller.description || 'Verified Classic Mart marketplace seller.')}</p><div><b>${escapeHtml(product.seller.country)}</b><b>${product.stock} available</b><b>Verified seller</b></div><div class="seller-panel-links"><a href="/sellers/${encodeURIComponent(product.seller.slug)}">Seller profile</a><a href="/products?seller=${encodeURIComponent(product.seller.slug)}">Seller products</a></div></div>
           </section>
         </div>
+
+        <section class="preview-panel preview-variant-panel"><div class="preview-panel-heading"><span>Options</span><h3>Available variants</h3></div><div class="preview-variant-details">${variantDetailMarkup || '<p class="empty-preview-copy">One standard option is available.</p>'}</div></section>
 
         <section class="preview-reviews" id="previewReviews">
           <div class="preview-section-title"><div><span>Ratings &amp; reviews</span><h3>Feedback from verified buyers</h3></div><button class="review-write-button" type="button" data-focus-review-form>Write a review</button></div>
@@ -755,7 +932,7 @@
               <div class="rating-breakdown">${ratingRows}</div>
               <div class="rating-highlights">${product.reviews ? `<span><b>${product.rating.toFixed(1)}</b> average</span><span><b>${reviewCount(product.reviews)}</b> reviews</span>` : '<span><b>New</b> No verified reviews yet</span>'}</div>
             </aside>
-            <div class="preview-review-list">${reviewMarkup}</div>
+            <div class="preview-review-list">${reviewMarkup}</div>${product.reviewPage?.hasMore ? `<button class="outline-button" type="button" data-load-more-reviews>Load more reviews</button>` : ``}
           </div>
 
           <form class="preview-review-form" id="previewReviewForm" data-product-name="${escapeHtml(product.name)}">
@@ -772,9 +949,9 @@
 
         <section class="preview-panel preview-community-panel" aria-labelledby="previewQuestionsTitle">
           <div class="preview-panel-heading"><span>Questions &amp; alerts</span><h3 id="previewQuestionsTitle">Ask before you buy</h3></div>
-          <div class="preview-question-list">${(product.questions || []).length ? product.questions.map(item => `<article><strong>${escapeHtml(item.question)}</strong><p>${escapeHtml(item.answer || '')}</p></article>`).join('') : '<p class="empty-preview-copy">No answered questions yet.</p>'}</div>
+          <div class="preview-question-list">${(product.questions || []).length ? product.questions.map(feedbackQuestionMarkup).join('') : '<p class="empty-preview-copy">No answered questions yet.</p>'}</div>${product.questionPage?.hasMore ? `<button class="outline-button" type="button" data-load-more-questions>Load more questions</button>` : ``}
           <form id="previewQuestionForm" class="preview-review-form"><label>Your question<textarea name="question" rows="2" minlength="5" maxlength="500" required placeholder="Ask about size, compatibility, warranty or another product detail"></textarea></label><button class="button" type="submit">Submit question</button></form>
-          <div class="review-form-actions"><button class="button" type="button" data-product-alert="restock">Notify me when restocked</button><button class="button" type="button" data-product-alert="price_drop">Watch price drops</button></div>
+          <div class="review-form-actions">${Number(product.stock||0)<=0?'<button class="button" type="button" data-product-alert="restock">Notify me when restocked</button>':''}<button class="button" type="button" data-product-alert="price_drop">Watch price drops</button></div>
         </section>
 
         <section class="preview-related-products" aria-labelledby="previewRelatedTitle">
@@ -794,12 +971,21 @@
       if (grid && similar.length) grid.innerHTML = similar.slice(0, 5).map(item => `
         <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(item.name)} preview">
           <div class="preview-related-image">${imageWithFallback(item.image, item.name)}</div>
-          <div class="preview-related-copy"><h4>${escapeHtml(item.name)}</h4><div><strong>${money(item.price, item.currency)}</strong><span>${escapeHtml(item.recommendationExplanation || 'Similar catalogue match')}</span></div><button type="button" data-add-cart="${escapeHtml(item.id)}">Add to cart</button></div>
+          <div class="preview-related-copy"><h4>${escapeHtml(item.name)}</h4><div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${Number(item.reviews || 0) ? `${Number(item.rating || 0).toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div><button type="button" data-add-cart="${escapeHtml(item.id)}">Add to cart</button></div>
         </article>`).join('');
       const summary = reviewResult.status === 'fulfilled' ? reviewResult.value?.summary : null;
       const summaryBox = qs('#previewAiSummary');
       if (summaryBox && summary?.reviewCount > 0) summaryBox.innerHTML = `<strong>Classic AI review summary</strong><p>${escapeHtml(summary.summary || '')}</p><small>Based on ${Number(summary.reviewCount) || 0} verified-purchase reviews. AI-generated summary; check individual reviews for context.</small>`;
     }).catch(() => {});
+
+    qs('[data-load-more-reviews]')?.addEventListener('click', async event => {
+      const button=event.currentTarget;if(!product.reviewPage?.hasMore||!product.reviewPage.next)return;button.disabled=true;
+      try{const response=await fetch(`/api/v1/reviews/product/${encodeURIComponent(product.id)}?limit=20&after=${encodeURIComponent(product.reviewPage.next)}`,{credentials:'same-origin',headers:{Accept:'application/json'}});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error?.message||'Reviews could not be loaded.');const list=qs('.preview-review-list');const seen=new Set((product.reviewItems||[]).map(row=>String(row.publicId||'')));for(const row of payload.reviews||[]){if(!seen.has(String(row.publicId||''))){product.reviewItems.push(row);seen.add(String(row.publicId||''));if(list)list.insertAdjacentHTML('beforeend',feedbackReviewMarkup(row));}}product.reviewPage=payload.page||{hasMore:false,next:''};if(!product.reviewPage.hasMore)button.remove();else button.disabled=false;}catch(error){button.disabled=false;showToast(error.message||'Reviews could not be loaded.');}
+    });
+    qs('[data-load-more-questions]')?.addEventListener('click', async event => {
+      const button=event.currentTarget;if(!product.questionPage?.hasMore||!product.questionPage.next)return;button.disabled=true;
+      try{const response=await fetch(`/api/v1/storefront/products/${encodeURIComponent(product.id)}/questions?limit=20&after=${encodeURIComponent(product.questionPage.next)}`,{credentials:'same-origin',headers:{Accept:'application/json'}});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.error?.message||'Questions could not be loaded.');const list=qs('.preview-question-list');const seen=new Set((product.questions||[]).map(row=>String(row.publicId||'')));for(const row of payload.questions||[]){if(!seen.has(String(row.publicId||''))){product.questions.push(row);seen.add(String(row.publicId||''));if(list)list.insertAdjacentHTML('beforeend',feedbackQuestionMarkup(row));}}product.questionPage=payload.page||{hasMore:false,next:''};if(!product.questionPage.hasMore)button.remove();else button.disabled=false;}catch(error){button.disabled=false;showToast(error.message||'Questions could not be loaded.');}
+    });
 
     qs('#previewReviewForm')?.addEventListener('submit', async event => {
       event.preventDefault();
@@ -1024,14 +1210,7 @@
   }
 
   function installMobileSectionControls() {
-    qsa('.section-next-button[data-scroll-next]').forEach(button => {
-      const target = qs(`#${button.dataset.scrollNext}`);
-      if (!target || target.nextElementSibling?.classList.contains('mobile-more-wrap')) return;
-      const wrap = document.createElement('div');
-      wrap.className = 'mobile-more-wrap';
-      wrap.innerHTML = `<button class="mobile-section-more" data-scroll-next="${escapeHtml(button.dataset.scrollNext)}" type="button">More <img src="/assets/icons/chevron-right.svg" alt=""></button>`;
-      target.insertAdjacentElement('afterend', wrap);
-    });
+    qsa('.mobile-more-wrap').forEach((wrapper) => wrapper.remove());
   }
 
   async function shareProductLink(button) {
@@ -1250,6 +1429,17 @@
       return;
     }
 
+    const categoryMore = event.target.closest('[data-category-more]');
+    if (categoryMore) {
+      const target = qs('#categoryRow');
+      if (target) {
+        const firstExtra = target.children[PRIMARY_CATEGORY_IDS.length];
+        const nextLeft = firstExtra ? Math.max(0, firstExtra.offsetLeft - target.offsetLeft) : target.scrollWidth;
+        target.scrollTo({ left: nextLeft, behavior: 'smooth' });
+      }
+      return;
+    }
+
     const heroViewAllCategories = event.target.closest('.hero-category-menu .view-all');
     if (heroViewAllCategories) {
       event.preventDefault();
@@ -1374,6 +1564,39 @@
     });
   }
 
+  function ensureMobileBottomNav() {
+    if (qs('.mobile-bottom-nav')) return;
+    const nav = document.createElement('nav');
+    nav.className = 'mobile-bottom-nav';
+    nav.setAttribute('aria-label', 'Mobile navigation');
+    const current = window.location.pathname;
+    const items = [
+      ['/', 'house.svg', 'Home', ''],
+      ['/categories', 'table-cells-large.svg', 'Categories', ''],
+      ['/signup?role=seller', 'plus.svg', 'Sell', 'mobile-bottom-nav__sell'],
+      ['/wishlist', 'heart-regular.svg', 'Wishlist', ''],
+      ['/dashboard', 'user.svg', 'Profile', ''],
+    ];
+    nav.innerHTML = items.map(([href, icon, label, extraClass]) => {
+      const active = !extraClass && (href === '/' ? current === '/' : current === href || current.startsWith(`${href}/`));
+      const classes = [active ? 'active' : '', extraClass].filter(Boolean).join(' ');
+      return `<a href="${href}" class="${classes}" ${active ? 'aria-current="page"' : ''}${extraClass ? ' aria-label="Sell on Classic Mart"' : ''}><img alt="" aria-hidden="true" src="/assets/icons/${icon}"><span>${label}</span></a>`;
+    }).join('');
+    document.body.appendChild(nav);
+
+    let revealTimer = 0;
+    const reveal = () => nav.classList.remove('is-scrolling');
+    window.addEventListener('scroll', () => {
+      if (window.innerWidth > 760) return;
+      nav.classList.add('is-scrolling');
+      window.clearTimeout(revealTimer);
+      revealTimer = window.setTimeout(reveal, 420);
+    }, { passive: true });
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 760) reveal();
+    }, { passive: true });
+  }
+
   function bindEvents() {
     document.addEventListener('click', handleDocumentClick);
 
@@ -1395,12 +1618,6 @@
         qs('#searchSuggestions')?.classList.remove('show');
         qs('#searchInput')?.setAttribute('aria-expanded', 'false');
       }
-    });
-
-    qs('#mobileSearchButton')?.addEventListener('click', () => {
-      const search = qs('#searchForm');
-      search.classList.toggle('mobile-open');
-      if (search.classList.contains('mobile-open')) setTimeout(() => qs('#searchInput')?.focus(), 120);
     });
 
     const searchInput = qs('#searchInput');
@@ -1597,6 +1814,7 @@
     renderHeaderCategories();
     renderTrending(products.slice(0, 12));
     renderDeals();
+    startDailyDealCountdown();
     renderRecommended();
     renderBestSellers();
     renderBudgetPicks();
@@ -1605,6 +1823,7 @@
     updateCartUI();
     restorePreferences();
     installMobileSectionControls();
+    ensureMobileBottomNav();
     bindEvents();
     observeSections();
     startHero();

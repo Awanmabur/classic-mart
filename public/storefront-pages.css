@@ -1535,3 +1535,50 @@ body:not(.home-page) :where(main, .onboarding-shell) textarea,
   .product-detail-modal .preview-line-total { padding: 10px 12px; border-radius: 15px; }
   .product-detail-modal .preview-line-total > strong { font-size: 17px; }
 }
+
+
+/* Accessibility motion override: keep this at the end of the stylesheet. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
+}
+
+
+/* v2.13.39 clean related-product cards. */
+.preview-related-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.preview-related-card { grid-template-rows: 126px minmax(0, 1fr); border-radius: 19px; }
+.preview-related-image { height: 126px; padding: 10px; background: #f7f8fa; }
+.preview-related-copy { padding: 11px; display: flex; flex-direction: column; min-height: 128px; }
+.preview-related-copy h4 { min-height: 35px; margin-bottom: 9px; font-size: 11.5px; line-height: 1.45; }
+.preview-related-copy > .preview-related-commerce { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 7px; }
+.preview-related-copy > .preview-related-commerce strong { font-size: 12px; white-space: nowrap; }
+.preview-related-copy > .preview-related-commerce span { color: #5e6875; font-size: 9px; font-weight: 750; white-space: nowrap; }
+.preview-related-copy button { min-height: 35px; margin-top: 10px; border-radius: 999px; font-size: 9.5px; }
+@media (max-width: 1000px) { .preview-related-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .preview-related-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .preview-related-card { grid-template-rows: 105px minmax(0, 1fr); }
+  .preview-related-image { height: 105px; }
+  .preview-related-copy { min-height: 122px; padding: 9px; }
+  .preview-related-copy h4 { font-size: 10.5px; }
+  .preview-related-copy > .preview-related-commerce { align-items: flex-start; flex-direction: column; gap: 2px; }
+}
+
+/* v2.13.43: keep product photography consistently edge-to-edge across supporting commerce pages. */
+.cart-page-image,
+.cart-recommend-card,
+.checkout-mini-item,
+.confirm-item,
+.preview-related-image { overflow: hidden; background: #f4f6f8; }
+.cart-page-image img,
+.cart-recommend-card img,
+.checkout-mini-item img,
+.confirm-item img,
+.preview-related-image img {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  padding: 0 !important;
+  object-fit: cover !important;
+  object-position: center !important;
+}

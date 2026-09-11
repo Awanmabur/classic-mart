@@ -7,6 +7,14 @@ import { applyDuePriceSchedules } from './seller-growth.js';
 import { processNotificationOutbox } from './outbox.js';
 import { deliverWebhookBatch, processPushOutbox, queuePushNotification } from './stage11.js';
 import { processSiemQueue, securityRetention } from './security.js';
+import { processPesapalEvents } from './payments.js';
+import { ageBusinessInvoices } from './business-fulfillment.js';
+import { expirePrivacyExports, processPrivacyRequests } from './privacy.js';
+import { scanBusinessInvariants } from './invariants.js';
+import { scanMaintenanceBatch } from './maintenance-scan.js';
+import { expirePlatformGrants } from './platform-grants.js';
+
+let lastInvariantScanAt=0;
 
 async function currentProductState(productId) {
   const variants = await ProductVariant.find({ productId, active: true }).select('_id priceMinor').lean();
@@ -21,7 +29,7 @@ async function currentProductState(productId) {
 }
 
 export async function evaluateProductAlerts({ limit = 250 } = {}) {
-  const alerts = await ProductAlert.find({ status: 'active' }).sort({ updatedAt: 1 }).limit(limit);
+  const { rows: alerts, passCompleted } = await scanMaintenanceBatch(ProductAlert, 'product_alerts_active', { status: 'active' }, { limit });
   const cache = new Map();
   let triggered = 0;
   for (const alert of alerts) {
@@ -55,7 +63,7 @@ export async function evaluateProductAlerts({ limit = 250 } = {}) {
       await ProductAlert.updateOne({ _id: alert._id, status: 'active' }, { $set: { lastKnownPriceMinor: state.priceMinor } });
     }
   }
-  return { checked: alerts.length, triggered };
+  return { checked: alerts.length, triggered, passCompleted };
 }
 
 export async function runMaintenanceCycle() {
@@ -64,11 +72,18 @@ export async function runMaintenanceCycle() {
   const stage9 = await stage9Maintenance();
   const pricing = await applyDuePriceSchedules();
   const recurringProcurement = await processRecurringProcurement();
+  const businessInvoices = await ageBusinessInvoices();
+  const privacy = await processPrivacyRequests();
+  const privacyExpired = await expirePrivacyExports();
+  const platformGrantsExpired = await expirePlatformGrants();
+  const pesapal = await processPesapalEvents();
   const notifications = await processNotificationOutbox();
   const stage10 = await stage10Maintenance();
   const webhooks = await deliverWebhookBatch();
   const push = await processPushOutbox();
   const siem = await processSiemQueue();
   const securityRetentionResult = await securityRetention();
-  return { alerts, stage9, pricing, recurringProcurement, notifications, stage10, webhooks, push, siem, securityRetention: securityRetentionResult };
+  let invariants=null;
+  if(Date.now()-lastInvariantScanAt>=5*60_000){invariants=await scanBusinessInvariants();lastInvariantScanAt=Date.now();}
+  return { alerts, stage9, pricing, recurringProcurement, businessInvoices, privacy, privacyExpired, platformGrantsExpired, pesapal, notifications, stage10, webhooks, push, siem, securityRetention: securityRetentionResult, invariants };
 }

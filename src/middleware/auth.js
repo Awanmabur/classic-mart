@@ -4,6 +4,7 @@ import { AppError } from '../core/errors.js';
 import { hasPermission } from '../core/roles.js';
 import { env } from '../config/env.js';
 import { mfaRequiredForUser } from '../services/mfa.js';
+import { hydratePlatformAuthorization } from '../services/platform-grants.js';
 
 export async function loadUser(request, response, next) {
   try {
@@ -12,7 +13,8 @@ export async function loadUser(request, response, next) {
       return next();
     }
 
-    const actor = await User.findById(request.session.userId);
+    const actor = await User.findById(request.session.userId).select('+operationalCountries');
+    if(actor)await hydratePlatformAuthorization(actor);
     if (
       !actor ||
       actor.status !== 'active' ||
@@ -56,7 +58,8 @@ export async function loadUser(request, response, next) {
       if (!['country_admin', 'super_admin'].includes(actor.role)) {
         delete request.session.impersonation;
       } else {
-        const target = await User.findById(request.session.impersonation.targetUserId);
+        const target = await User.findById(request.session.impersonation.targetUserId).select('+operationalCountries');
+        if(target)await hydratePlatformAuthorization(target);
         if (!target || target.status !== 'active' || (actor.role === 'country_admin' && target.country !== actor.country) || target.role === 'super_admin') {
           delete request.session.impersonation;
         } else {

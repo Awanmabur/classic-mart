@@ -47,7 +47,7 @@
             <h3>${escapeHtml(product.name)}</h3>
             <p class="wishlist-card-subtitle">${escapeHtml(product.brand)} · ${escapeHtml(product.categoryName)}</p>
             <div class="wishlist-rating"><b>★</b><span>${product.reviews ? `${product.rating.toFixed(1)} (${product.reviews.toLocaleString()})` : 'No reviews yet'}</span></div>
-            <div class="wishlist-pricing"><strong>${money(product.price, product.currency)}</strong>${product.oldPrice > product.price ? `<del>${money(product.oldPrice, product.currency)}</del>` : ''}</div>
+            <div class="wishlist-pricing"><strong>${money(product.price, product.currency)}</strong></div>
             <p class="wishlist-card-subtitle">Seller: ${escapeHtml(product.seller.name)}</p>
             <div class="wishlist-card-actions"><a href="/products/${encodeURIComponent(product.id)}">View details</a></div>
           </div>

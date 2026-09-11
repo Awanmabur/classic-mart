@@ -78,9 +78,7 @@
 <a class="classic-live-link" href="/products?view=fresh"><span aria-hidden="true" class="live-dot"></span>Classic Live</a>
 </span>
 </nav>
-<button aria-label="Open search" class="mobile-search-button" id="mobileSearchButton" type="button">
-<img alt="" aria-hidden="true" src="/assets/icons/magnifying-glass.svg"/>
-</button>
+
 </div>
 </div>
 </header><main class="info-main" id="mainContent"><section class="info-hero"><div class="container"><nav aria-label="Breadcrumb" class="catalog-breadcrumb"><a href="/">Home</a><span>›</span><strong>Press &amp; News</strong></nav><span class="info-kicker">Classic Mart Journal</span><h1>Press &amp; News</h1><p>Published marketplace announcements and buying guides managed through the Classic Mart CMS.</p></div></section><div class="container info-content"><div class="news-grid"><% if (typeof pressArticles !== 'undefined' && pressArticles?.length) { pressArticles.forEach(article => { %><article id="<%= article.key.replaceAll('.','-') %>"><img alt="<%= article.title %>" src="<%= article.data?.image || '/assets/image-placeholder.svg' %>"/><span><%= article.data?.category || 'Marketplace' %></span><h2><%= article.title %></h2><p><%= article.body %></p><small><%= article.data?.publishedOn || '' %><%= article.data?.readTime ? ' · '+article.data.readTime : '' %></small></article><% }); } else { %><article><span>Classic Mart Journal</span><h2>No published articles yet</h2><p>Authorized administrators can publish articles through the CMS workspace.</p></article><% } %></div></div></main><section class="newsletter">

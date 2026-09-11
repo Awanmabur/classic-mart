@@ -102,6 +102,7 @@
       action: form.dataset.action || '',
       proofCode: String(data.get('proofCode') || ''),
       reason: String(data.get('reason') || ''),
+      reasonCode: String(data.get('reasonCode') || 'other'),
       rescheduledFor: String(data.get('rescheduledFor') || ''),
       queuedAt: Date.now()
     };

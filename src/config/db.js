@@ -9,7 +9,7 @@ let connectionPromise;
 
 async function connectWithRetry({ autoIndex = !env.isProduction } = {}) {
   if (!env.mongoUri) {
-    const error = new Error('MONGO_URI is required. Run `npm run db:local` for automatic local development setup, or configure a managed transaction-capable MongoDB URI.');
+    const error = new Error('MONGO_URI is required. Configure a managed transaction-capable MongoDB URI such as MongoDB Atlas.');
     error.code = 'MONGO_URI_REQUIRED';
     throw error;
   }

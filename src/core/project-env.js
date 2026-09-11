@@ -12,7 +12,7 @@ export function projectEnvSource() {
 
 export function projectMongoMode({ nodeEnv = process.env.NODE_ENV, source = projectEnvSource() } = {}) {
   if (String(nodeEnv || '').trim().toLowerCase() === 'production') return 'external';
-  return String(envLastValue(source, 'MONGO_MODE') || process.env.MONGO_MODE || 'local').trim().toLowerCase();
+  return String(envLastValue(source, 'MONGO_MODE') || process.env.MONGO_MODE || 'external').trim().toLowerCase();
 }
 
 export function projectMongoUri({ nodeEnv = process.env.NODE_ENV, source = projectEnvSource() } = {}) {

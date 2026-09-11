@@ -2,7 +2,7 @@ import { randomToken, safeEqual } from '../core/crypto.js';
 import { AppError } from '../core/errors.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-const FORM_PATHS = new Set(['/login','/signup','/verify-email','/forgot-password','/reset-password','/verify-phone','/onboarding','/dashboard','/account/profile','/account/security','/help','/contact','/ask-classic']);
+const FORM_PATHS = new Set(['/login','/signup','/verify-email','/forgot-password','/reset-password','/verify-phone','/onboarding','/dashboard','/account/profile','/account/security','/help','/contact','/track-order','/ask-classic']);
 
 function invalidCsrf() {
   return new AppError('Your form expired. Refresh the page and try again.', 403, 'CSRF_INVALID');

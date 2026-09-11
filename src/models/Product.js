@@ -65,6 +65,7 @@ const productSchema = new Schema(
       of: String,
       default: () => new Map(),
     },
+    videoUrl: { type: String, trim: true, maxlength: 800, default: '' },
     status: {
       type: String,
       enum: [
@@ -83,9 +84,27 @@ const productSchema = new Schema(
     qualityScore: { type: Number, min: 0, max: 100, default: 0 },
     moderation: {
       submittedAt: Date,
+      assignedUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+      assignedAt: Date,
+      escalatedAt: Date,
+      escalationReason: { type: String, trim: true, maxlength: 1_000, default: '' },
+      riskLevel: { type: String, enum: ['standard', 'high'], default: 'standard' },
+      secondReviewRequired: { type: Boolean, default: false },
+      firstApprovalByUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+      firstApprovalAt: Date,
+      firstApprovalReason: { type: String, trim: true, maxlength: 1_000, default: '' },
       reviewedAt: Date,
       reviewedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
       reason: { type: String, trim: true, maxlength: 1_000, default: '' },
+      reviewHistory: {
+        type: [{
+          action: { type: String, enum: ['claim','release','escalate','first_approval','approve','changes','reject'], required: true },
+          actorUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+          reason: { type: String, trim: true, maxlength: 1_000, default: '' },
+          at: { type: Date, default: Date.now },
+        }],
+        default: [],
+      },
     },
     publishedAt: Date,
     suspension: { previousStatus: { type: String, maxlength: 40, default: '' }, reason: { type: String, maxlength: 1000, default: '' }, suspendedAt: Date, suspendedByUserId: { type: Schema.Types.ObjectId, ref: 'User' } },
@@ -100,6 +119,7 @@ const productSchema = new Schema(
 productSchema.index({ storeId: 1, slug: 1 }, { unique: true });
 productSchema.index({ storeId: 1, status: 1, updatedAt: -1 });
 productSchema.index({ status: 1, countries: 1, publishedAt: -1 });
+productSchema.index({ status: 1, 'moderation.riskLevel': 1, 'moderation.submittedAt': 1 });
 productSchema.index({ title: 'text', description: 'text', tags: 'text' });
 
 export const Product = mongoose.model('Product', productSchema);

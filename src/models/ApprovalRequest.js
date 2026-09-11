@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 const approvalRequestSchema=new mongoose.Schema({
   publicId:{type:String,required:true,unique:true,immutable:true,index:true},
-  type:{type:String,enum:['country_settings','feature_flag','cms_publish','cms_rollback','gift_card_issue','data_export','impersonation','ai_model_registry','business_credit_terms'],required:true,index:true},
+  type:{type:String,enum:['country_settings','feature_flag','cms_publish','cms_rollback','gift_card_issue','data_export','impersonation','ai_model_registry','business_credit_terms','platform_staff_access'],required:true,index:true},
   country:{type:String,uppercase:true,maxlength:2,default:'',index:true},
   targetType:{type:String,maxlength:80,default:''},
   targetPublicId:{type:String,maxlength:120,default:''},

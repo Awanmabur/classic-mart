@@ -78,9 +78,7 @@
 <a class="classic-live-link" href="/products?view=fresh"><span aria-hidden="true" class="live-dot"></span>Classic Live</a>
 </span>
 </nav>
-<button aria-label="Open search" class="mobile-search-button" id="mobileSearchButton" type="button">
-<img alt="" aria-hidden="true" src="/assets/icons/magnifying-glass.svg"/>
-</button>
+
 </div>
 </div>
 </header><main class="info-main" id="mainContent"><section class="info-hero"><div class="container"><nav aria-label="Breadcrumb" class="catalog-breadcrumb"><a href="/">Home</a><span>›</span><strong>Contact Us</strong></nav><span class="info-kicker">Talk to the Classic Mart team</span><h1>Contact Us</h1><p>Send a marketplace, seller, partnership or general question.</p></div></section><div class="container info-content"><div class="contact-layout"><section class="info-section"><h2>Contact channels</h2><p><strong>Customer support:</strong> Use the Help &amp; Support page for order and return issues.</p><p><strong>Seller questions:</strong> Create a seller account or browse the Seller Center.</p><p><strong>Press:</strong> Use this form and select Press &amp; partnerships.</p></section><form action="/support/request" class="info-form" id="contactForm" method="post"><input name="_csrf" type="hidden" value="<%= csrfToken %>"/><input name="context" type="hidden" value="contact"/><label>Full name<input maxlength="120" minlength="2" name="name" required value="<%= user?.name || '' %>"/></label><label>Email<input maxlength="254" name="email" required type="email" value="<%= user?.email || '' %>"/></label><label>Topic<select name="topic" required><option value="">Choose a topic</option><option value="General question">General question</option><option value="Seller support">Seller support</option><option value="Press and partnerships">Press &amp; partnerships</option><option value="Privacy request">Privacy request</option></select></label><label>Message<textarea maxlength="3000" minlength="10" name="message" required rows="6"></textarea></label><button type="submit">Send message</button><p class="form-status" role="status"><%= flash?.message || '' %></p></form></div></div></main><section class="newsletter">

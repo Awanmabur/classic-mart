@@ -301,7 +301,7 @@
 }
 
 
-/* Compact product cards: price on the left, rating directly opposite. */
+/* Compact product cards: live price and review score/count stay together. */
 .catalog-product-info {
   padding: 11px 12px 12px;
 }
@@ -327,7 +327,7 @@
   margin-top: 7px;
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
 }
 .catalog-card-price {
@@ -339,7 +339,7 @@
 }
 .catalog-card-rating {
   flex: 0 0 auto;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-top: 0;
   padding-bottom: 1px;
   gap: 3px;
@@ -411,7 +411,7 @@
     gap: 5px;
   }
   .catalog-card-rating small {
-    display: none;
+    display: inline;
   }
   .catalog-card-price del {
     display: none;
@@ -426,4 +426,37 @@
     border-radius: 22px;
     padding: 20px 18px 22px;
   }
+}
+
+
+/* Accessibility motion override: keep this at the end of the stylesheet. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
+}
+
+
+/* v2.13.39 catalogue-card commerce alignment and review readability. */
+.catalog-card-commerce { width: 100%; align-items: center; justify-content: space-between !important; gap: 10px; }
+.catalog-card-rating { margin-left: auto; font-size: 12px !important; gap: 4px; }
+.catalog-card-rating span { font-size: 15px !important; }
+.catalog-card-rating strong { font-size: 12px; font-weight: 850; }
+.catalog-card-rating small { display: inline !important; font-size: 10.5px; }
+.catalog-card-price del { display: none !important; }
+@media (max-width: 700px) {
+  .catalog-card-commerce { gap: 6px; }
+  .catalog-card-rating { font-size: 10.5px !important; gap: 3px; }
+  .catalog-card-rating span { font-size: 13px !important; }
+  .catalog-card-rating strong { font-size: 10.5px; }
+  .catalog-card-rating small { font-size: 9px; }
+}
+
+/* v2.13.43: catalogue photography fills the same clean frame used by category artwork. */
+.catalog-product-image { padding: 0 !important; overflow: hidden; }
+.catalog-product-image > img {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover !important;
+  object-position: center !important;
 }

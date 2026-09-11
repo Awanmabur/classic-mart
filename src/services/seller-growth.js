@@ -2,10 +2,13 @@ import mongoose from 'mongoose';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import {
-  BusinessBudget, CustomerCatalogueState, PriceSchedule, ProcurementRequest, Product, ProductVariant, PurchaseOrder, QuoteRequest,
+  BusinessBudget, Campaign, CountrySetting, CustomerCatalogueState, PriceSchedule, ProcurementRequest, Product, ProductVariant, PurchaseOrder, QuoteRequest,
   SellerPromotion, StoreBroadcast, User,
 } from '../models/index.js';
 import { addOutboxEvent } from './outbox.js';
+import { acceptPurchaseOrderIntoCommerce } from './business-fulfillment.js';
+import { issueQuotationDocument } from './business-documents.js';
+import { cursorScope, cursorSort, pageResult } from './pagination.js';
 
 function activeWindowQuery(now=new Date()){return {status:'active',startsAt:{$lte:now},$or:[{endsAt:null},{endsAt:{$exists:false}},{endsAt:{$gt:now}}]};}
 export async function createSellerPromotion(request,input){
@@ -36,28 +39,54 @@ export async function scheduleVariantPrice(request,input){const variant=await Pr
 export async function applyDuePriceSchedules(){const due=await PriceSchedule.find({status:'scheduled',startsAt:{$lte:new Date()}}).limit(100);for(const row of due){const variant=await ProductVariant.findById(row.variantId);if(!variant){row.status='failed';row.failureReason='Variant no longer exists.';await row.save();continue;}if(row.newPriceMinor<Math.max(row.minimumPriceMinor,variant.minimumPriceMinor||0)){row.status='failed';row.failureReason='Minimum price changed before schedule execution.';await row.save();continue;}variant.priceMinor=row.newPriceMinor;variant.minimumPriceMinor=Math.max(variant.minimumPriceMinor||0,row.minimumPriceMinor);await variant.save();row.status='applied';row.appliedAt=new Date();await row.save();}}
 export async function createStoreBroadcast(request,input){const row=await StoreBroadcast.create({publicId:publicId('brd'),storeId:request.store._id,storePublicId:request.store.publicId,country:request.store.country,subject:String(input.subject).trim().slice(0,180),body:String(input.body).trim().slice(0,4000),status:'draft',createdByUserId:request.user._id});return row;}
 export async function queueStoreBroadcast(request,id){const row=await StoreBroadcast.findOne({publicId:id,storeId:request.store._id,status:'draft'});if(!row)throw new AppError('Draft broadcast not found.',404,'BROADCAST_NOT_FOUND');const states=await CustomerCatalogueState.find({followedStoreIds:request.store._id}).select('userId').lean();const ids=states.map(s=>s.userId);const users=ids.length?await User.find({_id:{$in:ids},status:'active',country:request.store.country,'consents.marketing':true}).select('publicId email country').lean():[];for(const user of users)await addOutboxEvent({type:'store.broadcast',aggregateType:'store_broadcast',aggregatePublicId:row.publicId,payload:{userPublicId:user.publicId,email:user.email,subject:row.subject,body:row.body,storePublicId:request.store.publicId,country:user.country,consentBasis:'marketing+follow'}});row.status='queued';row.recipientCount=users.length;row.queuedAt=new Date();await row.save();return row;}
-export async function sellerRespondQuote(request,id,{message,offeredTotalMinor,validUntil}){const row=await QuoteRequest.findOne({publicId:id,storeId:request.store._id,status:{$in:['requested','negotiating','responded']}});if(!row)throw new AppError('Quotation request not found.',404,'QUOTE_NOT_FOUND');const amount=Math.max(0,Number(offeredTotalMinor||row.offeredTotalMinor||0));if(amount<=0)throw new AppError('Enter a valid quotation total.',422,'QUOTE_AMOUNT_REQUIRED');row.offeredTotalMinor=amount;row.validUntil=validUntil?new Date(validUntil):new Date(Date.now()+7*86400000);row.messages.push({actorType:'seller',actorUserId:request.user._id,message:String(message||'Quotation updated.').trim().slice(0,2000),offeredTotalMinor:amount});row.status='responded';await row.save();return row;}
+export async function sellerRespondQuote(request,id,{message,offeredUnitMinor=[],validUntil}){
+  const session=await mongoose.startSession();let result;
+  try{await session.withTransaction(async()=>{
+    const row=await QuoteRequest.findOne({publicId:id,storeId:request.store._id,status:{$in:['requested','negotiating','responded']}}).session(session);
+    if(!row)throw new AppError('Quotation request not found.',404,'QUOTE_NOT_FOUND');
+    const prices=Array.isArray(offeredUnitMinor)?offeredUnitMinor:[offeredUnitMinor];
+    if(prices.length!==row.items.length)throw new AppError('Enter one unit price for every quoted SKU.',422,'QUOTE_LINE_PRICE_REQUIRED');
+    let total=0;
+    for(let i=0;i<row.items.length;i++){
+      const unit=Math.max(0,Number(prices[i]));if(!Number.isSafeInteger(unit))throw new AppError('Quotation unit prices must be whole minor-unit amounts.',422,'QUOTE_LINE_PRICE_INVALID');
+      row.items[i].offeredUnitMinor=unit;row.items[i].offeredLineMinor=unit*Number(row.items[i].quantity||0);total+=row.items[i].offeredLineMinor;
+    }
+    if(total<=0)throw new AppError('Enter a valid quotation total.',422,'QUOTE_AMOUNT_REQUIRED');
+    row.offeredTotalMinor=total;row.validUntil=validUntil?new Date(validUntil):new Date(Date.now()+7*86400000);
+    if(!Number.isFinite(row.validUntil.getTime())||row.validUntil<=new Date())throw new AppError('Quotation validity must end in the future.',422,'QUOTE_VALID_UNTIL');
+    row.revision=Math.max(0,Number(row.revision||0))+1;
+    row.messages.push({actorType:'seller',actorUserId:request.user._id,message:String(message||'Quotation updated.').trim().slice(0,2000),offeredTotalMinor:total});row.status='responded';await row.save({session});
+    await issueQuotationDocument(row,{session,issuedByUserId:request.user._id});result=row;
+  });return result;}finally{await session.endSession();}
+}
 
 export async function decidePurchaseOrder(request,id,status){
-  if(!['accepted','rejected','fulfilled'].includes(status))throw new AppError('Invalid purchase-order decision.',422,'PURCHASE_ORDER_DECISION');
+  if(!['accepted','rejected'].includes(status))throw new AppError('Invalid purchase-order decision.',422,'PURCHASE_ORDER_DECISION');
+  if(status==='accepted')return (await acceptPurchaseOrderIntoCommerce({request,purchaseOrderPublicId:id})).po;
   const session=await mongoose.startSession();let decided;
   try{await session.withTransaction(async()=>{
-    const expectedStatus=status==='fulfilled'?'accepted':'issued';const row=await PurchaseOrder.findOne({publicId:id,storeId:request.store._id,status:expectedStatus}).session(session);if(!row)throw new AppError(status==='fulfilled'?'Accepted purchase order not found.':'Issued purchase order not found.',404,'PURCHASE_ORDER_NOT_FOUND');
+    const row=await PurchaseOrder.findOne({publicId:id,storeId:request.store._id,status:'issued'}).session(session);if(!row)throw new AppError('Issued purchase order not found.',404,'PURCHASE_ORDER_NOT_FOUND');
     const procurement=row.procurementRequestId?await ProcurementRequest.findById(row.procurementRequestId).session(session):null;if(!procurement)throw new AppError('Purchase order is missing its approved procurement request.',409,'PROCUREMENT_APPROVAL_REQUIRED');
-    row.status=status;row.timeline.push({type:`seller.${status}`,message:`Seller ${status} purchase order.`,actorUserId:request.user._id});await row.save({session});
-    if(status==='fulfilled'){
-      if(procurement.budgetId){const approved=Math.max(0,Number(row.approvedAmountMinor||row.totalMinor||0));const budget=await BusinessBudget.findOneAndUpdate({_id:procurement.budgetId,committedMinor:{$gte:approved}},{$inc:{committedMinor:-approved,spentMinor:Number(row.totalMinor||0)}},{session,returnDocument:'after'});if(!budget)throw new AppError('Business budget settlement could not be recorded safely.',409,'BUDGET_SETTLEMENT_CONFLICT');}
-      procurement.timeline.push({type:'seller_fulfilled',message:`Seller ${request.store.publicId} fulfilled its purchase order; committed budget moved to actual spend.`,actorUserId:request.user._id});await procurement.save({session});decided=row;return;
-    }
-    if(status==='rejected'){
-      if(row.quoteRequestId)await QuoteRequest.updateOne({_id:row.quoteRequestId},{$set:{status:'rejected'}},{session});const accepted=await PurchaseOrder.exists({procurementRequestId:procurement._id,status:{$in:['accepted','fulfilled']}}).session(session);procurement.status=accepted?'partially_ordered':'approved';procurement.timeline.push({type:'seller_rejected',message:`Seller ${request.store.publicId} rejected its purchase order; the remaining approved procurement stays open for another quotation.`,actorUserId:request.user._id});await procurement.save({session});decided=row;return;
-    }
-    const accepted=await PurchaseOrder.find({procurementRequestId:procurement._id,status:{$in:['accepted','fulfilled']}}).session(session).lean();const covered=new Map();for(const po of accepted)for(const item of po.items)covered.set(item.productPublicId,(covered.get(item.productPublicId)||0)+Number(item.quantity||0));const complete=procurement.items.every(item=>(covered.get(item.productPublicId)||0)>=Number(item.quantity||0));
-    procurement.status=complete?'ordered':'partially_ordered';procurement.timeline.push({type:complete?'ordered':'partially_ordered',message:complete?'All approved procurement quantities are covered by accepted seller purchase orders.':`Seller ${request.store.publicId} accepted its purchase order; remaining approved items still require seller acceptance.`,actorUserId:request.user._id});await procurement.save({session});decided=row;
+    row.status='rejected';row.timeline.push({type:'seller.rejected',message:'Seller rejected purchase order.',actorUserId:request.user._id});await row.save({session});
+    if(row.quoteRequestId)await QuoteRequest.updateOne({_id:row.quoteRequestId},{$set:{status:'rejected'}},{session});
+    const accepted=await PurchaseOrder.exists({procurementRequestId:procurement._id,status:{$in:['accepted','payment_pending','processing','fulfilled']}}).session(session);procurement.status=accepted?'partially_ordered':'approved';procurement.timeline.push({type:'seller_rejected',message:`Seller ${request.store.publicId} rejected its purchase order; the remaining approved procurement stays open for another quotation.`,actorUserId:request.user._id});await procurement.save({session});decided=row;
   });return decided;}finally{await session.endSession();}
 }
 
-export async function sellerGrowthWorkspace(request){const [promotions,schedules,broadcasts,quotes,variants,purchaseOrders,products]=await Promise.all([SellerPromotion.find({storeId:request.store._id}).sort({createdAt:-1}).limit(100).lean(),PriceSchedule.find({storeId:request.store._id}).sort({createdAt:-1}).limit(100).lean(),StoreBroadcast.find({storeId:request.store._id}).sort({createdAt:-1}).limit(100).lean(),QuoteRequest.find({storeId:request.store._id}).populate('organizationId','companyName').sort({createdAt:-1}).limit(100).lean(),ProductVariant.find({storeId:request.store._id,active:true}).sort({sku:1}).lean(),PurchaseOrder.find({storeId:request.store._id}).populate('organizationId','companyName').sort({createdAt:-1}).limit(100).lean(),Product.find({storeId:request.store._id,status:{$in:['approved','published']}}).select('publicId title status').sort({title:1}).limit(200).lean()]);return {promotions,schedules,broadcasts,quotes,variants,purchaseOrders,products};}
+export async function sellerGrowthWorkspace(request){
+  const size=40,storeId=request.store._id;
+  const page=async(Model,base,cursor,{field='createdAt',direction=-1,type='date',populate=[],select=''}={})=>{let q=Model.find(cursorScope(base,cursor,{field,direction,type})).sort(cursorSort(field,direction)).limit(size+1);if(select)q=q.select(select);for(const spec of populate)q=q.populate(...spec);const [rows,total]=await Promise.all([q.lean(),Model.countDocuments(base)]);return pageResult(rows,{field,direction,type,limit:size,total});};
+  const [promotionsPage,schedulesPage,broadcastsPage,quotesPage,variantsPage,purchaseOrdersPage,productsPage]=await Promise.all([
+    page(SellerPromotion,{storeId},request.query.promotionsAfter),
+    page(PriceSchedule,{storeId},request.query.schedulesAfter),
+    page(StoreBroadcast,{storeId},request.query.broadcastsAfter),
+    page(QuoteRequest,{storeId},request.query.quotesAfter,{populate:[['organizationId','companyName']]}),
+    page(ProductVariant,{storeId,active:true},request.query.variantsAfter,{field:'sku',direction:1,type:'string'}),
+    page(PurchaseOrder,{storeId},request.query.purchaseOrdersAfter,{populate:[['organizationId','companyName']]}),
+    page(Product,{storeId,status:{$in:['approved','published']}},request.query.productsAfter,{field:'title',direction:1,type:'string',select:'publicId title status'}),
+  ]);
+  return {promotions:promotionsPage.items,schedules:schedulesPage.items,broadcasts:broadcastsPage.items,quotes:quotesPage.items,variants:variantsPage.items,purchaseOrders:purchaseOrdersPage.items,products:productsPage.items,queuePages:{promotions:promotionsPage.page,schedules:schedulesPage.page,broadcasts:broadcastsPage.page,quotes:quotesPage.page,variants:variantsPage.page,purchaseOrders:purchaseOrdersPage.page,products:productsPage.page}};
+}
 
 export async function promotionQuote({rows,country,codes=[]}){
   if(!rows.length)return {discountMinor:0,freeShipping:false,applications:[],storeDiscounts:{}};
@@ -67,4 +96,72 @@ export async function promotionQuote({rows,country,codes=[]}){
     const raw=Math.max(Number(promo.fixedDiscountMinor||0),Math.floor(eligibleSubtotal*Number(promo.discountBps||0)/10000));const availableCapacity=eligible.reduce((sum,row)=>sum+(capacity.get(`${row.storeId}:${row.variantId||row.productId}`)||0),0);let value=Math.min(eligibleSubtotal,raw,availableCapacity);if(value<=0)continue;const applied=value;for(const row of eligible){if(value<=0)break;const key=`${row.storeId}:${row.variantId||row.productId}`;const remaining=capacity.get(key)||0;const consume=Math.min(remaining,value);capacity.set(key,remaining-consume);value-=consume;}discount+=applied;storeDiscounts[promo.storePublicId]=(storeDiscounts[promo.storePublicId]||0)+applied;applications.push({id:promo.publicId,type:promo.type,name:promo.name,discountMinor:applied});}
   return {discountMinor:discount,freeShipping,applications,storeDiscounts};
 }
-export async function activeSponsoredProducts(country){const rows=await SellerPromotion.find({country,type:'sponsored',...activeWindowQuery(new Date())}).lean();const map=new Map();for(const row of rows)for(const id of row.productPublicIds)map.set(id,{promotionId:row.publicId,disclosure:row.disclosureText||'Sponsored placement.'});return map;}
+export function marketplacePromoterCampaignPublicId(country) {
+  const code = String(country || '').trim().toLowerCase();
+  return `cmp_marketplace_${code || 'global'}`;
+}
+
+export async function activeSponsoredProducts(country, productPublicIds = []) {
+  const countryCode = String(country || '').trim().toUpperCase();
+  const now = new Date();
+  const ids = [...new Set((productPublicIds || []).map((value) => String(value || '').trim()).filter(Boolean))];
+  const [placements, campaigns, setting] = await Promise.all([
+    SellerPromotion.find({ country: countryCode, type: 'sponsored', ...activeWindowQuery(now) })
+      .select('publicId productPublicIds disclosureText')
+      .lean(),
+    Campaign.find({
+      country: countryCode,
+      status: 'active',
+      visibility: 'public',
+      $and: [
+        { $or: [{ startsAt: null }, { startsAt: { $exists: false } }, { startsAt: { $lte: now } }] },
+        { $or: [{ endsAt: null }, { endsAt: { $exists: false } }, { endsAt: { $gt: now } }] },
+      ],
+    })
+      .select('publicId productPublicIds commissionBps disclosureText')
+      .lean(),
+    CountrySetting.findOne({ code: countryCode, active: true }).select('growth.promoterCommissionBps policyVersion').lean(),
+  ]);
+
+  const map = new Map();
+  const defaultCommissionBps = Math.max(0, Math.min(5000, Number(setting?.growth?.promoterCommissionBps ?? 300) || 0));
+  if (defaultCommissionBps > 0) {
+    for (const id of ids) {
+      map.set(id, {
+        sponsored: false,
+        promoterCampaignId: marketplacePromoterCampaignPublicId(countryCode),
+        promoterCommissionBps: defaultCommissionBps,
+        disclosure: 'Promoters may earn the displayed commission on qualifying Classic Mart purchases.',
+      });
+    }
+  }
+  for (const row of placements) {
+    for (const id of row.productPublicIds || []) {
+      const existing = map.get(id) || {};
+      map.set(id, {
+        ...existing,
+        sponsored: true,
+        promotionId: row.publicId,
+        disclosure: row.disclosureText || existing.disclosure || 'Sponsored placement.',
+        promoterCommissionBps: Number(existing.promoterCommissionBps) || 0,
+      });
+    }
+  }
+
+  for (const campaign of campaigns) {
+    const campaignCommissionBps = Math.max(0, Math.min(5000, Number(campaign.commissionBps) || 0));
+    for (const id of campaign.productPublicIds || []) {
+      const existing = map.get(id) || {};
+      map.set(id, {
+        ...existing,
+        sponsored: true,
+        sponsoredCampaignId: campaign.publicId,
+        campaignCommissionBps,
+        // The public Prom badge always represents the marketplace-wide country rate.
+        // Seller campaigns can carry a separate campaign rate without changing that base badge.
+        disclosure: campaign.disclosureText || existing.disclosure || 'Sponsored/affiliate promotion for Classic Mart.',
+      });
+    }
+  }
+  return map;
+}

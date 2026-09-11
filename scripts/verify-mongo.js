@@ -7,7 +7,7 @@ import { projectMongoUri } from '../src/core/project-env.js';
 const mongoUri = projectMongoUri();
 if (!mongoUri) {
   throw new Error(
-    'MONGO_URI is required for verification. Run `npm run db:local` for automatic local setup, or configure Atlas/another transaction-capable replica-set/mongos URI.',
+    'MONGO_URI is required for verification. Configure Atlas or another transaction-capable replica-set/mongos URI.',
   );
 }
 

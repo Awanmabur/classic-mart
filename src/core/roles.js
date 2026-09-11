@@ -12,7 +12,7 @@ export const ROLES = Object.freeze([
   'super_admin',
 ]);
 
-const permissions = {
+export const ROLE_PERMISSIONS = Object.freeze({
   customer: ['account:read', 'account:update', 'orders:own'],
   business: [
     'account:read',
@@ -72,11 +72,20 @@ const permissions = {
     'finance:country',
   ],
   super_admin: ['*'],
-};
+});
 
 export function hasPermission(user, permission) {
   if (!user || user.status !== 'active') return false;
-  const granted = permissions[user.role] || [];
+  const context=user.authorizationContext;
+  if(context?.platformManaged){
+    const granted=new Set(['account:read','account:update']);
+    for(const grant of context.activePlatformGrants||[]){
+      for(const item of ROLE_PERMISSIONS[grant.role]||[])granted.add(item);
+      for(const item of grant.capabilities||[])granted.add(item);
+    }
+    return granted.has('*')||granted.has(permission);
+  }
+  const granted = ROLE_PERMISSIONS[user.role] || [];
   return granted.includes('*') || granted.includes(permission);
 }
 

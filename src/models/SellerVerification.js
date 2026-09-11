@@ -78,9 +78,22 @@ const sellerVerificationSchema = new Schema(
     },
     declarationAcceptedAt: Date,
     submittedAt: Date,
+    assignedUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    assignedAt: Date,
+    escalatedAt: Date,
+    escalationReason: { type: String, trim: true, maxlength: 1_000, default: '' },
     reviewedAt: Date,
     reviewedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     reviewReason: { type: String, trim: true, maxlength: 1_000, default: '' },
+    reviewHistory: {
+      type: [{
+        action: { type: String, enum: ['claim','release','escalate','approve','reject'], required: true },
+        actorUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+        reason: { type: String, trim: true, maxlength: 1_000, default: '' },
+        at: { type: Date, default: Date.now },
+      }],
+      default: [],
+    },
     appeal: {
       message: { type: String, trim: true, maxlength: 1_000, default: '' },
       submittedAt: Date,

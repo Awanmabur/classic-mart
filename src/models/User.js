@@ -64,13 +64,14 @@ const userSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'suspended', 'pending_deletion'],
+      enum: ['active', 'suspended', 'pending_deletion', 'deleted'],
       default: 'active',
       index: true,
     },
     emailVerifiedAt: Date,
     phoneVerifiedAt: Date,
     onboardingCompletedAt: Date,
+    // Server-controlled home/operational country. Never updated from the ordinary profile form.
     country: {
       type: String,
       uppercase: true,
@@ -79,6 +80,24 @@ const userSchema = new Schema(
       default: 'UG',
       index: true,
     },
+    // Customer-facing marketplace preference; safe for the account owner to change.
+    shoppingCountry: {
+      type: String,
+      uppercase: true,
+      minlength: 2,
+      maxlength: 2,
+      default: 'UG',
+      index: true,
+    },
+    // Explicit platform jurisdiction grants. Hidden by default and mutated only by staff-access controls.
+    operationalCountries: {
+      type: [String],
+      uppercase: true,
+      default: undefined,
+      select: false,
+    },
+    // Once set, platform privilege is authoritative in PlatformGrant. User.role/operationalCountries become compatibility mirrors only.
+    platformAccessManagedAt: { type: Date, default: undefined, index: true },
     currency: { type: String, uppercase: true, default: 'UGX', maxlength: 3 },
     locale: { type: String, default: 'en-UG', maxlength: 15 },
     timeZone: { type: String, default: 'Africa/Kampala', maxlength: 64 },

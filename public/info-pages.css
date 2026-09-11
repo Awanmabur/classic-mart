@@ -4,3 +4,10 @@
 @media(max-width:620px){.info-hero{padding:27px 0}.info-hero h1{font-size:27px}.info-content{padding-top:14px}.info-grid.three,.job-grid,.news-grid,.steps-grid,.faq-grid{grid-template-columns:1fr}.info-section,.info-form,.policy-stack article,.job-grid article,.faq-grid article{border-radius:17px;padding:18px}.news-grid article>img{height:165px}}
 /* Modal forms also keep fully rounded controls. */
 #trackModal .stack-form input,#helpModal .stack-form select,#helpModal .stack-form textarea,#trackModal .stack-form button,#helpModal .stack-form button{border-radius:999px!important}#helpModal .stack-form textarea{border-radius:18px!important}
+.tracking-detail-block{margin-top:16px;padding-top:14px;border-top:1px solid #e7eaee}.tracking-detail-block h3,.tracking-timeline h3{margin:0 0 9px;font-size:14px}.tracking-detail-block ul{margin:0;padding-left:18px;display:grid;gap:8px}.tracking-detail-block li{font-size:12px;line-height:1.55;color:#44505c}.tracking-detail-block small{color:#687480}.tracking-detail-block .text-button{display:inline-flex;margin:3px 7px 3px 0}@media(max-width:720px){.tracking-result-card{padding:18px;gap:12px}.tracking-detail-block ul{padding-left:16px}}
+
+
+/* Accessibility motion override: keep this at the end of the stylesheet. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
+}

@@ -91,15 +91,13 @@
 <a class="classic-live-link" href="/products?view=fresh"><span aria-hidden="true" class="live-dot"></span>Classic Live</a>
 </span>
 </nav>
-<button aria-label="Open search" class="mobile-search-button" id="mobileSearchButton" type="button">
-<img alt="" aria-hidden="true" src="/assets/icons/magnifying-glass.svg"/>
-</button>
+
 </div>
 </div>
 </header>
 <main class="people-main" id="catalogMain">
 <section class="people-hero"><div class="container"><nav aria-label="Breadcrumb" class="catalog-breadcrumb"><a href="/">Home</a><span>›</span><strong>Verified Sellers</strong></nav><div class="people-hero-grid"><div class="people-hero-copy"><span>Marketplace stores</span><h1>Verified Sellers</h1><p>Browse trusted marketplace stores, compare seller specialties and continue to their product listings.</p></div><div class="people-hero-stats"><span><strong id="directoryStatCount">—</strong><small>Verified profiles</small></span><span><strong id="directoryStatPrimary">—</strong><small>Average rating</small></span><span><strong id="directoryStatSecondary">—</strong><small>Products available</small></span></div></div></div></section>
-<section class="container people-workspace"><form class="people-toolbar" id="peopleSearchForm"><label><img alt="" src="/assets/icons/magnifying-glass.svg"/><input id="peopleQuery" placeholder="Search sellers, specialties or categories" type="search"/></label><label><select id="peopleSort"><option value="featured">Featured</option><option value="rating">Highest rated</option><option value="name">Name A–Z</option></select></label><button type="submit">Search</button></form><p class="people-count" id="peopleCount">Loading sellers…</p><div class="people-grid" id="peopleGrid"></div><div class="people-empty" hidden="" id="peopleEmpty"><h2>No matching sellers</h2><p>Try another name, category or specialty.</p></div></section>
+<section class="container people-workspace"><form class="people-toolbar" id="peopleSearchForm"><label><img alt="" src="/assets/icons/magnifying-glass.svg"/><input id="peopleQuery" placeholder="Search sellers, specialties or categories" type="search"/></label><label><select id="peopleSort"><option value="featured">Featured</option><option value="rating">Highest rated</option><option value="name">Name A–Z</option></select></label><button type="submit">Search</button></form><p class="people-count" id="peopleCount">Loading sellers…</p><div class="people-grid" id="peopleGrid"></div><button class="outline-button" id="peopleLoadMore" type="button" hidden>Load more</button><div class="people-empty" hidden="" id="peopleEmpty"><h2>No matching sellers</h2><p>Try another name, category or specialty.</p></div></section>
 </main>
 <div class="catalog-filter-backdrop" hidden="" id="catalogFilterBackdrop"></div>
 <div aria-live="polite" class="page-toast" id="catalogToast" role="status"></div>

@@ -50,7 +50,7 @@
         <h3>${escapeHtml(product.name)}</h3>
         <p class="wishlist-card-subtitle">${escapeHtml(product.subtitle)} · ${escapeHtml(product.brand)}</p>
         <div class="wishlist-rating"><b>★</b><span>${product.reviews ? `${product.rating.toFixed(1)} (${product.reviews.toLocaleString()})` : 'No reviews yet'}</span></div>
-        <div class="wishlist-pricing"><strong>${money(product.price, product.currency)}</strong>${saving ? `<del>${money(product.oldPrice, product.currency)}</del>` : ''}</div>
+        <div class="wishlist-pricing"><strong>${money(product.price, product.currency)}</strong></div>
         <div class="wishlist-card-actions">
           <button data-wishlist-cart="${escapeHtml(product.id)}" ${product.stock < 1 ? 'disabled' : ''}><img src="/assets/icons/cart-plus.svg" alt="">Add to cart</button>
           <a href="/products/${encodeURIComponent(product.id)}" aria-label="View ${escapeHtml(product.name)}"><img src="/assets/icons/chevron-right.svg" alt=""></a>

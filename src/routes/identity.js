@@ -29,9 +29,21 @@ import { getCountries } from '../services/country.js';
 import { acceptReferralCode } from '../services/stage9.js';
 import { verifyMfa } from '../services/mfa.js';
 import { writeSecurityEvent } from '../services/security.js';
+import { acceptPlatformStaffInvitation, platformStaffInvitationPreview } from '../services/staff-access.js';
 
 const router = Router();
 router.use(noStore);
+
+router.get('/staff/invitations/:token',requireAuth,asyncHandler(async(request,response)=>{
+  const invitation=await platformStaffInvitationPreview(request,request.params.token);
+  return response.render('staff-invitation',{invitation,token:request.params.token});
+}));
+router.post('/staff/invitations/:token/accept',requireAuth,asyncHandler(async(request,response)=>{
+  const result=await acceptPlatformStaffInvitation(request,request.params.token);
+  await writeAudit(request,'staff.invitation_accepted',{targetType:'platform_staff_invitation',targetPublicId:result.invitation.publicId,country:result.invitation.approvalCountry,metadata:{approval:result.approval.publicId,role:result.invitation.role,countries:result.invitation.operationalCountries}});
+  setFlash(request,'success','Staff invitation accepted. Privileged access remains inactive until a different administrator approves it.');
+  return response.redirect('/dashboard');
+}));
 
 const authenticationLimit = rateLimit({
   windowMs: 15 * 60_000,

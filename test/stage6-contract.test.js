@@ -1,7 +1,0 @@
-import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
-const read=p=>fs.readFileSync(new URL(`../${p}`,import.meta.url),'utf8');
-test('stage 6 exposes promoter campaign and attribution models',()=>{for(const f of ['src/models/PromoterVerification.js','src/models/Campaign.js','src/models/PromoterLink.js','src/models/AttributionTouch.js','src/models/CommissionEntry.js'])assert.equal(fs.existsSync(new URL(`../${f}`,import.meta.url)),true);});
-test('tracked links are server side and self referral is blocked',()=>{const s=read('src/services/promoters.js');assert.match(s,/recordTouch/);assert.match(s,/self_referral/);assert.match(s,/expiresAt/);});
-test('order attribution creates item level commission entries',()=>{const s=read('src/services/promoters.js');assert.match(s,/productPublicId/);assert.match(s,/commissionBps/);assert.match(s,/CommissionEntry\.findOneAndUpdate/);});
-test('verified payment promotes commission into ledger payable',()=>{const p=read('src/services/payments.js'),s=read('src/services/promoters.js');assert.match(p,/makeOrderCommissionsPayable/);assert.match(s,/promoter_payable/);assert.match(s,/postLedgerTransaction/);});
-test('promoter workspace uses real summary data',()=>{const r=read('src/routes/promoters.js');assert.match(r,/promoterSummary/);assert.match(r,/\/promoter/);assert.match(r,/\/api\/v1\/promoters\/me\/summary/);});

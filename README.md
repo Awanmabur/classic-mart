@@ -1,128 +1,99 @@
 # Classic Mart
 
-Current cumulative release: **v2.13.5** (Stages 1–12). — MongoDB/EJS marketplace
+Current cumulative release: **v2.13.49**.
 
-Classic Mart converts the supplied marketplace/dashboard UI into one server-authoritative multi-vendor marketplace while preserving the approved visual contract: rounded cards/buttons/inputs, consistent colours and spacing, standard readable type, mobile-first responsiveness, real local icons, no gradients and no redesign of supplied pages unless the blueprint has no UI for a required workflow.
+Classic Mart is a server-authoritative multi-vendor marketplace built with Node.js 24, Express 5, EJS, MongoDB, Redis, Pesapal and Cloudflare R2. The public storefront, seller workflows, promoter flows, operations dashboards, payments, fulfilment, returns, finance, moderation and platform administration share the same database-backed services and authorization rules.
 
-Runtime: **Node.js 24 + Express 5 + EJS + transaction-capable MongoDB**. Redis is optional; when `REDIS_URL` is blank, sessions use MongoDB.
+## External-service-first development
 
-## Stage 12 status
+The normal development path no longer starts a local MongoDB or rewrites `.env`.
 
-Stages **1–11 remain the cumulative marketplace baseline** and Stage **12 adds operational hardening and launch control** without changing the approved Classic Mart UI. The source now includes persistent application IDS/IPS, HMAC-protected security events, durable SIEM export, real TOTP MFA/recovery, privileged-role MFA enforcement, four-eyes administrative recovery/risk acceptance, launch evidence, backup/load drills and fail-closed production security configuration.
-
-The PWA/mobile/seller APIs continue to use the same server-authoritative catalogue, cart, checkout, order, payment and inventory services. Stage 12 security is an additional layer and does not pretend to replace a managed WAF, network firewall, EDR, independent penetration testing or production recovery exercises.
-
-See `docs/STAGE_12_SECURITY_AND_LAUNCH.md`, `docs/ASVS_SELF_REVIEW.md`, `docs/ops/cloudflare/README.md`, `docs/STAGE_11_GATE_MATRIX.md`, `docs/MOBILE_PWA_READINESS.md`, `docs/STAGE_10_GATE_MATRIX.md`, `docs/STAGE_9_GATE_MATRIX.md`, `docs/STAGE_1_8_AUDIT.md` and `docs/STAGES.md`.
-
-
-## v2.13.5 commerce functionality
-
-The product preview is now variant-aware and quantity-aware. Price, compare-at price, discount, stock, SKU and line total update immediately when the shopper changes option or quantity. Add to Cart stays on the preview; Buy Now waits for the server cart write before navigating. The browser cart is keyed by variant, so multiple options of the same product remain separate lines.
-
-The release gate includes both `frontend:audit` and `functionality:audit`, followed by automated tests and the real MongoDB Stage 1–12 integration audit. Product cards expose aggregate stock across all active variants, while preview, web cart and mobile cart expose and enforce stock for the exact selected variant.
-
-## Requirements
-
-- Node.js 24.x and npm.
-- Windows local development does not require Docker or Atlas. Classic Mart can run its isolated MongoDB Community Server replica set on `127.0.0.1:27018` and persist it under `.classic-mart/`.
-- macOS/Linux: install MongoDB Community Server (`mongod` on PATH) or configure a transaction-capable `MONGO_URI`.
-- Redis is optional.
-- SMTP, Twilio, ClamAV and Flutterwave credentials are required only for their corresponding production/online features.
-
-## Install / upgrade
-
-Keep the existing `.env` and `.classic-mart/` when upgrading normally. For an intentional completely fresh local start, install dependencies and run the guarded reset command first.
+Configure a transaction-capable Atlas database, Redis and Cloudflare R2, then run:
 
 ```bash
 npm ci
-# Optional destructive local reset: removes only .env and .classic-mart/ after safely stopping Classic Mart MongoDB.
-npm run reset:local -- --yes
-npm run verify:local
+npm run db:verify
+npm run media:r2:check
 npm run dev
 ```
 
-The reset regenerates `.env` from `.env.example` with fresh random local secrets and prints the new local Super Admin password. Do not use the reset command when you need to keep existing local users/orders/products.
+`npm run dev` is now only:
 
-Local development defaults to `MONGO_MODE=local`. In that mode Classic Mart uses the project `.env` MongoDB settings and ignores inherited/system `MONGO_URI` values. To intentionally use Atlas or another external development MongoDB, set `MONGO_MODE=external` and provide `MONGO_URI`. Production remains environment-driven and fail-closed.
-
-Open `http://localhost:3000` after `Classic Mart ready`.
-
-### Four-eyes reviewer
-
-High-risk Stage 9 changes cannot be approved by the administrator who requested them. Configure a second real Super Admin reviewer if your operating team needs global approvals:
-
-```env
-ADMIN_REVIEWER_NAME=Approval Reviewer
-ADMIN_REVIEWER_EMAIL=reviewer@example.com
-ADMIN_REVIEWER_PHONE=+2567XXXXXXXX
-ADMIN_REVIEWER_PASSWORD=use-a-strong-unique-password
+```text
+node --watch src/server.js
 ```
 
-Leave all reviewer fields blank to skip reviewer bootstrap. Classic Mart never creates a known/default reviewer password.
+It does not mutate MongoDB configuration.
 
-## Local database commands
+Use one explicit Atlas database such as `classic-mart`. Classic Mart never falls back to MongoDB's implicit `test` database for initial catalogue import.
+
+## Initial real catalogue for Atlas + R2
+
+For a fresh real Classic Mart database, configure an explicit database name in `MONGO_URI`, for example:
+
+```env
+NODE_ENV=development
+MONGO_MODE=external
+MONGO_URI=mongodb+srv://.../classic-mart?retryWrites=true&w=majority
+REDIS_URL=redis://127.0.0.1:6379
+MEDIA_STORAGE_DRIVER=r2
+R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+R2_BUCKET=classic-mart-media
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+ADMIN_EMAIL=...
+ADMIN_PHONE=...
+ADMIN_PASSWORD=...
+```
+
+The initial catalogue import is intentionally explicit. Run it once with:
+
+```bash
+INITIAL_CATALOGUE_CONFIRM=SEED_REAL_CLASSIC_MART npm run db:setup
+```
+
+`db:setup` means:
+
+```text
+verify Atlas topology
+        ↓
+verify Cloudflare R2 write/read/delete
+        ↓
+import the initial real marketplace catalogue
+        ↓
+process and upload 3 product images per product directly to R2
+```
+
+The import creates the Super Admin foundation, countries/categories, approved brands, official Classic Mart store, Kampala warehouse, Uganda delivery/pickup basics, 12 initial products, variants, stock and 36 R2 images. These use normal catalogue identities and are accepted by production launch checks. It creates no fake promoter, demo campaign, fake reviews, fake orders or fake payment history. Re-running the import updates/upserts the same catalogue records instead of duplicating products or stock movements.
+
+The import refuses an unspecified MongoDB database, non-external Mongo mode, non-R2 media storage, or a missing confirmation token.
+
+## Main commands
 
 | Command | Purpose |
 |---|---|
-| `npm run db:local` | Ensure the Classic Mart-owned transaction-capable local MongoDB is running |
-| `npm run db:local:stop` | Stop only the Classic Mart-owned local MongoDB and keep its data |
-| `npm run reset:local -- --yes` | Destructively reset local `.env` and `.classic-mart/`, regenerate local secrets and start from a blank database on next setup |
-| `npm run db:verify` | Verify the configured MongoDB supports transactions |
-| `npm run db:setup` | Ensure DB, verify topology and seed reference/admin/configuration data |
-| `npm run verify:local` | Full local seed + cumulative Stage 1–12 release gate |
-| `npm run dev` | Ensure local DB and start watch mode |
-| `npm run security:check` | Static security/source gate |
-| `npm run frontend:audit` | Verify visible operational data and major frontend/database wiring |
-| `npm run functionality:audit` | Verify preview, variant, cart, catalogue and wishlist interaction contracts |
-| `npm run security:sbom` | Generate CycloneDX dependency SBOM |
-| `npm run load:smoke` | HTTP p95/error-rate smoke load gate |
-| `npm run backup:drill` | Guarded logical restore drill to a `*-restore-test` database |
-| `npm run launch:check` | Verify production config, launch evidence and unresolved high/critical findings |
+| `npm run dev` | Start watch mode using the configured external services |
+| `npm start` | Start the web server once |
+| `npm run worker` | Start the background worker |
+| `npm run db:verify` | Verify MongoDB transaction topology |
+| `npm run media:r2:check` | Verify real R2 write/read/delete |
+| `INITIAL_CATALOGUE_CONFIRM=SEED_REAL_CLASSIC_MART npm run seed:initial` | Import/update the initial real marketplace catalogue |
+| `INITIAL_CATALOGUE_CONFIRM=SEED_REAL_CLASSIC_MART npm run db:setup` | Verify Atlas + R2 and import the initial real catalogue |
+| `npm run admin:reset-password -- --yes` | Reset the configured Super Admin password non-destructively |
+| `npm run release:check` | Run the cumulative engineering release gates |
+| `npm run release:clean-app` | Build the stripped external-service-first app package |
+| `npm run release:production` | Build the production-only package |
 
-## Release gate
+## Media
 
-`npm run verify:local` performs:
+All real uploaded marketplace media uses the object-storage boundary. With `MEDIA_STORAGE_DRIVER=r2`, product images, verification documents and operational evidence are stored in the private Cloudflare R2 bucket and delivered through Classic Mart authorization-aware media routes. Initial catalogue images use the same R2 path as real seller uploads.
 
-```text
-transaction-capable MongoDB
-        ↓
-seed reference/admin/CMS/feature data
-        ↓
-release-script preflight + import/export integrity + source + syntax + EJS + security + visual checks
-        ↓
-automated tests
-        ↓
-transaction verification
-        ↓
-real Stage 1–12 integration audit in guarded *-audit-test database
-        ↓
-npm audit --audit-level=high
-```
+## Production
 
-Stage 12 launch remains blocked until required external evidence (penetration test, restore/PITR, WAF/SIEM monitoring, incident exercise, controlled pilot and legal/privacy/payment/tax review) is recorded and `npm run launch:check` passes.
+Production remains fail-closed. It requires managed MongoDB, Redis, private Cloudflare R2, HTTPS, live Pesapal API 3.0 credentials, SMTP, SMS, malware scanning, production secrets, explicit launch countries and security/DR configuration. Production bootstrap creates only platform primitives and categories; production data gates block legacy development/demo markers while accepting the official initial catalogue.
 
+Use the generated **production launch package** for Render against the same explicit real Atlas database. Follow `PRODUCTION_SETUP.md` for deployment, Pesapal IPN registration and the final launch gate.
 
-## Stage 12 production hardening
+## Security
 
-Generate `SECURITY_INTEGRITY_KEY` independently from every other secret and enable privileged MFA, IDS/IPS and a real SIEM collector in production. Production also requires HTTPS, a trusted reverse-proxy topology, malware scanning and explicit `LAUNCH_COUNTRIES`. See `.env.example` and `docs/STAGE_12_SECURITY_AND_LAUNCH.md`.
-
-The Security & Launch Center is available to authorized administrators at `/admin/security`.
-
-## Classic AI configuration
-
-Classic AI is safe-by-default. External generation is disabled until you explicitly configure a provider. The local embedding/retrieval path still supports hybrid search and grounded fallback.
-
-```env
-AI_PROVIDER=disabled
-AI_API_KEY=
-AI_CHAT_MODEL=
-AI_EMBEDDING_MODEL=
-```
-
-Provider/model changes stored in the model registry are four-eyes controlled; API keys remain environment-only and are never stored in MongoDB.
-
-## Production boundaries
-
-Production must explicitly configure transaction-capable `MONGO_URI`, independent secrets, SMTP, Twilio SMS and an upload malware scanner. Automatic local MongoDB bootstrap is disabled in production. Hosted Flutterwave checkout keeps card credentials outside Classic Mart and browser redirects never prove payment.
-
-No software can honestly be guaranteed vulnerability-free. Classic Mart targets defence in depth and continuous release verification; independent penetration testing, backup/recovery validation and production infrastructure review remain launch requirements.
+Classic Mart includes centralized authorization/country scopes, authoritative time-bounded platform grants, MFA/four-eyes privileged controls, transaction-backed payment/refund/payout state, webhook inbox/idempotency, ledger-based finance, durable outbox processing, IDS/IPS event controls, SIEM export, W3C tracing, DR evidence gates and sanitized release packaging. These application controls complement—not replace—managed infrastructure security, independent penetration testing, payment/account review and operational launch checks.

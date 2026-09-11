@@ -118,6 +118,7 @@ export async function registerUser(input, request) {
       passwordHash,
       role: 'customer',
       country: request.country.code,
+      shoppingCountry: request.country.code,
       currency: request.country.currency,
       locale: request.country.locale,
       timeZone: request.country.timeZone,

@@ -10,6 +10,22 @@ const cleanText = (minimum, maximum, field) =>
 const optionalText = (maximum) =>
   z.string().trim().max(maximum).optional().default('');
 
+
+const optionalProductVideoUrl = z.string().trim().max(800).optional().default('').superRefine((value, context) => {
+  if (!value) return;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const allowed = url.protocol === 'https:' && (
+      host === 'youtu.be' || host === 'www.youtube.com' || host === 'youtube.com' ||
+      host === 'vimeo.com' || host === 'www.vimeo.com'
+    );
+    if (!allowed) throw new Error('unsupported host');
+  } catch {
+    context.addIssue({ code: 'custom', message: 'Use one HTTPS YouTube or Vimeo product video URL, or leave it blank.' });
+  }
+});
+
 const countryCode = z
   .string()
   .trim()
@@ -63,6 +79,7 @@ export const productSchema = z.object({
   description: cleanText(20, 5_000, 'Description'),
   categoryPublicId: cleanText(5, 100, 'Category'),
   brandPublicId: optionalText(100),
+  videoUrl: optionalProductVideoUrl,
   countries: z
     .union([countryCode, z.array(countryCode)])
     .transform((value) => [...new Set(Array.isArray(value) ? value : [value])])

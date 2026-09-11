@@ -3,8 +3,9 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { Product, ProductMedia } from '../models/index.js';
 import { getStorefront } from './storefront.js';
-import { resolveUploadPath } from './media.js';
+import { readMediaObjectBuffer } from './object-storage.js';
 import { AppError } from '../core/errors.js';
+import { env } from '../config/env.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const signatureCache = new Map();
@@ -39,18 +40,18 @@ function distance(left, right) {
   return Math.sqrt(total / left.values.length);
 }
 
-function mediaPath(media) {
-  if (media.source === 'seed_asset') {
+async function mediaInput(media) {
+  if (media.source === 'seed_asset' && env.mediaStorageDriver !== 'r2') {
     const safeName = path.basename(String(media.originalName || ''));
     return path.join(root, 'public', 'assets', 'products', safeName);
   }
-  return resolveUploadPath(media.thumbnailStorageKey || media.storageKey);
+  return readMediaObjectBuffer(media.thumbnailStorageKey || media.storageKey);
 }
 
 async function mediaSignature(media) {
   const cacheKey = `${media.publicId}:${media.updatedAt?.getTime?.() || 0}:${media.sizeBytes || 0}`;
   if (signatureCache.has(cacheKey)) return signatureCache.get(cacheKey);
-  const computed = await signature(mediaPath(media));
+  const computed = await signature(await mediaInput(media));
   signatureCache.set(cacheKey, computed);
   if (signatureCache.size > 600) signatureCache.delete(signatureCache.keys().next().value);
   return computed;

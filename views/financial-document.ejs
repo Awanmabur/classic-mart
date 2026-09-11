@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <% const businessContextMode=typeof businessMode!=='undefined'&&Boolean(businessMode); const snap=document.snapshot||{}, order=snap.order||{}, payment=snap.payment||{}, refund=snap.refund||{}; const names={payment_receipt:'Payment receipt',cod_receipt:'Cash-on-delivery receipt',refund_credit_note:'Refund credit note',chargeback_notice:'Chargeback notice'}; const title=names[document.type]||'Financial document'; %>
+  <title><%= title %> <%= document.documentNumber %> — Classic Mart</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/marketplace-pages.css">
+  <style>
+    .doc-page{max-width:920px;margin:32px auto;padding:0 16px}.doc-card{background:#fff;border:1px solid #e7e7e7;border-radius:24px;padding:24px}.doc-head,.doc-total-row{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.doc-meta{color:#666}.doc-table{width:100%;border-collapse:collapse;margin:22px 0}.doc-table th,.doc-table td{text-align:left;padding:12px 8px;border-bottom:1px solid #eee}.doc-table th:last-child,.doc-table td:last-child{text-align:right}.doc-totals{margin-left:auto;max-width:390px}.doc-total-row{padding:7px 0}.doc-total-row strong{font-size:1.12rem}.doc-actions,.doc-links{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.doc-actions a,.doc-actions button,.doc-links a{border-radius:999px}.doc-number{font-family:ui-monospace,monospace}.notice{padding:12px 14px;border:1px solid #ddd;border-radius:14px;margin:18px 0}@media(max-width:640px){.doc-head{display:block}.doc-table{font-size:.92rem}.doc-card{padding:18px}}@media print{.doc-actions,.doc-links{display:none}.doc-page{margin:0;max-width:none}.doc-card{border:0;padding:0;box-shadow:none}}
+  </style>
+</head>
+<body>
+<main class="doc-page">
+  <section class="doc-card" aria-labelledby="documentTitle">
+    <div class="doc-head">
+      <div><img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"><h1 id="documentTitle"><%= title %></h1><p class="doc-meta doc-number"><%= document.documentNumber %></p><p class="doc-meta">Order <strong><%= order.id %></strong></p></div>
+      <div class="doc-meta"><p>Issued: <strong><%= new Date(document.issuedAt).toLocaleString() %></strong></p><p>Country: <%= document.country %></p><p>Currency: <%= document.currency %></p></div>
+    </div>
+
+    <% if(document.type==='chargeback_notice'){ %><div class="notice"><strong>Payment reversal notice.</strong> Pesapal reported a reversal affecting <%= formatMoney(document.amountMinor, document.currency) %>. Finance review determines the final accounting outcome.</div><% } %>
+    <% if(refund?.id){ %><div class="notice"><strong>Refund <%= refund.id %></strong><br><%= refund.reason %><br>Reference: <%= refund.providerRefundId||refund.manualReference||'Recorded by Classic Mart' %></div><% } %>
+    <% if(payment?.id){ %><p class="doc-meta">Payment <strong><%= payment.id %></strong> · <%= String(payment.provider||'').toUpperCase() %> <%= payment.method ? '· '+payment.method : '' %><% if(payment.confirmationCode){ %> · Confirmation <span class="doc-number"><%= payment.confirmationCode %></span><% } %></p><% } %>
+
+    <table class="doc-table">
+      <thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th>Total</th></tr></thead>
+      <tbody><% (order.items||[]).forEach(item=>{ %><tr><td><strong><%= item.title %></strong><br><small><%= item.variant %></small></td><td><%= item.sku %></td><td><%= item.quantity %></td><td><%= formatMoney(item.lineTotalMinor, item.currency||document.currency) %></td></tr><% }) %></tbody>
+    </table>
+
+    <% if(order.totals){ %><div class="doc-totals">
+      <div class="doc-total-row"><span>Original order subtotal</span><span><%= formatMoney(order.totals.subtotalMinor, order.totals.currency) %></span></div>
+      <div class="doc-total-row"><span>Shipping</span><span><%= formatMoney(order.totals.shippingMinor, order.totals.currency) %></span></div>
+      <div class="doc-total-row"><span>Discount</span><span>-<%= formatMoney(order.totals.discountMinor, order.totals.currency) %></span></div>
+      <div class="doc-total-row"><span>Tax</span><span><%= formatMoney(order.totals.taxMinor, order.totals.currency) %></span></div>
+      <div class="doc-total-row"><span>Original order total</span><span><%= formatMoney(order.totals.totalMinor, order.totals.currency) %></span></div>
+      <div class="doc-total-row"><strong><%= document.type==='refund_credit_note'?'Refunded amount':document.type==='chargeback_notice'?'Reversed amount':'Paid amount' %></strong><strong><%= formatMoney(document.amountMinor, document.currency) %></strong></div>
+    </div><% } %>
+
+    <p class="doc-meta">This is an immutable financial-event snapshot. Later order-status or refund changes do not modify this document.</p>
+    <% if((documents||[]).length>1){ %><nav class="doc-links" aria-label="Financial documents"><% documents.forEach(doc=>{ if(doc.publicId!==document.publicId){ %><a href="<%= businessContextMode ? `/business/financial-documents/${encodeURIComponent(doc.publicId)}` : `/orders/${encodeURIComponent(order.id)}/documents/${encodeURIComponent(doc.publicId)}` %>"><%= names[doc.type]||doc.type %> · <%= doc.documentNumber %></a><% } }) %></nav><% } %>
+    <div class="doc-actions"><button type="button" onclick="window.print()">Print</button><a class="primary" href="<%= businessContextMode ? '/business#documents' : `/track-order?order=${encodeURIComponent(order.id)}` %>"><%= businessContextMode ? 'Back to company documents' : 'Track order' %></a></div>
+  </section>
+</main>
+</body>
+</html>

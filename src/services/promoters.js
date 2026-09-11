@@ -6,12 +6,15 @@ import {
   AttributionTouch,
   Campaign,
   CampaignApplication,
+  CountrySetting,
   CommissionEntry,
   Order,
   PromoterContactRequest,
   PromoterLink,
   PromoterVerification,
   Product,
+  Payout,
+  PayoutAccount,
   Refund,
   Store,
   StoreMember,
@@ -19,6 +22,9 @@ import {
 } from '../models/index.js';
 import { publishedProductsByPublicIds } from './storefront.js';
 import { ensureLedgerAccount, postLedgerTransaction } from './money.js';
+import { assertOperationalCountry } from './authorization.js';
+import { cursorScope, cursorSort, pageResult } from './pagination.js';
+import { marketplacePromoterCampaignPublicId } from './seller-growth.js';
 
 const hash = value => crypto.createHash('sha256').update(String(value || '')).digest('hex');
 const DAY_MS = 86_400_000;
@@ -28,6 +34,32 @@ function campaignIsLive(campaign, now = new Date()) {
   if (campaign.startsAt && campaign.startsAt > now) return false;
   if (campaign.endsAt && campaign.endsAt <= now) return false;
   return true;
+}
+
+export async function ensureMarketplacePromoterCampaign(country) {
+  const countryCode = String(country || '').trim().toUpperCase();
+  if (!countryCode) return null;
+  const setting = await CountrySetting.findOne({ code: countryCode, active: true }).select('growth.promoterCommissionBps policyVersion').lean();
+  if (!setting) return null;
+  const commissionBps = Math.max(0, Math.min(5000, Number(setting.growth?.promoterCommissionBps ?? 300) || 0));
+  const publicIdValue = marketplacePromoterCampaignPublicId(countryCode);
+  if (commissionBps <= 0) {
+    await Campaign.updateOne({ publicId: publicIdValue, systemManaged: true }, { $set: { status: 'paused', commissionBps: 0 } });
+    return null;
+  }
+  return Campaign.findOneAndUpdate(
+    { publicId: publicIdValue },
+    {
+      $set: {
+        scope: 'marketplace', systemManaged: true, country: countryCode, name: 'Classic Mart Marketplace Promoter Program',
+        status: 'active', visibility: 'public', commissionBps, attributionDays: 30, allowedChannels: [], productPublicIds: [],
+        disclosureText: 'Promoters may earn the displayed commission on qualifying Classic Mart purchases.',
+        policyVersion: `marketplace-${String(setting.policyVersion || '2026-09').slice(0, 28)}`, endsAt: null,
+      },
+      $setOnInsert: { startsAt: new Date(), facts: ['Promoters earn the configured marketplace commission on eligible attributed product line totals.'], assets: [] },
+    },
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+  );
 }
 
 export async function submitPromoterVerification(request, input) {
@@ -45,7 +77,7 @@ export async function submitPromoterVerification(request, input) {
 export async function reviewPromoterVerification(request, verificationId, { decision, reason = '' }) {
   const row = await PromoterVerification.findOne({ publicId: verificationId, status: 'submitted' });
   if (!row) throw new AppError('Submitted promoter verification not found.', 404, 'PROMOTER_VERIFICATION_NOT_FOUND');
-  if (request.user.role !== 'super_admin' && row.country !== request.user.country) throw new AppError('Verification is outside your country scope.', 403, 'COUNTRY_SCOPE');
+  if (request.user.role !== 'super_admin') assertOperationalCountry(request.user,row.country,'Verification is outside your country scope.');
   row.status = decision === 'approve' ? 'verified' : 'rejected';
   row.reason = reason;
   row.reviewedAt = new Date();
@@ -62,7 +94,7 @@ export async function createCampaign(request, input) {
   if (!productIds.length || ownedProducts.length !== productIds.length) throw new AppError('Campaign products must be published products owned by your verified store in this country.', 422, 'CAMPAIGN_PRODUCT_SCOPE');
   return Campaign.create({
     publicId: publicId('cmp'), ownerUserId: store.ownerUserId, storeId: store._id, country: store.country,
-    name: input.name, visibility: input.visibility, commissionBps: input.commissionBps, attributionDays: input.attributionDays,
+    scope: 'seller', systemManaged: false, name: input.name, visibility: input.visibility, commissionBps: input.commissionBps, attributionDays: input.attributionDays,
     allowedChannels: input.allowedChannels, facts: input.facts, productPublicIds: productIds, assets: input.assets || [],
     disclosureText: input.disclosureText, startsAt: input.startsAt || null, endsAt: input.endsAt || null, status: 'draft', policyVersion: '2026-07',
   });
@@ -83,7 +115,8 @@ export async function submitCampaign(request, campaignPublicId) {
 export async function reviewCampaign(request, campaignPublicId, { decision, reason = '' }) {
   const campaign = await Campaign.findOne({ publicId: campaignPublicId, status: 'submitted' });
   if (!campaign) throw new AppError('Submitted campaign not found.', 404, 'CAMPAIGN_NOT_FOUND');
-  if (request.user.role !== 'super_admin' && campaign.country !== request.user.country) throw new AppError('Campaign is outside your country scope.', 403, 'COUNTRY_SCOPE');
+  if (campaign.systemManaged || campaign.scope === 'marketplace') throw new AppError('Marketplace promoter policy is managed from country settings.', 409, 'MARKETPLACE_CAMPAIGN_MANAGED');
+  if (request.user.role !== 'super_admin') assertOperationalCountry(request.user,campaign.country,'Campaign is outside your country scope.');
   campaign.status = decision === 'approve' ? 'active' : 'rejected';
   campaign.reviewReason = reason; campaign.reviewedAt = new Date(); campaign.reviewedByUserId = request.user._id;
   if (campaign.status === 'active' && !campaign.startsAt) campaign.startsAt = new Date();
@@ -95,7 +128,7 @@ export async function applyToCampaign(request, campaignPublicId, note = '') {
   if (!verification) throw new AppError('Verified promoter account required.', 403, 'PROMOTER_VERIFICATION_REQUIRED');
   const campaign = await Campaign.findOne({ publicId: campaignPublicId, country: request.user.country, status: 'active' });
   if (!campaign || !campaignIsLive(campaign)) throw new AppError('Active campaign not found.', 404, 'CAMPAIGN_NOT_FOUND');
-  if (campaign.ownerUserId.equals(request.user._id) || await StoreMember.exists({ storeId: campaign.storeId, userId: request.user._id, status: 'active' })) throw new AppError('You cannot promote a campaign belonging to a store you operate.', 409, 'SELF_REFERRAL');
+  if (campaign.scope !== 'marketplace' && ((campaign.ownerUserId && campaign.ownerUserId.equals(request.user._id)) || (campaign.storeId && await StoreMember.exists({ storeId: campaign.storeId, userId: request.user._id, status: 'active' })))) throw new AppError('You cannot promote a campaign belonging to a store you operate.', 409, 'SELF_REFERRAL');
   if (campaign.visibility === 'public') {
     return CampaignApplication.findOneAndUpdate(
       { campaignId: campaign._id, promoterUserId: request.user._id },
@@ -114,7 +147,8 @@ export async function reviewCampaignApplication(request, applicationPublicId, { 
   const application = await CampaignApplication.findOne({ publicId: applicationPublicId, status: 'pending' });
   if (!application) throw new AppError('Pending application not found.', 404, 'CAMPAIGN_APPLICATION_NOT_FOUND');
   const campaign = await Campaign.findById(application.campaignId);
-  const ownsCampaign = campaign && (request.store?._id ? campaign.storeId.equals(request.store._id) : campaign.ownerUserId.equals(request.user._id));
+  if (campaign?.scope === 'marketplace' || campaign?.systemManaged) throw new AppError('Marketplace promoter applications are approved automatically and cannot be seller-reviewed.', 409, 'MARKETPLACE_CAMPAIGN_MANAGED');
+  const ownsCampaign = campaign && (request.store?._id ? campaign.storeId?.equals(request.store._id) : campaign.ownerUserId?.equals(request.user._id));
   if (!ownsCampaign) throw new AppError('Your store cannot review this application.', 403, 'FORBIDDEN');
   application.status = decision === 'approve' ? 'approved' : 'rejected'; application.reason = reason; application.reviewedAt = new Date(); application.reviewedByUserId = request.user._id;
   await application.save(); return application;
@@ -123,9 +157,10 @@ export async function reviewCampaignApplication(request, applicationPublicId, { 
 export async function createPromoterLink(request, input) {
   const verification = await PromoterVerification.findOne({ userId: request.user._id, status: 'verified' });
   if (!verification) throw new AppError('Verified promoter account required.', 403, 'PROMOTER_VERIFICATION_REQUIRED');
-  const campaign = await Campaign.findOne({ publicId: input.campaignId, country: request.user.country, status: 'active' });
+  let campaign = await Campaign.findOne({ publicId: input.campaignId, status: 'active' });
+  if (campaign?.scope === 'marketplace') campaign = await ensureMarketplacePromoterCampaign(campaign.country);
   if (!campaign || !campaignIsLive(campaign)) throw new AppError('Active campaign not found.', 404, 'CAMPAIGN_NOT_FOUND');
-  if (campaign.ownerUserId.equals(request.user._id) || await StoreMember.exists({ storeId: campaign.storeId, userId: request.user._id, status: 'active' })) throw new AppError('You cannot create a tracked link for a store you operate.', 409, 'SELF_REFERRAL');
+  if (campaign.scope !== 'marketplace' && ((campaign.ownerUserId && campaign.ownerUserId.equals(request.user._id)) || (campaign.storeId && await StoreMember.exists({ storeId: campaign.storeId, userId: request.user._id, status: 'active' })))) throw new AppError('You cannot create a tracked link for a store you operate.', 409, 'SELF_REFERRAL');
   const application = await CampaignApplication.findOne({ campaignId: campaign._id, promoterUserId: request.user._id, status: 'approved' });
   if (!application) throw new AppError('Campaign approval is required before creating a tracked link.', 403, 'CAMPAIGN_APPROVAL_REQUIRED');
   if (input.channel && campaign.allowedChannels.length && !campaign.allowedChannels.includes(input.channel)) throw new AppError('That channel is not allowed for this campaign.', 422, 'CAMPAIGN_CHANNEL_NOT_ALLOWED');
@@ -141,7 +176,8 @@ export async function createPromoterLink(request, input) {
 
 async function recordTouchForLink(request, link) {
   if (!link) throw new AppError('Promotion link not found.', 404, 'PROMO_LINK_NOT_FOUND');
-  const campaign = await Campaign.findById(link.campaignId);
+  let campaign = await Campaign.findById(link.campaignId);
+  if (campaign?.scope === 'marketplace') campaign = await ensureMarketplacePromoterCampaign(campaign.country);
   if (!campaignIsLive(campaign)) throw new AppError('Campaign is not active.', 410, 'CAMPAIGN_INACTIVE');
   if (campaign.country !== request.country.code) throw new AppError('Campaign is unavailable in this country.', 403, 'COUNTRY_SCOPE');
   const sessionKey = request.session.cartKey || request.sessionID;
@@ -153,7 +189,7 @@ async function recordTouchForLink(request, link) {
   if (recentIpCount >= 20) { fraudFlags.push('ip_velocity'); fraudScore += 60; }
   if (!request.get('user-agent')) { fraudFlags.push('missing_user_agent'); fraudScore += 20; }
   const blocked = fraudScore >= 60;
-  const touch = await AttributionTouch.create({ publicId: publicId('tch'), linkId: link._id, campaignId: campaign._id, promoterUserId: link.promoterUserId, sessionKey, country: request.country.code, ipHash, userAgentHash, referrerHash, expiresAt: new Date(Date.now() + campaign.attributionDays * DAY_MS), fraudScore, fraudFlags, status: blocked ? 'blocked' : 'valid', blockReason: blocked ? 'automated_fraud_rule' : '' });
+  const touch = await AttributionTouch.create({ publicId: publicId('tch'), linkId: link._id, campaignId: campaign._id, promoterUserId: link.promoterUserId, sessionKey, country: request.country.code, ipHash, userAgentHash, referrerHash, expiresAt: new Date(Date.now() + campaign.attributionDays * DAY_MS), commissionBps: campaign.commissionBps, policyVersion: campaign.policyVersion, fraudScore, fraudFlags, status: blocked ? 'blocked' : 'valid', blockReason: blocked ? 'automated_fraud_rule' : '' });
   if (!blocked) request.session.promoterTouchId = touch.publicId;
   return { link, touch };
 }
@@ -178,13 +214,24 @@ export async function attributeOrder(request, orderPublicId) {
   const order = await Order.findOne({ publicId: orderPublicId }); const campaign = await Campaign.findById(touch.campaignId);
   if (!order || !campaignIsLive(campaign) || campaign.country !== order.country) return;
   if (order.userId && order.userId.equals(touch.promoterUserId)) { touch.status = 'blocked'; touch.blockReason = 'self_referral'; await touch.save(); return; }
+  let promoterStoreIds = new Set();
+  if (campaign.scope === 'marketplace') {
+    const [ownedStoreIds, memberStoreIds] = await Promise.all([
+      Store.find({ ownerUserId: touch.promoterUserId }).distinct('_id'),
+      StoreMember.find({ userId: touch.promoterUserId, status: 'active' }).distinct('storeId'),
+    ]);
+    promoterStoreIds = new Set([...ownedStoreIds, ...memberStoreIds].map((value) => String(value)));
+  }
   for (const item of order.items) {
-    if (!item.storeId.equals(campaign.storeId)) continue;
-    if (campaign.productPublicIds.length && !campaign.productPublicIds.includes(item.productPublicId)) continue;
-    const amount = Math.floor(item.lineTotalMinor * campaign.commissionBps / 10000); if (amount <= 0) continue;
+    if (campaign.scope === 'marketplace' && promoterStoreIds.has(String(item.storeId))) continue;
+    if (campaign.scope !== 'marketplace' && (!campaign.storeId || !item.storeId.equals(campaign.storeId))) continue;
+    if (campaign.scope !== 'marketplace' && campaign.productPublicIds.length && !campaign.productPublicIds.includes(item.productPublicId)) continue;
+    const commissionBps = Math.max(0, Math.min(5000, Number(touch.commissionBps ?? campaign.commissionBps) || 0));
+    const policyVersion = String(touch.policyVersion || campaign.policyVersion || '');
+    const amount = Math.floor(item.lineTotalMinor * commissionBps / 10000); if (amount <= 0) continue;
     await CommissionEntry.findOneAndUpdate(
       { orderId: order._id, promoterUserId: touch.promoterUserId, productPublicId: item.productPublicId },
-      { $setOnInsert: { publicId: publicId('com'), orderPublicId: order.publicId, campaignId: campaign._id, touchId: touch._id, storePublicId: item.storePublicId, amountMinor: amount, currency: item.currency, commissionBps: campaign.commissionBps, policyVersion: campaign.policyVersion, status: 'pending' } },
+      { $setOnInsert: { publicId: publicId('com'), orderPublicId: order.publicId, campaignId: campaign._id, touchId: touch._id, storePublicId: item.storePublicId, amountMinor: amount, currency: item.currency, commissionBps, policyVersion, status: 'pending' } },
       { upsert: true, returnDocument: 'after' },
     );
   }
@@ -237,9 +284,9 @@ export async function reverseOrderCommissions(order, refund, session = null) {
   }
 }
 
-export async function settlePromoterCommissions(userId, amountMinor) {
+export async function settlePromoterCommissions(userId, amountMinor, session = null) {
   let remaining = Math.max(0, Number(amountMinor || 0));
-  const commissions = await CommissionEntry.find({ promoterUserId: userId, status: { $in: ['payable', 'partially_reversed'] } }).sort({ payableAt: 1, createdAt: 1 });
+  const commissions = await CommissionEntry.find({ promoterUserId: userId, status: { $in: ['payable', 'partially_reversed'] } }).sort({ payableAt: 1, createdAt: 1 }).session(session);
   for (const commission of commissions) {
     if (remaining <= 0) break;
     const net = Math.max(0, commission.amountMinor - (commission.reversedAmountMinor || 0));
@@ -249,7 +296,7 @@ export async function settlePromoterCommissions(userId, amountMinor) {
     commission.paidAmountMinor = (commission.paidAmountMinor || 0) + applied;
     remaining -= applied;
     if (commission.paidAmountMinor >= net) { commission.status = 'paid'; commission.paidAt = new Date(); }
-    await commission.save();
+    await commission.save({ session });
   }
   return { appliedMinor: Math.max(0, Number(amountMinor || 0)) - remaining, unappliedMinor: remaining };
 }
@@ -258,7 +305,7 @@ export async function settlePromoterCommissions(userId, amountMinor) {
 export async function buildCampaignContentKit(request, input) {
   const verification = await PromoterVerification.findOne({ userId: request.user._id, status: 'verified' });
   if (!verification) throw new AppError('Verified promoter account is required.', 403, 'PROMOTER_NOT_VERIFIED');
-  const campaign = await Campaign.findOne({ publicId: input.campaignId, country: request.user.country, status: 'active' });
+  const campaign = await Campaign.findOne({ publicId: input.campaignId, status: 'active' });
   if (!campaign || !campaignIsLive(campaign)) throw new AppError('Active campaign not found.', 404, 'CAMPAIGN_NOT_FOUND');
   const application = await CampaignApplication.findOne({ campaignId: campaign._id, promoterUserId: request.user._id, status: 'approved' });
   if (!application) throw new AppError('Campaign approval is required.', 403, 'CAMPAIGN_APPROVAL_REQUIRED');
@@ -295,7 +342,7 @@ export async function reviewCommissionAppeal(request, commissionPublicId, { deci
   const commission = await CommissionEntry.findOne({ publicId: commissionPublicId, 'appeal.status': 'pending' });
   if (!commission) throw new AppError('Pending commission appeal not found.', 404, 'COMMISSION_APPEAL_NOT_FOUND');
   const campaign = await Campaign.findById(commission.campaignId).lean();
-  if (!campaign || (request.user.role !== 'super_admin' && campaign.country !== request.user.country)) throw new AppError('Commission is outside your country scope.', 403, 'COUNTRY_SCOPE');
+  if (!campaign) throw new AppError('Commission is outside your country scope.',403,'COUNTRY_SCOPE'); if (request.user.role !== 'super_admin') assertOperationalCountry(request.user,campaign.country,'Commission is outside your country scope.');
   if (decision === 'accept' && commission.reversedAmountMinor > 0) {
     const session = await mongoose.startSession();
     try { await session.withTransaction(async () => {
@@ -316,41 +363,184 @@ export async function reviewCommissionAppeal(request, commissionPublicId, { deci
   return CommissionEntry.findById(commission._id).lean();
 }
 
-export async function promoterSummary(user) {
-  const [verification, links, commissions, applications, campaigns, contacts] = await Promise.all([
-    PromoterVerification.findOne({ userId: user._id }).lean(),
-    PromoterLink.find({ promoterUserId: user._id }).sort({ createdAt: -1 }).limit(50).lean(),
-    CommissionEntry.find({ promoterUserId: user._id }).sort({ createdAt: -1 }).limit(100).lean(),
-    CampaignApplication.find({ promoterUserId: user._id }).sort({ createdAt: -1 }).limit(100).lean(),
-    Campaign.find({ country: user.country, status: 'active' }).sort({ createdAt: -1 }).limit(100).lean(),
-    PromoterContactRequest.find({ promoterUserId: user._id }).populate('customerUserId', 'name').sort({ lastMessageAt: -1, createdAt: -1 }).limit(100).lean(),
-  ]);
-  const linkIds = links.map(link => link._id);
-  const touches = linkIds.length ? await AttributionTouch.find(mongoose.trusted({ linkId: { $in: linkIds } })).select('-ipHash -userAgentHash -referrerHash').lean() : [];
-  const totals = commissions.reduce((result, commission) => { const net = Math.max(0, commission.amountMinor - (commission.reversedAmountMinor || 0)); const unpaid = Math.max(0, net - (commission.paidAmountMinor || 0)); result[commission.status] = (result[commission.status] || 0) + (commission.status === 'paid' ? net : unpaid); result.paid = (result.paid || 0) + Math.min(net, commission.paidAmountMinor || 0); result.outstanding = (result.outstanding || 0) + unpaid; return result; }, {});
-  const linkById = new Map(links.map(link => [String(link._id), link]));
-  const campaignById = new Map(campaigns.map(campaign => [String(campaign._id), campaign]));
-  const bucket = (map, key, seed = {}) => { const name = key || 'Unspecified'; if (!map.has(name)) map.set(name, { key: name, clicks: 0, conversions: 0, commissionMinor: 0, ...seed }); return map.get(name); };
-  const byLink = new Map(), byChannel = new Map(), byCampaign = new Map(), byProduct = new Map(), bySeller = new Map(), byDate = new Map();
-  for (const touch of touches) {
-    const link = linkById.get(String(touch.linkId));
-    const linkRow = bucket(byLink, link?.publicId || String(touch.linkId), { channel: link?.channel || '', couponCode: link?.couponCode || '' });
-    const channelRow = bucket(byChannel, link?.channel || 'direct');
-    const campaignRow = bucket(byCampaign, link ? String(link.campaignId) : String(touch.campaignId), { name: campaignById.get(String(touch.campaignId))?.name || '' });
-    const dateRow = bucket(byDate, new Date(touch.landedAt).toISOString().slice(0, 10));
-    for (const row of [linkRow, channelRow, campaignRow, dateRow]) { row.clicks += 1; if (touch.status === 'converted') row.conversions += 1; }
+
+function promoterCommissionStage(status){
+  if(status==='pending')return 'estimated';
+  if(status==='payable'||status==='partially_reversed')return 'payable';
+  if(status==='paid')return 'paid';
+  return 'adjusted';
+}
+function safeCsvValue(value){const text=String(value??'');return /^[=+@-]/.test(text)?`'${text}`:text;}
+function csvField(value){const text=safeCsvValue(value).replaceAll('"','""');return `"${text}"`;}
+export async function streamPromoterCommissionCsv(response,user){
+  response.status(200);response.type('text/csv; charset=utf-8');response.set('Content-Disposition','attachment; filename="classic-mart-promoter-commissions.csv"');response.set('Cache-Control','private, no-store');
+  response.write('commission_id,order_id,campaign_id,store,product,stage,gross_commission,reversed,net,paid,outstanding,currency,reversal_reason,appeal_status,created_at,payable_at,paid_at\n');
+  let count=0;
+  for await(const row of CommissionEntry.find({promoterUserId:user._id}).sort({_id:1}).lean().cursor()){
+    const gross=Number(row.amountMinor||0),reversed=Math.min(gross,Number(row.reversedAmountMinor||0)),net=Math.max(0,gross-reversed),paid=Math.min(net,Number(row.paidAmountMinor||0)),outstanding=Math.max(0,net-paid);
+    const values=[row.publicId,row.orderPublicId,String(row.campaignId||''),row.storePublicId,row.productPublicId,promoterCommissionStage(row.status),gross,reversed,net,paid,outstanding,row.currency,row.reversalReason||'',row.appeal?.status||'none',row.createdAt?.toISOString?.()||'',row.payableAt?.toISOString?.()||'',row.paidAt?.toISOString?.()||''];
+    response.write(values.map(csvField).join(',')+'\n');count+=1;
   }
-  for (const commission of commissions) {
-    const net = Math.max(0, commission.amountMinor - (commission.reversedAmountMinor || 0));
-    bucket(byCampaign, String(commission.campaignId), { name: campaignById.get(String(commission.campaignId))?.name || '' }).commissionMinor += net;
-    bucket(byProduct, commission.productPublicId).commissionMinor += net;
-    bucket(bySeller, commission.storePublicId).commissionMinor += net;
-    bucket(byDate, new Date(commission.createdAt).toISOString().slice(0, 10)).commissionMinor += net;
-  }
-  const analytics = { byLink: [...byLink.values()], byChannel: [...byChannel.values()], byCampaign: [...byCampaign.values()], byProduct: [...byProduct.values()], bySeller: [...bySeller.values()], byDate: [...byDate.values()].sort((a,b)=>b.key.localeCompare(a.key)).slice(0,90) };
-  return { verification, links, commissions, applications, campaigns, contacts, touches, totals, analytics, clicks: touches.length, conversions: touches.filter(t => t.status === 'converted').length };
+  response.end();return count;
 }
 
+export async function promoterSummary(user, paging = {}) {
+  const size = 50;
+  const verification = await PromoterVerification.findOne({ userId: user._id }).lean();
+  const country = String(verification?.country || user.shoppingCountry || user.country || '').toUpperCase();
+  await ensureMarketplacePromoterCampaign(country);
+  const page = async (Model, base, rawCursor, { field = 'createdAt', direction = -1, populate = null, select = '' } = {}) => {
+    const scope = cursorScope(base, rawCursor, { field, direction });
+    let query = Model.find(scope).sort(cursorSort(field, direction)).limit(size + 1);
+    if (select) query = query.select(select);
+    if (populate) query = query.populate(...populate);
+    const [rows, total] = await Promise.all([query.lean(), Model.countDocuments(base)]);
+    return pageResult(rows, { field, direction, limit: size, total });
+  };
+
+  const [linksPage, commissionsPage, applicationsPage, campaignsPage, contactsPage] = await Promise.all([
+    page(PromoterLink, { promoterUserId: user._id }, paging.linksAfter),
+    page(CommissionEntry, { promoterUserId: user._id }, paging.commissionsAfter),
+    page(CampaignApplication, { promoterUserId: user._id }, paging.applicationsAfter),
+    page(Campaign, { country, status: 'active' }, paging.campaignsAfter),
+    page(PromoterContactRequest, { promoterUserId: user._id }, paging.contactsAfter, { field: 'lastMessageAt', populate: ['customerUserId', 'name'] }),
+  ]);
+
+  // Campaign application state is fetched for the visible campaign page so an application
+  // cannot disappear merely because the application-history pager is on another page.
+  const visibleCampaignIds = campaignsPage.items.map((campaign) => campaign._id);
+  const visibleApplications = visibleCampaignIds.length
+    ? await CampaignApplication.find({ promoterUserId: user._id, campaignId: mongoose.trusted({ $in: visibleCampaignIds }) }).lean()
+    : [];
+  const applicationByCampaign = new Map(visibleApplications.map((row) => [String(row.campaignId), row]));
+  const campaigns = campaignsPage.items.map((campaign) => ({ ...campaign, promoterApplication: applicationByCampaign.get(String(campaign._id)) || null }));
+
+  // Analytics deliberately operate over the complete promoter history, independently of UI pagination.
+  const touchFacetRows = await AttributionTouch.aggregate([
+    { $match: { promoterUserId: user._id } },
+    { $lookup: { from: PromoterLink.collection.name, localField: 'linkId', foreignField: '_id', as: 'link' } },
+    { $set: { link: { $first: '$link' } } },
+    { $facet: {
+      totals: [
+        { $group: { _id: null, clicks: { $sum: 1 }, conversions: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } } } },
+      ],
+      byChannel: [
+        { $group: { _id: { $ifNull: ['$link.channel', 'direct'] }, clicks: { $sum: 1 }, conversions: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } } } },
+        { $sort: { clicks: -1, _id: 1 } },
+      ],
+      byLink: [
+        { $group: { _id: '$linkId', publicId: { $first: '$link.publicId' }, channel: { $first: '$link.channel' }, couponCode: { $first: '$link.couponCode' }, clicks: { $sum: 1 }, conversions: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } } } },
+        { $sort: { clicks: -1, _id: 1 } },
+        { $limit: 250 },
+      ],
+      byCampaign: [
+        { $group: { _id: '$campaignId', clicks: { $sum: 1 }, conversions: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } } } },
+        { $sort: { clicks: -1, _id: 1 } },
+      ],
+      byDate: [
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$landedAt', timezone: 'UTC' } }, clicks: { $sum: 1 }, conversions: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } } } },
+        { $sort: { _id: -1 } },
+        { $limit: 90 },
+      ],
+    } },
+  ]);
+  const touchFacet = touchFacetRows[0] || { totals: [], byChannel: [], byLink: [], byCampaign: [], byDate: [] };
+
+  const commissionFacetRows = await CommissionEntry.aggregate([
+    { $match: { promoterUserId: user._id } },
+    { $set: {
+      netMinor: { $max: [0, { $subtract: [{ $ifNull: ['$amountMinor', 0] }, { $ifNull: ['$reversedAmountMinor', 0] }] }] },
+    } },
+    { $set: {
+      paidNetMinor: { $min: ['$netMinor', { $ifNull: ['$paidAmountMinor', 0] }] },
+      outstandingMinor: { $max: [0, { $subtract: ['$netMinor', { $ifNull: ['$paidAmountMinor', 0] }] }] },
+    } },
+    { $facet: {
+      totals: [
+        { $group: { _id: null, earned: { $sum: '$netMinor' }, paid: { $sum: '$paidNetMinor' }, outstanding: { $sum: '$outstandingMinor' }, currency: { $first: '$currency' } } },
+      ],
+      byCampaign: [
+        { $group: { _id: '$campaignId', commissionMinor: { $sum: '$netMinor' } } },
+        { $sort: { commissionMinor: -1, _id: 1 } },
+      ],
+      byProduct: [
+        { $group: { _id: '$productPublicId', commissionMinor: { $sum: '$netMinor' } } },
+        { $sort: { commissionMinor: -1, _id: 1 } },
+        { $limit: 250 },
+      ],
+      bySeller: [
+        { $group: { _id: '$storePublicId', commissionMinor: { $sum: '$netMinor' } } },
+        { $sort: { commissionMinor: -1, _id: 1 } },
+        { $limit: 250 },
+      ],
+      byDate: [
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'UTC' } }, commissionMinor: { $sum: '$netMinor' } } },
+        { $sort: { _id: -1 } },
+        { $limit: 90 },
+      ],
+    } },
+  ]);
+  const commissionFacet = commissionFacetRows[0] || { totals: [], byCampaign: [], byProduct: [], bySeller: [], byDate: [] };
+  const touchTotals = touchFacet.totals[0] || { clicks: 0, conversions: 0 };
+  const commissionTotals = commissionFacet.totals[0] || { earned: 0, paid: 0, outstanding: 0, currency: user.currency };
+  const [commissionStageRows,blockedTouches,pendingAppeals,payoutAccountIds]=await Promise.all([
+    CommissionEntry.aggregate([
+      {$match:{promoterUserId:user._id}},
+      {$set:{netMinor:{$max:[0,{$subtract:[{$ifNull:['$amountMinor',0]},{$ifNull:['$reversedAmountMinor',0]}]}]}}},
+      {$set:{paidNetMinor:{$min:['$netMinor',{$ifNull:['$paidAmountMinor',0]}]},outstandingMinor:{$max:[0,{$subtract:['$netMinor',{$ifNull:['$paidAmountMinor',0]}]}]}}},
+      {$group:{_id:'$status',count:{$sum:1},grossMinor:{$sum:{$ifNull:['$amountMinor',0]}},reversedMinor:{$sum:{$ifNull:['$reversedAmountMinor',0]}},netMinor:{$sum:'$netMinor'},paidMinor:{$sum:'$paidNetMinor'},outstandingMinor:{$sum:'$outstandingMinor'}}},
+    ]),
+    AttributionTouch.countDocuments({promoterUserId:user._id,status:'blocked'}),
+    CommissionEntry.countDocuments({promoterUserId:user._id,'appeal.status':'pending'}),
+    PayoutAccount.find({ownerUserId:user._id,ownerType:'promoter'}).distinct('_id'),
+  ]);
+  const payoutRows=payoutAccountIds.length?await Payout.aggregate([{$match:{payoutAccountId:{$in:payoutAccountIds}}},{$group:{_id:'$status',count:{$sum:1},amountMinor:{$sum:'$amountMinor'}}}]):[];
+  const payoutByStatus=new Map(payoutRows.map(row=>[String(row._id),row]));
+  const stageByStatus=new Map(commissionStageRows.map(row=>[String(row._id),row]));
+  const pendingStage=stageByStatus.get('pending')||{},payableStage=stageByStatus.get('payable')||{},partialStage=stageByStatus.get('partially_reversed')||{};
+  const commissionStages={estimatedMinor:Number(pendingStage.netMinor||0),estimatedCount:Number(pendingStage.count||0),payableMinor:Number(payableStage.outstandingMinor||0)+Number(partialStage.outstandingMinor||0),payableCount:Number(payableStage.count||0)+Number(partialStage.count||0),paidMinor:Number(commissionTotals.paid||0),reversedMinor:commissionStageRows.reduce((sum,row)=>sum+Number(row.reversedMinor||0),0)};
+  const promoterRisk={blockedTouches:Number(blockedTouches||0),pendingAppeals:Number(pendingAppeals||0),unknownPayouts:Number(payoutByStatus.get('unknown')?.count||0),submittedPayouts:Number(payoutByStatus.get('submitted')?.count||0)};
+
+  const campaignIds = [...new Set([
+    ...touchFacet.byCampaign.map((row) => String(row._id || '')),
+    ...commissionFacet.byCampaign.map((row) => String(row._id || '')),
+  ].filter((id) => mongoose.isValidObjectId(id)))].map((id) => new mongoose.Types.ObjectId(id));
+  const campaignNames = campaignIds.length
+    ? await Campaign.find({ _id: mongoose.trusted({ $in: campaignIds }) }).select('_id name').lean()
+    : [];
+  const campaignNameById = new Map(campaignNames.map((row) => [String(row._id), row.name]));
+  const commissionByCampaign = new Map(commissionFacet.byCampaign.map((row) => [String(row._id), Number(row.commissionMinor || 0)]));
+  const campaignKeys = new Set([...touchFacet.byCampaign.map((row) => String(row._id)), ...commissionFacet.byCampaign.map((row) => String(row._id))]);
+  const analytics = {
+    byLink: touchFacet.byLink.map((row) => ({ key: row.publicId || String(row._id), channel: row.channel || '', couponCode: row.couponCode || '', clicks: row.clicks || 0, conversions: row.conversions || 0, commissionMinor: 0 })),
+    byChannel: touchFacet.byChannel.map((row) => ({ key: row._id || 'direct', clicks: row.clicks || 0, conversions: row.conversions || 0, commissionMinor: 0 })),
+    byCampaign: [...campaignKeys].map((id) => { const touch = touchFacet.byCampaign.find((row) => String(row._id) === id); return { key: id, name: campaignNameById.get(id) || '', clicks: touch?.clicks || 0, conversions: touch?.conversions || 0, commissionMinor: commissionByCampaign.get(id) || 0 }; }),
+    byProduct: commissionFacet.byProduct.map((row) => ({ key: row._id || 'Unspecified', clicks: 0, conversions: 0, commissionMinor: row.commissionMinor || 0 })),
+    bySeller: commissionFacet.bySeller.map((row) => ({ key: row._id || 'Unspecified', clicks: 0, conversions: 0, commissionMinor: row.commissionMinor || 0 })),
+    byDate: (() => {
+      const rows = new Map();
+      for (const row of touchFacet.byDate) rows.set(row._id, { key: row._id, clicks: row.clicks || 0, conversions: row.conversions || 0, commissionMinor: 0 });
+      for (const row of commissionFacet.byDate) { const current = rows.get(row._id) || { key: row._id, clicks: 0, conversions: 0, commissionMinor: 0 }; current.commissionMinor += row.commissionMinor || 0; rows.set(row._id, current); }
+      return [...rows.values()].sort((a, b) => b.key.localeCompare(a.key)).slice(0, 90);
+    })(),
+  };
+
+  return {
+    verification,
+    links: linksPage.items,
+    commissions: commissionsPage.items,
+    applications: applicationsPage.items,
+    campaigns,
+    contacts: contactsPage.items,
+    totals: { payable: commissionTotals.outstanding, outstanding: commissionTotals.outstanding, paid: commissionTotals.paid, earned: commissionTotals.earned, currency: commissionTotals.currency || user.currency },
+    commissionStages,
+    risk:promoterRisk,
+    analytics,
+    clicks: Number(touchTotals.clicks || 0),
+    conversions: Number(touchTotals.conversions || 0),
+    queuePages: { links: linksPage.page, commissions: commissionsPage.page, applications: applicationsPage.page, campaigns: campaignsPage.page, contacts: contactsPage.page },
+  };
+}
 
 function publicPromoterName(user) {
   return user?.roleProfile?.publicName || user?.roleProfile?.businessName || user?.name || 'Classic Mart promoter';
@@ -360,19 +550,22 @@ function livePublicCampaign(campaign, now = new Date()) {
   return campaign?.visibility === 'public' && campaignIsLive(campaign, now);
 }
 
-async function promoterPublicRows(country, { verificationPublicId = '', includeProducts = false } = {}) {
+async function promoterPublicRows(country, { verificationPublicId = '', includeProducts = false, after = '', limit = 50 } = {}) {
   const countryCode = String(country?.code || country || '').toUpperCase();
   const verificationQuery = { country: countryCode, status: 'verified' };
   if (verificationPublicId) verificationQuery.publicId = verificationPublicId;
-  const verifications = await PromoterVerification.find(verificationQuery).sort({ reviewedAt: -1, createdAt: -1 }).limit(100).lean();
-  if (!verifications.length) return [];
+  const pageSize=Math.min(Math.max(Number(limit)||50,10),100);
+  let verifications,page={count:0,total:0,hasMore:false,next:''};
+  if(verificationPublicId){verifications=await PromoterVerification.find(verificationQuery).sort({createdAt:-1,_id:-1}).lean();page={count:verifications.length,total:verifications.length,hasMore:false,next:''};}
+  else{const [rows,total]=await Promise.all([PromoterVerification.find(cursorScope(verificationQuery,after)).sort(cursorSort()).limit(pageSize+1).lean(),PromoterVerification.countDocuments(verificationQuery)]);const result=pageResult(rows,{limit:pageSize,total});verifications=result.items;page=result.page;}
+  if (!verifications.length) return {items:[],page};
 
   const userIds = verifications.map((row) => row.userId);
   const users = await User.find({ _id: mongoose.trusted({ $in: userIds }), role: 'promoter', status: 'active', country: countryCode })
     .select('publicId name roleProfile country locale')
     .lean();
   const activeUserIds = users.map((user) => user._id);
-  if (!activeUserIds.length) return [];
+  if (!activeUserIds.length) return {items:[],page};
 
   const [applications, links, touchGroups, commissionGroups] = await Promise.all([
     CampaignApplication.find({ promoterUserId: mongoose.trusted({ $in: activeUserIds }), country: countryCode, status: 'approved' }).select('promoterUserId campaignId').lean(),
@@ -454,14 +647,14 @@ async function promoterPublicRows(country, { verificationPublicId = '', includeP
       products,
     });
   }
-  return rows.sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks || a.name.localeCompare(b.name));
+  return {items:rows.sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks || a.name.localeCompare(b.name)),page};
 }
 
-export async function publicPromoters(country) {
-  return promoterPublicRows(country);
+export async function publicPromoters(country, options={}) {
+  return promoterPublicRows(country,options);
 }
 
 export async function publicPromoter(verificationPublicId, country) {
-  const [row] = await promoterPublicRows(country, { verificationPublicId, includeProducts: true });
-  return row || null;
+  const result = await promoterPublicRows(country, { verificationPublicId, includeProducts: true });
+  return result.items[0] || null;
 }

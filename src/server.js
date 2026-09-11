@@ -4,13 +4,13 @@ import { connectDatabase, disconnectDatabase } from './config/db.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { disconnectRedis, getRedisClient } from './config/redis.js';
-import { runMaintenanceCycle } from './services/maintenance.js';
+import { ensureStorageReady } from './config/storage.js';
 
 let server;
 let shuttingDown = false;
-let maintenanceTimer;
 
 async function start() {
+  await ensureStorageReady();
   await connectDatabase();
   const redis = await getRedisClient();
   const app = createApp(redis);
@@ -26,10 +26,6 @@ async function start() {
   server.listen(env.port, '0.0.0.0', () => {
     logger.info({ port: env.port }, 'Classic Mart ready');
   });
-  const runMaintenance = () => runMaintenanceCycle().catch((error) => logger.warn({ error }, 'Maintenance cycle failed'));
-  runMaintenance();
-  maintenanceTimer = setInterval(runMaintenance, 60_000);
-  maintenanceTimer.unref();
 }
 
 async function shutdown(signal) {
@@ -43,7 +39,6 @@ async function shutdown(signal) {
   }, 10_000);
   forceTimer.unref();
 
-  if (maintenanceTimer) clearInterval(maintenanceTimer);
   if (server) {
     await new Promise((resolve) => server.close(resolve));
   }

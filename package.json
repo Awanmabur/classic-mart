@@ -1,6 +1,6 @@
 {
   "name": "classic-mart",
-  "version": "2.13.6",
+  "version": "2.13.49",
   "private": true,
   "description": "Classic Mart secure MongoDB, Express and EJS marketplace",
   "type": "module",
@@ -8,31 +8,25 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "npm run db:local && node --watch src/server.js",
+    "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "cleanup:legacy-infra": "node scripts/cleanup-legacy-infra.js",
+    "worker": "node src/worker.js",
     "db:verify": "node scripts/verify-mongo.js",
-    "mongo:ready": "npm run db:verify",
-    "db:setup": "npm run db:local && npm run db:verify && node scripts/seed.js",
-    "db:seed": "npm run db:local && npm run db:verify && node scripts/seed.js",
-    "test": "node --test --test-reporter=spec",
-    "test:coverage": "node --test --experimental-test-coverage",
-    "check": "npm run check:release-scripts && npm run check:imports && node scripts/check-project.js",
-    "audit:integration": "node scripts/audit-integration.js",
-    "release:check": "npm run check && npm run security:check && npm run frontend:audit && npm run functionality:audit && npm test && npm run db:verify && npm run audit:integration && npm audit --audit-level=high",
-    "verify:local": "npm run db:setup && npm run release:check",
-    "db:local": "node scripts/ensure-local-mongo.js",
-    "db:local:stop": "node scripts/stop-local-mongo.js",
-    "security:check": "node scripts/security-check.js",
-    "security:sbom": "node scripts/security-sbom.js",
-    "load:smoke": "node scripts/load-smoke.js",
-    "backup:drill": "node scripts/backup-drill.js",
+    "media:r2:check": "node scripts/check-r2.js",
+    "seed:initial": "node scripts/seed-initial-catalogue.js",
+    "setup:external": "npm run db:verify && npm run media:r2:check && npm run seed:initial",
+    "db:setup": "npm run setup:external",
+    "db:seed": "npm run seed:initial",
+    "admin:reset-password": "node scripts/reset-admin-password.js",
+    "bootstrap:production": "node scripts/bootstrap-production.js",
+    "production:data-check": "node scripts/check-production-data.js",
+    "migrate:plan": "node scripts/migrate-production.js",
+    "migrate:apply": "node scripts/migrate-production.js --apply",
+    "pesapal:register-ipn": "node scripts/pesapal-register-ipn.js",
     "launch:check": "node scripts/launch-check.js",
-    "check:imports": "node scripts/check-imports.js",
-    "check:release-scripts": "node scripts/check-release-scripts.js",
-    "reset:local": "node scripts/reset-local.js",
-    "frontend:audit": "node scripts/audit-frontend.js",
-    "functionality:audit": "node scripts/audit-functionality.js"
+    "deploy:smoke": "node scripts/deploy-smoke.js",
+    "backup:drill": "node scripts/backup-drill.js",
+    "start:production": "node scripts/run-production.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
@@ -48,15 +42,15 @@
     "helmet": "8.3.0",
     "hpp": "0.2.3",
     "mongoose": "9.8.1",
-    "multer": "2.2.0",
-    "nodemailer": "9.0.3",
+    "multer": "2.3.0",
+    "nodemailer": "9.1.1",
     "pino": "10.3.1",
     "pino-http": "11.0.0",
     "redis": "6.1.0",
-    "sharp": "0.35.3",
+    "sharp": "0.35.4",
     "zod": "4.4.3"
   },
-  "devDependencies": {
-    "supertest": "7.2.2"
+  "overrides": {
+    "qs": "6.16.0"
   }
 }

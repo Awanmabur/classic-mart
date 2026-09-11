@@ -13,11 +13,14 @@
   const heroSecondary = document.querySelector('#directoryStatSecondary');
   let people = [];
   let csrfToken = '';
+  let nextCursor = '';
+  let directoryTotal = 0;
+  const loadMore = document.querySelector('#peopleLoadMore');
 
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[character]);
 
   function updateHero() {
-    if (heroCount) heroCount.textContent = String(people.length);
+    if (heroCount) heroCount.textContent = String(directoryTotal || people.length);
     if (directoryType === 'sellers') {
       const rated = people.filter((item) => Number(item.rating) > 0);
       const average = rated.length ? rated.reduce((sum, item) => sum + Number(item.rating), 0) / rated.length : 0;
@@ -58,7 +61,7 @@
     let items = people.filter((person) => [person.name, person.description, person.focus, person.country, ...(person.categories || []), ...(person.niches || []), ...(person.channels || [])].join(' ').toLowerCase().includes(term));
     if (sort?.value === 'rating') items.sort((a, b) => directoryType === 'sellers' ? Number(b.rating || 0) - Number(a.rating || 0) : Number(b.conversions || 0) - Number(a.conversions || 0));
     if (sort?.value === 'name') items.sort((a, b) => a.name.localeCompare(b.name));
-    count.textContent = `${items.length} verified ${singular}${items.length === 1 ? '' : 's'}`;
+    count.textContent = `${items.length} shown · ${directoryTotal || people.length} verified ${singular}${(directoryTotal || people.length) === 1 ? '' : 's'}`;
     empty.hidden = Boolean(items.length); grid.hidden = !items.length;
     grid.innerHTML = items.map((person) => directoryType === 'sellers' ? sellerCard(person) : promoterCard(person)).join('');
     updateHero();
@@ -75,13 +78,19 @@
     person.followed = payload.followed; render();
   }
 
-  async function loadPeople() {
+  async function loadPeople(after = '') {
     try {
-      const response = await fetch(`/api/v1/storefront/${directoryType}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      if (loadMore) loadMore.disabled = true;
+      const params = new URLSearchParams(); if (after) params.set('after', after);
+      const response = await fetch(`/api/v1/storefront/${directoryType}${params.size ? `?${params}` : ''}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message || `${directoryType} could not be loaded.`);
-      people = payload[directoryType] || []; csrfToken = payload.csrfToken || ''; render();
-    } catch (error) { count.textContent = error.message; people = []; render(); }
+      const incoming = payload[directoryType] || [];
+      if (!after) people = incoming; else { const key = item => directoryType === 'sellers' ? item.slug : item.id; const seen = new Set(people.map(key)); people.push(...incoming.filter(item => !seen.has(key(item)))); }
+      csrfToken = payload.csrfToken || csrfToken; nextCursor = payload.page?.next || ''; directoryTotal = Number(payload.page?.total || people.length);
+      if (loadMore) { loadMore.hidden = !payload.page?.hasMore; loadMore.disabled = false; }
+      render();
+    } catch (error) { count.textContent = error.message; if (!after) people = []; if (loadMore) loadMore.disabled = false; render(); }
   }
 
   const initialQuery = new URLSearchParams(location.search).get('q');
@@ -89,5 +98,6 @@
   document.querySelector('#peopleSearchForm')?.addEventListener('submit', (event) => { event.preventDefault(); render(); });
   query?.addEventListener('input', render); sort?.addEventListener('change', render);
   document.addEventListener('click', (event) => { const button = event.target.closest('[data-follow]'); if (button) toggleFollow(button); });
+  loadMore?.addEventListener('click', () => { if (nextCursor) loadPeople(nextCursor); });
   loadPeople();
 })();

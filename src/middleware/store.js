@@ -3,11 +3,13 @@ import { getOrCreateStore, storeCapabilities } from '../services/store.js';
 
 export async function loadSellerStore(request, response, next) {
   try {
-    const access = await getOrCreateStore(request.user);
+    const access = await getOrCreateStore(request.user, { preferredStorePublicId: request.session?.activeStorePublicId || '' });
     request.store = access.store;
     request.storeMembership = access.membership;
     response.locals.store = access.store;
     response.locals.storeMembership = access.membership;
+    response.locals.availableStores = access.availableStores;
+    if (request.session) request.session.activeStorePublicId = access.store.publicId;
     return next();
   } catch (error) {
     return next(error);

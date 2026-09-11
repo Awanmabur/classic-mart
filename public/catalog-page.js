@@ -57,6 +57,19 @@
     );
   }
 
+  function promoterBadge(product) {
+    const bps = Math.max(0, Math.min(5000, Number(product?.promoterCommissionBps) || 0));
+    const amount = Math.max(0, Number(product?.price) || 0) * bps / 10000;
+    if (bps && amount) {
+      const earning = money(amount, product.currency || state.currency);
+      const disclosure = product.sponsoredDisclosure || 'Promoters may earn the displayed amount on qualifying Classic Mart purchases.';
+      return `<span class="catalog-promoter-badge" title="${escapeHtml(`${disclosure} Estimated promoter earning: ${earning}.`)}">Prom ${escapeHtml(earning)}</span>`;
+    }
+    return product.sponsored
+      ? `<span class="catalog-promoter-badge" title="${escapeHtml(product.sponsoredDisclosure || 'Sponsored placement.')}">Sponsored</span>`
+      : '';
+  }
+
   function showToast(message) {
     const toast = qs('#catalogToast');
     if (!toast) return;
@@ -297,9 +310,9 @@
         ? Math.round((1 - product.price / product.oldPrice) * 100)
         : 0;
     return `<article class="catalog-product-card" data-product-id="${escapeHtml(product.id)}">
-      <a class="catalog-product-image" href="/products/${encodeURIComponent(product.id)}" aria-label="View ${escapeHtml(product.name)} details"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'"><span>${escapeHtml(product.badge)}</span></a>
+      <a class="catalog-product-image" href="/products/${encodeURIComponent(product.id)}" aria-label="View ${escapeHtml(product.name)} details"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'"><span class="catalog-status-badge">${escapeHtml(product.badge)}</span>${promoterBadge(product)}</a>
       <button class="catalog-wishlist ${wished ? 'active' : ''}" data-catalog-wishlist="${escapeHtml(product.id)}" type="button" aria-label="${wished ? 'Remove from' : 'Add to'} wishlist"><img src="/assets/icons/${wished ? 'heart.svg' : 'heart-regular.svg'}" alt=""></button>
-      <div class="catalog-product-info"><div class="catalog-product-category">${escapeHtml(categoryLabel(product.category))}</div><a href="/products/${encodeURIComponent(product.id)}"><h3>${escapeHtml(product.name)}</h3></a><p>${escapeHtml(product.subtitle)} · ${escapeHtml(product.brand)}</p><div class="catalog-card-commerce"><div class="catalog-card-price"><strong>${money(product.price, product.currency)}</strong>${discount ? `<del>${money(product.oldPrice, product.currency)}</del><b>-${discount}%</b>` : ''}</div><div class="catalog-card-rating" aria-label="${product.reviews ? `Rated ${product.rating.toFixed(1)} from ${product.reviews} reviews` : 'No reviews yet'}"><span aria-hidden="true">★</span><strong>${product.reviews ? product.rating.toFixed(1) : 'New'}</strong>${product.reviews ? `<small>(${reviewCount(product.reviews)})</small>` : ''}</div></div><div class="catalog-card-meta"><span><img src="/assets/icons/truck-fast.svg" alt=""> Delivery at checkout</span><span>${product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'}</span></div><div class="catalog-card-actions"><button data-catalog-add="${escapeHtml(product.id)}" type="button" ${product.stock < 1 ? 'disabled' : ''}><img src="/assets/icons/cart-plus.svg" alt=""> Add to cart</button><button class="${compared ? 'active' : ''}" data-catalog-compare="${escapeHtml(product.id)}" type="button">${compared ? 'Compared' : 'Compare'}</button></div></div>
+      <div class="catalog-product-info"><div class="catalog-product-category">${escapeHtml(categoryLabel(product.category))}</div><a href="/products/${encodeURIComponent(product.id)}"><h3>${escapeHtml(product.name)}</h3></a><p>${escapeHtml(product.subtitle)} · ${escapeHtml(product.brand)}</p><div class="catalog-card-commerce"><div class="catalog-card-price"><strong>${money(product.price, product.currency)}</strong>${discount ? `<b>-${discount}%</b>` : ''}</div><div class="catalog-card-rating" aria-label="${product.reviews ? `Rated ${product.rating.toFixed(1)} from ${product.reviews} reviews` : 'No reviews yet'}"><span aria-hidden="true">★</span><strong>${product.reviews ? product.rating.toFixed(1) : 'New'}</strong>${product.reviews ? `<small>(${reviewCount(product.reviews)})</small>` : ''}</div></div><div class="catalog-card-meta"><span><img src="/assets/icons/truck-fast.svg" alt=""> Delivery at checkout</span><span>${product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'}</span></div><div class="catalog-card-actions"><button data-catalog-add="${escapeHtml(product.id)}" type="button" ${product.stock < 1 ? 'disabled' : ''}><img src="/assets/icons/cart-plus.svg" alt=""> Add to cart</button><button class="${compared ? 'active' : ''}" data-catalog-compare="${escapeHtml(product.id)}" type="button">${compared ? 'Compared' : 'Compare'}</button></div></div>
     </article>`;
   }
 

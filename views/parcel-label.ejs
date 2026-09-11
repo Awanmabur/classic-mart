@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Parcel label · <%= parcel.publicId %></title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f5f5f5;color:#111;font-family:Arial,sans-serif}.toolbar{max-width:760px;margin:16px auto;display:flex;gap:10px;padding:0 12px}.toolbar a,.toolbar button{border:1px solid #bbb;background:#fff;color:#111;border-radius:10px;padding:10px 14px;text-decoration:none;font:inherit;cursor:pointer}.label{width:min(720px,calc(100% - 24px));margin:0 auto 24px;background:#fff;border:2px solid #111;padding:24px}.top{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.brand{font-size:26px;font-weight:800}.meta{font-size:13px;line-height:1.5}.barcode{margin:24px 0 8px}.barcode svg{display:block;width:100%;max-height:110px}.barcode-text{text-align:center;font:700 18px/1.2 monospace;letter-spacing:2px}.route{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:22px 0;padding:16px 0;border-block:2px solid #111}.items{width:100%;border-collapse:collapse}.items th,.items td{text-align:left;border-bottom:1px solid #bbb;padding:8px 4px}.footer{margin-top:18px;font-size:12px}.muted{color:#555}@media print{body{background:#fff}.toolbar{display:none}.label{width:100%;margin:0;border:0;padding:10mm}.barcode svg{max-height:28mm}}@media(max-width:560px){.top,.route{grid-template-columns:1fr;display:grid}.label{padding:16px}}
+  </style>
+</head>
+<body>
+  <div class="toolbar"><a href="/operations/logistics">← Logistics</a><button id="printLabel" type="button">Print label</button></div>
+  <main class="label">
+    <div class="top"><div><div class="brand">Classic Mart</div><div class="muted">Warehouse parcel label</div></div><div class="meta"><strong><%= parcel.publicId %></strong><br>Order <%= parcel.orderPublicId %><br>Shipment <%= shipment.publicId %><br><%= shipment.country %> · <%= shipment.kind %></div></div>
+    <div class="barcode"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 <%= barcodeGeometry.width %> <%= barcodeGeometry.height %>" role="img" aria-label="Barcode <%= barcodeGeometry.value %>"><rect width="100%" height="100%" fill="white"></rect><g fill="black"><% barcodeGeometry.rects.forEach(rect=>{ %><rect x="<%= rect.x %>" y="4" width="<%= rect.width %>" height="<%= barcodeGeometry.barHeight %>"></rect><% }) %></g></svg></div><div class="barcode-text"><%= parcel.barcode %></div>
+    <div class="route"><div><strong>Store</strong><br><%= parcel.storePublicId %></div><div><strong>Status</strong><br><%= parcel.status.replaceAll('_',' ') %></div></div>
+    <table class="items"><thead><tr><th>SKU</th><th>Item</th><th>Qty</th></tr></thead><tbody><% (parcel.items||[]).forEach(item=>{ %><tr><td><%= item.sku||item.variantPublicId %></td><td><%= item.title||item.productPublicId %></td><td><%= item.quantity %></td></tr><% }) %></tbody></table>
+    <div class="footer">Scan the Code 39 parcel barcode during warehouse handoff. Verify the parcel ID and order before dispatch.</div>
+  </main>
+  <script nonce="<%= cspNonce %>">document.getElementById('printLabel')?.addEventListener('click',()=>window.print());</script>
+</body>
+</html>

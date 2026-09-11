@@ -101,6 +101,15 @@ export function createApp(redisClient) {
       immutable: false,
       index: false,
       fallthrough: true,
+      setHeaders(response, filePath) {
+        const file = path.basename(filePath).toLowerCase();
+        if (file === 'sw.js') {
+          response.setHeader('Cache-Control', 'no-store, max-age=0');
+          response.setHeader('Service-Worker-Allowed', '/');
+        } else if (file.endsWith('.js') || file.endsWith('.css')) {
+          response.setHeader('Cache-Control', 'no-cache, max-age=0, must-revalidate');
+        }
+      },
     }),
   );
   app.use(healthRoutes);

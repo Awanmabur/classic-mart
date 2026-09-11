@@ -3,3 +3,9 @@
 @media(max-width:1000px){.role-grid{grid-template-columns:repeat(3,1fr)}.role-step{min-height:670px}}
 @media(max-width:700px){.role-onboarding-shell{width:min(100% - 16px,1180px);padding:10px 0}.role-onboarding-header{padding:0 6px}.role-onboarding-header .brand small{display:none}.role-step-label span{display:none}.role-onboarding-card{border-radius:23px}.role-step{padding:24px 16px;min-height:0}.role-heading h1{font-size:34px}.role-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:22px}.role-card{padding:15px 12px;border-radius:18px}.role-card:has(input:checked){padding:14px 11px}.role-icon{width:44px;height:44px;border-radius:14px}.role-card strong{font-size:14px;margin:13px 0 6px}.role-card small{font-size:10.5px;min-height:64px}.role-card em{font-size:9px;margin-top:10px}.role-details-panel{padding:15px;border-radius:18px}.role-form-grid{grid-template-columns:1fr}.role-field.full{grid-column:auto}.role-summary-card{grid-template-columns:1fr}.role-summary-card div+div{border-left:0;border-top:1px solid #e2e6e9}.role-benefits{grid-template-columns:1fr}.role-controls{padding:12px 14px}.role-controls button{min-height:45px;padding:0 16px}}
 @media(max-width:390px){.role-grid{grid-template-columns:1fr 1fr}.role-card small{min-height:0}.role-card em{display:none}.role-controls button{font-size:11px}}
+
+
+/* Accessibility motion override: keep this at the end of the stylesheet. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
+}

@@ -1,8 +1,10 @@
 import mongoose from 'mongoose';
 const { Schema }=mongoose;
 const proofSchema=new Schema({type:{type:String,enum:['otp','photo','signature','qr','none'],default:'none'},reference:{type:String,maxlength:240,default:''},recordedAt:Date},{_id:false});
+const proofPolicySchema=new Schema({deliveryPhotoRequired:{type:Boolean,default:false},signatureRequired:{type:Boolean,default:false},failedAttemptPhotoRequired:{type:Boolean,default:true}},{_id:false});
 const shipmentSchema=new Schema({
  publicId:{type:String,required:true,unique:true,immutable:true,index:true},
+ traceId:{type:String,maxlength:32,default:'',immutable:true,index:true},traceSpanId:{type:String,maxlength:16,default:'',immutable:true},
  orderId:{type:Schema.Types.ObjectId,ref:'Order',required:true,index:true},
  orderPublicId:{type:String,required:true,index:true},
  kind:{type:String,enum:['outbound','return'],default:'outbound',index:true},returnRequestId:{type:Schema.Types.ObjectId,ref:'ReturnRequest',index:true},
@@ -11,14 +13,17 @@ const shipmentSchema=new Schema({
  status:{type:String,enum:['ready','offered','assigned','picked_up','in_transit','delivered','failed','rescheduled','return_to_sender','returned','cancelled'],default:'ready',index:true},
  mode:{type:String,enum:['standard','express','pickup'],required:true},
  parcelCount:{type:Number,min:1,max:999,default:1},
- pickupCodeHash:{type:String,select:false},deliveryCodeHash:{type:String,select:false},pickupCodeEncrypted:{type:String,select:false},deliveryCodeEncrypted:{type:String,select:false},
- assignedAt:Date,pickedUpAt:Date,deliveredAt:Date,
+ pickupCodeHash:{type:String,select:false},deliveryCodeHash:{type:String,select:false},pickupCodeEncrypted:{type:String,select:false},deliveryCodeEncrypted:{type:String,select:false},pickupProofAttempts:{type:Number,min:0,max:20,default:0},deliveryProofAttempts:{type:Number,min:0,max:20,default:0},proofLockedUntil:Date,
+ assignedAt:Date,pickedUpAt:Date,deliveredAt:Date,slaDueAt:{type:Date,index:true},lastAttemptAt:Date,failedAttemptCount:{type:Number,min:0,default:0},
  failedReason:{type:String,maxlength:300,default:''},
  rescheduledFor:Date,
- proof:{type:proofSchema,default:()=>({type:'none'})},
- cod:{required:{type:Boolean,default:false},amountMinor:{type:Number,min:0,default:0},currency:{type:String,uppercase:true,maxlength:3,default:'UGX'},collectedMinor:{type:Number,min:0,default:0},reconciledAt:Date},
+ proof:{type:proofSchema,default:()=>({type:'none'})},proofPolicy:{type:proofPolicySchema,default:()=>({})},proofEvidenceDocumentIds:{type:[Schema.Types.ObjectId],ref:'EvidenceDocument',default:[]},
+ cod:{required:{type:Boolean,default:false},amountMinor:{type:Number,min:0,default:0},currency:{type:String,uppercase:true,maxlength:3,default:'UGX'},collectedMinor:{type:Number,min:0,default:0},handoverDeclaredMinor:{type:Number,min:0},handoverAt:Date,handoverByUserId:{type:Schema.Types.ObjectId,ref:'User'},handoverEvidenceDocumentId:{type:Schema.Types.ObjectId,ref:'EvidenceDocument'},mismatchExceptionPublicId:{type:String,maxlength:120,default:''},reconciledAt:Date},
  timeline:{type:[new Schema({type:{type:String,required:true,maxlength:80},message:{type:String,required:true,maxlength:240},actorUserId:{type:Schema.Types.ObjectId,ref:'User'},at:{type:Date,default:Date.now}},{_id:false})],default:[]},
 },{timestamps:true,optimisticConcurrency:true});
 shipmentSchema.index({country:1,status:1,createdAt:-1});
+shipmentSchema.index({country:1,status:1,slaDueAt:1});
 shipmentSchema.index({deliveryUserId:1,status:1,createdAt:-1});
+shipmentSchema.index({orderId:1,kind:1},{unique:true,partialFilterExpression:{kind:'outbound'}});
+shipmentSchema.index({returnRequestId:1,kind:1},{unique:true,partialFilterExpression:{kind:'return',returnRequestId:{$exists:true}}});
 export const Shipment=mongoose.model('Shipment',shipmentSchema);

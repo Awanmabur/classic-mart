@@ -1,5 +1,6 @@
 import { AppError } from '../core/errors.js';
 import crypto from 'node:crypto';
+import { createTraceContext, formatTraceparent, runWithTraceContext } from '../core/trace.js';
 
 export function requestContext(request, response, next) {
   const supplied = request.get('x-request-id');
@@ -11,7 +12,13 @@ export function requestContext(request, response, next) {
   response.locals.requestId = request.id;
   response.locals.cspNonce = crypto.randomBytes(16).toString('base64');
   response.locals.currentPath = request.path;
-  next();
+  const trace = createTraceContext(request.get('traceparent'));
+  request.traceId = trace.traceId;
+  request.traceSpanId = trace.spanId;
+  response.locals.traceId = trace.traceId;
+  response.setHeader('traceparent', formatTraceparent(trace));
+  response.setHeader('x-trace-id', trace.traceId);
+  runWithTraceContext(trace, next);
 }
 
 export function noStore(_request, response, next) {

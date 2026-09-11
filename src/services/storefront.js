@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { publicProductImageUrl } from './product-media-url.js';
+import { cursorScope, decodeCursor, pageResult } from './pagination.js';
 import {
   Brand,
   Category,
@@ -58,6 +59,7 @@ export function assembleStorefront({
   brands,
   stores,
   productMetrics = [],
+  brandMetrics = [],
   country,
 }) {
   const categoryById = new Map(categories.map((item) => [key(item._id), item]));
@@ -130,6 +132,7 @@ export function assembleStorefront({
           ? category.name
           : primaryVariant.title,
       description: product.description,
+      videoUrl: product.videoUrl || '',
       category: category.slug,
       categoryName: category.name,
       brand: brand?.name || 'Independent',
@@ -162,6 +165,18 @@ export function assembleStorefront({
       reviews: Number(metrics.reviews || 0),
       sold: Number(metrics.sold || 0),
       publishedAt: product.publishedAt,
+      qualityScore: Math.max(0, Math.min(100, Number(product.qualityScore) || 0)),
+      policyVersion: String(country.policyVersion || ''),
+      returnWindowDays: Math.max(0, Number(country.returnWindowDays) || 0),
+      freeStandardShippingThreshold: majorUnits(country.freeStandardShippingThresholdMinor || 0, currency),
+      deliveryOptions: {
+        standardEnabled: country.delivery?.standardEnabled !== false,
+        expressEnabled: Boolean(country.delivery?.expressEnabled),
+        pickupEnabled: Boolean(country.delivery?.pickupEnabled),
+        standardSlaHours: Math.max(1, Number(country.delivery?.defaultStandardSlaHours) || 72),
+        expressSlaHours: Math.max(1, Number(country.delivery?.defaultExpressSlaHours) || 24),
+      },
+      paymentMethods: Object.entries(country.payments || {}).filter(([, enabled]) => Boolean(enabled)).map(([method]) => method),
       seller: {
         id: store.publicId,
         slug: store.slug,
@@ -170,6 +185,7 @@ export function assembleStorefront({
         country: store.country,
         currency: store.currency,
         verified: store.status === 'verified',
+        verifiedAt: store.verifiedAt || '',
       },
     });
   }
@@ -196,22 +212,28 @@ export function assembleStorefront({
     count: productCountByCategory.get(category.slug) || 0,
   }));
 
-  const productCountByBrand = new Map();
-  for (const product of normalizedProducts) {
-    if (!product.brandSlug) continue;
-    productCountByBrand.set(
-      product.brandSlug,
-      (productCountByBrand.get(product.brandSlug) || 0) + 1,
-    );
+  const productCountByBrandId = new Map(
+    brandMetrics.map((item) => [key(item._id), Number(item.count || 0)]),
+  );
+  if (!productCountByBrandId.size) {
+    for (const product of normalizedProducts) {
+      const brand = brands.find((item) => item.slug === product.brandSlug);
+      if (!brand) continue;
+      const brandId = key(brand._id);
+      productCountByBrandId.set(
+        brandId,
+        (productCountByBrandId.get(brandId) || 0) + 1,
+      );
+    }
   }
   const publicBrands = brands
     .map((brand) => ({
       id: brand.slug,
       publicId: brand.publicId,
       name: brand.name,
-      count: productCountByBrand.get(brand.slug) || 0,
+      count: productCountByBrandId.get(key(brand._id)) || 0,
     }))
-    .filter((brand) => brand.count > 0);
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
   const sellerBySlug = new Map();
   for (const product of normalizedProducts) {
@@ -276,7 +298,7 @@ async function stockAvailability(variantIds) {
   ]);
 }
 
-async function hydrateProducts(products, country) {
+async function hydrateProducts(products, country, { brandMetrics = [] } = {}) {
   const productIds = products.map((product) => product._id);
   if (!productIds.length) {
     const categories = await Category.find({
@@ -352,19 +374,26 @@ async function hydrateProducts(products, country) {
     brands,
     stores,
     productMetrics: [...metricMap.values()],
+    brandMetrics,
     country,
   });
 }
 
 async function loadStorefront(country) {
-  const products = await Product.find({
-    status: 'published',
-    countries: country.code,
-  })
-    .sort({ publishedAt: -1, _id: -1 })
-    .limit(MAX_PRODUCTS)
-    .lean();
-  return hydrateProducts(products, country);
+  const [products, brandMetrics] = await Promise.all([
+    Product.find({
+      status: 'published',
+      countries: country.code,
+    })
+      .sort({ publishedAt: -1, _id: -1 })
+      .limit(MAX_PRODUCTS)
+      .lean(),
+    Product.aggregate([
+      { $match: { status: 'published', countries: country.code, brandId: { $ne: null } } },
+      { $group: { _id: '$brandId', count: { $sum: 1 } } },
+    ]),
+  ]);
+  return hydrateProducts(products, country, { brandMetrics });
 }
 
 export async function getStorefront(country) {
@@ -485,37 +514,42 @@ export async function publishedProduct(publicId, country) {
   return (await publishedProductsByPublicIds([publicId], country))[0] || null;
 }
 
-export async function publishedSellers(country, { limit = 100 } = {}) {
-  const stores = await Store.find({ status: 'verified', country: country.code }).sort({ verifiedAt: -1, name: 1 }).limit(Math.min(Math.max(Number(limit) || 100, 1), 200)).lean();
-  if (!stores.length) return [];
-  const storeIds = stores.map((store) => store._id);
-  const counts = await Product.aggregate([
-    { $match: { storeId: { $in: storeIds }, status: 'published', countries: country.code } },
-    { $group: { _id: '$storeId', count: { $sum: 1 } } },
-  ]);
-  const countByStore = new Map(counts.map((row) => [key(row._id), row.count]));
-  const sampleProducts = await Product.find({ storeId: mongoose.trusted({ $in: storeIds }), status: 'published', countries: country.code }).sort({ publishedAt: -1 }).limit(Math.min(800, stores.length * 8)).lean();
-  const hydrated = await hydrateProducts(sampleProducts, country);
-  const derivedBySlug = new Map(hydrated.sellers.map((seller) => [seller.slug, seller]));
-  return stores.map((store) => {
-    const derived = derivedBySlug.get(store.slug);
-    const productCount = countByStore.get(key(store._id)) || 0;
-    if (!productCount) return null;
-    return {
-      id: store.publicId, slug: store.slug, name: store.name, description: store.description, country: store.country, currency: store.currency, verified: true,
-      image: derived?.image || '/assets/product-placeholder.svg', productImages: derived?.productImages || [], productCount, categories: derived?.categories || [], rating: derived?.rating || 0, reviews: derived?.reviews || 0, sold: derived?.sold || 0, followed: false,
-    };
-  }).filter(Boolean);
+export async function publishedSellers(country, { after = '', limit = 50 } = {}) {
+  const pageSize=Math.min(Math.max(Number(limit)||50,10),100),countryCode=country.code;
+  const cursor=decodeCursor(after,{type:'date'});
+  const common=[
+    {$match:{status:'verified',country:countryCode}},
+    {$lookup:{from:'products',let:{storeId:'$_id'},pipeline:[{$match:{$expr:{$and:[{$eq:['$storeId','$$storeId']},{$eq:['$status','published']},{$in:[countryCode,'$countries']}]}}},{$count:'count'}],as:'productStats'}},
+    {$set:{productCount:{$ifNull:[{$arrayElemAt:['$productStats.count',0]},0]}}},
+    {$match:{productCount:{$gt:0}}},
+  ];
+  const itemPipeline=[];
+  if(cursor)itemPipeline.push({$match:{$or:[{createdAt:{$lt:cursor.value}},{createdAt:cursor.value,_id:{$lt:cursor.id}}]}});
+  itemPipeline.push({$sort:{createdAt:-1,_id:-1}},{$limit:pageSize+1});
+  const [facet]=await Store.aggregate([...common,{$facet:{items:itemPipeline,total:[{$count:'count'}]}}]);
+  const stores=facet?.items||[],total=facet?.total?.[0]?.count||0;
+  const rawPage=pageResult(stores,{field:'createdAt',direction:-1,type:'date',limit:pageSize,total});
+  if(!rawPage.items.length)return {items:[],page:rawPage.page};
+  const storeIds=rawPage.items.map(store=>store._id);
+  const sampleProducts=await Product.find({storeId:mongoose.trusted({$in:storeIds}),status:'published',countries:countryCode}).sort({publishedAt:-1}).limit(Math.min(800,storeIds.length*8)).lean();
+  const hydrated=await hydrateProducts(sampleProducts,country),derivedBySlug=new Map(hydrated.sellers.map(seller=>[seller.slug,seller]));
+  const items=rawPage.items.map(store=>{const derived=derivedBySlug.get(store.slug);return{id:store.publicId,slug:store.slug,name:store.name,description:store.description,country:store.country,currency:store.currency,verified:true,image:derived?.image||'/assets/product-placeholder.svg',productImages:derived?.productImages||[],productCount:Number(store.productCount||0),categories:derived?.categories||[],rating:derived?.rating||0,reviews:derived?.reviews||0,sold:derived?.sold||0,followed:false};});
+  return {items,page:rawPage.page};
 }
 
-export async function publishedSeller(slug, country) {
-  const store = await Store.findOne({ slug: String(slug), status: 'verified', country: country.code }).lean();
-  if (!store) return null;
-  const products = await Product.find({ storeId: store._id, status: 'published', countries: country.code }).sort({ publishedAt: -1, _id: -1 }).limit(200).lean();
-  if (!products.length) return null;
-  const hydrated = await hydrateProducts(products, country);
-  const seller = hydrated.sellers.find((item) => item.slug === store.slug) || { id: store.publicId, slug: store.slug, name: store.name, description: store.description, country: store.country, currency: store.currency, verified: true, image: '/assets/product-placeholder.svg', productImages: [], productCount: products.length, categories: [], rating: 0, reviews: 0, sold: 0 };
-  return { ...seller, productCount: products.length, products: hydrated.products };
+export async function publishedSeller(slug, country, { after = '', limit = 50 } = {}) {
+  const store=await Store.findOne({slug:String(slug),status:'verified',country:country.code}).lean();
+  if(!store)return null;
+  const base={storeId:store._id,status:'published',countries:country.code},pageSize=Math.min(Math.max(Number(limit)||50,10),100);
+  const [rows,total]=await Promise.all([
+    Product.find(cursorScope(base,after,{field:'publishedAt',direction:-1,type:'date'})).sort({publishedAt:-1,_id:-1}).limit(pageSize+1).lean(),
+    Product.countDocuments(base),
+  ]);
+  if(!total)return null;
+  const productPage=pageResult(rows,{field:'publishedAt',direction:-1,type:'date',limit:pageSize,total});
+  const hydrated=await hydrateProducts(productPage.items,country);
+  const seller=hydrated.sellers.find(item=>item.slug===store.slug)||{id:store.publicId,slug:store.slug,name:store.name,description:store.description,country:store.country,currency:store.currency,verified:true,image:'/assets/product-placeholder.svg',productImages:[],productCount:total,categories:[],rating:0,reviews:0,sold:0};
+  return {...seller,productCount:total,products:hydrated.products,productPage:productPage.page};
 }
 
 export async function publicIdsForMongoIds(productIds) {

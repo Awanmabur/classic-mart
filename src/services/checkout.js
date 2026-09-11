@@ -1,12 +1,15 @@
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import { AppError } from '../core/errors.js';
-import { normalizePhone } from '../core/crypto.js';
 import { publicId } from '../core/ids.js';
-import { grantTrackedOrder, orderAccessQuery } from './order-access.js';
+import { currentTraceFields } from '../core/trace.js';
+import { orderAccessQuery } from './order-access.js';
+import { orderDisplayStatus, syncLegacyOrderStatus } from './order-state.js';
 import { promotionQuote } from './seller-growth.js';
 import { publicProductImageUrl } from './product-media-url.js';
+import { allocateSellerLineSettlement } from './money.js';
 import {
+  BusinessInvoice,
   Cart,
   CountrySetting,
   DeliveryOffer,
@@ -19,6 +22,7 @@ import {
   Product,
   ProductMedia,
   ProductVariant,
+  PurchaseOrder,
   SellerOrder,
   SellerPromotion,
   Shipment,
@@ -316,9 +320,26 @@ export async function releaseExpiredReservations() {
         const order = await Order.findOne({ status: 'pending_payment', reservationExpiresAt: mongoose.trusted({ $lte: new Date() }), 'items.reservationPublicId': current.publicId }).session(session);
         if (order) {
           order.status = 'expired';
+          order.paymentState = 'failed';
           order.timeline.push({ type: 'reservation.expired', message: 'Payment was not verified before the stock reservation expired.' });
           await order.save({ session });
           await SellerOrder.updateMany({ orderId: order._id, status: 'pending_payment' }, { $set: { status: 'expired' }, $push: { timeline: { type: 'reservation.expired', message: 'Marketplace order expired before payment verification.' } } }, { session });
+          if (order.businessInvoiceId) {
+            await BusinessInvoice.updateOne(
+              { _id: order.businessInvoiceId, status: 'awaiting_payment' },
+              { $set: { status: 'void' }, $push: { timeline: { type: 'payment.expired', message: 'Invoice voided because the reserved stock expired before verified payment.' } } },
+              { session },
+            );
+            const po = order.purchaseOrderId ? await PurchaseOrder.findOneAndUpdate(
+              { _id: order.purchaseOrderId, status: 'payment_pending' },
+              { $set: { status: 'expired' }, $push: { timeline: { type: 'payment.expired', message: 'Purchase order expired before verified Pesapal payment.' } } },
+              { session, returnDocument: 'after' },
+            ) : null;
+            if (po?.procurementRequestId) {
+              const { syncProcurementStatus } = await import('./business-fulfillment.js');
+              await syncProcurementStatus(po.procurementRequestId, session);
+            }
+          }
         }
       });
     } finally {
@@ -392,7 +413,7 @@ export async function placeOrder(request, input) {
         if (!stock) throw new AppError(`${product.title} no longer has enough stock.`, 409, 'INSUFFICIENT_STOCK');
         const reservationPublicId = publicId('rsv');
         await InventoryReservation.create([{ publicId: reservationPublicId, idempotencyKey: `${input.idempotencyKey}:${variant.publicId}`, storeId: variant.storeId, stockItemId: stock._id, variantId: variant._id, quantity: item.quantity, status: 'active', expiresAt, actorUserId: request.user?._id || product.ownerUserId }], { session });
-        orderItems.push({ productId: product._id, variantId: variant._id, storeId: store._id, reservationPublicId, productPublicId: product.publicId, variantPublicId: variant.publicId, storePublicId: store.publicId, title: product.title, variantTitle: variant.title, sku: variant.sku, quantity: item.quantity, unitPriceMinor: variant.priceMinor, minimumPriceMinor: Number(variant.minimumPriceMinor || 0), lineTotalMinor: variant.priceMinor * item.quantity, currency: variant.currency });
+        orderItems.push({ linePublicId: publicId('oli'), productId: product._id, variantId: variant._id, storeId: store._id, reservationPublicId, productPublicId: product.publicId, variantPublicId: variant.publicId, storePublicId: store.publicId, title: product.title, variantTitle: variant.title, sku: variant.sku, quantity: item.quantity, unitPriceMinor: variant.priceMinor, unitCostMinor: Number(variant.costMinor || 0), costSnapshotStatus: 'captured', minimumPriceMinor: Number(variant.minimumPriceMinor || 0), lineTotalMinor: variant.priceMinor * item.quantity, currency: variant.currency });
       }
       const subtotalMinor = orderItems.reduce((sum, item) => sum + item.lineTotalMinor, 0);
       const promoRows = orderItems.map((item) => ({ productId: item.productPublicId, variantId: item.variantPublicId, storeId: item.storePublicId, priceMinor: item.unitPriceMinor, minimumPriceMinor: Number(item.minimumPriceMinor || 0), quantity: item.quantity }));
@@ -401,7 +422,7 @@ export async function placeOrder(request, input) {
       const quote = await deliveryQuote({ countryCode: request.country.code, currency: orderItems[0].currency, city: input.contact.city, method: input.deliveryMethod, subtotalMinor: netSubtotalMinor, pickupPointId: input.pickupPointId, paymentMethod: input.paymentMethod, forceFreeShipping: promo.freeShipping });
       if (quote.shippingMinor !== savedReview.totals.shippingMinor || quote.taxMinor !== savedReview.totals.taxMinor || promo.discountMinor !== savedReview.totals.discountMinor || quote.zonePublicId !== savedReview.zonePublicId) throw new AppError('Delivery, discount or tax changed. Review checkout again.', 409, 'CHECKOUT_TOTAL_CHANGED');
       const totals = { subtotalMinor, shippingMinor: quote.shippingMinor, discountMinor: promo.discountMinor, taxMinor: quote.taxMinor, totalMinor: netSubtotalMinor + quote.shippingMinor + quote.taxMinor, currency: orderItems[0].currency };
-      const [order] = await Order.create([{ publicId: publicId('ord'), idempotencyKey: input.idempotencyKey, checkoutId: input.checkoutId, cartPublicId: freshCart.publicId, sessionKey: freshCart.sessionKey, userId: request.user?._id, country: request.country.code, status: 'pending_payment', deliveryMethod: input.deliveryMethod, shippingZonePublicId: quote.zonePublicId, pickupPointPublicId: quote.pickupPointPublicId, paymentMethod: input.paymentMethod, contact: input.contact, totals, items: orderItems, policySnapshot: quote.policy, timeline: [{ type: 'order.created', message: 'Order created and stock reserved.' }, { type: 'payment.pending', message: 'Payment has not yet been verified.' }], reservationExpiresAt: expiresAt }], { session });
+      const [order] = await Order.create([{ publicId: publicId('ord'), ...currentTraceFields(), idempotencyKey: input.idempotencyKey, checkoutId: input.checkoutId, cartPublicId: freshCart.publicId, sessionKey: freshCart.sessionKey, userId: request.user?._id, country: request.country.code, status: 'pending_payment', paymentState: 'pending', fulfillmentState: 'unfulfilled', cancellationState: 'none', returnState: 'none', refundState: 'none', deliveryMethod: input.deliveryMethod, shippingZonePublicId: quote.zonePublicId, pickupPointPublicId: quote.pickupPointPublicId, paymentMethod: input.paymentMethod, contact: input.contact, totals, items: orderItems, policySnapshot: quote.policy, timeline: [{ type: 'order.created', message: 'Order created and stock reserved.' }, { type: 'payment.pending', message: 'Payment has not yet been verified.' }], reservationExpiresAt: expiresAt }], { session });
 
       const storeGroups = new Map();
       for (const item of orderItems) {
@@ -420,7 +441,8 @@ export async function placeOrder(request, input) {
         const storeNet = Math.max(0, storeSubtotal - storeDiscount);
         const platformFeeMinor = Math.floor(storeNet * Number(quote.policy.platformFeeBps || 0) / 10000);
         const sellerPublicId = publicId('sord'); sellerOrderPublicIds.push(sellerPublicId);
-        await SellerOrder.create([{ publicId: sellerPublicId, orderId: order._id, orderPublicId: order.publicId, storeId: items[0].storeId, storePublicId, country: order.country, status: 'pending_payment', subtotalMinor: storeSubtotal, platformFeeMinor, shippingMinor: shippingPart, taxMinor: taxPart, discountMinor: storeDiscount, currency: totals.currency, items: items.map(item => ({ productPublicId: item.productPublicId, variantPublicId: item.variantPublicId, title: item.title, sku: item.sku, quantity: item.quantity, unitPriceMinor: item.unitPriceMinor, lineTotalMinor: item.lineTotalMinor, currency: item.currency })), timeline: [{ type: 'seller_order.created', message: 'Seller order created from marketplace checkout.' }] }], { session });
+        const settlementItems = allocateSellerLineSettlement(items, { discountMinor: storeDiscount, platformFeeMinor });
+        await SellerOrder.create([{ publicId: sellerPublicId, orderId: order._id, orderPublicId: order.publicId, storeId: items[0].storeId, storePublicId, country: order.country, status: 'pending_payment', subtotalMinor: storeSubtotal, platformFeeMinor, shippingMinor: shippingPart, taxMinor: taxPart, discountMinor: storeDiscount, currency: totals.currency, items: settlementItems.map(item => ({ orderLineId: item.linePublicId, productPublicId: item.productPublicId, variantPublicId: item.variantPublicId, title: item.title, variantTitle: item.variantTitle, sku: item.sku, quantity: item.quantity, unitPriceMinor: item.unitPriceMinor, unitCostMinor: item.unitCostMinor, costSnapshotStatus: item.costSnapshotStatus, lineTotalMinor: item.lineTotalMinor, currency: item.currency, grossMinor: item.grossMinor, discountMinor: item.discountMinor, customerPaidMinor: item.customerPaidMinor, platformFeeMinor: item.platformFeeMinor, sellerReceivableMinor: item.sellerReceivableMinor })), timeline: [{ type: 'seller_order.created', message: 'Seller order created from marketplace checkout with immutable line settlement snapshots.' }] }], { session });
       }
       order.sellerOrderPublicIds = sellerOrderPublicIds;
       await order.save({ session });
@@ -439,6 +461,12 @@ export function orderView(order) {
   return {
     id: order.publicId,
     status: order.status,
+    displayStatus: orderDisplayStatus(order),
+    paymentState: order.paymentState || 'unpaid',
+    fulfillmentState: order.fulfillmentState || 'unfulfilled',
+    cancellationState: order.cancellationState || 'none',
+    returnState: order.returnState || 'none',
+    refundState: order.refundState || 'none',
     createdAt: order.createdAt,
     isGuest: !order.userId,
     deliveryMethod: order.deliveryMethod,
@@ -448,7 +476,7 @@ export function orderView(order) {
     sellerOrderIds: order.sellerOrderPublicIds || [],
     policy: order.policySnapshot || {},
     totals: order.totals,
-    items: order.items.map(item => ({ title: item.title, variant: item.variantTitle, quantity: item.quantity, lineTotalMinor: item.lineTotalMinor, currency: item.currency })),
+    items: order.items.map(item => ({ lineId: item.linePublicId, title: item.title, variant: item.variantTitle, sku: item.sku, quantity: item.quantity, deliveredQuantity: Number(item.deliveredQuantity || 0), returnReservedQuantity: Number(item.returnReservedQuantity || 0), returnedQuantity: Number(item.returnedQuantity || 0), refundedQuantity: Number(item.refundedQuantity || 0), lineTotalMinor: item.lineTotalMinor, currency: item.currency })),
     reservationExpiresAt: order.reservationExpiresAt,
     timeline: order.timeline,
   };
@@ -460,20 +488,11 @@ export async function getOrderForRequest(request, orderId) {
   return orderView(order);
 }
 
-export async function getOrderForTracking(request, orderId, identity = '') {
-  try { return { ...(await getOrderForRequest(request, orderId)), canMutate: true }; } catch (error) { if (error?.code !== 'ORDER_NOT_FOUND') throw error; }
-  const supplied = String(identity || '').trim();
-  if (!supplied) throw new AppError('Order not found or verification detail is required.', 404, 'ORDER_NOT_FOUND');
-  const order = await Order.findOne({ publicId: orderId }).lean();
-  if (!order) throw new AppError('Order not found or verification detail is incorrect.', 404, 'ORDER_NOT_FOUND');
-  const emailMatch = supplied.includes('@') && supplied.toLowerCase() === String(order.contact?.email || '').trim().toLowerCase();
-  let phoneMatch = false;
-  if (!emailMatch) {
-    try { phoneMatch = normalizePhone(supplied) === normalizePhone(order.contact?.phone || ''); } catch { phoneMatch = false; }
-  }
-  if (!emailMatch && !phoneMatch) throw new AppError('Order not found or verification detail is incorrect.', 404, 'ORDER_NOT_FOUND');
-  grantTrackedOrder(request, orderId);
-  return { ...orderView(order), canMutate: true };
+export async function getOrderForTracking(request, orderId) {
+  const order = await Order.findOne(mongoose.trusted(orderAccessQuery(request, orderId, { requiredLevel: 'read' }))).lean();
+  if (!order) throw new AppError('Order access verification is required.', 401, 'ORDER_TRACKING_VERIFICATION_REQUIRED');
+  const mutable = await Order.exists(mongoose.trusted(orderAccessQuery(request, orderId, { requiredLevel: 'mutate' })));
+  return { ...orderView(order), canMutate: Boolean(mutable) };
 }
 
 
@@ -514,40 +533,60 @@ async function cancelUnfulfilledLogistics(order, actorUserId, session) {
 }
 
 export async function cancelOrder(request, orderId, reason = 'Customer requested cancellation') {
-  let order = await Order.findOne(mongoose.trusted(orderAccessQuery(request, orderId)));
+  let order = await Order.findOne(mongoose.trusted(orderAccessQuery(request, orderId, { requiredLevel: 'mutate' })));
   if (!order) throw new AppError('Order not found.', 404, 'ORDER_NOT_FOUND');
-  if (['cancelled','expired','refunded'].includes(order.status)) return orderView(order.toObject());
-  if (['partially_refunded','cancellation_pending'].includes(order.status)) throw new AppError('This order already has an active refund or cancellation process.', 409, 'ORDER_CANCELLATION_STATE');
+  if (order.cancellationState === 'cancelled' || order.status === 'expired' || order.refundState === 'complete') return orderView(order.toObject());
+  if (order.cancellationState === 'processing' || ['pending','processing'].includes(order.refundState)) throw new AppError('This order already has an active refund or cancellation process.', 409, 'ORDER_CANCELLATION_STATE');
   const cleanReason = String(reason || '').trim().slice(0, 300) || 'Customer requested cancellation';
+  const paidOnline = ['paid','partially_refunded'].includes(order.paymentState) && order.paymentMethod !== 'cod';
 
-  // Paid online orders require a provider refund. The provider result remains authoritative.
-  let refund = null;
-  if (order.status === 'paid') {
-    const shipment = await Shipment.findOne({ orderId: order._id, kind: 'outbound' }).lean();
-    if (shipment && ['picked_up','in_transit','delivered','return_to_sender','returned'].includes(shipment.status)) throw new AppError('This order has already entered carrier custody. Use Buyer Protection instead.', 409, 'ORDER_ALREADY_IN_TRANSIT');
-    const { createRefund } = await import('./payments.js');
-    refund = await createRefund(request, { orderId: order.publicId, amountMinor: order.totals.totalMinor, reason: `Pre-fulfilment cancellation: ${cleanReason}`, idempotencyKey: `cancel:${order.publicId}` });
-    order = await Order.findById(order._id);
-  }
-
+  // Freeze fulfilment and restore stock first. External refund submission happens only
+  // after this transaction commits, so a provider success can never leave the order fulfilable.
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
       order = await Order.findById(order._id).session(session);
       if (!order) throw new AppError('Order not found.', 404, 'ORDER_NOT_FOUND');
+      if (order.cancellationState === 'cancelled' || order.status === 'expired' || order.refundState === 'complete') return;
+      if (order.cancellationState === 'processing') return;
       await cancelUnfulfilledLogistics(order, request.user?._id || order.userId || null, session);
       await restoreOrderInventoryForCancellation(order, request, session);
       order.cancellation = order.cancellation || {};
       order.cancellation.requestedAt = order.cancellation.requestedAt || new Date();
       order.cancellation.reason = cleanReason;
-      if (refund) order.cancellation.refundPublicId = refund.publicId;
-      const awaitingRefund = Boolean(refund && !['completed'].includes(refund.status));
-      order.status = awaitingRefund ? 'cancellation_pending' : refund ? 'refunded' : 'cancelled';
-      order.timeline.push({ type: awaitingRefund ? 'cancellation.refund_pending' : 'order.cancelled', message: awaitingRefund ? `Cancellation accepted; refund ${refund.publicId} is awaiting provider completion.` : 'Order cancelled before carrier pickup.' });
+      order.fulfillmentState = 'cancelled';
+      order.cancellationState = paidOnline ? 'processing' : 'cancelled';
+      if (paidOnline) order.refundState = 'pending';
+      syncLegacyOrderStatus(order);
+      order.timeline.push({
+        type: paidOnline ? 'cancellation.refund_required' : 'order.cancelled',
+        message: paidOnline ? 'Fulfilment frozen and inventory restored; verified provider refund is required.' : 'Order cancelled before carrier pickup.',
+      });
       await order.save({ session });
-      await SellerOrder.updateMany({ orderId: order._id, status: { $nin: ['fulfilled','refunded'] } }, { $set: { status: awaitingRefund ? 'cancellation_pending' : 'cancelled' }, $push: { timeline: { type: awaitingRefund ? 'cancellation.refund_pending' : 'order.cancelled', message: awaitingRefund ? 'Customer cancellation accepted; provider refund pending.' : 'Marketplace order cancelled before carrier pickup.' } } }, { session });
-      if (!refund) await PaymentIntent.updateMany({ orderId: order._id, status: { $in: ['created','requires_action','pending','failed','pending_collection'] } }, { $set: { status: 'cancelled' } }, { session });
+      await SellerOrder.updateMany(
+        { orderId: order._id, status: { $nin: ['fulfilled','refunded'] } },
+        { $set: { status: paidOnline ? 'cancellation_pending' : 'cancelled' }, $push: { timeline: { type: paidOnline ? 'cancellation.refund_required' : 'order.cancelled', message: paidOnline ? 'Fulfilment frozen; provider refund pending.' : 'Marketplace order cancelled before carrier pickup.' } } },
+        { session },
+      );
+      if (!paidOnline) await PaymentIntent.updateMany({ orderId: order._id, status: { $in: ['created','requires_action','pending','failed','pending_collection'] } }, { $set: { status: 'cancelled', activeKey: null } }, { session });
     });
   } finally { await session.endSession(); }
+
+  if (paidOnline) {
+    try {
+      const { createRefund } = await import('./payments.js');
+      const refund = await createRefund(request, { orderId: order.publicId, amountMinor: order.totals.totalMinor, reason: `Pre-fulfilment cancellation: ${cleanReason}`, idempotencyKey: `cancel:${order.publicId}` });
+      await Order.updateOne(
+        { _id: order._id, cancellationState: 'processing' },
+        { $set: { 'cancellation.refundPublicId': refund.publicId }, $push: { timeline: { type: 'cancellation.refund_started', message: `Refund ${refund.publicId} was submitted/reconciled after fulfilment was frozen.` } } },
+      );
+    } catch (error) {
+      await Order.updateOne(
+        { _id: order._id, cancellationState: 'processing' },
+        { $push: { timeline: { type: 'cancellation.refund_attention', message: `Refund requires finance reconciliation: ${String(error?.code || 'REFUND_SUBMISSION_FAILED').slice(0, 80)}.` } } },
+      );
+      request.log?.error?.({ error: error?.message, code: error?.code, orderId: order.publicId }, 'Cancellation refund requires finance reconciliation');
+    }
+  }
   return orderView((await Order.findById(order._id).lean()));
 }

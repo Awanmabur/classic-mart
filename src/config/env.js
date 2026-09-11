@@ -57,15 +57,19 @@ function validEncryptionKey(value) {
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development';
+const mediaStorageDriver = String(process.env.MEDIA_STORAGE_DRIVER || (nodeEnv === 'production' ? '' : 'filesystem')).trim().toLowerCase();
+const storagePersistence = String(process.env.STORAGE_PERSISTENCE || '').trim().toLowerCase();
+const persistentStorageRoot = String(process.env.PERSISTENT_STORAGE_ROOT || '').trim();
+const resolvedPersistentStorageRoot = persistentStorageRoot ? path.resolve(persistentStorageRoot) : '';
 if (nodeEnv === 'production') {
   for (const required of ['MONGO_URI', 'DATA_ENCRYPTION_KEY', 'SECURITY_INTEGRITY_KEY']) {
     if (!process.env[required]) {
       throw new Error(`${required} must be explicitly set in production.`);
     }
   }
-  if (process.env.MAIL_MODE !== 'smtp' || !process.env.SMTP_HOST) {
+  if (process.env.MAIL_MODE !== 'smtp' || !process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD || !process.env.SMTP_FROM) {
     throw new Error(
-      'Production requires MAIL_MODE=smtp and a configured SMTP_HOST.',
+      'Production requires SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM with MAIL_MODE=smtp.',
     );
   }
   if (process.env.SMS_MODE !== 'twilio' || !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_FROM) {
@@ -126,6 +130,49 @@ if (nodeEnv === 'production') {
   if (!csv(process.env.LAUNCH_COUNTRIES).length) {
     throw new Error('Production requires explicit LAUNCH_COUNTRIES.');
   }
+  for (const required of ['DR_MAX_RPO_MINUTES','DR_MAX_RTO_MINUTES','DR_EVIDENCE_MAX_AGE_DAYS']) {
+    if (integer(process.env[required], 0) <= 0) throw new Error(`Production requires explicit positive ${required}.`);
+  }
+  for (const required of ['PESAPAL_CONSUMER_KEY','PESAPAL_CONSUMER_SECRET']) {
+    if (!process.env[required]) throw new Error(`${required} must be explicitly set in production.`);
+  }
+  if (!String(process.env.PESAPAL_BASE_URL || 'https://pay.pesapal.com/v3').startsWith('https://')) {
+    throw new Error('Production Pesapal API base URL must use HTTPS.');
+  }
+  if (!process.env.REDIS_URL) {
+    throw new Error('Production requires REDIS_URL for shared sessions, rate limits and worker coordination.');
+  }
+  if (boolean(process.env.PESAPAL_SANDBOX, true)) {
+    throw new Error('Production requires PESAPAL_SANDBOX=false.');
+  }
+  if (String(process.env.PESAPAL_BASE_URL || '') !== 'https://pay.pesapal.com/v3') {
+    throw new Error('Production requires the live Pesapal API 3.0 base URL https://pay.pesapal.com/v3.');
+  }
+  if (mediaStorageDriver !== 'r2') {
+    throw new Error('Production requires MEDIA_STORAGE_DRIVER=r2 for uploaded media.');
+  }
+  for (const required of ['R2_ENDPOINT', 'R2_BUCKET', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY']) {
+    if (!String(process.env[required] || '').trim()) throw new Error(`Production requires ${required} for Cloudflare R2 media storage.`);
+  }
+  let r2Endpoint;
+  try { r2Endpoint = new URL(process.env.R2_ENDPOINT); } catch { throw new Error('R2_ENDPOINT must be a valid HTTPS URL.'); }
+  if (r2Endpoint.protocol !== 'https:' || !/\.r2\.cloudflarestorage\.com$/i.test(r2Endpoint.hostname)) {
+    throw new Error('R2_ENDPOINT must use the Cloudflare R2 HTTPS S3 endpoint.');
+  }
+  if (storagePersistence !== 'mounted') {
+    throw new Error('Production requires STORAGE_PERSISTENCE=mounted.');
+  }
+  if (!persistentStorageRoot || !path.isAbsolute(persistentStorageRoot)) {
+    throw new Error('Production requires an absolute PERSISTENT_STORAGE_ROOT on durable mounted storage.');
+  }
+  if (resolvedPersistentStorageRoot === projectRoot || resolvedPersistentStorageRoot.startsWith(`${projectRoot}${path.sep}`)) {
+    throw new Error('PERSISTENT_STORAGE_ROOT must be outside the application source tree in production.');
+  }
+}
+
+function envStorageRoot() {
+  if (nodeEnv === 'production') return resolvedPersistentStorageRoot;
+  return path.resolve(projectRoot, 'storage');
 }
 
 export const env = Object.freeze({
@@ -134,6 +181,7 @@ export const env = Object.freeze({
   isTest: nodeEnv === 'test',
   port: integer(process.env.PORT, 3000),
   baseUrl: process.env.BASE_URL || 'http://localhost:3000',
+  buildSha: String(process.env.BUILD_SHA || process.env.RENDER_GIT_COMMIT || process.env.SOURCE_COMMIT || '').trim(),
   mongoUri: projectMongoUri(),
   redisUrl: process.env.REDIS_URL || '',
   sessionSecret: secret(
@@ -148,10 +196,32 @@ export const env = Object.freeze({
     process.env.DATA_ENCRYPTION_KEY ||
     'development-only-sensitive-data-encryption-key',
   trustProxy: integer(process.env.TRUST_PROXY, 0),
-  uploadDir: path.resolve(
-    projectRoot,
-    process.env.UPLOAD_DIR || 'storage/uploads',
-  ),
+  metricsToken: process.env.METRICS_TOKEN || '',
+  disasterRecovery: Object.freeze({
+    maxRpoMinutes: Math.max(1, integer(process.env.DR_MAX_RPO_MINUTES, 60)),
+    maxRtoMinutes: Math.max(1, integer(process.env.DR_MAX_RTO_MINUTES, 240)),
+    evidenceMaxAgeDays: Math.max(1, integer(process.env.DR_EVIDENCE_MAX_AGE_DAYS, 90)),
+  }),
+  storagePersistence,
+  mediaStorageDriver,
+  r2: Object.freeze({
+    endpoint: String(process.env.R2_ENDPOINT || '').trim(),
+    bucket: String(process.env.R2_BUCKET || '').trim(),
+    accessKeyId: String(process.env.R2_ACCESS_KEY_ID || '').trim(),
+    secretAccessKey: String(process.env.R2_SECRET_ACCESS_KEY || '').trim(),
+    region: String(process.env.R2_REGION || 'auto').trim() || 'auto',
+    timeoutMs: Math.max(3000, integer(process.env.R2_TIMEOUT_MS, 10000)),
+  }),
+  persistentStorageRoot: envStorageRoot(),
+  uploadDir: nodeEnv === 'production'
+    ? path.join(resolvedPersistentStorageRoot, 'uploads')
+    : path.resolve(projectRoot, process.env.UPLOAD_DIR || 'storage/uploads'),
+  exportDir: nodeEnv === 'production'
+    ? path.join(resolvedPersistentStorageRoot, 'exports')
+    : path.resolve(projectRoot, 'storage/exports'),
+  privacyExportDir: nodeEnv === 'production'
+    ? path.join(resolvedPersistentStorageRoot, 'privacy')
+    : path.resolve(projectRoot, 'storage/privacy'),
   mailMode: process.env.MAIL_MODE || 'log',
   malwareScanMode: process.env.MALWARE_SCAN_MODE || 'off',
   clamavPath: process.env.CLAMAV_PATH || 'clamscan',
@@ -165,7 +235,7 @@ export const env = Object.freeze({
     password: process.env.SMTP_PASSWORD || '',
     from:
       process.env.SMTP_FROM ||
-      'Classic Mart <no-reply@classicmart.local>',
+      '',
   }),
   sms: Object.freeze({
     mode: process.env.SMS_MODE || 'log',
@@ -173,11 +243,13 @@ export const env = Object.freeze({
     authToken: process.env.TWILIO_AUTH_TOKEN || '',
     from: process.env.TWILIO_FROM || '',
   }),
-  flutterwave: Object.freeze({
-    baseUrl: process.env.FLW_BASE_URL || 'https://api.flutterwave.com',
-    secretKey: process.env.FLW_SECRET_KEY || '',
-    publicKey: process.env.FLW_PUBLIC_KEY || '',
-    webhookSecret: process.env.FLW_WEBHOOK_SECRET || '',
+  pesapal: Object.freeze({
+    baseUrl: process.env.PESAPAL_BASE_URL || (boolean(process.env.PESAPAL_SANDBOX, true) ? 'https://cybqa.pesapal.com/pesapalv3' : 'https://pay.pesapal.com/v3'),
+    consumerKey: process.env.PESAPAL_CONSUMER_KEY || '',
+    consumerSecret: process.env.PESAPAL_CONSUMER_SECRET || '',
+    notificationId: process.env.PESAPAL_IPN_ID || '',
+    sandbox: boolean(process.env.PESAPAL_SANDBOX, true),
+    timeoutMs: Math.max(3000, integer(process.env.PESAPAL_TIMEOUT_MS, 10000)),
   }),
   stage11: Object.freeze({
     pushGatewayUrl: process.env.PUSH_GATEWAY_URL || '',
@@ -224,9 +296,9 @@ export const env = Object.freeze({
   }),
   admin: Object.freeze({
     name: process.env.ADMIN_NAME || 'Classic Mart Super Admin',
-    email: process.env.ADMIN_EMAIL || 'admin@classicmart.local',
-    phone: process.env.ADMIN_PHONE || '+256700000001',
-    password: process.env.ADMIN_PASSWORD || 'ChangeMe!2026Secure',
+    email: process.env.ADMIN_EMAIL || '',
+    phone: process.env.ADMIN_PHONE || '',
+    password: process.env.ADMIN_PASSWORD || '',
   }),
   adminReviewer: Object.freeze({
     name: process.env.ADMIN_REVIEWER_NAME || 'Classic Mart Approval Reviewer',

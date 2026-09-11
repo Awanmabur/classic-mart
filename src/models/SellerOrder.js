@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 const { Schema }=mongoose;
-const itemSchema=new Schema({productPublicId:String,variantPublicId:String,title:String,variantTitle:String,sku:String,quantity:Number,unitPriceMinor:Number,lineTotalMinor:Number,currency:String},{_id:false});
+const itemSchema=new Schema({orderLineId:{type:String,maxlength:100,default:'',immutable:true},productPublicId:String,variantPublicId:String,title:String,variantTitle:String,sku:String,quantity:Number,unitPriceMinor:Number,unitCostMinor:{type:Number,min:0,default:null,immutable:true},costSnapshotStatus:{type:String,enum:['captured','legacy_unknown'],default:'legacy_unknown',immutable:true},lineTotalMinor:Number,currency:String,grossMinor:{type:Number,min:0,default:0,immutable:true},discountMinor:{type:Number,min:0,default:0,immutable:true},customerPaidMinor:{type:Number,min:0,default:0,immutable:true},platformFeeMinor:{type:Number,min:0,default:0,immutable:true},sellerReceivableMinor:{type:Number,min:0,default:0,immutable:true}},{_id:false});
 const schema=new Schema({
  publicId:{type:String,required:true,unique:true,immutable:true,index:true}, orderId:{type:Schema.Types.ObjectId,ref:'Order',required:true,index:true}, orderPublicId:{type:String,required:true,index:true},
  storeId:{type:Schema.Types.ObjectId,ref:'Store',required:true,index:true},storePublicId:{type:String,required:true,index:true},country:{type:String,required:true,uppercase:true,index:true},

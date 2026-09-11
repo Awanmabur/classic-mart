@@ -1,7 +1,152 @@
-<!doctype html><html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Wallet & Payouts — Classic Mart</title><link rel="stylesheet" href="/dashboard.css"><link rel="stylesheet" href="/dashboard-workspaces.css"><link rel="stylesheet" href="/catalog-workspace.css"><link rel="stylesheet" href="/server-ui.css"></head><body><main class="catalog-workspace"><header class="catalog-topbar"><div><a class="brand" href="/dashboard"><img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"/></a><p>Wallet &amp; payouts</p></div><a class="outline-button" href="/dashboard">Dashboard</a></header><section class="catalog-page-head panel"><div><span class="eyebrow">Ledger-backed money</span><h1>Balances &amp; payout requests</h1><p>Available balances are derived from immutable ledger entries. A payout request immediately reserves the amount so it cannot be requested twice.</p></div></section>
-<div class="stats-grid"><% if(!accounts.length){%><article class="stat-card"><span>Available</span><strong>0</strong></article><%}%><% accounts.forEach(a=>{%><article class="stat-card"><span><%=a.code%> · <%=a.currency%></span><strong class="workspace-money"><%=formatMoney(a.balanceMinor,a.currency)%></strong></article><%})%></div>
-<div class="role-content-grid"><section class="panel"><div class="role-panel-head"><div><h2>Add payout destination</h2><p>The destination is encrypted at application level and remains pending until finance verification.</p></div></div><form method="post" action="/money/payout-accounts" class="catalog-form"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><label>Method<select name="method"><option value="mobile_money">Mobile Money</option><option value="bank">Bank</option></select></label><label>Label<input name="label" minlength="2" maxlength="100" required placeholder="Primary payout account"></label><label>Bank code (bank only)<input name="account_bank" maxlength="40"></label><label>Network (mobile money only)<input name="network" maxlength="40" placeholder="MTN / Airtel"></label><label>Account number (bank only)<input name="account_number" maxlength="80"></label><label>Phone (mobile money only)<input name="phone" maxlength="32"></label><label>Beneficiary name<input name="beneficiary_name" minlength="2" maxlength="120" required></label><button type="submit">Save destination</button></form></section>
-<section class="panel"><div class="role-panel-head"><div><h2>Request payout</h2><p>Only finance-verified destinations can receive a request.</p></div></div><form method="post" action="/money/payouts" class="catalog-form"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><label>Verified destination<select name="payoutAccountId" required><option value="">Select destination</option><% payoutAccounts.filter(a=>a.status==='verified').forEach(a=>{%><option value="<%=a.publicId%>"><%=a.label%> · <%=a.method%></option><%})%></select></label><label>Amount in minor units<input type="number" name="amountMinor" min="1" required></label><label>Idempotency key<input name="idempotencyKey" minlength="12" maxlength="120" required value="payout-<%=Date.now()%>"></label><button type="submit">Request payout</button></form></section></div>
-<section class="panel"><h2>Payout destinations</h2><div class="table-wrap"><table><thead><tr><th>Destination</th><th>Method</th><th>Status</th><th>Currency</th></tr></thead><tbody><% if(!payoutAccounts.length){%><tr><td colspan="4">No payout destinations.</td></tr><%}%><% payoutAccounts.forEach(a=>{%><tr><td><%=a.label%><br><small><%=a.publicId%></small></td><td><%=a.method%></td><td><%=a.status%></td><td><%=a.currency%></td></tr><%})%></tbody></table></div></section>
-<section class="panel"><h2>Payout history</h2><div class="table-wrap"><table><thead><tr><th>Payout</th><th>Amount</th><th>Status</th><th>Requested</th></tr></thead><tbody><% if(!payouts.length){%><tr><td colspan="4">No payout requests.</td></tr><%}%><% payouts.forEach(p=>{%><tr><td><%=p.publicId%></td><td class="workspace-money"><%=formatMoney(p.amountMinor,p.currency)%></td><td><%=p.status%><%if(p.failureMessage){%><br><small><%=p.failureMessage%></small><%}%></td><td><%=formatDate(p.requestedAt)%></td></tr><%})%></tbody></table></div></section>
-</main></body></html>
+<!doctype html>
+<html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Wallet & Payouts — Classic Mart</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <link rel="stylesheet" href="/dashboard-workspaces.css">
+  <link rel="stylesheet" href="/catalog-workspace.css">
+  <link rel="stylesheet" href="/server-ui.css">
+</head>
+<body data-operations-ui="true">
+<main class="catalog-workspace">
+  <header class="catalog-topbar">
+    <div><a class="brand" href="/dashboard"><img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"></a><p>Wallet &amp; payouts</p></div>
+    <a class="outline-button" href="/dashboard">Dashboard</a>
+  </header>
+
+  <section class="catalog-page-head panel">
+    <div>
+      <span class="eyebrow">Ledger-backed money</span>
+      <h1>Balances &amp; payout requests</h1>
+      <p>Available balances come from immutable ledger entries. Payout requests reserve funds immediately so the same payable cannot be withdrawn twice.</p>
+    </div>
+  </section>
+
+  <% if (owner?.ownerType === 'store' && owner.availableStores?.length > 1) { %>
+    <section class="panel">
+      <div class="role-panel-head"><div><h2>Seller finance workspace</h2><p>Balances, settlement history, payout destinations and payout requests are scoped to this server-validated store.</p></div></div>
+      <form method="post" action="/money/workspace" class="catalog-form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <label>Current store
+          <select name="storePublicId" required>
+            <% owner.availableStores.forEach(store => { %>
+              <option value="<%= store.publicId %>" <%= store.publicId === owner.ownerStorePublicId ? 'selected' : '' %>><%= store.name %> · <%= store.country %> · <%= store.currency %> · <%= store.role %></option>
+            <% }) %>
+          </select>
+        </label>
+        <button type="submit">Switch finance workspace</button>
+      </form>
+    </section>
+  <% } %>
+
+  <div class="stats-grid">
+    <% if (!accounts.length) { %><article class="stat-card"><span>Available</span><strong>0</strong></article><% } %>
+    <% accounts.forEach(account => { %><article class="stat-card"><span><%= account.code %> · <%= account.currency %></span><strong class="workspace-money"><%= formatMoney(account.balanceMinor, account.currency) %></strong></article><% }) %>
+    <% if (statement) { %>
+      <article class="stat-card"><span>Order seller receivable</span><strong class="workspace-money"><%= formatMoney(statement.commerce.sellerReceivableMinor, owner.currency) %></strong><small>Immutable order-line snapshot, not necessarily available for payout.</small></article>
+      <article class="stat-card"><span>Completed refund reversals</span><strong class="workspace-money"><%= formatMoney(statement.completedRefundSellerMinor, owner.currency) %></strong></article>
+      <article class="stat-card"><span>Refunds pending/processing</span><strong class="workspace-money"><%= formatMoney(statement.pendingRefundSellerMinor, owner.currency) %></strong></article>
+      <article class="stat-card"><span>Payouts in flight</span><strong class="workspace-money"><%= formatMoney(statement.inFlightPayoutMinor, owner.currency) %></strong><small><%= statement.unknownPayoutCount %> payout(s) require reconciliation.</small></article>
+    <% } %>
+  </div>
+
+  <% if (statement) { %>
+    <section class="panel" id="settlement-summary">
+      <div class="role-panel-head">
+        <div><h2>Seller settlement statement</h2><p>Commerce snapshots explain gross/discount/fee economics. The ledger activity below is the canonical record of what actually changed your seller payable.</p></div>
+        <a class="outline-button" href="/money/statement.csv">Download ledger CSV</a>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Gross</th><th>Discount</th><th>Customer paid</th><th>Platform fee</th><th>Seller receivable</th></tr></thead>
+        <tbody><tr>
+          <td class="workspace-money"><%= formatMoney(statement.commerce.grossMinor, owner.currency) %></td>
+          <td class="workspace-money"><%= formatMoney(statement.commerce.discountMinor, owner.currency) %></td>
+          <td class="workspace-money"><%= formatMoney(statement.commerce.customerPaidMinor, owner.currency) %></td>
+          <td class="workspace-money"><%= formatMoney(statement.commerce.platformFeeMinor, owner.currency) %></td>
+          <td class="workspace-money"><%= formatMoney(statement.commerce.sellerReceivableMinor, owner.currency) %></td>
+        </tr></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel" id="ledger-activity">
+      <div class="role-panel-head"><div><h2>Settlement ledger activity</h2><p>Positive values increase seller payable; negative values reduce it through refunds, chargebacks or payout reservations.</p></div></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Description</th><th>Payable change</th></tr></thead>
+        <tbody>
+          <% if (!statement.activity.items.length) { %><tr><td colspan="5">No seller-payable ledger activity yet.</td></tr><% } %>
+          <% statement.activity.items.forEach(row => { %><tr>
+            <td><%= formatDate(row.createdAt) %></td><td><%= row.referenceType %></td><td><%= row.referencePublicId %></td><td><%= row.description %></td>
+            <td class="workspace-money"><%= row.deltaMinor >= 0 ? '+' : '' %><%= formatMoney(row.deltaMinor, row.currency) %></td>
+          </tr><% }) %>
+        </tbody>
+      </table></div>
+      <div class="server-pager"><small>Showing <%= statement.activity.page.count %> of <%= statement.activity.page.total %> ledger event(s)</small><% if (statement.activity.page.hasMore) { %><a class="outline-button" href="/money?activityAfter=<%= encodeURIComponent(statement.activity.page.next) %>#ledger-activity">Older ledger activity</a><% } %></div>
+    </section>
+
+    <section class="panel" id="seller-orders">
+      <div class="role-panel-head"><div><h2>Order economics</h2><p>Each row uses the immutable line settlement frozen when the order was created.</p></div></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Order</th><th>Status</th><th>Gross</th><th>Discount</th><th>Fee</th><th>Seller receivable</th></tr></thead>
+        <tbody>
+          <% if (!statement.orders.items.length) { %><tr><td colspan="6">No seller orders yet.</td></tr><% } %>
+          <% statement.orders.items.forEach(row => { %><tr>
+            <td><%= row.orderPublicId %><br><small><%= formatDate(row.createdAt) %></small></td><td><%= row.status %></td>
+            <td class="workspace-money"><%= formatMoney(row.economics.grossMinor, row.currency) %></td><td class="workspace-money"><%= formatMoney(row.economics.discountMinor, row.currency) %></td>
+            <td class="workspace-money"><%= formatMoney(row.economics.platformFeeMinor, row.currency) %></td><td class="workspace-money"><%= formatMoney(row.economics.sellerReceivableMinor, row.currency) %></td>
+          </tr><% }) %>
+        </tbody>
+      </table></div>
+      <div class="server-pager"><small>Showing <%= statement.orders.page.count %> of <%= statement.orders.page.total %> seller order(s)</small><% if (statement.orders.page.hasMore) { %><a class="outline-button" href="/money?ordersAfter=<%= encodeURIComponent(statement.orders.page.next) %>#seller-orders">Older seller orders</a><% } %></div>
+    </section>
+
+    <section class="panel" id="sku-profitability">
+      <div class="role-panel-head"><div><h2>SKU-level profitability</h2><p><%= statement.profitability.methodology %></p></div></div>
+      <div class="role-metric-grid">
+        <article class="role-metric panel"><div><small>Known historical cost</small><strong><%= formatMoney(statement.profitability.summary.totalKnownCostMinor, owner.currency) %></strong><span>Frozen cost snapshots only</span></div></article>
+        <article class="role-metric panel"><div><small>Known gross contribution</small><strong><%= formatMoney(statement.profitability.summary.knownGrossContributionMinor, owner.currency) %></strong><span>Seller receivable minus frozen cost</span></div></article>
+        <article class="role-metric panel"><div><small>Known net contribution</small><strong><%= formatMoney(statement.profitability.summary.knownNetContributionMinor, owner.currency) %></strong><span>After completed seller refund reversals</span></div></article>
+        <article class="role-metric panel"><div><small>Legacy unknown-cost units</small><strong><%= statement.profitability.summary.totalUnknownCostUnits %></strong><span>Excluded from margin; never assumed zero</span></div></article>
+      </div>
+      <% if(statement.profitability.limited){ %><p class="role-alert">Showing the top <%= statement.profitability.rows.length %> of <%= statement.profitability.totalSkuCount %> SKUs by seller receivable. Use exports/BI for the full analytical population.</p><% } %>
+      <div class="table-wrap"><table><thead><tr><th>SKU</th><th>Units</th><th>Gross</th><th>Seller receivable</th><th>Known cost</th><th>Completed refund reversal</th><th>Net contribution</th><th>Coverage</th></tr></thead><tbody>
+        <% if(!statement.profitability.rows.length){ %><tr><td colspan="8">No settled SKU economics yet.</td></tr><% } %>
+        <% statement.profitability.rows.forEach(row=>{ %><tr><td><strong><%= row.sku || row.variantPublicId %></strong><br><small><%= row.title %><%= row.variantTitle ? ` · ${row.variantTitle}` : '' %></small></td><td><%= row.units %></td><td class="workspace-money"><%= formatMoney(row.grossMinor,owner.currency) %></td><td class="workspace-money"><%= formatMoney(row.sellerReceivableMinor,owner.currency) %></td><td class="workspace-money"><%= formatMoney(row.knownCostMinor,owner.currency) %></td><td class="workspace-money"><%= formatMoney(row.completedRefundSellerMinor,owner.currency) %></td><td class="workspace-money"><%= formatMoney(row.netContributionMinor,owner.currency) %><br><small><%= (row.contributionMarginBps/100).toFixed(2) %>% of known seller receivable</small></td><td><span class="role-status <%= row.costCoverageComplete ? 'good':'warn' %>"><%= row.costCoverageComplete ? 'complete':'partial' %></span><% if(row.unknownCostUnits){ %><br><small><%= row.unknownCostUnits %> unit(s) lack historical cost</small><% } %><% if(row.unknownRefundSellerMinor){ %><br><small>Some legacy refund identity/cost is unknown</small><% } %></td></tr><% }) %>
+      </tbody></table></div>
+    </section>
+
+    <section class="panel" id="refund-reversals">
+      <div class="role-panel-head"><div><h2>Refund reversals</h2><p>Seller and platform amounts come from the exact immutable refund allocation, not a recalculated percentage.</p></div></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Refund</th><th>Order</th><th>Status</th><th>Customer refund share</th><th>Fee reversal</th><th>Seller reversal</th></tr></thead>
+        <tbody>
+          <% if (!statement.refunds.items.length) { %><tr><td colspan="6">No refund allocations for this store.</td></tr><% } %>
+          <% statement.refunds.items.forEach(row => { %><tr>
+            <td><%= row.publicId %><br><small><%= formatDate(row.createdAt) %></small></td><td><%= row.orderId?.publicId || '' %></td><td><%= row.status %></td>
+            <td class="workspace-money"><%= formatMoney(row.economics.grossMinor, row.currency) %></td><td class="workspace-money"><%= formatMoney(row.economics.platformFeeMinor, row.currency) %></td><td class="workspace-money"><%= formatMoney(row.economics.sellerReceivableMinor, row.currency) %></td>
+          </tr><% }) %>
+        </tbody>
+      </table></div>
+      <div class="server-pager"><small>Showing <%= statement.refunds.page.count %> of <%= statement.refunds.page.total %> refund(s)</small><% if (statement.refunds.page.hasMore) { %><a class="outline-button" href="/money?refundsAfter=<%= encodeURIComponent(statement.refunds.page.next) %>#refund-reversals">Older refunds</a><% } %></div>
+    </section>
+  <% } %>
+
+  <div class="role-content-grid">
+    <section class="panel"><div class="role-panel-head"><div><h2>Add payout destination</h2><p>The destination is encrypted at application level and remains pending until Finance verifies it.</p></div></div>
+      <form method="post" action="/money/payout-accounts" class="catalog-form"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><label>Method<select name="method"><option value="mobile_money">Mobile Money</option><option value="bank">Bank</option></select></label><label>Label<input name="label" minlength="2" maxlength="100" required placeholder="Primary payout account"></label><label>Bank code (bank only)<input name="account_bank" maxlength="40"></label><label>Network (mobile money only)<input name="network" maxlength="40" placeholder="MTN / Airtel"></label><label>Account number (bank only)<input name="account_number" maxlength="80"></label><label>Phone (mobile money only)<input name="phone" maxlength="32"></label><label>Beneficiary name<input name="beneficiary_name" minlength="2" maxlength="120" required></label><button type="submit">Save destination</button></form>
+    </section>
+    <section class="panel"><div class="role-panel-head"><div><h2>Request payout</h2><p>Only Finance-verified destinations belonging to the current owner/store can receive a payout request.</p></div></div>
+      <form method="post" action="/money/payouts" class="catalog-form"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><label>Verified destination<select name="payoutAccountId" required><option value="">Select destination</option><% payoutAccounts.filter(account => account.status === 'verified').forEach(account => { %><option value="<%= account.publicId %>"><%= account.label %> · <%= account.method %></option><% }) %></select></label><label>Amount in minor units<input type="number" name="amountMinor" min="1" required></label><label>Idempotency key<input name="idempotencyKey" minlength="12" maxlength="120" required value="payout-<%= Date.now() %>"></label><button type="submit">Request payout</button></form>
+    </section>
+  </div>
+
+  <section class="panel"><h2>Payout destinations</h2><div class="table-wrap"><table><thead><tr><th>Destination</th><th>Method</th><th>Status</th><th>Currency</th></tr></thead><tbody><% if (!payoutAccounts.length) { %><tr><td colspan="4">No payout destinations.</td></tr><% } %><% payoutAccounts.forEach(account => { %><tr><td><%= account.label %><br><small><%= account.publicId %></small></td><td><%= account.method %></td><td><%= account.status %></td><td><%= account.currency %></td></tr><% }) %></tbody></table></div></section>
+
+  <section class="panel" id="payout-history"><h2>Payout history &amp; reconciliation</h2><div class="table-wrap"><table><thead><tr><th>Payout</th><th>Amount</th><th>Status</th><th>Provider reference</th><th>Requested / completed</th></tr></thead><tbody>
+    <% if (!payouts.length) { %><tr><td colspan="5">No payout requests.</td></tr><% } %>
+    <% payouts.forEach(payout => { %><tr><td><%= payout.publicId %></td><td class="workspace-money"><%= formatMoney(payout.amountMinor, payout.currency) %></td><td><%= payout.status %><% if (payout.status === 'unknown') { %><br><small>Do not retry. Finance must reconcile the provider reference first.</small><% } %><% if (payout.failureMessage) { %><br><small><%= payout.failureMessage %></small><% } %></td><td><%= payout.providerReference || '—' %></td><td><%= formatDate(payout.requestedAt) %><% if (payout.completedAt) { %><br><small><%= formatDate(payout.completedAt) %></small><% } %></td></tr><% }) %>
+  </tbody></table></div><% if (queuePage) { %><div class="server-pager"><small>Showing <%= queuePage.count %> of <%= queuePage.total %> payout request(s)</small><% if (queuePage.hasMore) { %><a class="outline-button" href="/money?after=<%= encodeURIComponent(queuePage.next) %>#payout-history">Older payouts</a><% } %></div><% } %></section>
+</main>
+<script src="/operations-ui.js" defer></script></body>
+</html>
