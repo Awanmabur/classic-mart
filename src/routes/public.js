@@ -39,12 +39,13 @@ const pages = new Map([
   ['/privacy', 'privacy'],
   ['/promoters', 'promoters'],
   ['/returns', 'returns'],
+  ['/return-policy', 'returns'],
   ['/shipping', 'shipping'],
   ['/terms', 'terms'],
   ['/track-order', 'track-order'],
 ]);
 
-const cmsPageKeys = new Map([['/help','help.main'],['/privacy','legal.privacy'],['/terms','legal.terms'],['/cookies','legal.cookies'],['/payments','legal.payments'],['/shipping','help.shipping'],['/returns','help.returns']]);
+const cmsPageKeys = new Map([['/help','help.main'],['/privacy','legal.privacy'],['/terms','legal.terms'],['/cookies','legal.cookies'],['/payments','legal.payments'],['/shipping','help.shipping'],['/returns','help.returns'],['/return-policy','help.returns']]);
 for (const [path, view] of pages) {
   router.get(path, async (request, response, next) => {
     try {

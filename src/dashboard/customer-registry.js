@@ -1,3 +1,4 @@
+import { customerRoute } from './customer-routes.js';
 export const CUSTOMER_DASHBOARD_PAGES = Object.freeze([
   { id: 'dashboard', label: 'Overview', icon: 'fa-solid fa-house', title: 'Customer Overview' },
   { id: 'orders', label: 'Orders', icon: 'fa-solid fa-box', title: 'My Orders' },
@@ -23,5 +24,5 @@ export function customerDashboardPage(pageId) {
 
 export function customerDashboardPath(pageId = 'dashboard') {
   const page = customerDashboardPage(pageId);
-  return `/dashboard/${page ? page.id : 'dashboard'}`;
+  return customerRoute(page?.id);
 }

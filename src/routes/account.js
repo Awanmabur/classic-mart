@@ -23,7 +23,7 @@ import {
 } from '../validation/identity.js';
 
 const router = Router();
-function profileReturn(request){return String(request.body?.returnTo||'')==='/dashboard/profile'?'/dashboard/profile':'/account/profile';}
+function profileReturn(request){return ['/profile','/dashboard/profile'].includes(String(request.body?.returnTo||''))?'/profile':'/account/profile';}
 router.use(
   ['/onboarding', '/account'],
   noStore,
@@ -150,7 +150,7 @@ async function renderAccountPage(request, response, requestedSection = 'profile'
 router.get(
   '/account/profile',
   asyncHandler((request, response) =>
-    response.redirect('/dashboard/profile'),
+    response.redirect('/profile'),
   ),
 );
 router.get(
@@ -159,7 +159,7 @@ router.get(
     renderAccountPage(request, response, 'security'),
   ),
 );
-router.get('/account/orders', (_request, response) => response.redirect('/dashboard/orders'));
+router.get('/account/orders', (_request, response) => response.redirect('/orders'));
 
 router.get('/account/privacy',asyncHandler(async(request,response)=>{const size=50,base={userId:request.user._id};const [rows,total]=await Promise.all([PrivacyRequest.find(cursorScope(base,request.query.after)).sort(cursorSort()).limit(size+1).lean(),PrivacyRequest.countDocuments(base)]);const page=pageResult(rows,{limit:size,total});response.set('Cache-Control','private, no-store');response.render('approved-dashboard', { workspace: 'customer', initialPage: 'profile', allowedWorkspaces: ['customer'],...await customerView(request,'profile'),accountSupplement:'privacy',requests:page.items,queuePage:page.page});}));
 router.post('/account/privacy/request',asyncHandler(async(request,response)=>{const input=z.object({type:z.enum(['export','deletion','correction','restriction','consent_withdrawal']),password:z.string().min(1).max(200),details:z.string().trim().max(2000).optional().default('')}).parse(request.body);const doc=await createPrivacyRequest(request,input);await writeAudit(request,'privacy.request_created',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country,metadata:{type:doc.type}});setFlash(request,'success',doc.type==='export'?'Your verified export request is queued.':'Your privacy request was recorded.');response.redirect('/account/privacy');}));

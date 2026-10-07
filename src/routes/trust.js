@@ -27,7 +27,7 @@ import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 import { writeAudit } from '../services/audit.js';
 
 const router=Router();
-function customerTrustReturn(request){const value=String(request.body?.returnTo||'');return ['/dashboard/returns','/dashboard/support'].includes(value)?value:'/account/returns';}
+function customerTrustReturn(request){const value=String(request.body?.returnTo||'');if (['/returns','/support'].includes(value)) return value;return {'/dashboard/returns':'/returns','/dashboard/support':'/support'}[value] || '/account/returns';}
 const publicSupportLimit=rateLimit({windowMs:15*60_000,limit:8,standardHeaders:'draft-8',legacyHeaders:false});
 const publicTicketSchema=z.object({context:z.enum(['help','contact']).default('help'),name:z.string().trim().min(2).max(120),email:z.string().trim().email().max(254),topic:z.string().trim().min(2).max(100),orderId:z.string().trim().max(100).optional().default(''),message:z.string().trim().min(10).max(3000)});
 function publicCategory(topic){const v=String(topic||'').toLowerCase();if(v.includes('order'))return 'order';if(v.includes('return'))return 'return';if(v.includes('payment'))return 'payment';if(v.includes('seller'))return 'seller';if(v.includes('privacy')||v.includes('account'))return 'account';return 'other';}

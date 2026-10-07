@@ -32,7 +32,8 @@ test('customer actions require account permission and authenticated routing',()=
   assert.ok(exists('src/routes/dashboard.js'));
   const route=read('src/routes/dashboard.js');
   assert.match(route,/hasPermission\(request\.user,'account:read'\)/);
-  assert.match(route,/router\.get\(['"]\/dashboard\/:page['"]/);
+  assert.match(read('src/routes/approved-dashboard.js'),/Object\.entries\(CUSTOMER_ROUTES\)/);
+  assert.match(route,/const gates=\[noStore,requireAuth,requireVerified,requireOnboarding,accountOnly\]/);
   assert.doesNotMatch(route,/\/dashboard\/:page\?/);
   assert.doesNotMatch(route,/seller|promoter|finance|warehouse|moderator|country_admin|super_admin/i);
   assert.match(read('src/app.js'),/app\.use\(dashboardRoutes\)/);

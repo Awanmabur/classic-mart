@@ -1,3 +1,5 @@
+import discoveryRoutes from './routes/discovery.js';
+import { isVersionedAsset } from './core/public-assets.js';
 import path from 'node:path';
 import mongoose from 'mongoose';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +12,7 @@ import pinoHttp from 'pino-http';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { createSessionMiddleware } from './middleware/session.js';
-import { requestContext, sanitizeBody } from './middleware/request.js';
+import { noStore, requestContext, sanitizeBody } from './middleware/request.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { enforcePrivilegedMfaEnrollment, loadUser } from './middleware/auth.js';
 import { countryContext } from './middleware/country.js';
@@ -98,7 +100,10 @@ export function createApp(redisClient) {
       fallthrough: true,
       setHeaders(response, filePath) {
         const file = path.basename(filePath).toLowerCase();
-        if (file === 'sw.js') {
+        const url = new URL(response.req.originalUrl, 'http://localhost');
+        if (env.isProduction && isVersionedAsset(url.pathname, url.searchParams.get('v'))) {
+          response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (file === 'sw.js') {
           response.setHeader('Cache-Control', 'no-store, max-age=0');
           response.setHeader('Service-Worker-Allowed', '/');
         } else if (file.endsWith('.js') || file.endsWith('.css')) {
@@ -113,6 +118,7 @@ export function createApp(redisClient) {
     }),
   );
   app.use(healthRoutes);
+  app.use(discoveryRoutes);
   app.use(
     express.urlencoded({
       extended: false,
@@ -126,6 +132,7 @@ export function createApp(redisClient) {
   app.use(createSessionMiddleware(redisClient));
   app.use(csrfProtection);
   app.use(loadUser);
+  app.use((request, response, next) => request.user ? noStore(request, response, next) : next());
   app.use(enforcePrivilegedMfaEnrollment);
   app.use(countryContext);
   app.use(async (request, response, next) => {
@@ -140,6 +147,7 @@ export function createApp(redisClient) {
     const original = response.render.bind(response);
     response.render = (view, options = {}, callback) => original(view, options, (error, html) => {
       if (error) return callback ? callback(error) : next(error);
+      if (request.user || response.locals.csrfToken || response.locals.flash) noStore(request, response, () => {});
       let rendered = html;
       if (!/rel=["']manifest["']/i.test(rendered)) rendered = rendered.replace(/<\/head>/i, '<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/pwa-192.png"><meta name="theme-color" content="#ff6500"><meta name="application-name" content="Classic Mart"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><script src="/pwa.js" defer></script></head>');
       if (callback) return callback(null, rendered);

@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { mongoDatabaseName, mongoUriWithDatabase } from '../src/core/mongo-uri.js';
 import { projectAuditMongoUri, projectMongoUri } from '../src/core/project-env.js';
 
+const auditEvidenceKeys=[];
 const applicationUri = projectMongoUri();
 const auditUri = projectAuditMongoUri() || mongoUriWithDatabase(applicationUri, 'classic-mart-audit-test');
 const dbName = mongoDatabaseName(auditUri);
@@ -27,6 +28,9 @@ Object.assign(process.env, {
   DATA_ENCRYPTION_KEY: crypto.randomBytes(32).toString('hex'),
   MAIL_MODE: 'log',
   MALWARE_SCAN_MODE: 'off',
+  ADMIN_EMAIL: 'admin@audit.classicmart.local',
+  ADMIN_PHONE: '+256798000000',
+  ADMIN_NAME: 'Audit Administrator',
   ADMIN_PASSWORD: `Audit-${crypto.randomBytes(24).toString('base64url')}!9a`,
   ADMIN_REVIEWER_EMAIL: '',
   ADMIN_REVIEWER_PHONE: '',
@@ -124,7 +128,7 @@ assert.ok(catalogue.categories.length >= 1 && catalogue.sellers.length >= 1, 'St
 const [homeHeroes, pressArticles, publicPromoterRows] = await Promise.all([
   stage9.publishedCmsList({ prefix: 'home.hero.', type: 'hero', country: 'UG', limit: 6 }),
   stage9.publishedCmsList({ prefix: 'press.article.', type: 'press', country: 'UG', limit: 6 }),
-  promoters.publicPromoters(country),
+  promoters.publicPromoters(country).then(result => result.items),
 ]);
 assert.ok(homeHeroes.length >= 1, 'Frontend audit: homepage hero content must come from published CMS records');
 assert.ok(pressArticles.length >= 1, 'Frontend audit: press articles must come from published CMS records');
@@ -234,10 +238,22 @@ assert.equal(logistics.verifyProofCode(pickupCode, shipment.pickupCodeHash), tru
 assert.equal(logistics.verifyProofCode(deliveryCode, shipment.deliveryCodeHash), true, 'Stage 7 audit fixture: decrypted delivery code must match the stored delivery hash');
 shipment = await logistics.transitionShipment({ shipment, nextStatus: 'picked_up', actorUserId: delivery._id, proofCode: pickupCode });
 shipment = await logistics.transitionShipment({ shipment, nextStatus: 'in_transit', actorUserId: delivery._id });
+// Exercise the same sanitized image persistence required by the delivery policy.
+const {default: sharp}=await import('sharp');
+const {sanitizeAndStoreEvidenceImage}=await import('../src/services/media.js');
+const deliveryImage=await sharp({create:{width:640,height:640,channels:3,background:'#f5f5f5'}}).png().toBuffer();
+for(const [required,documentType] of [[shipment.proofPolicy?.deliveryPhotoRequired,'delivery_photo'],[shipment.proofPolicy?.signatureRequired,'delivery_signature']]) {
+  if(!required)continue;
+  const evidence=await sanitizeAndStoreEvidenceImage({file:{buffer:deliveryImage,mimetype:'image/png',originalname:'audit-delivery-proof.png'},user:delivery,country:'UG',contextType:'delivery_job',contextPublicId:shipment.publicId,documentType});
+  auditEvidenceKeys.push(evidence.storageKey);
+}
 shipment = await logistics.transitionShipment({ shipment, nextStatus: 'delivered', actorUserId: delivery._id, proofCode: deliveryCode });
 assert.ok(await models.LedgerTransaction.exists({ referenceType: 'delivery_earning', referencePublicId: shipment.publicId }), 'Stage 7: delivered job must post a real delivery-partner payable');
 const deliveredParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Kampala', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(shipment.deliveredAt).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
 const deliveredDay = `${deliveredParts.year}-${deliveredParts.month}-${deliveredParts.day}`;
+const handoverEvidence=await sanitizeAndStoreEvidenceImage({file:{buffer:deliveryImage,mimetype:'image/png',originalname:'audit-cod-receipt.png'},user:delivery,country:'UG',contextType:'delivery_job',contextPublicId:shipment.publicId,documentType:'cod_handover'});
+auditEvidenceKeys.push(handoverEvidence.storageKey);
+await logistics.recordCodHandover({shipment,actorUserId:delivery._id,declaredAmountMinor:shipment.cod.collectedMinor,evidenceDocumentId:handoverEvidence._id});
 const codRun = await logistics.reconcileCodBatch({ country: 'UG', deliveryUserId: delivery._id, businessDate: deliveredDay, currency: 'UGX', declaredAmountMinor: shipment.cod.collectedMinor, actorUserId: financeOne._id });
 assert.equal(codRun.status, 'completed', 'Stage 7: driver/day COD reconciliation must complete only when declared cash equals delivered shipments');
 const paidOrder = await models.Order.findById(storedOrder._id);
@@ -259,13 +275,17 @@ await assert.rejects(
 await payments.releasePayoutHold(deliveryPayout, deliveryPayoutAccount, 'Audit releases payout hold');
 deliveryPayout.status = 'rejected'; await deliveryPayout.save();
 
-const returnResult = await trust.createReturnRequest({ user: customer }, { orderId: paidOrder.publicId, reason: 'damaged', details: 'Audit return verifies the real post-purchase workflow.', resolution: 'refund', returnMethod: 'dropoff', dropoffPointId: '', items: [{ productId: product.publicId, quantity: 1 }] });
+const returnResult = await trust.createReturnRequest({ user: customer }, { orderId: paidOrder.publicId, reason: 'damaged', details: 'Audit return verifies the real post-purchase workflow.', resolution: 'refund', returnMethod: 'dropoff', dropoffPointId: '', items: [{ orderLineId: paidOrder.items.find(item=>item.productPublicId===product.publicId).linePublicId, quantity: 1 }] });
 let returnDoc = returnResult.returnRequest;
 returnDoc = await trust.decideReturn({ user: support }, returnDoc.publicId, { decision: 'approve', note: 'Audit eligible return' });
 returnDoc = await trust.markReturnReceived({ user: support }, returnDoc.publicId, 'Audit return received');
+for(const line of returnDoc.items) {
+  const task=await logistics.claimWarehouseTask({taskPublicId:line.warehouseTaskPublicId,actorUserId:admin._id});
+  await logistics.executeWarehouseTask({task,actorUserId:admin._id,disposition:'damaged'});
+}
 returnDoc = await trust.inspectReturn({ user: support }, returnDoc.publicId, { condition: 'damaged', notes: 'Audit inspection' });
 assert.equal(returnDoc.status, 'refund_pending', 'Stage 8: inspected refund return must wait for finance');
-const refundAllocations = returnDoc.items.map((item) => ({ storePublicId: item.storePublicId, productPublicId: item.productPublicId, grossMinor: item.requestedRefundMinor }));
+const refundAllocations = returnDoc.items.map((item) => ({ storePublicId: item.storePublicId, productPublicId: item.productPublicId, orderLineId: item.orderLineId, grossMinor: item.requestedRefundMinor }));
 const refund = await payments.createRefund({ user: financeOne, session: {} }, { orderId: paidOrder.publicId, amountMinor: returnResult.requestedRefundMinor, reason: `Approved return ${returnDoc.publicId}`, idempotencyKey: `audit-refund-${Date.now()}`, allocations: refundAllocations });
 assert.equal(refund.provider, 'cod_manual', 'Stage 5/8: COD refund must not pretend to be a provider refund');
 assert.equal(refund.status, 'processing', 'Stage 5/8: COD refund must wait for separate disbursement confirmation');
@@ -284,10 +304,14 @@ assert.equal(reversedCommission.status, 'reversed', 'Stage 6/8: refunding the at
 
 auditCheckpoint('Stage 8: returns, refunds, exchanges, support and trust');
 // Stage 8: an approved exchange must become an actual replacement fulfilment, not only a status flag.
-const exchangeResult = await trust.createReturnRequest({ user: customer }, { orderId: paidOrder.publicId, reason: 'wrong_item', details: 'Audit exchange verifies replacement stock, seller order and shipment creation.', resolution: 'exchange', returnMethod: 'dropoff', dropoffPointId: '', items: [{ productId: secondProduct.publicId, quantity: 1 }] });
+const exchangeResult = await trust.createReturnRequest({ user: customer }, { orderId: paidOrder.publicId, reason: 'wrong_item', details: 'Audit exchange verifies replacement stock, seller order and shipment creation.', resolution: 'exchange', returnMethod: 'dropoff', dropoffPointId: '', items: [{ orderLineId: paidOrder.items.find(item=>item.productPublicId===secondProduct.publicId).linePublicId, quantity: 1 }] });
 let exchangeDoc = exchangeResult.returnRequest;
 exchangeDoc = await trust.decideReturn({ user: support }, exchangeDoc.publicId, { decision: 'approve', note: 'Audit exchange approved' });
 exchangeDoc = await trust.markReturnReceived({ user: support }, exchangeDoc.publicId, 'Audit exchange received');
+for(const line of exchangeDoc.items) {
+  const task=await logistics.claimWarehouseTask({taskPublicId:line.warehouseTaskPublicId,actorUserId:admin._id});
+  await logistics.executeWarehouseTask({task,actorUserId:admin._id,disposition:'good'});
+}
 exchangeDoc = await trust.inspectReturn({ user: support }, exchangeDoc.publicId, { condition: 'wrong_item', notes: 'Audit exchange inspection' });
 assert.equal(exchangeDoc.status, 'exchange_pending', 'Stage 8: inspected exchange must wait for replacement creation');
 const replacementOrder = await trust.createExchangeReplacement({ user: support }, exchangeDoc.publicId);
@@ -358,7 +382,7 @@ assert.equal((await models.DataExport.findById(exportRequest._id)).status, 'expi
 
 const impersonationApproval = await stage9.createApproval({ user: countryRequester, type: 'impersonation', country: 'UG', targetType: 'user', targetPublicId: customer.publicId, payload: { targetUserPublicId: customer.publicId }, reason: 'Audit read-only support investigation' });
 await stage9.applyApproval(impersonationApproval, countryReviewer);
-assert.equal(impersonationApproval.status, 'applied', 'Stage 9: approved impersonation grant must be explicit and auditable');
+assert.equal((await models.ApprovalRequest.findById(impersonationApproval._id)).status, 'applied', 'Stage 9: approved impersonation grant must be explicit and auditable');
 
 const stage9Report = await stage9.platformReport(countryRequester);
 assert.equal(stage9Report.country, 'UG', 'Stage 9: Country Admin reporting must remain country-scoped');
@@ -570,6 +594,10 @@ assert.ok((afterStock[0]?.reserved || 0) >= 0, 'Stage 2/4: reserved stock cannot
 
 console.log('Stage 1–12 MongoDB integration audit passed:', JSON.stringify({ products: catalogue.products.length, order: paidOrder.publicId, shipment: shipment.publicId, refund: refund.publicId, ledgerTransactions: transactions.length }));
 } finally {
+  if (!process.argv.includes('--keep-db') && auditEvidenceKeys.length) {
+    const {deleteMediaObject}=await import('../src/services/object-storage.js');
+    await Promise.all(auditEvidenceKeys.map(key=>deleteMediaObject(key)));
+  }
   try {
     if (!process.argv.includes('--keep-db') && mongoose.connection.readyState === 1) await mongoose.connection.db.dropDatabase();
   } finally {

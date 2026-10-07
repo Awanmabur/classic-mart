@@ -112,7 +112,7 @@ test('Final 19 address edit control uses the real owned update route',()=>{
   assert.match(customer,/id=["']addressForm["']/);
   assert.match(runtime,/addressForm/);
   assert.match(runtime,/data-address-edit/);
-  assert.match(runtime,/\/dashboard\/addresses\//);
+  assert.match(runtime,/\/addresses\//);
 });
 
 test('Final 19 cart presentation keeps real clear-cart and promotion controls',()=>{
@@ -125,8 +125,8 @@ test('Final 19 cart presentation keeps real clear-cart and promotion controls',(
 test('Final 19 wallet controls are wired to real Customer behavior',()=>{
   const runtime=read('public/approved-dashboard/customer-live.js');
   const route=read('src/routes/dashboard.js');
-  assert.match(customer,/\/dashboard\/wallet\/statement\.csv/);
-  assert.match(route,/router\.get\('\/dashboard\/wallet\/statement\.csv'/);
+  assert.match(customer,/\/wallet\/statement\.csv/);
+  assert.match(route,/router\.get\(paths\('\/dashboard\/wallet\/statement\.csv'\),\.\.\.gates/);
   assert.match(route,/text\/csv/);
   assert.match(runtime,/data-wallet-amount/);
   assert.match(runtime,/walletAmount/);

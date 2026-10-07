@@ -1,10 +1,10 @@
 'use strict';
-const CACHE='classic-mart-public-v27';
+const CACHE='classic-mart-public-v28';
 const STATIC=['/offline','/assets/pwa-icon.svg','/assets/pwa-192.png','/assets/pwa-512.png','/assets/product-placeholder.svg'];
-const PRIVATE_PREFIXES=['/dashboard','/seller','/promoter','/admin','/super-admin','/operations','/finance','/warehouse','/moderation','/business','/api/','/account','/cart','/checkout','/track-order','/payments','/ask-classic','/webhooks','/login','/signup','/verify-','/onboarding'];
+const PRIVATE_PREFIXES=['/dashboard','/orders','/wishlist','/addresses','/rewards','/wallet','/returns','/support','/profile','/categories','/notifications','/club','/seller','/promoter','/admin','/super-admin','/operations','/finance','/warehouse','/moderation','/business','/api/','/account','/cart','/checkout','/track-order','/payments','/ask-classic','/webhooks','/login','/signup','/verify-','/onboarding'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(STATIC)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
-function isPrivate(path){return PRIVATE_PREFIXES.some(prefix=>path.startsWith(prefix));}
+function isPrivate(path){return PRIVATE_PREFIXES.some(prefix=>prefix.endsWith('/')||prefix.endsWith('-')?path.startsWith(prefix):path===prefix||path.startsWith(prefix+'/'));}
 function cacheableResponse(response){const policy=String(response?.headers?.get('cache-control')||'').toLowerCase();return Boolean(response?.ok)&&!policy.includes('no-store')&&!policy.includes('private');}
 async function staleWhileRevalidate(request){const cached=await caches.match(request);const update=fetch(request,{cache:'no-cache'}).then(response=>{if(cacheableResponse(response)){const clone=response.clone();caches.open(CACHE).then(cache=>cache.put(request,clone));}return response;}).catch(()=>null);if(cached){eventually(update);return cached;}const response=await update;if(response)return response;throw new Error('Asset unavailable');}
 function eventually(promise){promise.catch(()=>{});return promise;}

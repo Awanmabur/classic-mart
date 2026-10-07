@@ -13,10 +13,10 @@ const toMinor = (amount,currency) => Math.round(Number(amount||0)*factor(currenc
 function splitName(name){const parts=String(name||'').trim().split(/\s+/).filter(Boolean);return {firstName:parts.shift()||'Customer',lastName:parts.join(' ')||'Customer'};}
 function statusOf(payload){return String(payload?.payment_status_description||payload?.status_description||'').trim().toUpperCase();}
 
-export async function customerWalletSummary(user) {
+export async function customerWalletSummary(user, { includeTopUps = true } = {}) {
   const account = await LedgerAccount.findOne({ code:'customer_wallet', ownerType:'customer', ownerPublicId:user.publicId, country:user.country, currency:user.currency, active:true }).lean();
-  const balanceMinor = account ? await accountBalanceMinor(account._id) : 0;
-  const topUps = await WalletTopUp.find({ userId:user._id }).sort({ createdAt:-1 }).limit(12).lean();
+  const balanceMinor = account ? await accountBalanceMinor(account._id, null, account.type) : 0;
+  const topUps = includeTopUps ? await WalletTopUp.find({ userId:user._id }).sort({ createdAt:-1 }).limit(12).lean() : [];
   return { balanceMinor, currency:user.currency, topUps };
 }
 
@@ -37,7 +37,7 @@ export async function createWalletTopUp(request,{amountMinor,idempotencyKey}) {
   const names=splitName(request.user.name);
   try{
     const result=await submitPesapalOrder({
-      id:topup.providerReference,currency:topup.currency,amount:major(topup.amountMinor,topup.currency),description:'Classic Mart wallet top-up',callback_url:`${env.baseUrl}/dashboard/wallet/return`,
+      id:topup.providerReference,currency:topup.currency,amount:major(topup.amountMinor,topup.currency),description:'Classic Mart wallet top-up',callback_url:`${env.baseUrl}/wallet/return`,
       billing_address:{email_address:request.user.email,phone_number:request.user.phone,country_code:topup.country,first_name:names.firstName,last_name:names.lastName,line_1:'Classic Mart customer wallet',line_2:'',city:'',state:'',postal_code:'',zip_code:''},
     });
     if(!result?.redirect_url||!result?.order_tracking_id)throw new AppError('Pesapal did not return a wallet checkout URL.',502,'PESAPAL_ORDER_INVALID');

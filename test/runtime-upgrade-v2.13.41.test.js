@@ -48,8 +48,8 @@ test('index creation identifies the exact model and seed logs Error objects thro
 test('dependency policy pins patched sharp and qs lines',()=>{
   const pkg=JSON.parse(read('package.json'));
   const lock=JSON.parse(read('package-lock.json'));
-  assert.equal(pkg.dependencies.sharp,'0.35.4');
+  assert.equal(pkg.dependencies.sharp,'0.35.5');
   assert.equal(pkg.overrides?.qs,'6.16.0');
-  assert.equal(lock.packages['node_modules/sharp'].version,'0.35.4');
+  assert.equal(lock.packages['node_modules/sharp'].version,'0.35.5');
   assert.equal(lock.packages['node_modules/qs'].version,'6.16.0');
 });

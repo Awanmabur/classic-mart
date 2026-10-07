@@ -16,16 +16,16 @@ test('live approved customer UI supports signup, address submission, mobile navi
     for (const [name,value] of Object.entries({name:'Browser Customer',email:`browser-${suffix}@example.com`,phone:'+2567'+crypto.randomInt(10000000,99999999),password:`Browser-${suffix}A1!`,confirmPassword:`Browser-${suffix}A1!`})) await page.locator(`[name="${name}"]`).fill(value);
     await page.locator('[name="acceptTerms"]').check();
     await page.locator('button[type="submit"]').click();
-    await page.waitForURL('**/dashboard/dashboard');
+    await page.waitForURL('**/dashboard');
     assert.equal(await page.locator('#roleSwitcher').count(),0);
     assert.equal(await page.locator('#workspaceLabel,.workspace-switcher').count(),0);
     assert.ok(await page.locator('#searchForm').isVisible());
     await page.locator('.side-link[data-page-target="addresses"]').click();
-    await page.waitForURL('**/dashboard/addresses*');
+    await page.waitForURL('**/addresses*');
     for (const [name,value] of Object.entries({fullName:'Browser Customer',phone:'+256700000003',address:'Browser verified address',city:'Kampala',region:'Central Region',postalCode:'256'})) await page.locator(`#addressForm [name="${name}"]`).fill(value);
     await page.locator('#addressForm [name="label"]').selectOption('Home');
     await page.locator('#addressForm button[type="submit"]').click();
-    await page.waitForURL('**/dashboard/addresses*');
+    await page.waitForURL('**/addresses*');
     await page.locator('[data-address-id]').first().waitFor();
     assert.match(await page.locator('[data-address-id]').first().innerText(),/Browser verified address/);
     await page.reload();
@@ -44,7 +44,7 @@ test('live approved customer UI supports signup, address submission, mobile navi
     await page.locator('#mobileMenuBtn').click();
     await page.locator('.logout-button').click();
     await page.waitForURL('**/login');
-    await page.goto(base+'/dashboard/dashboard');
+    await page.goto(base+'/dashboard');
     assert.match(page.url(),/\/login/);
     assert.deepEqual(errors,[]);
   } finally { await browser.close(); }

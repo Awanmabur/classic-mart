@@ -61,9 +61,9 @@ test('real login/session routes land every role in the approved UI; unauthorized
     const agent = request.agent(app);
     const login = await agent.get('/login').expect(200);
     const csrf = login.text.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
-    await agent.post('/login').type('form').send({ email: actor.email, password, _csrf: csrf }).expect(302).expect('location', '/dashboard/' + page);
+    await agent.post('/login').type('form').send({ email: actor.email, password, _csrf: csrf }).expect(302).expect('location', page === 'dashboard' ? '/dashboard' : '/dashboard/' + page);
     if (role === 'customer' || role === 'delivery') {
-      await agent.get('/signup').expect(302).expect('location', '/dashboard/dashboard');
+      await agent.get('/signup').expect(302).expect('location', '/dashboard');
       await agent.get('/dashboard/seller-overview').expect(403);
       await agent.get('/dashboard/super-overview').expect(403);
       await agent.get('/dashboard/warehouse-overview').expect(403);
@@ -105,8 +105,8 @@ test('signup assigns customer on the server, starts a session and opens its dash
   const signup = await agent.get('/signup').expect(200);
   const csrf = signup.text.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
   const values = { name: 'New Customer', email: 'new@example.com', phone: '+256700123456', password: 'Dashboard-test-password-2026!', confirmPassword: 'Dashboard-test-password-2026!', acceptTerms: 'on', role: 'super_admin', _csrf: csrf };
-  await agent.post('/signup').set('X-Forwarded-For', '192.0.2.50').type('form').send(values).expect(302).expect('location', '/dashboard/dashboard');
-  await agent.get('/signup').expect(302).expect('location', '/dashboard/dashboard');
+  await agent.post('/signup').set('X-Forwarded-For', '192.0.2.50').type('form').send(values).expect(302).expect('location', '/dashboard');
+  await agent.get('/signup').expect(302).expect('location', '/dashboard');
   await agent.get('/dashboard/super-overview').expect(403);
   const guest = request.agent(signupApp);
   const form = await guest.get('/signup').expect(200);

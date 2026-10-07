@@ -19,7 +19,8 @@ requireMatch('scripts/migrate-production.js',/if\(indexResult\.failures\.length\
 requireMatch('src/app.js',/import dashboardRoutes from ['"]\.\/routes\/dashboard\.js['"]/,'src/app.js must import the Customer dashboard router.');
 requireMatch('src/app.js',/app\.use\(dashboardRoutes\)/,'src/app.js must mount the Customer dashboard router.');
 requireMatch('src/routes/dashboard.js',/accountOnly/,'Customer dashboard actions require account permission.');
-requireMatch('src/routes/dashboard.js',/router\.use\(['"]\/dashboard['"],noStore,requireAuth,requireVerified,requireOnboarding,accountOnly\)/,'Customer dashboard auth boundary is missing.');
+requireMatch('src/routes/dashboard.js',/const gates=\[noStore,requireAuth,requireVerified,requireOnboarding,accountOnly\]/,'Customer action auth boundary is missing.');
+requireMatch('src/routes/dashboard.js',/router\.(?:get|post)\(paths\([^)]*\),\.\.\.gates/, 'Customer actions must apply the auth boundary.');
 requireMatch('src/dashboard/customer-data.js',/LOADERS\[pageId\]/,'Customer dashboard data loading must remain page-scoped.');
 requireMatch('src/services/customer-wallet.js',/wallet-topup:/,'Classic Wallet verified top-up ledger path is missing.');
 requireMatch('src/services/payments.js',/WALLET_BALANCE_INSUFFICIENT/,'Classic Wallet checkout balance guard is missing.');

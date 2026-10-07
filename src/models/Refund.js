@@ -21,4 +21,5 @@ const refundSchema=new Schema({
   completedAt:Date
 },{timestamps:true,optimisticConcurrency:true});
 refundSchema.index({paymentIntentId:1,provider:1,status:1});
+refundSchema.index({orderId:1,createdAt:-1});
 export const Refund=mongoose.model('Refund',refundSchema);

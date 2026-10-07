@@ -19,20 +19,20 @@ test('real customer orders filter by fulfillment state and customer URLs stay cl
     await page.goto(base+'/signup');
     const fields={name:'Order Filter Customer',email,phone:'+25677'+crypto.randomInt(1000000,9999999),password:`Filters-${suffix}A1!`,confirmPassword:`Filters-${suffix}A1!`};
     for(const [name,value] of Object.entries(fields))await page.locator(`[name="${name}"]`).fill(value);
-    await page.locator('[name=acceptTerms]').check();await page.getByRole('button',{name:'Create My Account'}).click();await page.waitForURL('**/dashboard/dashboard');
+    await page.locator('[name=acceptTerms]').check();await page.getByRole('button',{name:'Create My Account'}).click();await page.waitForURL('**/dashboard');
     user=await mongoose.connection.db.collection('users').findOne({emailNormalized:email});
     const states=['unfulfilled','processing','ready','partially_shipped','shipped','partially_delivered','delivered','cancelled'];
     await mongoose.connection.db.collection('orders').insertMany(states.map((fulfillmentState,index)=>({sessionKey:`filter_${suffix}`,idempotencyKey:`filter_${suffix}_${index}`,userId:user._id,publicId:`filter_${suffix}_${index}`,fulfillmentState,paymentState:'paid',status:'confirmed',totals:{totalMinor:1000,currency:'UGX'},items:[{title:'Filter Fixture Product'}],createdAt:new Date(),updatedAt:new Date()})));
-    await page.goto(base+'/dashboard/orders#orders');
-    await page.waitForURL(base+'/dashboard/orders');
+    await page.goto(base+'/orders#orders');
+    await page.waitForURL(base+'/orders');
     assert.deepEqual(await page.locator('#orderFilters button').allTextContents(),['All','Processing','Shipped','Delivered']);
     for(const [label,count] of [['All',8],['Processing',3],['Shipped',3],['Delivered',1]]){
       await page.getByRole('button',{name:label,exact:true}).click();
       assert.equal(await page.locator('[data-order-group]:visible').count(),count,label);
       assert.equal(new URL(page.url()).hash,'');
     }
-    await page.getByRole('link',{name:'Addresses',exact:true}).click();await page.waitForURL(base+'/dashboard/addresses');
-    await page.getByRole('link',{name:/Rewards/}).first().click();await page.waitForURL(base+'/dashboard/rewards');
+    await page.getByRole('link',{name:'Addresses',exact:true}).click();await page.waitForURL(base+'/addresses');
+    await page.getByRole('link',{name:/Rewards/}).first().click();await page.waitForURL(base+'/rewards');
     assert.equal(new URL(page.url()).hash,'');
     assert.equal(await page.locator('.reward-option form').getAttribute('class'),'dashboard-form');
   }finally{if(user)await mongoose.connection.db.collection('orders').deleteMany({userId:user._id});await browser.close();await mongoose.disconnect();}

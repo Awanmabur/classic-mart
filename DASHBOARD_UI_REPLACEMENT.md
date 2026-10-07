@@ -202,3 +202,15 @@ MongoDB address persistence and Chromium order-filter tests. Project, security
 and frontend checks passed. All 13 customer pages and Password & Security were
 checked in Chromium at desktop (1366px) and mobile (390px) widths for clean URLs,
 button styling and horizontal overflow.
+
+## Canonical routes and foundation hardening
+
+Customer pages now use `/dashboard`, `/orders`, `/addresses`, `/rewards`,
+`/categories` and the other short paths. Old customer page URLs redirect;
+protected legacy form submissions remain compatible. The approved base UI
+stylesheets remain byte-for-byte unchanged.
+
+See [customer foundation verification](docs/performance/customer-foundation.md)
+for route boundaries, query/index changes, private-cache safeguards, dependency
+patches, public crawler discovery and measured local results. Updating this
+checkpoint requires `npm ci` followed by a server restart.

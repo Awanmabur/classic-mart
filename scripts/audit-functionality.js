@@ -42,7 +42,8 @@ const camelDataName = (attribute) => attribute.slice(5).split('-').map((part, in
 for (const name of viewFiles) {
   const rel = `views/${name}`;
   const source = read(rel);
-  const scriptSources = [...source.matchAll(/<script[^>]+\bsrc=["']([^"']+)["'][^>]*>/gi)].map((match) => match[1]);
+  const fingerprintedScripts = [...source.matchAll(/<script[^>]*\bsrc=["']<%=\s*assetUrl\(['"]([^'"]+)['"]\)\s*%>["']/gi)].map(match => match[1]);
+  const scriptSources = [...source.matchAll(/<script[^>]+\bsrc=["']([^"']+)["'][^>]*>/gi)].map((match) => match[1]).concat(fingerprintedScripts);
   let handlers = [...source.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1]).join('\n');
   for (const scriptSource of scriptSources) {
     if (!scriptSource.startsWith('/')) continue;

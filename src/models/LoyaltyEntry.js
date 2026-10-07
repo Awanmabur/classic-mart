@@ -13,4 +13,5 @@ const loyaltyEntrySchema=new mongoose.Schema({
   actorUserId:{type:mongoose.Schema.Types.ObjectId,ref:'User'},
 },{timestamps:{createdAt:true,updatedAt:false}});
 loyaltyEntrySchema.pre(['updateOne','updateMany','findOneAndUpdate','deleteOne','deleteMany'],function(){throw new Error('Loyalty entries are immutable.');});
+loyaltyEntrySchema.index({userId:1,createdAt:-1});
 export const LoyaltyEntry=mongoose.model('LoyaltyEntry',loyaltyEntrySchema);

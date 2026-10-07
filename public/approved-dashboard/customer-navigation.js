@@ -1,6 +1,7 @@
 (() => {
   'use strict';
   const page = document.body.dataset.dashboardPage;
+  const routes = JSON.parse(document.body.dataset.customerRoutes || '{}');
   document.querySelectorAll('.side-link').forEach(link => link.classList.toggle('active', link.dataset.pageTarget === page));
   document.addEventListener('click', event => {
     const logout = event.target.closest('[data-action="logout"]');
@@ -21,7 +22,8 @@
     const target = event.target.closest('[data-page-target]');
     if (target) {
       event.preventDefault();
-      location.assign(target.dataset.profileTab === 'security' ? '/account/security' : '/dashboard/' + encodeURIComponent(target.dataset.pageTarget));
+      const destination = target.dataset.profileTab === 'security' ? '/account/security' : routes[target.dataset.pageTarget];
+      if (destination) location.assign(destination);
     }
     const filter = event.target.closest('[data-notification-filter]');
     if (filter) {

@@ -119,6 +119,7 @@ const productSchema = new Schema(
 productSchema.index({ storeId: 1, slug: 1 }, { unique: true });
 productSchema.index({ storeId: 1, status: 1, updatedAt: -1 });
 productSchema.index({ status: 1, countries: 1, publishedAt: -1 });
+productSchema.index({ status: 1, countries: 1, _id: 1 });
 productSchema.index({ status: 1, 'moderation.riskLevel': 1, 'moderation.submittedAt': 1 });
 productSchema.index({ title: 'text', description: 'text', tags: 'text' });
 

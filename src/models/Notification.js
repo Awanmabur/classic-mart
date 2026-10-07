@@ -13,4 +13,5 @@ const schema = new Schema({
   expiresAt:{type:Date,index:true},
 },{timestamps:true});
 schema.index({userId:1,readAt:1,createdAt:-1});
+schema.index({userId:1,createdAt:-1});
 export const Notification=mongoose.model('Notification',schema);

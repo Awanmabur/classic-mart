@@ -7,4 +7,5 @@ const schema=new Schema({publicId:{type:String,required:true,unique:true,index:t
 schema.index({country:1,status:1,priority:1,slaDueAt:1});
 schema.index({country:1,queue:1,status:1,slaDueAt:1});
 schema.index({country:1,assignedUserId:1,status:1,slaDueAt:1});
+schema.index({userId:1,createdAt:-1});
 export const SupportTicket=mongoose.model('SupportTicket',schema);

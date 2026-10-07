@@ -17,6 +17,6 @@ if (!/verification|test/i.test(new URL(process.env.CLASSIC_MART_LIVE_TEST_MONGO_
   console.error('The database name must identify an isolated test database.');
   process.exit(1);
 }
-const files = ['identity-live', 'customer-live', 'cart-live', 'gift-card-live', 'customer-browser-live', 'verification-security-live', 'order-filters-live'].map(name => `test/${name}.test.js`);
+const files = ['identity-live', 'customer-live', 'cart-live', 'gift-card-live', 'customer-browser-live', 'verification-security-live', 'order-filters-live','customer-scope-live'].map(name => `test/${name}.test.js`);
 const result = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...files], { stdio: 'inherit', env: process.env });
 process.exit(result.status ?? 1);

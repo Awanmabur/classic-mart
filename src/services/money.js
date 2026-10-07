@@ -42,13 +42,13 @@ export async function postLedgerTransaction({idempotencyKey,referenceType,refere
   return docs[0];
 }
 
-export async function accountBalanceMinor(accountId,session=null){
-  const aggregate=LedgerTransaction.aggregate([{$unwind:'$entries'},{$match:{'entries.accountId':new mongoose.Types.ObjectId(accountId)}},{$group:{_id:null,debits:{$sum:'$entries.debitMinor'},credits:{$sum:'$entries.creditMinor'}}}]);
+export async function accountBalanceMinor(accountId,session=null,knownAccountType=null){
+  const aggregate=LedgerTransaction.aggregate([{$match:{'entries.accountId':new mongoose.Types.ObjectId(accountId)}},{$unwind:'$entries'},{$match:{'entries.accountId':new mongoose.Types.ObjectId(accountId)}},{$group:{_id:null,debits:{$sum:'$entries.debitMinor'},credits:{$sum:'$entries.creditMinor'}}}]);
   if(session)aggregate.session(session);
   const rows=await aggregate;
-  const account=await LedgerAccount.findById(accountId).session(session).lean(); if(!account)return 0;
+  const accountType=knownAccountType || (await LedgerAccount.findById(accountId).select('type').session(session).lean())?.type; if(!accountType)return 0;
   const d=rows[0]?.debits||0,c=rows[0]?.credits||0;
-  return ['asset','expense'].includes(account.type)?d-c:c-d;
+  return ['asset','expense'].includes(accountType)?d-c:c-d;
 }
 
 export async function moneySummary({ownerType,ownerPublicId,country,currency}){

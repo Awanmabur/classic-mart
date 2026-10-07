@@ -7,5 +7,6 @@ const ledgerTransactionSchema=new Schema({
   description:{type:String,required:true,maxlength:260}, entries:{type:[entrySchema],required:true,validate:{validator(entries){if(entries.length<2)return false;const d=entries.reduce((s,e)=>s+e.debitMinor,0);const c=entries.reduce((s,e)=>s+e.creditMinor,0);return d>0&&d===c&&entries.every(e=>(e.debitMinor===0)!==(e.creditMinor===0));},message:'Ledger transaction must contain balanced one-sided entries.'}},
   postedAt:{type:Date,default:Date.now,immutable:true}
 },{timestamps:{createdAt:true,updatedAt:false}});
+ledgerTransactionSchema.index({ 'entries.accountId': 1, postedAt: -1 });
 for(const op of ['updateOne','updateMany','findOneAndUpdate','replaceOne','deleteOne','deleteMany']) ledgerTransactionSchema.pre(op,function(){throw new Error('Ledger transactions are immutable.');});
 export const LedgerTransaction=mongoose.model('LedgerTransaction',ledgerTransactionSchema);
