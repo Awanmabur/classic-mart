@@ -36,15 +36,28 @@ access in the SMTP message renderer, bounds connection timeouts, and hides raw
 provider failures from user-facing messages. The local tests verify that a server
 without STARTTLS cannot receive credentials or messages.
 
-## eSMS Africa: integration awaiting the documented API contract
+## eSMS Africa
 
-This checkpoint still supports Twilio and development log delivery; it does not
-claim eSMS Africa support. An eSMS Africa key is not a Twilio authentication token.
-Before implementing the provider adapter, supply its official API documentation
-URL or credential-free request and success/error response examples. The provider
-endpoint, authentication format, phone-number requirements, sender ID and response
-contract must be known. An HTTP success alone must not be treated as accepted SMS
-if the provider reports an error in its body.
+The adapter follows the provider's published [SDK source](https://github.com/eSMS-Africa/esms-sdk-node)
+and [registry documentation](https://www.npmjs.com/package/esms-sms).
+It posts JSON to `https://sms.esmsafrica.io/api/messages/send` with bearer authentication.
+
+```dotenv
+SMS_MODE=esms
+ESMS_API_KEY=<your live key from Developers → API Keys>
+# Optional approved sender ID; leave empty to use the provider route default.
+ESMS_SENDER_ID=
+```
+
+Production requires a live key (`esms_live_…`), never a test key. Keep keys in your
+private environment settings, never Git or chat. Recipients must use international
+format, such as `+256700000000`. Routing is detected by the provider.
+
+`npm run sms:verify` checks authentication and available credit using GET `/balance`;
+it sends no SMS. Then exercise signup with your own phone to confirm real receipt.
+A queued/submitted message is accepted, not confirmed delivered. Failed, scheduled,
+unknown or malformed responses invalidate the verification token. Requests have a
+10-second timeout, prohibit redirects and do not automatically retry billed sends.
 
 Do not use SIMPLE_LOGIN=true or development SMS log delivery to bypass phone
 verification in production. The first phone-verification screen now explicitly
@@ -58,9 +71,10 @@ phoneVerifiedAt. Existing CSRF, session and resend/IP rate limits remain in plac
 
 ## Local verification result
 
-All 349 repository tests pass, with zero skipped tests, when the local replica-set
+All 353 repository tests pass, with zero skipped tests, when the local replica-set
 verification database, development servers and Chromium are configured. That
 includes a real local SMTP downgrade rejection test and concurrent MongoDB code
 claims/guess limits. Gmail provider tests use an isolated transport fixture; the
 workspace has no Gmail credentials, so live Gmail authentication or delivery has
-not been verified. eSMS Africa delivery has not been tested or implemented yet.
+not been verified. The eSMS adapter has additional protocol/security fixture tests. Actual eSMS delivery
+requires the private account key, which is absent from this workspace.

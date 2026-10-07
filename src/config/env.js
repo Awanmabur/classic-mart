@@ -76,8 +76,10 @@ if (nodeEnv === 'production') {
       'Production requires SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM with MAIL_MODE=smtp.',
     );
   }
-  if (!simpleLoginMode && (process.env.SMS_MODE !== 'twilio' || !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_FROM)) {
-    throw new Error('Production requires SMS_MODE=twilio with TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM for phone verification.');
+  const smsConfigured = (process.env.SMS_MODE === 'esms' && process.env.ESMS_API_KEY?.startsWith('esms_live_')) ||
+    (process.env.SMS_MODE === 'twilio' && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM);
+  if (!smsConfigured) {
+    throw new Error('Production requires SMS_MODE=esms with a live ESMS_API_KEY, or configured Twilio, for phone verification.');
   }
   if (!['clamd', 'clamscan'].includes(process.env.MALWARE_SCAN_MODE || '')) {
     throw new Error('Production requires MALWARE_SCAN_MODE=clamd or clamscan for untrusted uploads.');
@@ -246,6 +248,8 @@ export const env = Object.freeze({
   }),
   sms: Object.freeze({
     mode: process.env.SMS_MODE || 'log',
+    esmsApiKey: process.env.ESMS_API_KEY || '',
+    esmsSenderId: process.env.ESMS_SENDER_ID || '',
     accountSid: process.env.TWILIO_ACCOUNT_SID || '',
     authToken: process.env.TWILIO_AUTH_TOKEN || '',
     from: process.env.TWILIO_FROM || '',

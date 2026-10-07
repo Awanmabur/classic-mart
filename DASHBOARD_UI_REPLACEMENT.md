@@ -112,6 +112,18 @@ not certify production integrations or the untested complete commerce lifecycle.
 Gmail configuration and a no-send SMTP verification command are documented in
 [docs/GMAIL_AND_SMS_SETUP.md](docs/GMAIL_AND_SMS_SETUP.md). SMTP now requires
 verified TLS. Verification-code consumption and failed-guess accounting are
-atomic; failed deliveries invalidate their issued codes. eSMS Africa has been
-requested as the SMS provider, but its adapter awaits the official API contract.
-No eSMS Africa integration or live Gmail delivery is claimed as verified here.
+atomic; failed deliveries invalidate their issued codes. eSMS Africa now has a documented provider adapter.
+Live eSMS receipt and Gmail authentication remain unverified without account credentials.
+
+### eSMS Africa adapter
+
+Implemented from the provider SDK contract: bearer-authenticated HTTPS sending,
+strict response validation, timeout and redirect protection, optional approved
+sender ID, and a no-send balance/authentication check (`npm run sms:verify`).
+Production accepts a live eSMS key or configured Twilio. See
+[configuration instructions](docs/GMAIL_AND_SMS_SETUP.md). No live provider credentials
+are present here, so actual SMS receipt and Gmail authentication remain unverified.
+
+Adapter checkpoint validation: all 353 tests passed with zero failures or skips
+using the local MongoDB replica set, both authentication servers, and Chromium.
+Project checks, security checks, and frontend audit passed.

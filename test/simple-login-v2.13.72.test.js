@@ -53,6 +53,8 @@ test('signup does not force OTP or onboarding while simple login mode is enabled
 
 test('production retains required OTP and privileged MFA configuration checks',()=>{
   const env=read('src/config/env.js');
-  assert.match(env,/if \(!simpleLoginMode && \(process\.env\.SMS_MODE/);
+  assert.match(env,/if \(!smsConfigured\)/);
+  assert.match(env,/SMS_MODE === 'esms' && process\.env\.ESMS_API_KEY\?\.startsWith\('esms_live_'\)/);
+  assert.match(env,/SMS_MODE === 'twilio' && process\.env\.TWILIO_ACCOUNT_SID/);
   assert.match(env,/if \(!simpleLoginMode && !boolean\(process\.env\.PRIVILEGED_MFA_REQUIRED, true\)\)/);
 });
