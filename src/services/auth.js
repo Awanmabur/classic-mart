@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { env } from '../config/env.js';
+import { canonicalPhone } from '../core/phone.js';
 import { AppError } from '../core/errors.js';
 import {
   hashPassword,
@@ -93,7 +94,7 @@ async function issueCode({ user, purpose, ip }) {
 export async function registerUser(input, request) {
   assertStrongPassword(input.password);
   const emailNormalized = normalizeEmail(input.email);
-  const phoneNormalized = normalizePhone(input.phone);
+  const phoneNormalized = canonicalPhone(input.phone);
   if (!emailNormalized || !phoneNormalized) {
     throw new AppError(
       'Email and phone number are required.',
@@ -121,7 +122,7 @@ export async function registerUser(input, request) {
       name: input.name,
       email: input.email.trim(),
       emailNormalized,
-      phone: input.phone.trim(),
+      phone: phoneNormalized,
       phoneNormalized,
       passwordHash,
       role: 'customer',

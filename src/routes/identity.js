@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { randomToken } from '../core/crypto.js';
+import { canonicalPhone } from '../core/phone.js';
 import { Device, Order, User } from '../models/index.js';
 import {
   authenticate,
@@ -227,15 +228,8 @@ router.post(
       if (input.phoneCountry) {
         const country = response.locals.phoneCountries.find(row => row.code === input.phoneCountry);
         if (!country || !/^\+[1-9]\d{0,3}$/.test(country.phonePrefix || '')) throw new AppError('Select a valid phone country code.', 422, 'INVALID_PHONE_COUNTRY');
-        const digits = input.phone.replace(/[\s()-]/g, '');
-        if (digits.startsWith('+')) {
-          if (!digits.startsWith(country.phonePrefix)) throw new AppError('Phone number does not match the selected country code.', 422, 'INVALID_PHONE');
-          input.phone = digits;
-        } else {
-          input.phone = country.phonePrefix + digits.replace(/^0/, '');
-        }
       }
-      if (!/^\+[1-9]\d{7,14}$/.test(input.phone)) throw new AppError('Enter a valid international phone number.', 422, 'INVALID_PHONE');
+      input.phone = canonicalPhone(input.phone, input.phoneCountry);
       const { user, developmentCode } = await registerUser(input, request);
       if (input.referralCode) {
         try { await acceptReferralCode(input.referralCode, user); }

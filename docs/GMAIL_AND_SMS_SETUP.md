@@ -107,3 +107,14 @@ verification. Resend buttons remain secondary actions, while verify buttons rema
 primary actions; account switching has a consistent text-button style. All three
 have visible keyboard focus, and secondary/account-switch targets are at least
 44px high. Mobile browser checks verified both pages after real local signup.
+
+## Phone lengths
+
+Signup and profile changes share libphonenumber country-specific possible-length
+validation and international normalization. National input uses the selected
+country's trunk-prefix rules; international input must match the selected country.
+The maximum international number length is 15 digits, but the country's valid
+possible lengths are enforced before storage. Different countries and number
+types may legitimately have different lengths. Formatting/length checks cannot
+prove that a number is assigned, reachable, or owned by the user; SMS verification
+still performs the ownership check.

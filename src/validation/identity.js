@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { canonicalPhone } from '../core/phone.js';
 
 const trimmed = (minimum, maximum) =>
   z.string().trim().min(minimum).max(maximum);
@@ -72,12 +73,10 @@ export const onboardingSchema = z.object({
 
 export const profileSchema = z.object({
   name: trimmed(2, 120),
-  phone: z
-    .string()
-    .trim()
-    .min(8)
-    .max(30)
-    .regex(/^\+?[\d\s()-]+$/),
+  phone: z.string().trim().max(30).transform((value, ctx) => {
+    try { return canonicalPhone(value); }
+    catch (error) { ctx.addIssue({ code: 'custom', message: error.message }); return z.NEVER; }
+  }),
   country: z.string().trim().length(2).toUpperCase(),
   currency: z.string().trim().length(3).toUpperCase(),
   locale: z.string().trim().min(2).max(15),
