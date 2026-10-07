@@ -1,0 +1,45 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { chromium } from '@playwright/test';
+
+const base = process.env.CLASSIC_MART_LIVE_BASE_URL;
+test('live approved customer UI supports signup, address submission, mobile navigation and logout in Chromium', {skip:!base}, async () => {
+  assert.equal(new URL(base).hostname,'127.0.0.1');
+  const browser = await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined,args:['--no-sandbox']});
+  try {
+    const page = await browser.newPage({viewport:{width:1440,height:1000}});
+    const errors = [];
+    page.on('pageerror',error=>errors.push(error.message));
+    const suffix = crypto.randomBytes(6).toString('hex');
+    await page.goto(base+'/signup');
+    for (const [name,value] of Object.entries({name:'Browser Customer',email:`browser-${suffix}@example.com`,phone:'+2567'+crypto.randomInt(10000000,99999999),password:`Browser-${suffix}A1!`,confirmPassword:`Browser-${suffix}A1!`})) await page.locator(`[name="${name}"]`).fill(value);
+    await page.locator('[name="acceptTerms"]').check();
+    await page.locator('button[type="submit"]').click();
+    await page.waitForURL('**/dashboard/dashboard');
+    assert.equal(await page.locator('#roleSwitcher').count(),0);
+    assert.equal(await page.locator('#workspaceLabel').innerText(),'Customer Dashboard');
+    assert.ok(await page.locator('#workspaceLabel .workspace-name').isVisible());
+    await page.locator('.side-link[data-page-target="addresses"]').click();
+    await page.waitForURL('**/dashboard/addresses*');
+    for (const [name,value] of Object.entries({fullName:'Browser Customer',phone:'+256700000003',address:'Browser verified address',city:'Kampala',label:'Home'})) await page.locator(`#addressForm [name="${name}"]`).fill(value);
+    await page.locator('#addressForm button[type="submit"]').click();
+    await page.waitForURL('**/dashboard/addresses*');
+    await page.locator('[data-address-id]').first().waitFor();
+    assert.match(await page.locator('[data-address-id]').first().innerText(),/Browser verified address/);
+    await page.reload();
+    assert.match(await page.locator('[data-address-id]').first().innerText(),/Browser verified address/);
+    await page.setViewportSize({width:390,height:844});
+    await page.locator('#mobileMenuBtn').click();
+    assert.equal(await page.locator('#sidebarOverlay').evaluate(el=>el.classList.contains('show')),true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#sidebar').evaluate(el=>el.classList.contains('open')),false);
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2));
+    await page.locator('#mobileMenuBtn').click();
+    await page.locator('.logout-button').click();
+    await page.waitForURL('**/login');
+    await page.goto(base+'/dashboard/dashboard');
+    assert.match(page.url(),/\/login/);
+    assert.deepEqual(errors,[]);
+  } finally { await browser.close(); }
+});

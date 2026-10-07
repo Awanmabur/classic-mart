@@ -6,8 +6,8 @@ import test from 'node:test';
 const root=path.resolve(import.meta.dirname,'..');
 const read=(p)=>fs.readFileSync(path.join(root,p),'utf8');
 
-const shell=read('views/customer-dashboard.ejs');
-const customer=read('views/partials/dashboard-customer.ejs');
+const shell=read('views/approved-dashboard.ejs');
+const customer=read('views/partials/customer-live-pages.ejs');
 
 const spriteIds=[
   'i-cart','i-search','i-dashboard','i-grid','i-heart','i-bell','i-bag','i-clipboard','i-pin','i-award','i-wallet','i-refresh','i-support','i-user','i-logout','i-crown','i-star','i-sparkles','i-tag','i-card','i-phone','i-chevron-down','i-chevron-right','i-arrow-right','i-menu','i-close','i-plus','i-minus','i-trash','i-edit','i-check','i-truck','i-box','i-clock','i-filter','i-download','i-shield','i-message','i-eye','i-home'
@@ -24,11 +24,10 @@ test('Customer shell preserves the Final 19 shell hierarchy and complete icon sp
   assert.doesNotMatch(shell,/class=["']main-content["']/);
 });
 
-test('Customer shell preserves the native Final 19 workspace pill and profile control',()=>{
-  assert.match(shell,/class=["']workspace-switcher["'][^>]*id=["']workspaceSwitcher["']/);
-  assert.match(shell,/id=["']roleSwitcher["']/);
+test('Customer shell preserves the approved workspace pill as a static label and profile control',()=>{
+  assert.match(shell,/class=["']workspace-switcher["'][^>]*id=["']workspaceLabel["']/);
+  assert.doesNotMatch(shell,/id=["']roleSwitcher["']/);
   assert.match(shell,/>Customer Dashboard</);
-  assert.match(shell,/class=["']workspace-switcher-chevron["']/);
   assert.match(shell,/id=["']profileButton["'][\s\S]*?#i-chevron-down/);
 });
 
@@ -107,7 +106,7 @@ test('Customer pages retain the distinctive Final 19 visual structures instead o
 
 
 test('Final 19 address edit control uses the real owned update route',()=>{
-  const runtime=read('public/dashboard/customer.js');
+  const runtime=read('public/approved-dashboard/customer-live.js');
   assert.match(customer,/data-address-edit/);
   assert.match(customer,/id=["']addressForm["']/);
   assert.match(runtime,/addressForm/);
@@ -116,14 +115,14 @@ test('Final 19 address edit control uses the real owned update route',()=>{
 });
 
 test('Final 19 cart presentation keeps real clear-cart and promotion controls',()=>{
-  const runtime=read('public/dashboard/customer.js');
+  const runtime=read('public/approved-dashboard/customer-live.js');
   for(const token of ['coupon-row','delivery-note','wallet-use','data-cart-clear','data-cart-promo']) assert.match(customer,new RegExp(token));
   assert.match(runtime,/api\/v1\/cart['"]?/);
   assert.match(runtime,/api\/v1\/cart\/promotions/);
 });
 
 test('Final 19 wallet controls are wired to real Customer behavior',()=>{
-  const runtime=read('public/dashboard/customer.js');
+  const runtime=read('public/approved-dashboard/customer-live.js');
   const route=read('src/routes/dashboard.js');
   assert.match(customer,/\/dashboard\/wallet\/statement\.csv/);
   assert.match(route,/router\.get\('\/dashboard\/wallet\/statement\.csv'/);
@@ -133,7 +132,7 @@ test('Final 19 wallet controls are wired to real Customer behavior',()=>{
 });
 
 test('Final 19 mobile sidebar and profile controls remain operable without demo runtime',()=>{
-  const runtime=read('public/dashboard/customer.js');
+  const runtime=read('public/approved-dashboard/customer-live.js');
   assert.match(runtime,/sidebarOverlay/);
   assert.match(runtime,/classList\.remove\(['"]open['"]\)/);
   assert.doesNotMatch(shell,/id=["']profileMenu["'][^>]*\shidden(?:\s|>)/);

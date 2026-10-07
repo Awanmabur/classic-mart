@@ -213,8 +213,26 @@ export async function applyGrowthForPaidOrder(order,session){
   if(setting.growth?.referralEnabled){const referral=await Referral.findOne({referredUserId:order.userId,status:'pending'}).session(session);if(referral){const previous=await Order.countDocuments({userId:order.userId,status:{$in:['paid','confirmed','fulfilled','partially_refunded','refunded']},_id:{$ne:order._id}}).session(session);if(previous===0){const reward=Number(setting.growth.referralRewardPoints||100);referral.status='rewarded';referral.qualifiedOrderPublicId=order.publicId;referral.qualifiedAt=new Date();referral.rewardedAt=new Date();referral.referrerRewardPoints=reward;referral.referredRewardPoints=reward;await referral.save({session});await addLoyaltyPoints({userId:referral.referrerUserId,country:order.country,points:reward,idempotencyKey:`referral:${referral.publicId}:referrer`,type:'referral_earn',referenceType:'referral',referencePublicId:referral.publicId,reason:'Qualified referral reward'},session);await addLoyaltyPoints({userId:order.userId,country:order.country,points:reward,idempotencyKey:`referral:${referral.publicId}:referred`,type:'referral_earn',referenceType:'referral',referencePublicId:referral.publicId,reason:'Welcome referral reward'},session);}}}
 }
 export async function redeemGiftCard({user,code}){
-  const card=await GiftCard.findOne({codeHash:hashToken(String(code||'').trim())}).select('+codeHash');if(!card||card.status!=='active')throw new AppError('Gift card is invalid or no longer active.',404,'GIFT_CARD_INVALID');if(card.country!==user.country)throw new AppError('Gift card belongs to another country.',409,'GIFT_CARD_COUNTRY');if(card.expiresAt&&card.expiresAt<=new Date()){card.status='expired';await card.save();throw new AppError('Gift card has expired.',409,'GIFT_CARD_EXPIRED');}
-  const setting=await CountrySetting.findOne({code:user.country}).lean();if(!setting?.growth?.giftCardsEnabled)throw new AppError('Gift cards are not enabled in this country.',409,'GIFT_CARDS_DISABLED');const divisor=1000;const rate=Math.max(1,Number(setting?.growth?.loyaltyPointsPer1000Minor||1));const points=Math.max(1,Math.floor(card.balanceMinor/divisor)*rate);await addLoyaltyPoints({userId:user._id,country:user.country,points,idempotencyKey:`gift:${card.publicId}`,type:'gift_card_redeem',referenceType:'gift_card',referencePublicId:card.publicId,reason:`Gift card value ${card.balanceMinor} ${card.currency}`});card.balanceMinor=0;card.status='redeemed';card.redeemedByUserId=user._id;card.redeemedAt=new Date();await card.save();return {card,points};
+  const session = await mongoose.startSession();
+  try {
+    return await session.withTransaction(async () => {
+      const card = await GiftCard.findOne({codeHash:hashToken(String(code||'').trim())}).select('+codeHash').session(session);
+      if(!card||card.status!=='active')throw new AppError('Gift card is invalid or no longer active.',404,'GIFT_CARD_INVALID');
+      if(card.country!==user.country)throw new AppError('Gift card belongs to another country.',409,'GIFT_CARD_COUNTRY');
+      if(card.expiresAt&&card.expiresAt<=new Date())throw new AppError('Gift card has expired.',409,'GIFT_CARD_EXPIRED');
+      const setting = await CountrySetting.findOne({code:user.country}).session(session).lean();
+      if(!setting?.growth?.giftCardsEnabled)throw new AppError('Gift cards are not enabled in this country.',409,'GIFT_CARDS_DISABLED');
+      const rate = Math.max(1,Number(setting.growth.loyaltyPointsPer1000Minor||1));
+      const points = Math.max(1,Math.floor(card.balanceMinor/1000)*rate);
+      const value = card.balanceMinor;
+      // Claim the card and credit points in the same transaction. Concurrent claims
+      // retry against the committed status, and any credit failure rolls back both.
+      card.balanceMinor=0;card.status='redeemed';card.redeemedByUserId=user._id;card.redeemedAt=new Date();
+      await card.save({session});
+      await addLoyaltyPoints({userId:user._id,country:user.country,points,idempotencyKey:`gift:${card.publicId}`,type:'gift_card_redeem',referenceType:'gift_card',referencePublicId:card.publicId,reason:`Gift card value ${value} ${card.currency}`},session);
+      return {card,points};
+    });
+  } finally { await session.endSession(); }
 }
 
 export async function queueConsentCampaign(campaign,actor,{ignoreSchedule=false}={}){

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { dashboardLanding } from '../dashboard/landing.js';
 import { z } from 'zod';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { normalizePhone } from '../core/crypto.js';
@@ -32,7 +33,7 @@ router.use(
 router.get(
   '/onboarding',
   asyncHandler(async (request, response) => {
-    if (request.user.onboardingCompletedAt) return response.redirect('/');
+    if (request.user.onboardingCompletedAt) return response.redirect(dashboardLanding(request.user));
     response.render('onboarding', {
       pageError: null,
       values: { role: request.query.role || 'customer' },
@@ -67,7 +68,7 @@ router.post(
         targetPublicId: request.user.publicId,
         metadata: { role: input.role },
       });
-      return response.redirect('/');
+      return response.redirect(dashboardLanding(request.user));
     } catch (error) {
       return response.status(error.status || 422).render('onboarding', {
         pageError: error.message,
@@ -262,7 +263,7 @@ router.post(
         );
       }
       const country = await getCountry(input.country);
-      const phoneChanged = phoneNormalized !== request.user.phoneNormalized;
+      const phoneChanged = phoneNormalized !== normalizePhone(request.user.phone);
       request.user.name = input.name;
       request.user.phone = input.phone;
       request.user.phoneNormalized = phoneNormalized;

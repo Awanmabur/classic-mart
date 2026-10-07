@@ -57,7 +57,10 @@ function validEncryptionKey(value) {
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development';
-const simpleLoginMode = boolean(process.env.SIMPLE_LOGIN, true);
+if (nodeEnv === 'production' && boolean(process.env.SIMPLE_LOGIN, false)) {
+  throw new Error('SIMPLE_LOGIN cannot bypass verification or MFA in production.');
+}
+const simpleLoginMode = nodeEnv !== 'production' && boolean(process.env.SIMPLE_LOGIN, false);
 const mediaStorageDriver = String(process.env.MEDIA_STORAGE_DRIVER || (nodeEnv === 'production' ? '' : 'filesystem')).trim().toLowerCase();
 const storagePersistence = String(process.env.STORAGE_PERSISTENCE || '').trim().toLowerCase();
 const persistentStorageRoot = String(process.env.PERSISTENT_STORAGE_ROOT || '').trim();

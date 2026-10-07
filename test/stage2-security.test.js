@@ -15,7 +15,8 @@ const {
   SellerVerification,
   StockItem,
 } = await import('../src/models/index.js');
-const { resolveUploadPath } = await import('../src/services/media.js');
+const { normalizeMediaStorageKey } = await import('../src/services/object-storage.js');
+const { sanitizeAndStoreProductImage } = await import('../src/services/media.js');
 const app = createApp(null);
 
 function hasUniqueIndex(model, expectedKeys) {
@@ -29,13 +30,13 @@ function hasUniqueIndex(model, expectedKeys) {
 
 test('seller and moderation routes are protected on the server', async () => {
   await request(app)
-    .get('/seller/products')
+    .get('/seller')
     .expect(302)
-    .expect('location', '/login?next=%2Fseller%2Fproducts');
+    .expect('location', '/login?next=%2Fseller');
   await request(app)
-    .get('/moderation/products')
+    .get('/moderation')
     .expect(302)
-    .expect('location', '/login?next=%2Fmoderation%2Fproducts');
+    .expect('location', '/login?next=%2Fmoderation');
 });
 
 test('ownership-critical collections enforce scoped uniqueness', () => {
@@ -59,23 +60,8 @@ test('sensitive and storage fields are excluded by default', () => {
   );
 });
 
-test('media path resolver rejects traversal and non-WebP storage keys', () => {
-  assert.throws(
-    () => resolveUploadPath('../private.env'),
-    /media not found/i,
-  );
-  assert.throws(
-    () => resolveUploadPath('prd_123/payload.svg'),
-    /media not found/i,
-  );
-  assert.match(
-    resolveUploadPath(
-      'prd_123/123e4567-e89b-12d3-a456-426614174000.webp',
-    ),
-    /storage[\\/]uploads/,
-  );
-  assert.match(
-    resolveUploadPath('prd_seed_headphones/seed.webp'),
-    /storage[\\/]uploads/,
-  );
+test('active media storage normalization rejects traversal and image sanitization rejects SVG payloads', async () => {
+  for(const key of ['../private.env','prd/../private.env','prd\\..\\private.env','prd/%2e%2e/private.env']) assert.throws(()=>normalizeMediaStorageKey(key),/Invalid media storage key/);
+  assert.equal(normalizeMediaStorageKey('prd_123/123e4567-e89b-12d3-a456-426614174000.webp'),'prd_123/123e4567-e89b-12d3-a456-426614174000.webp');
+  await assert.rejects(sanitizeAndStoreProductImage({file:{buffer:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="400" height="400"/></svg>')},product:{publicId:'prd_test'},altText:'Unsafe SVG',position:0}),error=>['MEDIA_INVALID','MEDIA_TYPE_INVALID','MEDIA_DIMENSIONS_INVALID'].includes(error.code));
 });

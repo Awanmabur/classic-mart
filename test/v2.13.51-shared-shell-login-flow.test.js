@@ -63,14 +63,14 @@ test('view locals expose the current request path for account return navigation'
   assert.match(viewLocals, /currentPath:\s*request\.originalUrl/);
 });
 
-test('direct sign-in returns to the marketplace while protected routes keep their requested destination', () => {
+test('direct sign-in uses the assigned dashboard while protected routes keep safe requested destinations', () => {
   const identity = read('src/routes/identity.js');
   assert.match(identity, /function safeNext\([\s\S]*?:\s*'\/'\s*;/);
   const loginStart = identity.indexOf("router.get('/login'");
   const loginEnd = identity.indexOf('router.post(', loginStart);
   const loginRoute = identity.slice(loginStart, loginEnd);
   assert.match(loginRoute, /safeNext\(request\.query\.next\)/);
-  assert.match(loginRoute, /if \(request\.user\) return response\.redirect\(safeNext\(request\.query\.next\)\)/);
+  assert.match(loginRoute, /if \(request\.user\) return response\.redirect\(loginDestination\(request\.user, request\.query\.next\)\)/);
   assert.doesNotMatch(loginRoute, /redirect\('\/dashboard'\)/);
 
   const auth = read('src/middleware/auth.js');

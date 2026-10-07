@@ -18,11 +18,11 @@ const cases = {
   customer: 'dashboard', seller: 'seller-overview', promoter: 'promoter-overview',
   country_admin: 'admin-overview', super_admin: 'super-overview', finance: 'finance-overview',
   support: 'support-overview', warehouse: 'warehouse-overview', moderator: 'moderator-overview',
-  business: 'business-overview', delivery: 'warehouse-overview',
+  business: 'business-overview', delivery: 'dashboard',
 };
 
 test('approved stylesheet, scripts, and images match the supplied preview exactly', () => {
-  for (const name of ['styles.css', 'design-system.css', 'role-workspaces.css', 'script.js', 'role-workspaces.js', 'enhancements.js', ...fs.readdirSync(path.join(root, 'dashboard-preview/final19/assets')).map(name => 'assets/' + name)]) {
+  for (const name of ['styles.css', 'design-system.css', 'role-workspaces.css', 'script.js', 'enhancements.js', ...fs.readdirSync(path.join(root, 'dashboard-preview/final19/assets')).map(name => 'assets/' + name)]) {
     assert.deepEqual(fs.readFileSync(path.join(root, 'public/approved-dashboard', name)), fs.readFileSync(path.join(root, 'dashboard-preview/final19', name)), name);
   }
 });
@@ -62,21 +62,63 @@ test('real login/session routes land every role in the approved UI; unauthorized
     const login = await agent.get('/login').expect(200);
     const csrf = login.text.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
     await agent.post('/login').type('form').send({ email: actor.email, password, _csrf: csrf }).expect(302).expect('location', '/dashboard/' + page);
-    const dashboard = await agent.get('/dashboard/' + page).expect(200);
-    assert.match(dashboard.text, /\/approved-dashboard\/styles.css/);
-    assert.match(dashboard.text, new RegExp('data-dashboard-page="' + page + '"'));
-    assert.doesNotMatch(dashboard.text, /\/dashboard\/runtime.js|platform-bridge.js|dashboard\.css/);
-    if (role === 'customer') {
+    if (role === 'customer' || role === 'delivery') {
+      await agent.get('/signup').expect(302).expect('location', '/dashboard/dashboard');
       await agent.get('/dashboard/seller-overview').expect(403);
       await agent.get('/dashboard/super-overview').expect(403);
+      await agent.get('/dashboard/warehouse-overview').expect(403);
       await agent.get('/dashboard/unknown').expect(404);
-      await agent.post('/logout').type('form').send({ _csrf: dashboard.text.match(/name="csrf-token" content="([^"]+)"/)[1] }).expect(302);
-      await agent.get('/dashboard/dashboard').expect(302);
+    } else {
+      const dashboard = await agent.get('/dashboard/' + page).expect(200);
+      assert.match(dashboard.text, /\/approved-dashboard\/styles.css/);
+      assert.match(dashboard.text, new RegExp('data-dashboard-page="' + page + '"'));
+      assert.equal(dashboard.headers['x-robots-tag'], 'noindex, nofollow, noarchive');
+      assert.doesNotMatch(dashboard.text, /\/dashboard\/runtime.js|platform-bridge.js|dashboard\.css/);
     }
     if (role === 'super_admin') {
-      for (const rows of Object.values(DASHBOARD_PAGES)) {
+      for (const [workspace, rows] of Object.entries(DASHBOARD_PAGES)) {
+        if (workspace === 'customer') continue;
         for (const [id] of rows) await agent.get('/dashboard/' + id).expect(200);
       }
     }
   }
+});
+
+test('signup assigns customer on the server, starts a session and opens its dashboard', async t => {
+  let actor;
+  let duplicate = false;
+  t.mock.method(User, 'exists', async () => duplicate);
+  t.mock.method(User, 'create', async data => {
+    assert.equal(data.role, 'customer');
+    assert.notEqual(data.passwordHash, 'Dashboard-test-password-2026!');
+    actor = new User(data);
+    actor.save = async () => actor;
+    return actor;
+  });
+  t.mock.method(User, 'findById', () => ({ select: async () => actor }));
+  t.mock.method(Device, 'create', async () => ({}));
+  t.mock.method(Device, 'findOne', async () => ({ save: async () => {} }));
+  t.mock.method(AuditLog, 'create', async () => ({}));
+  const signupApp = createApp(null);
+  signupApp.set('trust proxy', 1);
+  const agent = request.agent(signupApp);
+  const signup = await agent.get('/signup').expect(200);
+  const csrf = signup.text.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
+  const values = { name: 'New Customer', email: 'new@example.com', phone: '+256700123456', password: 'Dashboard-test-password-2026!', confirmPassword: 'Dashboard-test-password-2026!', acceptTerms: 'on', role: 'super_admin', _csrf: csrf };
+  await agent.post('/signup').set('X-Forwarded-For', '192.0.2.50').type('form').send(values).expect(302).expect('location', '/dashboard/dashboard');
+  await agent.get('/signup').expect(302).expect('location', '/dashboard/dashboard');
+  await agent.get('/dashboard/super-overview').expect(403);
+  const guest = request.agent(signupApp);
+  const form = await guest.get('/signup').expect(200);
+  const token = form.text.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
+  duplicate = true;
+  await guest.post('/signup').set('X-Forwarded-For', '192.0.2.51').type('form').send({ ...values, _csrf: token }).expect(409);
+  await guest.post('/signup').set('X-Forwarded-For', '192.0.2.51').type('form').send({ ...values, password: 'weak', _csrf: token }).expect(422);
+});
+
+test('application runtime has no role-selection control or handler', () => {
+  const source = fs.readFileSync(path.join(root, 'public/approved-dashboard/role-workspaces.js'), 'utf8');
+  const controls = fs.readFileSync(path.join(root, 'public/approved-dashboard/session-controls.js'), 'utf8');
+  assert.doesNotMatch(source + controls, /roleSwitcher|buildRoleSwitcher/);
+  assert.match(source, /workspaceName\.textContent/);
 });

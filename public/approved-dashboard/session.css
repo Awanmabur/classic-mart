@@ -1,0 +1,19 @@
+#workspaceLabel > .workspace-name {
+  display: block !important;
+  position: static;
+  color: var(--navy);
+  text-transform: none;
+  letter-spacing: normal;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+#workspaceLabel { cursor: default; }
+#workspaceLabel > svg { flex-shrink: 0; }
+
+.dashboard-message { padding: 16px 20px; margin-bottom: 18px; border-left: 4px solid var(--orange); }
+.dashboard-message-error { border-left-color: #d82939; }
+[data-notification-type][hidden] { display: none; }

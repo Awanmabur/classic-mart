@@ -3,17 +3,6 @@
   const allowed = JSON.parse(document.body.dataset.dashboardAllowed);
   const initialPage = document.body.dataset.dashboardPage;
   const roleDashboard = window.ClassicRoleDashboard;
-  const switcher = document.getElementById('roleSwitcher');
-  if (switcher) {
-    for (const option of Array.from(switcher.options)) {
-      if (!allowed.includes(option.value)) option.remove();
-    }
-    switcher.addEventListener('change', event => {
-      event.stopImmediatePropagation();
-      if (!allowed.includes(switcher.value)) return;
-      location.assign('/dashboard/' + encodeURIComponent(roleDashboard.getDefaultPage(switcher.value)));
-    }, true);
-  }
   // Navigate through authenticated server routes rather than a cross-role preview hash.
   document.addEventListener('click', event => {
     const logout = event.target.closest('[data-action="logout"]');

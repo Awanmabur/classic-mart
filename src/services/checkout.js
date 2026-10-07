@@ -98,49 +98,66 @@ export async function checkoutOptions(request, city = '') {
 }
 
 function sessionKey(request) {
+  if (request.user?._id) {
+    const accountKey = `account:${request.user._id}:${request.country.code}`;
+    if (request.session.cartKey && request.session.cartKey !== accountKey && !request.session.cartKey.startsWith('account:')) request.session.cartMergeKey = request.session.cartKey;
+    request.session.cartKey = accountKey;
+  }
   if (!request.session.cartKey) request.session.cartKey = crypto.randomUUID();
   return request.session.cartKey;
 }
 
 export async function getOrCreateCart(request) {
   const key = sessionKey(request);
-  let cart = await Cart.findOne({ sessionKey: key });
-  if (!cart) {
-    cart = await Cart.create({
-      publicId: publicId('crt'),
-      sessionKey: key,
-      userId: request.user?._id,
-      country: request.country.code,
-      items: [],
-    });
-  } else {
-    let changed = false;
-    if (request.user?._id) {
-      const accountCart = await Cart.findOne(mongoose.trusted({ userId: request.user._id, country: request.country.code, sessionKey: { $ne: key } })).sort({ updatedAt: -1 });
-      if (accountCart) {
-        for (const source of accountCart.items) {
-          const target = cart.items.find(item => item.variantId.equals(source.variantId));
-          if (target) target.quantity = Math.min(99, target.quantity + source.quantity);
-          else cart.items.push({ productId: source.productId, variantId: source.variantId, quantity: source.quantity });
-        }
-        cart.promotionCodes = [...new Set([...(cart.promotionCodes || []), ...(accountCart.promotionCodes || [])])].slice(0, 10);
-        await Cart.deleteOne({ _id: accountCart._id });
-        changed = true;
-      }
-      if (!cart.userId || !cart.userId.equals(request.user._id)) {
-        cart.userId = request.user._id;
-        changed = true;
+  const session = await mongoose.startSession();
+  try {
+    let cart;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        cart = await session.withTransaction(async () => {
+          let current = await Cart.findOne({ sessionKey: key }).session(session);
+          if (current?.userId && (!request.user || !current.userId.equals(request.user._id))) {
+            throw new AppError('This cart belongs to another account.', 403, 'CART_FORBIDDEN');
+          }
+          if (!current) {
+            [current] = await Cart.create([{ publicId: publicId('crt'), sessionKey: key, userId: request.user?._id, country: request.country.code, items: [] }], { session });
+          }
+          let changed = false;
+          if (current.country !== request.country.code) {
+            current.country = request.country.code;
+            current.items = [];
+            current.promotionCodes = [];
+            changed = true;
+          }
+          if (request.user?._id) {
+            const sources = [{ userId: request.user._id }];
+            if (request.session.cartMergeKey) sources.push({ sessionKey: request.session.cartMergeKey, userId: null });
+            const accountCarts = await Cart.find(mongoose.trusted({ $or: sources, country: request.country.code, sessionKey: { $ne: key } })).session(session);
+            for (const sourceCart of accountCarts) {
+              for (const source of sourceCart.items) {
+                const target = current.items.find(item => item.variantId.equals(source.variantId));
+                if (target) target.quantity = Math.min(99, target.quantity + source.quantity);
+                else current.items.push({ productId: source.productId, variantId: source.variantId, quantity: source.quantity });
+              }
+              current.promotionCodes = [...new Set([...(current.promotionCodes || []), ...(sourceCart.promotionCodes || [])])].slice(0, 10);
+              changed = true;
+            }
+            if (!current.userId) { current.userId = request.user._id; changed = true; }
+            if (changed) await current.save({ session });
+            // Saving the merged cart and deleting its sources must commit together.
+            if (accountCarts.length) await Cart.deleteMany({ _id: { $in: accountCarts.map(source => source._id) } }).session(session);
+          } else if (changed) await current.save({ session });
+          return current;
+        });
+        break;
+      } catch (error) {
+        if (error.code !== 11000 || !error.keyPattern?.sessionKey || attempt === 2) throw error;
       }
     }
-    if (cart.country !== request.country.code) {
-      cart.country = request.country.code;
-      cart.items = [];
-      cart.promotionCodes = [];
-      changed = true;
-    }
-    if (changed) await cart.save();
-  }
-  return cart;
+    cart.$session(null);
+    delete request.session.cartMergeKey;
+    return cart;
+  } finally { await session.endSession(); }
 }
 
 async function resolveSellable(productPublicId, variantPublicId, countryCode) {

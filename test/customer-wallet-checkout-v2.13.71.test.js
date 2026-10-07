@@ -52,7 +52,7 @@ test('storefront checkout exposes Classic Wallet only for authenticated customer
 
 test('remaining Customer Final 19 pages are real data-bound pages',()=>{
   const data=read('src/dashboard/customer-data.js');
-  const view=read('views/partials/dashboard-customer.ejs');
+  const view=read('views/partials/customer-live-pages.ejs');
   assert.match(data,/loadCategories/);assert.match(data,/getStorefront/);
   assert.match(data,/loadCart/);assert.match(data,/cartData/);
   assert.match(data,/loadNotifications/);assert.match(data,/Notification\.find/);

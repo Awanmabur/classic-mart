@@ -24,14 +24,14 @@ test('Customer dashboard uses the exact uploaded Final 19 styles',()=>{
 });
 
 test('single Customer shell/partial exists and no demo runtime ships',()=>{
-  for(const p of ['views/customer-dashboard.ejs','views/partials/dashboard-customer.ejs','public/dashboard/customer.js']) assert.ok(exists(p),p);
+  for(const p of ['views/customer-dashboard.ejs','views/partials/customer-live-pages.ejs','public/approved-dashboard/customer-live.js']) assert.ok(exists(p),p);
   for(const p of ['public/dashboard/role-workspaces.js','public/dashboard/script.js','public/dashboard/enhancements.js']) assert.equal(exists(p),false,p);
 });
 
-test('dashboard router is Customer-only and mounted',()=>{
+test('customer actions require account permission and authenticated routing',()=>{
   assert.ok(exists('src/routes/dashboard.js'));
   const route=read('src/routes/dashboard.js');
-  assert.match(route,/role\s*!==\s*['"]customer['"]/);
+  assert.match(route,/hasPermission\(request\.user,'account:read'\)/);
   assert.match(route,/router\.get\(['"]\/dashboard\/:page['"]/);
   assert.doesNotMatch(route,/\/dashboard\/:page\?/);
   assert.doesNotMatch(route,/seller|promoter|finance|warehouse|moderator|country_admin|super_admin/i);
@@ -46,7 +46,9 @@ test('Customer page loader is page-scoped, not all-pages preload',()=>{
   assert.doesNotMatch(source,/Promise\.all\(\s*Object\.values\(LOADERS\)/);
 });
 
-test('no later-role dashboard files are introduced in Customer checkpoint',()=>{
-  const forbidden=['seller-dashboard.ejs','promoter-dashboard.ejs','finance-dashboard.ejs','support-dashboard.ejs','warehouse-dashboard.ejs','moderator-dashboard.ejs','country-admin-dashboard.ejs','super-admin-dashboard.ejs'];
-  for(const name of forbidden) assert.equal(exists(`views/${name}`),false,name);
+test('role compatibility views use the approved shell and unfinished operations are blocked in production',()=>{
+  const wrappers=['seller-dashboard.ejs','promoter-dashboard.ejs','finance-dashboard.ejs','support-dashboard.ejs','warehouse-dashboard.ejs','moderator-dashboard.ejs','country-admin-dashboard.ejs','super-admin-dashboard.ejs'];
+  for(const name of wrappers) assert.match(read(`views/${name}`),/^<%- include\('approved-dashboard',/);
+  assert.match(read('src/routes/approved-dashboard.js'),/workspace !== 'customer' && env.isProduction/);
+  assert.match(read('src/routes/approved-dashboard.js'),/503, 'DASHBOARD_NOT_CONNECTED'/);
 });

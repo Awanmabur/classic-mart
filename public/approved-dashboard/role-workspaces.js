@@ -578,18 +578,15 @@
     host.insertAdjacentHTML('beforeend', markup);
   }
 
-  function buildRoleSwitcher() {
+  function buildWorkspaceLabel() {
     const topActions = document.querySelector('.top-actions');
-    if (!topActions || document.getElementById('workspaceSwitcher')) return;
+    if (!topActions || document.getElementById('workspaceLabel')) return;
     const wrapper = document.createElement('div');
     wrapper.className = 'workspace-switcher';
-    wrapper.id = 'workspaceSwitcher';
-    wrapper.innerHTML = `${icon('i-dashboard')}<select id="roleSwitcher" aria-label="Switch dashboard workspace">${Object.entries(roleProfiles).map(([key,value]) => `<option value="${key}">${esc(value.label)} Dashboard</option>`).join('')}</select><span class="workspace-switcher-chevron" aria-hidden="true">${icon('i-chevron-down')}</span>`;
+    wrapper.id = 'workspaceLabel';
+    wrapper.innerHTML = `${icon('i-dashboard')}<span class="workspace-name"></span>`;
     topActions.insertBefore(wrapper, topActions.firstChild);
   }
-
-  // Native dashboard select handles opening, keyboard navigation, and arrow interaction.
-
 
   function navMarkup(role) {
     let lastGroup = '';
@@ -636,8 +633,8 @@
       const label = quick.querySelector('span');
       if (label) label.textContent = profile.quickLabel;
     }
-    const roleSwitcher = document.getElementById('roleSwitcher');
-    if (roleSwitcher) roleSwitcher.value = role;
+    const workspaceName = document.querySelector('#workspaceLabel .workspace-name');
+    if (workspaceName) workspaceName.textContent = `${profile.label} Dashboard`;
     const brand = document.querySelector('.brand');
     if (brand) {
       brand.dataset.pageTarget = profile.defaultPage;
@@ -883,10 +880,6 @@
   }
 
   function initEvents() {
-    document.getElementById('roleSwitcher')?.addEventListener('change', event => {
-      const role = event.currentTarget.value;
-      if (roleProfiles[role]) applyRole(role);
-    });
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && document.getElementById('roleCreateOverlay')?.classList.contains('open')) closeCreateDialog();
     });
@@ -925,7 +918,7 @@
     customerNavMarkup = nav.innerHTML;
     customerSidebarCardMarkup = card.innerHTML;
     buildRolePages();
-    buildRoleSwitcher();
+    buildWorkspaceLabel();
     initEvents();
     const hashPage = location.hash.replace('#','').trim();
     const hashRole = roleForPage(hashPage);

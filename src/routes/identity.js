@@ -210,7 +210,7 @@ router.post('/mfa', authenticationLimit, asyncHandler(async (request, response) 
 }));
 
 router.get('/signup', (request, response) => {
-  if (request.user) return response.redirect('/');
+  if (request.user) return response.redirect(loginDestination(request.user));
   return response.render('signup', { pageError: null, values: { referralCode: String(request.query.ref || '').trim().slice(0,24) } });
 });
 
@@ -243,7 +243,7 @@ router.post(
         targetType: 'user',
         targetPublicId: user.publicId,
       });
-      if (env.auth.simpleLogin) return response.redirect('/');
+      if (env.auth.simpleLogin) return response.redirect(loginDestination(user));
       return response.redirect('/verify-email');
     } catch (error) {
       await writeAudit(request, 'identity.signup', {
@@ -266,7 +266,7 @@ router.post(
 router.get('/verify-email', requireAuth, (request, response) => {
   if (request.user.emailVerifiedAt) {
     if (!request.user.phoneVerifiedAt) return response.redirect('/verify-phone');
-    return response.redirect(request.user.onboardingCompletedAt ? '/' : '/onboarding');
+    return response.redirect(request.user.onboardingCompletedAt ? loginDestination(request.user) : '/onboarding');
   }
   return response.render('verify-email', { pageError: null });
 });
@@ -317,7 +317,7 @@ router.post(
 
 router.get('/verify-phone', requireAuth, (request, response) => {
   if (!request.user.emailVerifiedAt) return response.redirect('/verify-email');
-  if (request.user.phoneVerifiedAt) return response.redirect(request.user.onboardingCompletedAt ? '/' : '/onboarding');
+  if (request.user.phoneVerifiedAt) return response.redirect(request.user.onboardingCompletedAt ? loginDestination(request.user) : '/onboarding');
   return response.render('verify-phone', { pageError: null });
 });
 
@@ -338,7 +338,7 @@ router.post('/verify-phone', requireAuth, authenticationLimit, asyncHandler(asyn
     await verifyPhone(request.user, input.code);
     setFlash(request, 'success', 'Your phone number is verified.');
     await writeAudit(request, 'identity.phone_verified', { targetType: 'user', targetPublicId: request.user.publicId });
-    return response.redirect(request.user.onboardingCompletedAt ? '/' : '/onboarding');
+    return response.redirect(request.user.onboardingCompletedAt ? loginDestination(request.user) : '/onboarding');
   } catch (error) {
     return response.status(error.status || 422).render('verify-phone', { pageError: error.message });
   }

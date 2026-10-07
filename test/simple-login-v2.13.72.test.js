@@ -4,12 +4,12 @@ import fs from 'node:fs';
 
 const read=(file)=>fs.readFileSync(new URL(`../${file}`,import.meta.url),'utf8');
 
-test('simple login mode is explicit and enabled by default everywhere for the current checkpoint',()=>{
+test('verification is enabled by default and bypass is restricted to development and testing',()=>{
   const env=read('src/config/env.js');
   const example=read('.env.example');
-  assert.match(env,/simpleLoginMode\s*=\s*boolean\(process\.env\.SIMPLE_LOGIN,\s*true\)/);
+  assert.match(env,/simpleLoginMode\s*=\s*nodeEnv\s*!==\s*'production'\s*&&\s*boolean\(process\.env\.SIMPLE_LOGIN,\s*false\)/);
   assert.match(env,/auth:\s*Object\.freeze\(\{[\s\S]*simpleLogin:\s*simpleLoginMode/);
-  assert.match(example,/^SIMPLE_LOGIN=true$/m);
+  assert.match(example,/^SIMPLE_LOGIN=false$/m);
   const signup=read('views/signup.ejs');
   assert.doesNotMatch(signup,/verify your email before choosing a workspace/i);
 });
@@ -48,10 +48,10 @@ test('signup does not force OTP or onboarding while simple login mode is enabled
   const service=read('src/services/auth.js');
   const identity=read('src/routes/identity.js');
   assert.match(service,/env\.auth\.simpleLogin\s*\?\s*undefined\s*:\s*await issueCode/);
-  assert.match(identity,/if \(env\.auth\.simpleLogin\)[\s\S]*account was created[\s\S]*response\.redirect\('\/'\)/i);
+  assert.match(identity,/if \(env\.auth\.simpleLogin\)[\s\S]*account was created[\s\S]*response\.redirect\(loginDestination\(user\)\)/i);
 });
 
-test('production OTP and mandatory MFA infrastructure checks are disabled only while simple login mode is enabled',()=>{
+test('production retains required OTP and privileged MFA configuration checks',()=>{
   const env=read('src/config/env.js');
   assert.match(env,/if \(!simpleLoginMode && \(process\.env\.SMS_MODE/);
   assert.match(env,/if \(!simpleLoginMode && !boolean\(process\.env\.PRIVILEGED_MFA_REQUIRED, true\)\)/);

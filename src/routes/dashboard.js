@@ -11,10 +11,11 @@ import { loadCustomerDashboardPage } from '../dashboard/customer-data.js';
 import { archiveCustomerAddress, createCustomerAddress, setDefaultCustomerAddress, updateCustomerAddress } from '../services/customer-addresses.js';
 import { createWalletTopUp, customerWalletSummary, verifyWalletTopUp } from '../services/customer-wallet.js';
 import { writeAudit } from '../services/audit.js';
+import { hasPermission } from '../core/roles.js';
 
 const router=Router();
-function customerOnly(request,_response,next){if(request.user?.role!=='customer')return next(new AppError('Customer dashboard access is not available for this account yet.',403,'CUSTOMER_DASHBOARD_ONLY'));return next();}
-router.use('/dashboard',noStore,requireAuth,requireVerified,requireOnboarding,customerOnly);
+function accountOnly(request,_response,next){if(!hasPermission(request.user,'account:read'))return next(new AppError('Customer account access is not available.',403,'CUSTOMER_DASHBOARD_ONLY'));return next();}
+router.use('/dashboard',noStore,requireAuth,requireVerified,requireOnboarding,accountOnly);
 
 function digits(currency){try{return new Intl.NumberFormat('en',{style:'currency',currency}).resolvedOptions().maximumFractionDigits;}catch{return 2;}}
 function amountToMinor(value,currency){const numeric=Number(value);if(!Number.isFinite(numeric)||numeric<=0)throw new AppError('Enter a valid amount.',422,'WALLET_AMOUNT_INVALID');return Math.round((numeric+Number.EPSILON)*10**digits(currency));}
@@ -24,7 +25,7 @@ function formatDate(value,locale='en-UG'){if(!value)return '—';return new Intl
 router.get('/dashboard',(_request,response)=>response.redirect(customerDashboardPath('dashboard')));
 router.get('/dashboard/wallet/statement.csv',asyncHandler(async(request,response)=>{
   const wallet=await customerWalletSummary(request.user);
-  const escapeCsv=(value)=>`"${String(value??'').replaceAll('"','""')}"`;
+  const escapeCsv=(value)=>{const raw=String(value??'');const safe=/^[\s]*[=+@-]/.test(raw)?`'${raw}`:raw;return `"${safe.replaceAll('"','""')}"`;};
   const rows=[['Date','Type','Status','Method','Amount','Currency','Reference']];
   for(const topup of wallet.topUps||[])rows.push([formatDate(topup.createdAt,request.user.locale),'Wallet top-up',topup.status,topup.providerPaymentMethod||'Pesapal',Number(topup.amountMinor||0)/10**digits(topup.currency),topup.currency,topup.publicId]);
   const csv=rows.map(row=>row.map(escapeCsv).join(',')).join('\r\n');

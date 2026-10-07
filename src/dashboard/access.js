@@ -6,7 +6,6 @@ const ROLE_TO_WORKSPACE = Object.freeze({
   business: 'business',
   seller: 'seller',
   promoter: 'promoter',
-  delivery: 'warehouse',
   warehouse: 'warehouse',
   support: 'support',
   moderator: 'moderator',
@@ -66,7 +65,7 @@ export function canAccessWorkspace(user, workspace) {
   if (workspaces.has(workspace)) return true;
 
   if (workspace === 'finance') return hasPermission(user, 'finance:manage') || hasPermission(user, 'finance:country');
-  if (workspace === 'warehouse') return hasPermission(user, 'warehouse:manage') || hasPermission(user, 'delivery:manage');
+  if (workspace === 'warehouse') return hasPermission(user, 'warehouse:manage');
   if (workspace === 'moderator') return hasPermission(user, 'catalogue:moderate') || hasPermission(user, 'trust:manage');
   const permission = WORKSPACE_PERMISSION[workspace];
   return permission ? hasPermission(user, permission) : false;

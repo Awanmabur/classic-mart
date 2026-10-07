@@ -5,14 +5,15 @@ export function approvedDashboardLayerFailures(root) {
   const failures = [];
   const exists = file => fs.existsSync(path.join(root, file));
   const required = [
-    'views/approved-dashboard.ejs', 'src/routes/approved-dashboard.js',
+    'views/approved-dashboard.ejs', 'views/partials/customer-live-pages.ejs', 'src/dashboard/customer-view.js',
+    'public/approved-dashboard/customer-live.js', 'public/approved-dashboard/customer-navigation.js', 'src/routes/approved-dashboard.js',
     'src/dashboard/landing.js', 'public/approved-dashboard/session-entry.js',
     'public/approved-dashboard/session-controls.js', 'test/approved-dashboard.test.js',
   ];
   for (const file of required) if (!exists(file)) failures.push(`Missing approved dashboard file: ${file}`);
   const source = path.join(root, 'dashboard-preview/final19');
   const assets = path.join(source, 'assets');
-  const names = ['styles.css', 'design-system.css', 'role-workspaces.css', 'script.js', 'role-workspaces.js', 'enhancements.js'];
+  const names = ['styles.css', 'design-system.css', 'role-workspaces.css', 'script.js', 'enhancements.js'];
   if (fs.existsSync(assets)) names.push(...fs.readdirSync(assets).map(name => 'assets/' + name));
   else failures.push('Approved preview assets are missing.');
   for (const name of names) {

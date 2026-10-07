@@ -18,14 +18,14 @@ requireMatch('scripts/migrate-production.js',/ordersNeedingLineBackfill:await Or
 requireMatch('scripts/migrate-production.js',/if\(indexResult\.failures\.length\)/,'Migration must fail certification when production index creation fails.');
 requireMatch('src/app.js',/import dashboardRoutes from ['"]\.\/routes\/dashboard\.js['"]/,'src/app.js must import the Customer dashboard router.');
 requireMatch('src/app.js',/app\.use\(dashboardRoutes\)/,'src/app.js must mount the Customer dashboard router.');
-requireMatch('src/routes/dashboard.js',/customerOnly/,'Customer dashboard router must reject non-Customer roles.');
-requireMatch('src/routes/dashboard.js',/router\.use\(['"]\/dashboard['"],noStore,requireAuth,requireVerified,requireOnboarding,customerOnly\)/,'Customer dashboard auth boundary is missing.');
+requireMatch('src/routes/dashboard.js',/accountOnly/,'Customer dashboard actions require account permission.');
+requireMatch('src/routes/dashboard.js',/router\.use\(['"]\/dashboard['"],noStore,requireAuth,requireVerified,requireOnboarding,accountOnly\)/,'Customer dashboard auth boundary is missing.');
 requireMatch('src/dashboard/customer-data.js',/LOADERS\[pageId\]/,'Customer dashboard data loading must remain page-scoped.');
 requireMatch('src/services/customer-wallet.js',/wallet-topup:/,'Classic Wallet verified top-up ledger path is missing.');
 requireMatch('src/services/payments.js',/WALLET_BALANCE_INSUFFICIENT/,'Classic Wallet checkout balance guard is missing.');
 requireMatch('src/services/payments.js',/provider==='wallet'/,'Classic Wallet refund path is missing.');
-requireMatch('views/approved-dashboard.ejs',/data-page="notifications"/,'Approved Notifications page is missing.');
-requireMatch('views/approved-dashboard.ejs',/data-page="club"/,'Approved Classic Club page is missing.');
+requireMatch('views/partials/customer-live-pages.ejs',/data-page="notifications"/,'Approved Notifications page is missing.');
+requireMatch('views/partials/customer-live-pages.ejs',/data-page="club"/,'Approved Classic Club page is missing.');
 
 requireMatch('src/routes/account.js',/\/account\/orders/,'Customer order history must remain available outside dashboards.');
 requireMatch('src/routes/checkout.js',/\/orders\/:orderId\/receipt/,'Customer receipt route is missing.');

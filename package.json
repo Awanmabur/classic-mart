@@ -50,7 +50,8 @@
     "release:clean-app": "node scripts/build-clean-app-release.js",
     "seed:initial": "node scripts/seed-initial-catalogue.js",
     "dev:watch": "node --watch src/server.js",
-    "dashboard:preview": "node scripts/serve-exact-dashboard-preview.js"
+    "dashboard:preview": "node scripts/serve-exact-dashboard-preview.js",
+    "test:customer:live": "node scripts/run-customer-live-tests.js"
   },
   "license": "UNLICENSED",
   "dependencies": {

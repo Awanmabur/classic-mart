@@ -22,7 +22,8 @@ for(const file of files){
       for (const expression of raw) {
         if (/^include\(['"]partials\/account-top['"]\)$/.test(expression)) allowed.add(expression);
         if (/^include\(['"]partials\/account-nav['"]\s*,/.test(expression)) allowed.add(expression);
-        if (/^include\(['"]partials\/dashboard-customer['"]\s*,/.test(expression)) allowed.add(expression);
+        if (/^include\(['"]partials\/customer-live-pages['"]\s*,\s*\{ pageId: initialPage, pageData, walletIdempotencyKey \}\)$/.test(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
+        if (/^include\('approved-dashboard', \{ workspace: '(customer|seller|promoter|business|warehouse|support|moderator|finance|admin|superadmin)', initialPage: '[a-z-]+', allowedWorkspaces: \['[a-z]+'\] \}\)$/.test(expression)) allowed.add(expression);
       }
     }
     if(file===path.join('views','index.ejs')){
