@@ -15,6 +15,19 @@ test('MongoDB verification codes are single-use under concurrency, cap guesses a
   await mongoose.connect(uri);
   const userId=new mongoose.Types.ObjectId();
   try {
+    // Email and phone checks belong to separate purposes and account identities.
+    const otherUserId=new mongoose.Types.ObjectId();
+    const emailOnly=await VerificationToken.create({userId,purpose:'verify_email',tokenHash:hashToken('112233'),expiresAt:new Date(Date.now()+600000)});
+    await assert.rejects(consumeCode(userId,'verify_phone','112233'),{code:'INVALID_CODE'});
+    await assert.rejects(consumeCode(otherUserId,'verify_email','112233'),{code:'INVALID_CODE'});
+    assert.ok(!(await VerificationToken.findById(emailOnly._id)).consumedAt);
+    await consumeCode(userId,'verify_email','112233');
+    const phoneOnly=await VerificationToken.create({userId,purpose:'verify_phone',tokenHash:hashToken('445566'),expiresAt:new Date(Date.now()+600000)});
+    await assert.rejects(consumeCode(userId,'verify_email','445566'),{code:'INVALID_CODE'});
+    await consumeCode(userId,'verify_phone','445566');
+    assert.ok((await VerificationToken.findById(phoneOnly._id)).consumedAt);
+    await assert.rejects(resendPhoneVerification({_id:userId,phone:'+256700000001'},{ip:'127.0.0.1'}),{code:'EMAIL_UNVERIFIED'});
+
     const token=await VerificationToken.create({userId,purpose:'verify_email',tokenHash:hashToken('123456'),expiresAt:new Date(Date.now()+600000)});
     const claims=await Promise.allSettled(Array.from({length:12},()=>consumeCode(userId,'verify_email','123456')));
     assert.equal(claims.filter(result=>result.status==='fulfilled').length,1);
