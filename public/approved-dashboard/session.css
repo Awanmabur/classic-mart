@@ -1,19 +1,17 @@
-#workspaceLabel > .workspace-name {
-  display: block !important;
-  position: static;
-  color: var(--navy);
-  text-transform: none;
-  letter-spacing: normal;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 600;
-}
-#workspaceLabel { cursor: default; }
-#workspaceLabel > svg { flex-shrink: 0; }
-
 .dashboard-message { padding: 16px 20px; margin-bottom: 18px; border-left: 4px solid var(--orange); }
 .dashboard-message-error { border-left-color: #d82939; }
 [data-notification-type][hidden] { display: none; }
+
+/* The removed workspace field leaves this space to the approved search. */
+.topbar { grid-template-columns: 214px minmax(180px, 1fr) auto; }
+.search { width: 100%; min-width: 0; }
+a.primary-button, a.soft-button, a.outline-button, a.light-button,
+a.support-button, a.view-orders-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  text-decoration: none; text-align: center; font-family: inherit;
+}
+a.full-button, a.view-orders-button { display: flex; }
+.dashboard-form button { font-family: inherit; }
+.settings-nav a { display: block; text-decoration: none; color: inherit; padding: 12px 16px; font-size: 12px; }
+@media (max-width: 1100px) { .topbar { grid-template-columns: auto minmax(140px, 1fr) auto; } }
+@media (max-width: 700px) { .topbar { grid-template-columns: auto 1fr; } .topbar > .search { grid-column: 1 / -1; grid-row: 2; } }

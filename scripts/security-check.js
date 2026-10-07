@@ -20,6 +20,7 @@ for(const file of files){
     const allowed=new Set(["include(\"partials/product-preview-modal\")","include(\"partials/social-links\")","include(\"partials/storefront-header\")","include(\"partials/storefront-footer\")","include(\"social-links\")"]);
     if(file.startsWith('views'+path.sep)) {
       for (const expression of raw) {
+        if (/^include\('partials\/approved-account-(security|messages|privacy|returns|rewards|apps)'\)$/.test(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
         if (/^include\(['"]partials\/account-top['"]\)$/.test(expression)) allowed.add(expression);
         if (/^include\(['"]partials\/account-nav['"]\s*,/.test(expression)) allowed.add(expression);
         if (/^include\(['"]partials\/customer-live-pages['"]\s*,\s*\{ pageId: initialPage, pageData, walletIdempotencyKey \}\)$/.test(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { customerView } from '../dashboard/customer-view.js';
 import { dashboardLanding } from '../dashboard/landing.js';
 import { z } from 'zod';
 import { asyncHandler, AppError } from '../core/errors.js';
@@ -138,7 +139,8 @@ async function renderAccountPage(request, response, requestedSection = 'profile'
 
   const view = section === 'profile' ? 'account-profile' : section === 'security' ? 'account-security' : 'account-messages';
   response.render(view, {
-    section,
+    section, accountSupplement: section,
+    ...await customerView(request, 'profile'),
     ...data,
     currentDeviceId: request.device.publicId,
     mfaRequired: mfaRequiredForUser(request.user, env.security.privilegedMfaRequired),
@@ -148,7 +150,7 @@ async function renderAccountPage(request, response, requestedSection = 'profile'
 router.get(
   '/account/profile',
   asyncHandler((request, response) =>
-    renderAccountPage(request, response, 'profile'),
+    response.redirect('/dashboard/profile'),
   ),
 );
 router.get(
@@ -157,23 +159,9 @@ router.get(
     renderAccountPage(request, response, 'security'),
   ),
 );
-router.get('/account/orders', asyncHandler(async (request, response) => {
-  const size = 50;
-  const base = { userId: request.user._id };
-  const [rows, total] = await Promise.all([
-    Order.find(cursorScope(base, request.query.after))
-      .select('publicId status paymentState fulfillmentState cancellationState returnState refundState totals items paymentMethod deliveryMethod createdAt updatedAt')
-      .sort(cursorSort())
-      .limit(size + 1)
-      .lean(),
-    Order.countDocuments(base),
-  ]);
-  const page = pageResult(rows, { limit: size, total });
-  response.set('Cache-Control', 'private, no-store');
-  response.render('account-orders', { orders: page.items, queuePage: page.page });
-}));
+router.get('/account/orders', (_request, response) => response.redirect('/dashboard/orders'));
 
-router.get('/account/privacy',asyncHandler(async(request,response)=>{const size=50,base={userId:request.user._id};const [rows,total]=await Promise.all([PrivacyRequest.find(cursorScope(base,request.query.after)).sort(cursorSort()).limit(size+1).lean(),PrivacyRequest.countDocuments(base)]);const page=pageResult(rows,{limit:size,total});response.set('Cache-Control','private, no-store');response.render('account-privacy',{requests:page.items,queuePage:page.page});}));
+router.get('/account/privacy',asyncHandler(async(request,response)=>{const size=50,base={userId:request.user._id};const [rows,total]=await Promise.all([PrivacyRequest.find(cursorScope(base,request.query.after)).sort(cursorSort()).limit(size+1).lean(),PrivacyRequest.countDocuments(base)]);const page=pageResult(rows,{limit:size,total});response.set('Cache-Control','private, no-store');response.render('account-privacy',{...await customerView(request,'profile'),accountSupplement:'privacy',requests:page.items,queuePage:page.page});}));
 router.post('/account/privacy/request',asyncHandler(async(request,response)=>{const input=z.object({type:z.enum(['export','deletion','correction','restriction','consent_withdrawal']),password:z.string().min(1).max(200),details:z.string().trim().max(2000).optional().default('')}).parse(request.body);const doc=await createPrivacyRequest(request,input);await writeAudit(request,'privacy.request_created',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country,metadata:{type:doc.type}});setFlash(request,'success',doc.type==='export'?'Your verified export request is queued.':'Your privacy request was recorded.');response.redirect('/account/privacy');}));
 router.post('/account/privacy/:id/cancel',asyncHandler(async(request,response)=>{const doc=await PrivacyRequest.findOne({publicId:request.params.id,userId:request.user._id,status:{$in:['requested','blocked']}});if(!doc)throw new AppError('Cancelable privacy request not found.',404,'PRIVACY_REQUEST_NOT_FOUND');doc.status='cancelled';doc.completedAt=new Date();await doc.save();await writeAudit(request,'privacy.request_cancelled',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country});setFlash(request,'success','Privacy request cancelled.');response.redirect('/account/privacy');}));
 router.get('/account/privacy/:id/download',asyncHandler(async(request,response)=>{const doc=await PrivacyRequest.findOne({publicId:request.params.id,userId:request.user._id,type:'export',status:'ready'}).select('+storageKey');if(!doc)throw new AppError('Privacy export not found.',404,'PRIVACY_EXPORT_NOT_FOUND');const payload=await privacyExportPayload(doc);await writeAudit(request,'privacy.export_downloaded',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country});response.set('Cache-Control','private, no-store');response.set('Content-Disposition',`attachment; filename="classic-mart-data-${doc.publicId}.json"`);response.type('application/json').send(payload);}));

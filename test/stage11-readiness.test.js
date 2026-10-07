@@ -51,7 +51,7 @@ test('Stage 11 installable client has store-ready icons and an honest cross-plat
 
 test('Stage 11 accessibility and mobile-shell controls expose names and viewport support', () => {
   const appView = read('views/mobile-app.ejs');
-  const connected = read('views/connected-apps.ejs');
+  const connected = read('views/approved-dashboard.ejs') + read('views/partials/approved-account-apps.ejs');
   for (const html of [appView, connected]) assert.match(html, /name="viewport"/);
   assert.match(appView, /alt="Classic Mart"/);
   assert.match(appView, /data-pwa-install/);

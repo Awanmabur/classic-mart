@@ -578,15 +578,7 @@
     host.insertAdjacentHTML('beforeend', markup);
   }
 
-  function buildWorkspaceLabel() {
-    const topActions = document.querySelector('.top-actions');
-    if (!topActions || document.getElementById('workspaceLabel')) return;
-    const wrapper = document.createElement('div');
-    wrapper.className = 'workspace-switcher';
-    wrapper.id = 'workspaceLabel';
-    wrapper.innerHTML = `${icon('i-dashboard')}<span class="workspace-name"></span>`;
-    topActions.insertBefore(wrapper, topActions.firstChild);
-  }
+  function buildWorkspaceLabel() {}
 
   function navMarkup(role) {
     let lastGroup = '';

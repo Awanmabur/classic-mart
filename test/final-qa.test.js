@@ -12,7 +12,7 @@ test('PWA install surfaces load the manifest and install bootstrap', () => {
   }
   assert.match(read('src/app.js'), /manifest\.webmanifest/);
   assert.match(read('src/app.js'), /\/pwa\.js/);
-  assert.match(read('views/connected-apps.ejs'), /data-pwa-install/);
+  assert.match(read('views/partials/approved-account-apps.ejs'), /data-pwa-install/);
 });
 
 test('internal delivery-location controls deep-link to the existing server-backed workflow', () => {

@@ -73,9 +73,7 @@
         <button type="submit" aria-label="Search"><svg><use href="#i-search"></use></svg></button>
       </form>
 
-      <div class="top-spacer"></div>
-
-      <div class="top-actions"><% if (liveCustomer) { %><div class="workspace-switcher" id="workspaceLabel"><svg><use href="#i-dashboard"></use></svg><span class="workspace-name">Customer Dashboard</span></div><% } %>
+      <div class="top-actions">
         <button class="ai-button" id="classicAiBtn" type="button" aria-label="Open Classic AI" title="Classic AI"><svg class="ai-sparkle-icon"><use href="#i-sparkles"></use></svg><span>Classic AI</span></button>
         <button class="categories-button" data-page-target="categories"><svg><use href="#i-grid"></use></svg><span>Categories</span></button>
         <button class="round-icon badge-button" data-page-target="wishlist" aria-label="Wishlist"><svg><use href="#i-heart"></use></svg><b id="wishlistBadge"><%= liveCustomer ? liveHeader.wishlistCount : 5 %></b></button>
@@ -117,7 +115,7 @@
     <main class="dashboard page-host" id="pageHost">
 <% if (!liveCustomer) { %><div class="panel dashboard-message" role="note">Development preview: this workspace is not connected to live operations yet.</div><% } %>
 <% if (flash?.message) { %><div class="panel dashboard-message <%= flash.type==='error'?'dashboard-message-error':'' %>" role="<%= flash.type==='error'?'alert':'status' %>"><%= flash.message %></div><% } %>
-<% if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %>    <% } %>
+<% if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
 </main>
   </div>
 

@@ -24,10 +24,11 @@ test('Customer shell preserves the Final 19 shell hierarchy and complete icon sp
   assert.doesNotMatch(shell,/class=["']main-content["']/);
 });
 
-test('Customer shell preserves the approved workspace pill as a static label and profile control',()=>{
-  assert.match(shell,/class=["']workspace-switcher["'][^>]*id=["']workspaceLabel["']/);
+test('Customer shell removes the entire workspace field and preserves search and profile controls',()=>{
+  assert.doesNotMatch(shell,/workspace-switcher|workspaceLabel|top-spacer/);
+  assert.match(shell,/class=["']search["'][^>]*id=["']searchForm["']/);
   assert.doesNotMatch(shell,/id=["']roleSwitcher["']/);
-  assert.match(shell,/>Customer Dashboard</);
+  assert.match(read('public/approved-dashboard/session.css'),/grid-template-columns: 214px minmax\(180px, 1fr\) auto/);
   assert.match(shell,/id=["']profileButton["'][\s\S]*?#i-chevron-down/);
 });
 

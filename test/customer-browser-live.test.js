@@ -18,8 +18,8 @@ test('live approved customer UI supports signup, address submission, mobile navi
     await page.locator('button[type="submit"]').click();
     await page.waitForURL('**/dashboard/dashboard');
     assert.equal(await page.locator('#roleSwitcher').count(),0);
-    assert.equal(await page.locator('#workspaceLabel').innerText(),'Customer Dashboard');
-    assert.ok(await page.locator('#workspaceLabel .workspace-name').isVisible());
+    assert.equal(await page.locator('#workspaceLabel,.workspace-switcher').count(),0);
+    assert.ok(await page.locator('#searchForm').isVisible());
     await page.locator('.side-link[data-page-target="addresses"]').click();
     await page.waitForURL('**/dashboard/addresses*');
     for (const [name,value] of Object.entries({fullName:'Browser Customer',phone:'+256700000003',address:'Browser verified address',city:'Kampala',label:'Home'})) await page.locator(`#addressForm [name="${name}"]`).fill(value);

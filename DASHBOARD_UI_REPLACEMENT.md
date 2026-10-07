@@ -136,3 +136,23 @@ an accessible country-code selector using configured active countries; compositi
 and prefix validation happen on the server. Production can leave SMS disabled
 until credentials are available, without development-code fallback. The live
 signup test verifies dashboard access before optional phone verification.
+
+### Remove remaining customer dashboard chrome
+
+Removed the entire workspace-label field from the deployed header, including the
+JavaScript that recreated it. Search occupies the available space between brand
+and actions. Approved base styles remain identical to Final 19; the session layer
+only handles the requested header change and equivalent button/link presentation.
+
+Legacy customer profile/order entry points redirect to approved pages. Security,
+messages, privacy, rewards, buyer protection/returns and connected apps now use
+the approved shell, with their real forms and account ownership checks retained
+in reviewed server partials. Those customer templates no longer load account.css
+or the old account header/nav. Operational specialist tools outside these customer
+paths remain a separate migration task; this checkpoint does not claim every
+operational form has been rebuilt or every role is backend-connected.
+
+Validation: all 355 tests passed, zero skips; project/security/frontend checks
+passed. Chromium checked ten customer/account paths for the approved shell,
+visible search, absence of the workspace field and absence of old account chrome.
+Desktop and mobile screenshots were inspected after transitions settled.
