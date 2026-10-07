@@ -75,10 +75,6 @@ export function requireVerified(request, response, next) {
     if (wantsJson(request)) return next(new AppError('Verify your email to continue.', 403, 'EMAIL_UNVERIFIED'));
     return response.redirect('/verify-email');
   }
-  if (!request.user?.phoneVerifiedAt) {
-    if (wantsJson(request)) return next(new AppError('Verify your phone to continue.', 403, 'PHONE_UNVERIFIED'));
-    return response.redirect('/verify-phone');
-  }
   return next();
 }
 

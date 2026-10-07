@@ -50,7 +50,8 @@
 </label>
 <label class="auth-field">
 <span>Phone number</span>
-<span class="auth-input-wrap"><img alt="" src="/assets/icons/mobile-screen-button.svg"/><input autocomplete="tel" id="signUpPhone" name="phone" placeholder="e.g. +256 700 000 000" required="" type="tel" value="<%= values.phone || '' %>"/></span>
+<span class="auth-input-wrap auth-phone-wrap"><select aria-label="Phone country code" autocomplete="tel-country-code" name="phoneCountry" required><% phoneCountries.filter(country=>country.phonePrefix).forEach(country=>{ %><option value="<%= country.code %>" <%= country.code===(values.phoneCountry||defaultPhoneCountry)?'selected':'' %>><%= country.name %> (<%= country.phonePrefix %>)</option><% }) %></select><input autocomplete="tel-national" id="signUpPhone" name="phone" placeholder="700 000 000" required="" type="tel" maxlength="30" value="<%= values.phone || '' %>"/></span>
+<small>We’ll verify your email to get you started. You can verify your phone later.</small>
 </label>
 <label class="auth-field">
 <span>Referral code <small>(optional)</small></span>

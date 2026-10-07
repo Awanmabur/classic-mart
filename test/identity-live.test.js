@@ -56,26 +56,26 @@ test('signup, persistent account login, authorization and logout with real Mongo
 });
 
 const verifiedBase = process.env.CLASSIC_MART_VERIFIED_BASE_URL;
-test('verified signup completes email, phone and onboarding before granting dashboard access', { skip: !verifiedBase || !uri }, async () => {
+test('signup needs email and onboarding; phone verification remains optional', { skip: !verifiedBase || !uri }, async () => {
   assert.equal(new URL(verifiedBase).hostname, '127.0.0.1');
   const agent = request.agent(verifiedBase);
   const suffix = crypto.randomBytes(6).toString('hex');
   const password = `Verified-${suffix}A1!`;
   const signup = await agent.get('/signup').expect(200);
   const csrf = html => html.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
-  await agent.post('/signup').type('form').send({ name: 'Verified Customer', email: `verified-${suffix}@example.com`, phone: '+2567' + crypto.randomInt(10000000, 99999999), password, confirmPassword: password, acceptTerms: 'on', _csrf: csrf(signup.text) }).expect(302).expect('location', '/verify-email');
+  await agent.post('/signup').type('form').send({ name: 'Verified Customer', email: `verified-${suffix}@example.com`, phoneCountry: 'UG', phone: '07' + crypto.randomInt(10000000, 99999999), password, confirmPassword: password, acceptTerms: 'on', _csrf: csrf(signup.text) }).expect(302).expect('location', '/verify-email');
   const emailPage = await agent.get('/verify-email').expect(200);
   await agent.get('/dashboard/dashboard').expect(302).expect('location', '/verify-email');
   const emailCode = emailPage.text.match(/Development verification code: (\d{6})/)[1];
-  await agent.post('/verify-email').type('form').send({ code: emailCode, _csrf: csrf(emailPage.text) }).expect(302).expect('location', '/verify-phone');
-  await agent.get('/dashboard/dashboard').expect(302).expect('location', '/verify-phone');
+  await agent.post('/verify-email').type('form').send({ code: emailCode, _csrf: csrf(emailPage.text) }).expect(302).expect('location', '/onboarding');
+  await agent.get('/dashboard/dashboard').expect(302).expect('location', '/onboarding');
+  const onboarding = await agent.get('/onboarding').expect(200);
+  await agent.post('/onboarding').type('form').send({ role: 'customer', publicName: 'Verified Customer', location: 'Kampala', _csrf: csrf(onboarding.text) }).expect(302).expect('location', '/dashboard/dashboard');
+  await agent.get('/dashboard/dashboard').expect(200);
   const phonePage = await agent.get('/verify-phone').expect(200);
   await agent.post('/verify-phone/send').type('form').send({ _csrf: csrf(phonePage.text) }).expect(302);
   const sent = await agent.get('/verify-phone').expect(200);
   const phoneCode = sent.text.match(/Development phone verification code: (\d{6})/)[1];
-  await agent.post('/verify-phone').type('form').send({ code: phoneCode, _csrf: csrf(sent.text) }).expect(302).expect('location', '/onboarding');
-  await agent.get('/dashboard/dashboard').expect(302).expect('location', '/onboarding');
-  const onboarding = await agent.get('/onboarding').expect(200);
-  await agent.post('/onboarding').type('form').send({ role: 'customer', publicName: 'Verified Customer', location: 'Kampala', _csrf: csrf(onboarding.text) }).expect(302).expect('location', '/dashboard/dashboard');
+  await agent.post('/verify-phone').type('form').send({ code: phoneCode, _csrf: csrf(sent.text) }).expect(302).expect('location', '/dashboard/dashboard');
   await agent.get('/dashboard/dashboard').expect(200);
 });

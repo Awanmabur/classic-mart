@@ -46,6 +46,7 @@
           <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
           <button class="auth-social-button full-server-button" type="submit">Send Verification Code</button>
         </form>
+        <p class="auth-switch"><a href="<%= user.onboardingCompletedAt ? '/dashboard/profile' : '/onboarding' %>">Verify later — continue to your account</a></p>
         <form action="/logout" class="auth-form compact-server-form" method="post">
           <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
           <button class="auth-text-button" type="submit">Use another account</button>

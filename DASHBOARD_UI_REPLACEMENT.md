@@ -127,3 +127,12 @@ are present here, so actual SMS receipt and Gmail authentication remain unverifi
 Adapter checkpoint validation: all 353 tests passed with zero failures or skips
 using the local MongoDB replica set, both authentication servers, and Chromium.
 Project checks, security checks, and frontend audit passed.
+
+### Easier signup
+
+Signup now verifies email only before onboarding and dashboard access. Phone
+verification remains optional from the profile page. The signup phone field has
+an accessible country-code selector using configured active countries; composition
+and prefix validation happen on the server. Production can leave SMS disabled
+until credentials are available, without development-code fallback. The live
+signup test verifies dashboard access before optional phone verification.

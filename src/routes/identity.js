@@ -151,7 +151,6 @@ router.post(
       });
       if (!env.auth.simpleLogin) {
         if (!user.emailVerifiedAt) return response.redirect('/verify-email');
-        if (!user.phoneVerifiedAt) return response.redirect('/verify-phone');
         if (!user.onboardingCompletedAt) return response.redirect('/onboarding');
       }
       return response.redirect(loginDestination(user, input.next));
@@ -200,13 +199,18 @@ router.post('/mfa', authenticationLimit, asyncHandler(async (request, response) 
     await writeAudit(request, 'identity.login', { actor: user, targetType: 'user', targetPublicId: user.publicId, metadata: { mfa: result.method } });
     await writeSecurityEvent(request, 'mfa.challenge_succeeded', { actor: user, category: 'mfa', severity: 'low', result: 'success', metadata: { method: result.method } });
     if (!user.emailVerifiedAt) return response.redirect('/verify-email');
-    if (!user.phoneVerifiedAt) return response.redirect('/verify-phone');
     if (!user.onboardingCompletedAt) return response.redirect('/onboarding');
     return response.redirect(loginDestination(user, nextPath));
   } catch (error) {
     await writeSecurityEvent(request, 'mfa.challenge_failed', { category: 'mfa', severity: 'medium', result: 'failure', metadata: { code: error.code || 'MFA_FAILED' } });
     return response.status(error.status || 422).render('mfa', { pageError: error.message, recovery: true });
   }
+}));
+
+router.use('/signup', asyncHandler(async (request, response, next) => {
+  response.locals.phoneCountries = await getCountries();
+  response.locals.defaultPhoneCountry = request.country.code;
+  next();
 }));
 
 router.get('/signup', (request, response) => {
@@ -220,6 +224,18 @@ router.post(
   asyncHandler(async (request, response) => {
     try {
       const input = signUpSchema.parse(request.body);
+      if (input.phoneCountry) {
+        const country = response.locals.phoneCountries.find(row => row.code === input.phoneCountry);
+        if (!country || !/^\+[1-9]\d{0,3}$/.test(country.phonePrefix || '')) throw new AppError('Select a valid phone country code.', 422, 'INVALID_PHONE_COUNTRY');
+        const digits = input.phone.replace(/[\s()-]/g, '');
+        if (digits.startsWith('+')) {
+          if (!digits.startsWith(country.phonePrefix)) throw new AppError('Phone number does not match the selected country code.', 422, 'INVALID_PHONE');
+          input.phone = digits;
+        } else {
+          input.phone = country.phonePrefix + digits.replace(/^0/, '');
+        }
+      }
+      if (!/^\+[1-9]\d{7,14}$/.test(input.phone)) throw new AppError('Enter a valid international phone number.', 422, 'INVALID_PHONE');
       const { user, developmentCode } = await registerUser(input, request);
       if (input.referralCode) {
         try { await acceptReferralCode(input.referralCode, user); }
@@ -256,6 +272,7 @@ router.post(
           name: request.body.name || '',
           email: request.body.email || '',
           phone: request.body.phone || '',
+          phoneCountry: request.body.phoneCountry || '',
           referralCode: request.body.referralCode || '',
         },
       });
@@ -265,7 +282,6 @@ router.post(
 
 router.get('/verify-email', requireAuth, (request, response) => {
   if (request.user.emailVerifiedAt) {
-    if (!request.user.phoneVerifiedAt) return response.redirect('/verify-phone');
     return response.redirect(request.user.onboardingCompletedAt ? loginDestination(request.user) : '/onboarding');
   }
   return response.render('verify-email', { pageError: null });
@@ -284,7 +300,7 @@ router.post(
         targetType: 'user',
         targetPublicId: request.user.publicId,
       });
-      return response.redirect(request.user.phoneVerifiedAt ? '/onboarding' : '/verify-phone');
+      return response.redirect(request.user.onboardingCompletedAt ? loginDestination(request.user) : '/onboarding');
     } catch (error) {
       return response.status(error.status || 422).render('verify-email', {
         pageError: error.message,

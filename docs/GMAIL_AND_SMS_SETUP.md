@@ -78,3 +78,18 @@ claims/guess limits. Gmail provider tests use an isolated transport fixture; the
 workspace has no Gmail credentials, so live Gmail authentication or delivery has
 not been verified. The eSMS adapter has additional protocol/security fixture tests. Actual eSMS delivery
 requires the private account key, which is absent from this workspace.
+
+## Signup policy
+
+Signup requires email verification only, followed by onboarding. Phone verification
+is optional and available from Dashboard → Profile. Unverified phones remain
+unverified; this change does not treat email ownership as phone ownership.
+The signup country-code selector uses active marketplace countries and their
+configured phone prefixes. The server validates the selection and stores the
+composed international number. A leading local trunk zero is removed; full
+international input must match the selected prefix.
+
+Production may use `SMS_MODE=disabled` (or leave SMS_MODE unset) until credentials
+are ready. Optional phone verification then fails safely; it cannot mark a phone
+verified. Production never falls back to development SMS log codes. Configuring
+`SMS_MODE=esms` still requires a live key. Staff MFA requirements are unchanged.

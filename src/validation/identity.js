@@ -21,6 +21,7 @@ export const signUpSchema = z
       .min(8)
       .max(30)
       .regex(/^\+?[\d\s()-]+$/),
+    phoneCountry: z.string().trim().regex(/^[A-Z]{2}$/).optional(),
     password: strongPassword,
     confirmPassword: z.string(),
     acceptTerms: z.literal('on'),

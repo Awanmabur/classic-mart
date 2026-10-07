@@ -78,7 +78,7 @@ if (nodeEnv === 'production') {
   }
   const smsConfigured = (process.env.SMS_MODE === 'esms' && process.env.ESMS_API_KEY?.startsWith('esms_live_')) ||
     (process.env.SMS_MODE === 'twilio' && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM);
-  if (!smsConfigured) {
+  if (process.env.SMS_MODE && process.env.SMS_MODE !== 'disabled' && !smsConfigured) {
     throw new Error('Production requires SMS_MODE=esms with a live ESMS_API_KEY, or configured Twilio, for phone verification.');
   }
   if (!['clamd', 'clamscan'].includes(process.env.MALWARE_SCAN_MODE || '')) {
@@ -247,7 +247,7 @@ export const env = Object.freeze({
       '',
   }),
   sms: Object.freeze({
-    mode: process.env.SMS_MODE || 'log',
+    mode: process.env.SMS_MODE || (nodeEnv === 'production' ? 'disabled' : 'log'),
     esmsApiKey: process.env.ESMS_API_KEY || '',
     esmsSenderId: process.env.ESMS_SENDER_ID || '',
     accountSid: process.env.TWILIO_ACCOUNT_SID || '',
