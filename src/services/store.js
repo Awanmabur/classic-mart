@@ -52,7 +52,19 @@ export async function getOrCreateStore(user, { preferredStorePublicId = '', stri
     const baseName = user.roleProfile?.businessName || user.roleProfile?.publicName || `${user.name}'s Store`;
     const baseSlug = slugify(baseName); let slug = baseSlug; let suffix = 1;
     while (await Store.exists({ slug })) { suffix += 1; slug = `${baseSlug.slice(0, 88)}-${suffix}`; }
-    const store = await Store.create({ publicId: publicId('str'), ownerUserId: user._id, name: baseName, slug, description: user.roleProfile?.bio || '', country: user.country, currency: user.currency });
+    let store;
+    for (let attempt = 0; attempt < 5 && !store; attempt += 1) {
+      try {
+        store = await Store.create({ publicId: publicId('str'), ownerUserId: user._id, name: baseName, slug, description: user.roleProfile?.bio || '', country: user.country, currency: user.currency });
+      } catch (error) {
+        if (error.code !== 11000) throw error;
+        // A simultaneous first request may already have created this owner's store.
+        store = await Store.findOne({ ownerUserId: user._id });
+        if (store?.status === 'closed') throw new AppError('Your store is closed.', 409, 'SELLER_STORE_CLOSED');
+        if (!store) { suffix += 1; slug = `${baseSlug.slice(0, 88)}-${suffix}`; }
+      }
+    }
+    if (!store) throw new AppError('Store creation conflicted. Please retry.', 409, 'SELLER_STORE_CONFLICT');
     const membership = await ensureOwnerMembership(store, user);
     accesses = [{ store: store.toObject(), role: 'owner', membership }];
     selected = accesses[0];

@@ -62,7 +62,7 @@ for (const name of viewFiles) {
 
   for (const button of source.matchAll(/<button\b([^>]*)>[\s\S]*?<\/button>/gi)) {
     const attributes = button[1];
-    if (!/\btype\s*=\s*["']button["']/i.test(attributes) || /\bonclick\s*=/i.test(attributes)) continue;
+    if (!/\btype\s*=\s*["']button["']/i.test(attributes) || /\bonclick\s*=/i.test(attributes) || /\sdisabled(?:\s|=|$)/i.test(attributes)) continue;
     const hooks = [];
     const id = attributes.match(/\bid\s*=\s*["']([^"']+)["']/i)?.[1];
     if (id) hooks.push(id);

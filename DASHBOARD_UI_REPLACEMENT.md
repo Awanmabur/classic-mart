@@ -214,3 +214,12 @@ See [customer foundation verification](docs/performance/customer-foundation.md)
 for route boundaries, query/index changes, private-cache safeguards, dependency
 patches, public crawler discovery and measured local results. Updating this
 checkpoint requires `npm ci` followed by a server restart.
+
+### Seller store-settings integration
+
+Seller login and onboarding now land at `/seller/store`. Store identity and
+operating preferences persist through the approved UI with country-aware phone
+validation, store permissions, MFA gating, stale-edit checks and transactional
+audit evidence. Other seller dashboard pages remain disabled until their own
+workflows are connected and verified. See the [seller milestone](docs/seller/store-settings.md)
+for completed behavior, test evidence and remaining scope.

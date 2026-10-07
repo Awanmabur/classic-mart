@@ -13,7 +13,7 @@ export const DASHBOARD_WORKSPACES = Object.freeze({
   },
   "seller": {
     "label": "Seller",
-    "defaultPage": "seller-overview",
+    "defaultPage": "seller-store",
     "search": "Search products, orders and customers...",
     "quickLabel": "Add Product",
     "quickPage": "seller-add-product",
@@ -1232,6 +1232,7 @@ export function defaultPageFor(workspace) {
 }
 
 export function routeForPage(pageId) {
+  if (pageId === 'seller-store') return '/seller/store';
   return CUSTOMER_ROUTES[pageId] || (pageWorkspace(pageId) ? `/dashboard/${encodeURIComponent(pageId)}` : '/dashboard');
 }
 

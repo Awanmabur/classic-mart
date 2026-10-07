@@ -23,6 +23,7 @@ import identityRoutes from './routes/identity.js';
 import accountRoutes from './routes/account.js';
 import dashboardRoutes from './routes/dashboard.js';
 import approvedDashboardRoutes from './routes/approved-dashboard.js';
+import sellerStoreSettingsRoutes from './routes/seller-store-settings.js';
 import mediaRoutes from './routes/media.js';
 import storefrontRoutes from './routes/storefront.js';
 import newsletterRoutes from './routes/newsletter.js';
@@ -173,6 +174,7 @@ export function createApp(redisClient) {
     return next();
   });
   app.use(identityRoutes);
+  app.use(sellerStoreSettingsRoutes);
   app.use(approvedDashboardRoutes);
   app.use(accountRoutes);
   app.use(dashboardRoutes);

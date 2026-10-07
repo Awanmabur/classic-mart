@@ -12,10 +12,10 @@ const { createApp } = await import('../src/app.js');
 const { User, Device, AuditLog } = await import('../src/models/index.js');
 const { hashPassword } = await import('../src/core/crypto.js');
 const { loginDestination } = await import('../src/dashboard/landing.js');
-const { DASHBOARD_PAGES } = await import('../src/dashboard/registry.js');
+const { DASHBOARD_PAGES, routeForPage } = await import('../src/dashboard/registry.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cases = {
-  customer: 'dashboard', seller: 'seller-overview', promoter: 'promoter-overview',
+  customer: 'dashboard', seller: 'seller-store', promoter: 'promoter-overview',
   country_admin: 'admin-overview', super_admin: 'super-overview', finance: 'finance-overview',
   support: 'support-overview', warehouse: 'warehouse-overview', moderator: 'moderator-overview',
   business: 'business-overview', delivery: 'dashboard',
@@ -30,10 +30,10 @@ test('approved stylesheet, scripts, and images match the supplied preview exactl
 test('landing respects assigned roles and rejects unsafe redirect destinations', () => {
   const user = { role: 'seller', status: 'active' };
   for (const next of [undefined, '/', '//evil.example', '/\\evil.example', '/\nevil']) {
-    assert.equal(loginDestination(user, next), '/dashboard/seller-overview');
+    assert.equal(loginDestination(user, next), '/seller/store');
   }
   assert.equal(loginDestination(user, '/cart'), '/cart');
-  assert.equal(loginDestination({ ...user, preferences: { dashboard: { landingPage: 'dashboard' } } }, '/'), '/dashboard/seller-overview');
+  assert.equal(loginDestination({ ...user, preferences: { dashboard: { landingPage: 'dashboard' } } }, '/'), '/seller/store');
 });
 
 test('real login/session routes land every role in the approved UI; unauthorized roles are denied', async t => {
@@ -61,13 +61,17 @@ test('real login/session routes land every role in the approved UI; unauthorized
     const agent = request.agent(app);
     const login = await agent.get('/login').expect(200);
     const csrf = login.text.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
-    await agent.post('/login').type('form').send({ email: actor.email, password, _csrf: csrf }).expect(302).expect('location', page === 'dashboard' ? '/dashboard' : '/dashboard/' + page);
+    await agent.post('/login').type('form').send({ email: actor.email, password, _csrf: csrf }).expect(302).expect('location', routeForPage(page));
     if (role === 'customer' || role === 'delivery') {
       await agent.get('/signup').expect(302).expect('location', '/dashboard');
       await agent.get('/dashboard/seller-overview').expect(403);
       await agent.get('/dashboard/super-overview').expect(403);
       await agent.get('/dashboard/warehouse-overview').expect(403);
       await agent.get('/dashboard/unknown').expect(404);
+    } else if (role === 'seller') {
+      await agent.get('/dashboard').expect(302).expect('location', '/seller/store');
+      await agent.get('/dashboard/seller-store').expect(308).expect('location', '/seller/store');
+      await agent.get('/dashboard/seller-overview').expect(503);
     } else {
       const dashboard = await agent.get('/dashboard/' + page).expect(200);
       assert.match(dashboard.text, /\/approved-dashboard\/styles.css/);
@@ -78,7 +82,7 @@ test('real login/session routes land every role in the approved UI; unauthorized
     if (role === 'super_admin') {
       for (const [workspace, rows] of Object.entries(DASHBOARD_PAGES)) {
         if (workspace === 'customer') continue;
-        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(200);
+        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(id === 'seller-store' ? 308 : workspace === 'seller' ? 503 : 200);
       }
     }
   }

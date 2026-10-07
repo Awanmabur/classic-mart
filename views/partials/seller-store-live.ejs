@@ -1,0 +1,44 @@
+<% const sellerStore = liveSeller.store; const ops = sellerStore.operations || {}; const draft = liveSeller.draft || {}; const businessActive = liveSeller.section === 'operations'; const locked = !['pending_verification','verified'].includes(sellerStore.status); %>
+<section class="app-page active role-page" data-page="seller-store" data-role="seller">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow">Account preferences</span><h1>Store Settings</h1><p>Manage your store identity, business details, and fulfilment preferences.</p></div><a class="outline-button icon-button" href="/account/security"><svg><use href="#i-shield"></use></svg>Security centre</a></div>
+  <% if (liveSeller.error) { %><div class="panel dashboard-message dashboard-message-error seller-store-error" role="alert"><%= liveSeller.error %></div><% } %>
+  <% if (locked) { %><div class="panel dashboard-message" role="status">This store is <%= sellerStore.status %>. Settings cannot be changed.</div><% } %>
+  <div class="profile-layout role-settings-layout role-profile-settings">
+    <aside class="panel profile-summary role-profile-summary">
+      <div class="profile-avatar-wrap role-profile-avatar-wrap"><span class="role-profile-avatar"><%= sellerStore.name.slice(0,2).toUpperCase() %></span></div>
+      <h2><%= sellerStore.name %></h2><p><%= ops.supportEmail || user.email %></p>
+      <span class="member-pill"><svg><use href="#i-bag"></use></svg>Seller · <%= sellerStore.status.replaceAll('_',' ') %></span>
+      <div class="profile-completion"><div><span>Profile completion</span><strong><%= liveSeller.completion %>%</strong></div><div><span style="width:<%= liveSeller.completion %>%"></span></div></div>
+      <nav class="settings-nav role-settings-nav" aria-label="Store settings sections">
+        <button type="button" class="<%= businessActive ? '' : 'active' %>" data-seller-settings-tab="identity" aria-pressed="<%= !businessActive %>" aria-controls="sellerIdentity">Store profile</button>
+        <button type="button" class="<%= businessActive ? 'active' : '' %>" data-seller-settings-tab="operations" aria-pressed="<%= businessActive %>" aria-controls="sellerOperations">Business details</button>
+        <button type="button" data-seller-security>Password &amp; Security</button>
+      </nav>
+    </aside>
+    <div class="role-settings-content">
+      <form id="sellerIdentity" class="panel form-panel role-settings-panel <%= businessActive ? '' : 'active' %>" data-seller-settings-panel="identity" method="post" action="/seller/store/identity">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= sellerStore.__v %>">
+        <div class="section-heading"><div><h2>Store identity</h2><p class="form-intro">Keep the information shown across Classic Mart accurate and consistent. Public contact details do not change your account login or verified phone.</p></div><% if (sellerStore.status === 'verified') { %><span class="verified-label"><svg><use href="#i-check"></use></svg>Verified</span><% } %></div>
+        <fieldset <%= locked ? 'disabled' : '' %> class="seller-settings-fields"><div class="role-form-grid">
+          <label>Store name<input name="name" value="<%= draft.name ?? sellerStore.name %>" required minlength="2" maxlength="140" autocomplete="organization"></label>
+          <label>Contact email<input name="supportEmail" type="email" value="<%= draft.supportEmail ?? ops.supportEmail ?? '' %>" maxlength="254" autocomplete="email"></label>
+          <label>Phone country code<select name="supportPhoneCountry" required><% for (const country of liveSeller.countries) { %><option value="<%= country.code %>" <%= country.code === (draft.supportPhoneCountry ?? liveSeller.phoneCountry) ? 'selected' : '' %>><%= country.name %> (<%= country.phonePrefix %>)</option><% } %></select></label>
+          <label>Phone number<input name="supportPhone" type="tel" value="<%= draft.supportPhone ?? ops.supportPhone ?? '' %>" maxlength="30" autocomplete="tel" placeholder="Include the selected country code"></label>
+          <label>Country<input value="<%= sellerStore.country %>" readonly aria-describedby="sellerRegionHint"></label>
+          <label>Currency<input value="<%= sellerStore.currency %>" readonly></label>
+          <label class="wide">About<textarea name="description" rows="5" maxlength="1500"><%= draft.description ?? sellerStore.description %></textarea></label>
+        </div><p class="form-intro" id="sellerRegionHint">Store country and settlement currency are fixed to protect existing orders and accounting.</p><button class="primary-button" type="submit">Save Changes</button></fieldset>
+      </form>
+      <form id="sellerOperations" class="panel form-panel role-settings-panel <%= businessActive ? 'active' : '' %>" data-seller-settings-panel="operations" method="post" action="/seller/store/operations">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= sellerStore.__v %>">
+        <h2>Business &amp; fulfilment</h2><p class="form-intro">These settings keep your store aligned with its real operating responsibility.</p>
+        <fieldset <%= locked ? 'disabled' : '' %> class="seller-settings-fields"><div class="role-form-grid">
+          <label>Primary category<input name="primaryCategory" value="<%= draft.primaryCategory ?? ops.primaryCategory ?? '' %>" maxlength="100"></label>
+          <label>Pickup city<input name="pickupCity" value="<%= draft.pickupCity ?? ops.pickupCity ?? '' %>" maxlength="120" autocomplete="address-level2"></label>
+          <label>Fulfilment mode<select name="fulfillmentMode" required><% for (const [value,label] of [['merchant','Seller fulfilled'],['warehouse','Warehouse fulfilled'],['hybrid','Hybrid']]) { %><option value="<%= value %>" <%= value === (draft.fulfillmentMode ?? ops.fulfillmentMode ?? 'merchant') ? 'selected' : '' %>><%= label %></option><% } %></select></label>
+          <label>Verification status<input readonly value="<%= liveSeller.verification?.status || 'Not submitted' %>"></label>
+        </div><p class="form-intro">Changing fulfilment preferences does not dispatch orders or approve store verification.</p><button class="primary-button" type="submit">Save Changes</button></fieldset>
+      </form>
+    </div>
+  </div>
+</section>

@@ -21,6 +21,7 @@ for(const file of files){
     if(file.startsWith('views'+path.sep)) {
       for (const expression of raw) {
         if (/^include\('partials\/approved-account-(security|messages|privacy|returns|rewards|apps|invitation)'\)$/.test(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
+        if (expression === "include('partials/seller-store-live')" && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
         if (/^include\(['"]partials\/customer-live-pages['"]\s*,\s*\{ pageId: initialPage, pageData, walletIdempotencyKey \}\)$/.test(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
         if (/^include\('approved-dashboard', \{ workspace: '(customer|seller|promoter|business|warehouse|support|moderator|finance|admin|superadmin)', initialPage: '[a-z-]+', allowedWorkspaces: \['[a-z]+'\] \}\)$/.test(expression)) allowed.add(expression);
       }

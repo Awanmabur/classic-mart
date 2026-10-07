@@ -18,7 +18,7 @@ const gates = [noStore, privateDashboard, requireAuth, requireVerified, requireO
 async function renderPage(request, response, page) {
   const workspace = workspaceForPage(request.user, page);
   if (!workspace) throw new AppError('You do not have access to this dashboard.', 403, 'DASHBOARD_FORBIDDEN');
-  if (workspace !== 'customer' && env.isProduction) throw new AppError('This dashboard is not connected to live operations yet.', 503, 'DASHBOARD_NOT_CONNECTED');
+  if (workspace !== 'customer' && (workspace === 'seller' || env.isProduction)) throw new AppError('This dashboard is not connected to live operations yet.', 503, 'DASHBOARD_NOT_CONNECTED');
   return response.render('approved-dashboard', {
     workspace, initialPage: page, allowedWorkspaces: allowedWorkspacesFor(request.user),
     ...(workspace === 'customer' ? await customerView(request, page) : {}),

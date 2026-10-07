@@ -1,4 +1,4 @@
-<% const liveCustomer = typeof liveHeader !== 'undefined'; const memberName = String(user?.name || 'Member').trim().split(/\s+/)[0]; %>
+<% const liveCustomer = typeof liveHeader !== 'undefined'; const sellerLive = typeof liveSeller !== 'undefined'; const memberName = String(user?.name || 'Member').trim().split(/\s+/)[0]; %>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,7 +13,7 @@
   <link rel="icon" type="image/png" href="/approved-dashboard/assets/classic-mart-icon.png" />
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/session.css') %>" />
 </head>
-<body data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= initialPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>">
+<body data-dashboard-live="<%= liveCustomer %>" data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= initialPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>">
   <meta name="csrf-token" content="<%= csrfToken %>">
   <script src="<%= assetUrl('/approved-dashboard/session-entry.js') %>" <%= liveCustomer ? 'defer' : '' %>></script>
   <svg class="svg-sprite" aria-hidden="true">
@@ -81,7 +81,7 @@
         <button class="round-icon badge-button" data-page-target="notifications" aria-label="Notifications"><svg><use href="#i-bell"></use></svg><b class="red" id="notificationBadge"><%= liveCustomer ? liveHeader.unread : 4 %></b></button>
         <button class="profile-button" id="profileButton">
           <img src="/approved-dashboard/assets/avatar.svg" alt="<%= user?.name || 'Member' %>" />
-          <span><strong>Hi, <%= memberName %></strong><small>Customer</small></span>
+          <span><strong>Hi, <%= memberName %></strong><small><%= sellerLive ? 'Seller' : 'Customer' %></small></span>
           <svg><use href="#i-chevron-down"></use></svg>
         </button>
       </div>
@@ -89,6 +89,9 @@
 
     <aside class="sidebar" id="sidebar">
       <nav class="side-navigation">
+        <% if (sellerLive) { for (const item of liveSeller.navigation) { %>
+        <% if (item.ready) { %><a class="side-link active" href="<%= item.href %>" data-page-target="<%= item.id %>"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></a><% } else { %><button class="side-link" type="button" disabled title="Not available yet"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></button><% } %>
+        <% } } else { %>
         <a class="side-link active" href="/dashboard" data-page-target="dashboard"><svg><use href="#i-grid"></use></svg><span>Dashboard</span></a>
         <a class="side-link" href="/orders" data-page-target="orders"><svg><use href="#i-clipboard"></use></svg><span>My Orders</span></a>
         <a class="side-link" href="/wishlist" data-page-target="wishlist"><svg><use href="#i-heart"></use></svg><span>Wishlist</span><b><%= liveCustomer ? liveHeader.wishlistCount : 5 %></b></a>
@@ -98,6 +101,7 @@
         <a class="side-link" href="/returns" data-page-target="returns"><svg><use href="#i-refresh"></use></svg><span>Returns &amp; Refunds</span></a>
         <a class="side-link" href="/support" data-page-target="support"><svg><use href="#i-support"></use></svg><span>Support Tickets</span></a>
         <a class="side-link" href="/profile" data-page-target="profile"><svg><use href="#i-user"></use></svg><span>Profile Settings</span></a>
+        <% } %>
       </nav>
 
       <section class="sidebar-club-card">
@@ -115,7 +119,7 @@
     <main class="dashboard page-host" id="pageHost">
 <% if (!liveCustomer) { %><div class="panel dashboard-message" role="note">Development preview: this workspace is not connected to live operations yet.</div><% } %>
 <% if (flash?.message) { %><div class="panel dashboard-message <%= flash.type==='error'?'dashboard-message-error':'' %>" role="<%= flash.type==='error'?'alert':'status' %>"><%= flash.message %></div><% } %>
-<% if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
+<% if (sellerLive) { %><%- include('partials/seller-store-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
 </main>
   </div>
 
@@ -152,5 +156,6 @@
   <script src="<%= assetUrl('/approved-dashboard/script.js') %>"></script>
   <script src="<%= assetUrl('/approved-dashboard/enhancements.js') %>"></script>
   <script src="<%= assetUrl('/approved-dashboard/session-controls.js') %>"></script><% } else { %><script defer src="<%= assetUrl('/approved-dashboard/customer-live.js') %>"></script><script defer src="<%= assetUrl('/approved-dashboard/customer-navigation.js') %>"></script><% } %>
+  <% if (sellerLive) { %><script defer src="<%= assetUrl('/approved-dashboard/seller-store-live.js') %>"></script><% } %>
 </body>
 </html>
