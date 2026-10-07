@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { customerView } from '../dashboard/customer-view.js';
 import { loginDestination } from '../dashboard/landing.js';
 import { hydratePlatformAuthorization } from '../services/platform-grants.js';
 import { env } from '../config/env.js';
@@ -40,7 +41,7 @@ router.use(noStore);
 
 router.get('/staff/invitations/:token',requireAuth,asyncHandler(async(request,response)=>{
   const invitation=await platformStaffInvitationPreview(request,request.params.token);
-  return response.render('staff-invitation',{invitation,token:request.params.token});
+  return response.render('approved-dashboard',{workspace:'customer',initialPage:'profile',allowedWorkspaces:['customer'],...await customerView(request,'profile'),accountSupplement:'invitation',invitation,token:request.params.token});
 }));
 router.post('/staff/invitations/:token/accept',requireAuth,asyncHandler(async(request,response)=>{
   const result=await acceptPlatformStaffInvitation(request,request.params.token);

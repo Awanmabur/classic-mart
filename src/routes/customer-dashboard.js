@@ -7,6 +7,7 @@ import { CustomerAddress, Notification, User } from '../models/index.js';
 import { requireAuth, requireOnboarding, requireVerified } from '../middleware/auth.js';
 import { noStore } from '../middleware/request.js';
 import { setFlash } from '../middleware/view.js';
+import { customerView } from '../dashboard/customer-view.js';
 import { loadCustomerDashboard } from '../services/customer-dashboard.js';
 import { createTicket } from '../services/trust.js';
 import { writeAudit } from '../services/audit.js';
@@ -37,7 +38,7 @@ router.get(
   asyncHandler(async (request, response) => {
     const dashboard = await loadCustomerDashboard(request);
     response.set('Cache-Control', 'private, no-store');
-    return response.render('customer-dashboard', { dashboard });
+    return response.render('approved-dashboard', { workspace: 'customer', initialPage: 'dashboard', allowedWorkspaces: ['customer'], ...await customerView(request, 'dashboard'), dashboard });
   }),
 );
 

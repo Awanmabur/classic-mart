@@ -46,7 +46,7 @@ router.get('/dashboard/wallet/return',asyncHandler(async(request,response)=>{
 router.get('/dashboard/:page',asyncHandler(async(request,response)=>{
   const pageId=String(request.params.page||'dashboard');const page=customerDashboardPage(pageId);if(!page)throw new AppError('Dashboard page not found.',404,'DASHBOARD_PAGE_NOT_FOUND');
   const pageData=await loadCustomerDashboardPage(request,pageId);
-  response.render('customer-dashboard',{page,pageId,pages:CUSTOMER_DASHBOARD_PAGES,pageData,walletIdempotencyKey:publicId('idem'),formatMoney:(minor,currency=request.user.currency)=>formatMoney(minor,currency,request.user.locale),formatDate:(value)=>formatDate(value,request.user.locale)});
+  response.render('approved-dashboard', { workspace: 'customer', initialPage: 'dashboard', allowedWorkspaces: ['customer'],page,pageId,pages:CUSTOMER_DASHBOARD_PAGES,pageData,walletIdempotencyKey:publicId('idem'),formatMoney:(minor,currency=request.user.currency)=>formatMoney(minor,currency,request.user.locale),formatDate:(value)=>formatDate(value,request.user.locale)});
 }));
 
 router.post('/dashboard/addresses',asyncHandler(async(request,response)=>{await createCustomerAddress(request,request.body);setFlash(request,'success','Address added.');response.redirect(customerDashboardPath('addresses'));}));

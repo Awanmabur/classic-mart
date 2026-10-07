@@ -43,7 +43,7 @@ async function loadActiveFeatureFlags() {
   const now = Date.now();
   if (featureFlagCache.value && featureFlagCache.expiresAt > now) return featureFlagCache.value;
   if (featureFlagCache.promise) return featureFlagCache.promise;
-  const promise = FeatureFlag.find({ enabled: true }).lean();
+  const promise = FeatureFlag.find({ enabled: true }).lean().exec();
   featureFlagCache = { ...featureFlagCache, promise };
   try {
     const value = await promise;

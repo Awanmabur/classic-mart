@@ -1,5 +1,6 @@
 import { AppError } from '../core/errors.js';
 import { DASHBOARD_PAGES, DASHBOARD_WORKSPACES, pageDefinition, routeForPage } from './registry.js';
+import { customerView } from './customer-view.js';
 import { workspaceForPage } from './access.js';
 import { loadDashboardNavigationState, loadDashboardPageData } from './data.js';
 
@@ -21,7 +22,9 @@ export async function renderDashboardPage(request, response, pageId) {
     loadDashboardNavigationState({ request, workspace }),
   ]);
   response.set('Cache-Control', 'private, no-store');
-  return response.render('platform-dashboard', {
+  return response.render('approved-dashboard', {
+    workspace, initialPage: pageId, allowedWorkspaces: [workspace],
+    ...(workspace === 'customer' ? await customerView(request, pageId) : {}),
     requestedWorkspace: workspace,
     requestedPage: pageId,
     dashboardPage: {

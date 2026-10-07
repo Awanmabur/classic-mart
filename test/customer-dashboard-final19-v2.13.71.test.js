@@ -18,13 +18,13 @@ test('Customer registry defines exactly the 13 approved Final 19 pages',()=>{
 });
 
 test('Customer dashboard uses the exact uploaded Final 19 styles',()=>{
-  assert.equal(sha('public/dashboard/styles.css'),'274d501fa785fcb299da0cc29cdda25b056d1b3f51b0ccab9de42898c61172d7');
-  assert.equal(sha('public/dashboard/role-workspaces.css'),'1ef002c3f19472d36d94ddfa7de9ffa0e11e7ad8a4a42a6dc2fd4e4cfda0d9ef');
-  assert.equal(sha('public/dashboard/design-system.css'),'91d65cc60b8f2739b1577da636ad49f51c298d5df5f07f9bca7d798402ba028a');
+  assert.equal(sha('public/approved-dashboard/styles.css'),'274d501fa785fcb299da0cc29cdda25b056d1b3f51b0ccab9de42898c61172d7');
+  assert.equal(sha('public/approved-dashboard/role-workspaces.css'),'1ef002c3f19472d36d94ddfa7de9ffa0e11e7ad8a4a42a6dc2fd4e4cfda0d9ef');
+  assert.equal(sha('public/approved-dashboard/design-system.css'),'91d65cc60b8f2739b1577da636ad49f51c298d5df5f07f9bca7d798402ba028a');
 });
 
 test('single Customer shell/partial exists and no demo runtime ships',()=>{
-  for(const p of ['views/customer-dashboard.ejs','views/partials/customer-live-pages.ejs','public/approved-dashboard/customer-live.js']) assert.ok(exists(p),p);
+  for(const p of ['views/approved-dashboard.ejs','views/partials/customer-live-pages.ejs','public/approved-dashboard/customer-live.js']) assert.ok(exists(p),p);
   for(const p of ['public/dashboard/role-workspaces.js','public/dashboard/script.js','public/dashboard/enhancements.js']) assert.equal(exists(p),false,p);
 });
 
@@ -46,9 +46,9 @@ test('Customer page loader is page-scoped, not all-pages preload',()=>{
   assert.doesNotMatch(source,/Promise\.all\(\s*Object\.values\(LOADERS\)/);
 });
 
-test('role compatibility views use the approved shell and unfinished operations are blocked in production',()=>{
+test('retired role compatibility views are removed and unfinished operations remain blocked in production',()=>{
   const wrappers=['seller-dashboard.ejs','promoter-dashboard.ejs','finance-dashboard.ejs','support-dashboard.ejs','warehouse-dashboard.ejs','moderator-dashboard.ejs','country-admin-dashboard.ejs','super-admin-dashboard.ejs'];
-  for(const name of wrappers) assert.match(read(`views/${name}`),/^<%- include\('approved-dashboard',/);
+  for(const name of wrappers) assert.equal(exists(`views/${name}`),false);
   assert.match(read('src/routes/approved-dashboard.js'),/workspace !== 'customer' && env.isProduction/);
   assert.match(read('src/routes/approved-dashboard.js'),/503, 'DASHBOARD_NOT_CONNECTED'/);
 });

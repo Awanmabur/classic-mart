@@ -157,6 +157,13 @@ export function createApp(redisClient) {
     }),
   );
 
+  // Retired asset URLs must not fall through to dashboard authentication routes.
+  app.use((request, response, next) => {
+    if (/^\/dashboard-v19(?:\/|$)|^\/account\.css$|^\/dashboard\/(?:assets\/|[^/]+\.(?:css|js|svg|png|jpe?g|webp)$)/i.test(request.path)) {
+      return response.status(404).type('text/plain').send('Not found');
+    }
+    return next();
+  });
   app.use(identityRoutes);
   app.use(approvedDashboardRoutes);
   app.use(accountRoutes);

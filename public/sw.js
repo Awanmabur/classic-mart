@@ -1,7 +1,7 @@
 'use strict';
-const CACHE='classic-mart-public-v26';
+const CACHE='classic-mart-public-v27';
 const STATIC=['/offline','/assets/pwa-icon.svg','/assets/pwa-192.png','/assets/pwa-512.png','/assets/product-placeholder.svg'];
-const PRIVATE_PREFIXES=['/api/','/account','/cart','/checkout','/track-order','/payments','/ask-classic','/webhooks','/login','/signup','/verify-','/onboarding'];
+const PRIVATE_PREFIXES=['/dashboard','/seller','/promoter','/admin','/super-admin','/operations','/finance','/warehouse','/moderation','/business','/api/','/account','/cart','/checkout','/track-order','/payments','/ask-classic','/webhooks','/login','/signup','/verify-','/onboarding'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(STATIC)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 function isPrivate(path){return PRIVATE_PREFIXES.some(prefix=>path.startsWith(prefix));}

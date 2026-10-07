@@ -156,3 +156,26 @@ Validation: all 355 tests passed, zero skips; project/security/frontend checks
 passed. Chromium checked ten customer/account paths for the approved shell,
 visible search, absence of the workspace field and absence of old account chrome.
 Desktop and mobile screenshots were inspected after transitions settled.
+
+### Retired UI removal
+
+Deleted all 37 dashboard compatibility/legacy templates, both duplicate dashboard
+asset folders, the old account stylesheet, old account header/nav partials, and the
+unused source-layout renderer. Server render calls now target the approved shell
+directly. The active staff-invitation form is a reviewed approved-shell partial.
+Business documents retain their printable document layout and use approved assets.
+The approved Final 19 design source and deployed approved dashboard assets remain.
+
+The service-worker cache version advances to clear previously cached files, and
+private dashboard paths explicitly bypass its cache. A concurrent startup/signup
+failure exposed by verification was fixed by sharing an executed feature-query
+Promise rather than reusing a Mongoose query thenable.
+
+This removes the retired UI from the current project tree, not Git history. Backend
+services and authorization checks remain; unfinished operational backend wiring is
+still gated in production. Cleanup checks require absent retired files and valid
+literal server-render targets so stale UI cannot silently return.
+
+Removal verification: all 359 tests passed with zero failures or skips; project,
+security and frontend checks passed. Retired asset URLs return HTTP 404 directly.
+Ten authenticated customer/account paths passed the browser check.

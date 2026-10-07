@@ -25,7 +25,9 @@ test('Stage 11 PWA never caches trusted commerce state', () => {
   const sw = read('public/sw.js');
   assert.match(sw, /PRIVATE_PREFIXES/);
   for (const prefix of ['/api/','/account','/cart','/checkout','/track-order','/payments','/ask-classic','/webhooks']) assert.match(sw, new RegExp(prefix.replace(/\//g,'\\/')));
-  assert.doesNotMatch(sw, /\/admin|\/seller|\/dashboard/);
+  assert.doesNotMatch(sw.match(/const STATIC=([^;]+);/)[1], /\/admin|\/seller|\/dashboard/);
+  assert.match(sw.match(/const PRIVATE_PREFIXES=([^;]+);/)[1], /\/dashboard/);
+  assert.match(sw,/if\(isPrivate\(url\.pathname\)\)\{event\.respondWith\(fetch\(request,\{cache:'no-store'\}\)\)/);
   assert.match(sw, /cache:\s*'no-store'/);
   assert.match(read('public/manifest.webmanifest'), /"display"\s*:\s*"standalone"/);
   assert.match(read('src/app.js'), /manifest\.webmanifest/);

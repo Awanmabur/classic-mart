@@ -87,7 +87,7 @@ async function queueQaSample({session,targetType,target,country,decision,reason,
 }
 
 function renderModeration(request, response, view) {
-  return response.render('moderation-workspace', {
+  return response.render('approved-dashboard', { workspace: 'moderator', initialPage: 'moderator-overview', allowedWorkspaces: ['moderator'],
     view,
     moderationReasonTemplates: MODERATION_REASON_TEMPLATES.filter(item => view.section === 'verification-detail' ? item.targetType === 'verification' : item.targetType === 'product'),
     formatMoney: (amount, currency) =>

@@ -21,7 +21,7 @@ router.get('/account/rewards',asyncHandler(async(req,res)=>{
     LoyaltyEntry.countDocuments(entryBase),Referral.countDocuments(referralBase),
   ]);
   const entryPage=pageResult(entryRows,{limit:pageSize,total:entryTotal}),referralPage=pageResult(referralRows,{limit:pageSize,total:referralTotal});
-  res.render('rewards',{...await customerView(req,'rewards'),accountSupplement:'rewards',account,entries:entryPage.items,referral,referrals:referralPage.items,queuePages:{entries:entryPage.page,referrals:referralPage.page}});
+  res.render('approved-dashboard', { workspace: 'customer', initialPage: 'rewards', allowedWorkspaces: ['customer'],...await customerView(req,'rewards'),accountSupplement:'rewards',account,entries:entryPage.items,referral,referrals:referralPage.items,queuePages:{entries:entryPage.page,referrals:referralPage.page}});
 }));
 router.post('/account/rewards/gift-card',asyncHandler(async(req,res)=>{
   const result=await redeemGiftCard({user:req.user,code:req.body.code});
