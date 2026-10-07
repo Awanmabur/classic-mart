@@ -165,6 +165,30 @@ export async function disputeReview(request,reviewId,reason){const review=await 
 export async function reportTrustIssue(request,input){const product=input.productId?await Product.findOne({publicId:input.productId}).lean():null;const store=input.storeId?await Store.findOne({publicId:input.storeId}).lean():null;if(input.productId&&!product)throw new AppError('Product not found.',404,'PRODUCT_NOT_FOUND');if(input.storeId&&!store)throw new AppError('Store not found.',404,'STORE_NOT_FOUND');const country=product?.countries?.[0]||store?.country||request.user.country;const trustCase=await TrustCase.create({publicId:publicId('case'),reporterUserId:request.user._id,country,type:input.type,productId:product?._id,productPublicId:product?.publicId,storeId:store?._id,storePublicId:store?.publicId,description:input.description});const severity=['counterfeit','unsafe_product','prohibited_product'].includes(input.type)?'high':'medium';await RiskSignal.create({publicId:publicId('rsk'),country,subjectType:product?'product':'store',subjectPublicId:product?.publicId||store?.publicId,type:`trust_${input.type}`,severity,score:severity==='high'?80:55,evidence:[trustCase.publicId],createdBy:'user'});return trustCase;}
 export async function publishReview(request,reviewId,{decision,reason=''}){const review=await Review.findOne({publicId:reviewId,...supportScope(request.user)});if(!review)throw new AppError('Review not found.',404,'REVIEW_NOT_FOUND');if(!['pending','disputed'].includes(review.status))throw new AppError('Review is already finalized.',409,'REVIEW_STATE');review.status=decision==='publish'?'published':'rejected';review.moderationReason=reason;if(review.status==='published')review.publishedAt=new Date();await review.save();return review;}
 
+export async function reviewTrustCase(request,caseDoc,input){
+  if(input.status!=='actioned'&&input.enforcement!=='none')throw new AppError('Enforcement requires an actioned trust case.',422,'TRUST_ENFORCEMENT_STATE');
+  if(input.enforcement==='suspend_product'){
+    const product=await Product.findOne({publicId:caseDoc.productPublicId});if(!product)throw new AppError('Product not found for enforcement.',404,'PRODUCT_NOT_FOUND');
+    if(product.status!=='suspended'){product.suspension.previousStatus=product.status;product.suspension.reason=input.decision;product.suspension.suspendedAt=new Date();product.suspension.suspendedByUserId=request.user._id;product.status='suspended';await product.save();}
+  }else if(input.enforcement==='restore_product'){
+    const product=await Product.findOne({publicId:caseDoc.productPublicId,status:'suspended'});if(!product)throw new AppError('Suspended product not found.',404,'PRODUCT_NOT_FOUND');
+    product.status=['published','approved'].includes(product.suspension?.previousStatus)?product.suspension.previousStatus:'approved';product.suspension.reason='';product.suspension.suspendedAt=undefined;product.suspension.suspendedByUserId=undefined;await product.save();
+  }else if(input.enforcement==='suspend_store'){
+    const store=caseDoc.storePublicId?await Store.findOne({publicId:caseDoc.storePublicId}):caseDoc.productId?await Product.findById(caseDoc.productId).then(product=>product?Store.findById(product.storeId):null):null;if(!store)throw new AppError('Store not found for enforcement.',404,'STORE_NOT_FOUND');
+    store.status='suspended';store.suspendedAt=new Date();store.suspensionReason=input.decision;store.suspendedByUserId=request.user._id;await store.save();
+  }else if(input.enforcement==='restore_store'){
+    const store=caseDoc.storePublicId?await Store.findOne({publicId:caseDoc.storePublicId,status:'suspended'}):caseDoc.productId?await Product.findById(caseDoc.productId).then(product=>product?Store.findOne({_id:product.storeId,status:'suspended'}):null):null;if(!store)throw new AppError('Suspended store not found.',404,'STORE_NOT_FOUND');
+    store.status='verified';store.suspendedAt=undefined;store.suspensionReason='';store.suspendedByUserId=undefined;await store.save();
+  }
+  caseDoc.status=input.status;caseDoc.decision=input.decision;caseDoc.assignedUserId=request.user._id;
+  if(['actioned','dismissed','closed'].includes(input.status))caseDoc.resolvedAt=new Date();else caseDoc.resolvedAt=undefined;
+  await caseDoc.save();return caseDoc;
+}
+
+export async function reviewRiskSignal(request,risk,input){
+  risk.status=input.status;risk.decision=input.decision;risk.reviewedByUserId=request.user._id;risk.reviewedAt=new Date();await risk.save();return risk;
+}
+
 export async function createKnowledgeArticle(request,input){const slug=input.slug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');return SupportKnowledge.create({publicId:publicId('kb'),country:input.country||request.user.country,title:input.title,slug,body:input.body,category:input.category,status:input.status,createdByUserId:request.user._id,updatedByUserId:request.user._id,publishedAt:input.status==='published'?new Date():null});}
 export async function submitSatisfaction(request,ticketPublicId,input){const ticket=await SupportTicket.findOne({publicId:ticketPublicId,userId:request.user._id,status:{$in:['resolved','closed']}});if(!ticket)throw new AppError('Resolved support ticket not found.',404,'TICKET_NOT_FOUND');return SatisfactionSurvey.findOneAndUpdate({ticketId:ticket._id,userId:request.user._id},{$set:{rating:input.rating,comment:input.comment,country:ticket.country},$setOnInsert:{publicId:publicId('sat'),ticketPublicId:ticket.publicId}},{upsert:true,returnDocument:'after'});}
 export async function attachEvidence(contextDoc,evidence){if(!contextDoc.evidenceDocumentIds)contextDoc.evidenceDocumentIds=[];if(!contextDoc.evidenceDocumentIds.some(id=>id.equals(evidence._id)))contextDoc.evidenceDocumentIds.push(evidence._id);await contextDoc.save();return contextDoc;}

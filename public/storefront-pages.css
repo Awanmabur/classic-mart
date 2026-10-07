@@ -1582,3 +1582,7 @@ body:not(.home-page) :where(main, .onboarding-shell) textarea,
   object-fit: cover !important;
   object-position: center !important;
 }
+
+/* v2.13.50 compact related media */
+.preview-related-image { height: 108px; }
+@media (max-width: 720px) { .preview-related-image { height: 96px; } }

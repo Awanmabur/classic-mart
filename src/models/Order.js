@@ -83,7 +83,7 @@ const orderSchema = new Schema(
     deliveryMethod: { type: String, enum: ['standard', 'express', 'pickup'], required: true },
     shippingZonePublicId: { type: String, maxlength: 100, default: '' },
     pickupPointPublicId: { type: String, maxlength: 100, default: '' },
-    paymentMethod: { type: String, enum: ['card', 'mobile', 'cod', 'exchange', 'pesapal', 'credit_terms'], required: true },
+    paymentMethod: { type: String, enum: ['card', 'mobile', 'cod', 'wallet', 'exchange', 'pesapal', 'credit_terms'], required: true },
     businessOrganizationId: { type: Schema.Types.ObjectId, ref: 'BusinessOrganization', index: true },
     purchaseOrderId: { type: Schema.Types.ObjectId, ref: 'PurchaseOrder', index: true },
     purchaseOrderPublicId: { type: String, maxlength: 100, default: '', index: true },

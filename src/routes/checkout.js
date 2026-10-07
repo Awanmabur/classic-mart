@@ -36,7 +36,7 @@ const quantitySchema = z.object({ quantity: z.coerce.number().int().min(0).max(9
 const deliveryLocationSchema = z.object({ city: z.string().trim().min(2).max(120) });
 const reviewSchema = z.object({
   deliveryMethod: z.enum(['standard', 'express', 'pickup']),
-  paymentMethod: z.enum(['card', 'mobile', 'cod']),
+  paymentMethod: z.enum(['card', 'mobile', 'cod', 'wallet']),
   city: z.string().trim().min(2).max(120),
   pickupPointId: z.string().trim().max(100).optional().default(''),
 });

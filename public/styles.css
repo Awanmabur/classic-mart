@@ -3820,3 +3820,34 @@ body { font-size: 15px; line-height: 1.55; }
     height: 34px;
   }
 }
+
+/* v2.13.50 compact marketplace media */
+#trending .product-image { height: 152px; }
+.product-grid .product-image { height: 158px; }
+#categories .category-row {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 4px;
+}
+#categories .category-row::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.site-footer .socials a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 999px;
+  transition: transform .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+.site-footer .socials a:hover,
+.site-footer .socials a:focus-visible {
+  transform: translateY(-2px);
+  background: rgba(255,255,255,.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,.12);
+}
+@media (max-width: 720px) {
+  #trending .product-image, .product-grid .product-image { height: 146px; }
+}
+
+/* v2.13.50 compact secondary shopping media */
+.recommend-card .recommend-image { height: 154px; }

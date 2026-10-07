@@ -13,4 +13,5 @@ const schema = new Schema({
 }, { timestamps: true, optimisticConcurrency: true });
 
 schema.index({ storeId: 1, userId: 1 }, { unique: true });
+schema.index({ userId: 1, status: 1, updatedAt: -1 });
 export const StoreMember = mongoose.model('StoreMember', schema);

@@ -14,7 +14,8 @@ import {
 } from '../models/index.js';
 
 const MAX_PRODUCTS = 300;
-const CACHE_TTL_MS = 20_000;
+const CACHE_TTL_MS = 30_000;
+const STALE_CACHE_TTL_MS = 5 * 60_000;
 const cache = new Map();
 let cacheGeneration = 0;
 
@@ -396,24 +397,42 @@ async function loadStorefront(country) {
   return hydrateProducts(products, country, { brandMetrics });
 }
 
-export async function getStorefront(country) {
+async function refreshStorefrontCache(country) {
   const cacheKey = country.code;
   const current = cache.get(cacheKey);
-  if (current && current.expiresAt > Date.now()) return current.value;
   if (current?.promise) return current.promise;
   const generation = cacheGeneration;
   const promise = loadStorefront(country);
-  cache.set(cacheKey, { promise, expiresAt: 0 });
+  cache.set(cacheKey, { ...current, promise });
   try {
     const value = await promise;
     if (generation === cacheGeneration) {
-      cache.set(cacheKey, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+      const now = Date.now();
+      cache.set(cacheKey, {
+        value,
+        expiresAt: now + CACHE_TTL_MS,
+        staleUntil: now + STALE_CACHE_TTL_MS,
+        promise: null,
+      });
     }
     return value;
   } catch (error) {
-    cache.delete(cacheKey);
+    if (current?.value) cache.set(cacheKey, { ...current, promise: null });
+    else cache.delete(cacheKey);
     throw error;
   }
+}
+
+export async function getStorefront(country) {
+  const cacheKey = country.code;
+  const current = cache.get(cacheKey);
+  const now = Date.now();
+  if (current?.value && current.expiresAt > now) return current.value;
+  if (current?.value && current.staleUntil > now) {
+    void refreshStorefrontCache(country).catch(() => {});
+    return current.value;
+  }
+  return refreshStorefrontCache(country);
 }
 
 export async function searchStorefront(

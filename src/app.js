@@ -19,25 +19,20 @@ import { errorHandler, notFound } from './middleware/errors.js';
 import healthRoutes from './routes/health.js';
 import identityRoutes from './routes/identity.js';
 import accountRoutes from './routes/account.js';
+import dashboardRoutes from './routes/dashboard.js';
+import approvedDashboardRoutes from './routes/approved-dashboard.js';
 import mediaRoutes from './routes/media.js';
-import moderationRoutes from './routes/moderation.js';
-import sellerRoutes from './routes/seller.js';
 import storefrontRoutes from './routes/storefront.js';
 import newsletterRoutes from './routes/newsletter.js';
 import checkoutRoutes from './routes/checkout.js';
 import paymentRoutes from './routes/payments.js';
 import promoterRoutes from './routes/promoters.js';
-import logisticsRoutes from './routes/logistics.js';
 import trustRoutes from './routes/trust.js';
 import publicRoutes from './routes/public.js';
-import adminRoutes from './routes/admin.js';
 import rewardsRoutes from './routes/rewards.js';
 import aiRoutes from './routes/ai.js';
-import businessRoutes from './routes/business.js';
-import sellerGrowthRoutes from './routes/seller-growth.js';
 import stage11Routes from './routes/stage11.js';
 import { activeFeatureMap } from './services/stage9.js';
-import { AppError } from './core/errors.js';
 import { originGuard, securityShield } from './services/security.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -107,7 +102,12 @@ export function createApp(redisClient) {
           response.setHeader('Cache-Control', 'no-store, max-age=0');
           response.setHeader('Service-Worker-Allowed', '/');
         } else if (file.endsWith('.js') || file.endsWith('.css')) {
-          response.setHeader('Cache-Control', 'no-cache, max-age=0, must-revalidate');
+          response.setHeader(
+            'Cache-Control',
+            env.isProduction
+              ? 'public, max-age=300, stale-while-revalidate=3600'
+              : 'no-cache, max-age=0, must-revalidate',
+          );
         }
       },
     }),
@@ -127,12 +127,6 @@ export function createApp(redisClient) {
   app.use(csrfProtection);
   app.use(loadUser);
   app.use(enforcePrivilegedMfaEnrollment);
-  app.use((request, _response, next) => {
-    if (request.adminActor && !['GET','HEAD','OPTIONS'].includes(request.method) && request.path !== '/admin/impersonation/stop') {
-      return next(new AppError('Impersonation is read-only. Stop impersonation before changing data.', 403, 'IMPERSONATION_READ_ONLY'));
-    }
-    return next();
-  });
   app.use(countryContext);
   app.use(async (request, response, next) => {
     try {
@@ -148,11 +142,6 @@ export function createApp(redisClient) {
       if (error) return callback ? callback(error) : next(error);
       let rendered = html;
       if (!/rel=["']manifest["']/i.test(rendered)) rendered = rendered.replace(/<\/head>/i, '<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/pwa-192.png"><meta name="theme-color" content="#ff6500"><meta name="application-name" content="Classic Mart"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><script src="/pwa.js" defer></script></head>');
-      if (response.locals.impersonation) {
-        const info = response.locals.impersonation;
-        const banner = `<div style="position:sticky;top:0;z-index:99999;background:#fff4dd;border-bottom:1px solid #e0a100;padding:10px 16px;font:600 14px/1.4 system-ui;color:#4b3900;display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap">Read-only impersonation: ${info.actor.name.replace(/[&<>"']/g,'')} viewing ${info.target.name.replace(/[&<>"']/g,'')} (${info.target.role}). <form method="post" action="/admin/impersonation/stop" style="margin:0"><input type="hidden" name="_csrf" value="${response.locals.csrfToken || ''}"><button type="submit" style="border:1px solid #7a5a00;border-radius:999px;background:#fff;padding:5px 10px;font:inherit">Stop impersonation</button></form></div>`;
-        rendered = rendered.replace(/<body([^>]*)>/i, `<body$1>${banner}`);
-      }
       if (callback) return callback(null, rendered);
       return response.send(rendered);
     });
@@ -169,23 +158,19 @@ export function createApp(redisClient) {
   );
 
   app.use(identityRoutes);
+  app.use(approvedDashboardRoutes);
   app.use(accountRoutes);
+  app.use(dashboardRoutes);
   app.use(rewardsRoutes);
   app.use(aiRoutes);
-  app.use(businessRoutes);
-  app.use(sellerGrowthRoutes);
   app.use(stage11Routes);
   app.use(mediaRoutes);
-  app.use(sellerRoutes);
-  app.use(moderationRoutes);
   app.use(storefrontRoutes);
   app.use(newsletterRoutes);
   app.use(checkoutRoutes);
   app.use(paymentRoutes);
   app.use(promoterRoutes);
-  app.use(logisticsRoutes);
   app.use(trustRoutes);
-  app.use(adminRoutes);
   app.use(publicRoutes);
   app.use(notFound);
   app.use(errorHandler);

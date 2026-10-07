@@ -7,4 +7,5 @@ const schema=new Schema({
  status:{type:String,enum:['active','triggered','cancelled'],default:'active',index:true}, triggeredAt:Date,
 },{timestamps:true,optimisticConcurrency:true});
 schema.index({userId:1,productId:1,type:1},{unique:true});
+schema.index({userId:1,country:1,status:1,updatedAt:-1});
 export const ProductAlert=mongoose.model('ProductAlert',schema);

@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
+import { routeForPage } from '../dashboard/registry.js';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { publicId, slugify } from '../core/ids.js';
 import { encryptSensitive } from '../core/sensitive.js';
@@ -28,6 +30,8 @@ import {
   User,
   VerificationDocument,
   Warehouse,
+  SubscriptionChangeRequest,
+  SubscriptionPlan,
 } from '../models/index.js';
 import {
   requireAuth,
@@ -39,6 +43,8 @@ import { noStore } from '../middleware/request.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { loadSellerStore, requireStoreCapability } from '../middleware/store.js';
 import { getOrCreateStore } from '../services/store.js';
+import { createSellerPromotion } from '../services/seller-growth.js';
+import { requestPayout, savePayoutAccount } from '../services/payments.js';
 import { setFlash } from '../middleware/view.js';
 import { writeAudit } from '../services/audit.js';
 import { refreshOrderLifecycle } from '../services/order-state.js';
@@ -97,6 +103,10 @@ const importLimiter = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 });
+
+function sellerDashboardRedirect(_request, _fallback, page) {
+  return routeForPage(page);
+}
 
 router.use(
   '/seller',
@@ -166,8 +176,239 @@ async function assertAvailableCountries(codes) {
   }
 }
 
-router.get('/seller', (_request, response) =>
-  response.redirect('/seller/products'),
+router.get('/seller', (_request, response) => response.redirect(routeForPage('seller-overview')));
+
+
+const dashboardProductDraftSchema = z.object({
+  title: z.string().trim().min(3).max(180),
+  description: z.string().trim().min(20).max(5000),
+  categoryPublicId: z.string().trim().min(5).max(100),
+  brandPublicId: z.string().trim().max(100).optional().default(''),
+  videoUrl: z.string().trim().max(800).optional().default(''),
+  tags: z.string().trim().max(500).optional().default(''),
+  variantTitle: z.string().trim().min(1).max(120).default('Default'),
+  sku: z.string().trim().min(2).max(64),
+  price: z.string().trim().min(1).max(20),
+  compareAt: z.string().trim().max(20).optional().default(''),
+  weightGrams: z.coerce.number().int().min(0).max(2_000_000).default(0),
+});
+
+router.post(
+  '/seller/dashboard/products',
+  requireStoreCapability('catalogue'),
+  asyncHandler(async (request, response) => {
+    const raw = dashboardProductDraftSchema.parse(request.body || {});
+    const productInput = productSchema.parse({
+      title: raw.title,
+      description: raw.description,
+      categoryPublicId: raw.categoryPublicId,
+      brandPublicId: raw.brandPublicId,
+      videoUrl: raw.videoUrl,
+      countries: request.store.country,
+      tags: raw.tags,
+    });
+    const variantInput = variantSchema.parse({
+      sku: raw.sku,
+      barcode: '',
+      title: raw.variantTitle,
+      price: raw.price,
+      compareAt: raw.compareAt,
+      weightGrams: raw.weightGrams,
+      optionName: '',
+      optionValue: '',
+      active: 'yes',
+    });
+    inspectProductContent(productInput);
+    const [category, brand] = await Promise.all([
+      Category.findOne({
+        publicId: productInput.categoryPublicId,
+        active: true,
+        $or: [{ countries: { $size: 0 } }, { countries: request.store.country }],
+      }),
+      productInput.brandPublicId
+        ? Brand.findOne({ publicId: productInput.brandPublicId, status: 'approved' })
+        : null,
+    ]);
+    if (!category) throw new AppError('Category is unavailable.', 422, 'CATEGORY_UNAVAILABLE');
+    if (productInput.brandPublicId && !brand) throw new AppError('Brand is unavailable.', 422, 'BRAND_UNAVAILABLE');
+
+    const session = await mongoose.startSession();
+    let createdProduct;
+    try {
+      await session.withTransaction(async () => {
+        const duplicateSku = await ProductVariant.exists({ storeId: request.store._id, sku: variantInput.sku }).session(session);
+        if (duplicateSku) throw new AppError('That SKU is already used by this store.', 409, 'SKU_IN_USE');
+        const baseSlug = slugify(productInput.title);
+        let slug = baseSlug;
+        let suffix = 1;
+        while (await Product.exists({ storeId: request.store._id, slug }).session(session)) {
+          suffix += 1;
+          slug = `${baseSlug.slice(0, 110)}-${suffix}`;
+        }
+        [createdProduct] = await Product.create([{
+          publicId: publicId('prd'),
+          storeId: request.store._id,
+          ownerUserId: request.store.ownerUserId,
+          categoryId: category._id,
+          brandId: brand?._id,
+          title: productInput.title,
+          slug,
+          description: productInput.description,
+          videoUrl: productInput.videoUrl,
+          countries: [request.store.country],
+          tags: productInput.tags,
+          status: 'draft',
+          qualityScore: calculateQualityScore({ ...productInput, hasBrand: Boolean(brand), variantCount: 1, mediaCount: 0 }),
+        }], { session });
+        const [createdVariant] = await ProductVariant.create([{
+          publicId: publicId('var'),
+          productId: createdProduct._id,
+          storeId: request.store._id,
+          sku: variantInput.sku,
+          barcode: variantInput.barcode,
+          title: variantInput.title,
+          options: {},
+          priceMinor: toMinorUnits(variantInput.price, request.store.currency),
+          compareAtMinor: variantInput.compareAt ? toMinorUnits(variantInput.compareAt, request.store.currency) : undefined,
+          currency: request.store.currency,
+          active: true,
+          weightGrams: variantInput.weightGrams,
+        }], { session });
+        await writeAudit(request, 'catalogue.dashboard_product_created', {
+          session,
+          targetType: 'product',
+          targetPublicId: createdProduct.publicId,
+          country: request.store.country,
+          metadata: { variantPublicId: createdVariant.publicId, storePublicId: request.store.publicId },
+        });
+      });
+    } finally {
+      await session.endSession();
+    }
+    clearStorefrontCache();
+    setFlash(request, 'success', 'Product draft and first variant created. Add media and warehouse inventory before review.');
+    return response.redirect(`/seller/products/${createdProduct.publicId}`);
+  }),
+);
+
+const dashboardCouponSchema = z.object({
+  name: z.string().trim().min(2).max(140),
+  code: z.string().trim().min(2).max(40),
+  discountBps: z.coerce.number().int().min(0).max(9000).default(0),
+  fixedDiscountMinor: z.coerce.number().int().min(0).max(2_000_000_000).default(0),
+  minSubtotalMinor: z.coerce.number().int().min(0).default(0),
+  startsAt: z.string().optional().default(''),
+  endsAt: z.string().optional().default(''),
+  status: z.enum(['draft', 'active']).default('draft'),
+});
+
+router.post(
+  '/seller/dashboard/coupons',
+  requireStoreCapability('growth'),
+  asyncHandler(async (request, response) => {
+    const input = dashboardCouponSchema.parse(request.body || {});
+    const row = await createSellerPromotion(request, {
+      ...input,
+      type: 'voucher',
+      code: input.code.toUpperCase(),
+      productPublicIds: [],
+      minQuantity: 1,
+      disclosureText: 'Seller voucher.',
+      startsAt: input.startsAt || undefined,
+      endsAt: input.endsAt || undefined,
+    });
+    await writeAudit(request, 'seller.coupon.created', { targetType: 'seller_promotion', targetPublicId: row.publicId });
+    setFlash(request, 'success', 'Voucher created. Checkout will apply it when active and eligible.');
+    return response.redirect(routeForPage('seller-coupons'));
+  }),
+);
+
+const dashboardStoreSchema = z.object({
+  name: z.string().trim().min(2).max(140),
+  description: z.string().trim().max(1500).optional().default(''),
+  primaryCategory: z.string().trim().max(100).optional().default(''),
+  pickupCity: z.string().trim().max(120).optional().default(''),
+  supportEmail: z.string().trim().email().max(254).or(z.literal('')).optional().default(''),
+  supportPhone: z.string().trim().max(32).optional().default(''),
+  fulfillmentMode: z.enum(['merchant', 'warehouse', 'hybrid']).default('merchant'),
+});
+
+router.post(
+  '/seller/dashboard/store',
+  requireStoreCapability('staff'),
+  asyncHandler(async (request, response) => {
+    const input = dashboardStoreSchema.parse(request.body || {});
+    const base = storeSchema.parse({ name: input.name, description: input.description });
+    request.store.name = base.name;
+    request.store.description = base.description;
+    request.store.operations = {
+      ...(request.store.operations?.toObject?.() || request.store.operations || {}),
+      primaryCategory: input.primaryCategory,
+      pickupCity: input.pickupCity,
+      supportEmail: input.supportEmail,
+      supportPhone: input.supportPhone,
+      fulfillmentMode: input.fulfillmentMode,
+    };
+    await request.store.save();
+    await writeAudit(request, 'seller.dashboard_store_updated', { targetType: 'store', targetPublicId: request.store.publicId });
+    setFlash(request, 'success', 'Store settings saved.');
+    return response.redirect(routeForPage('seller-store'));
+  }),
+);
+
+router.post(
+  '/seller/dashboard/subscription',
+  requireStoreCapability('staff'),
+  asyncHandler(async (request, response) => {
+    const input = z.object({ planPublicId: z.string().trim().min(3).max(100), note: z.string().trim().max(1000).optional().default('') }).parse(request.body || {});
+    const plan = await SubscriptionPlan.findOne({ publicId: input.planPublicId, audience: 'seller', country: request.store.country, currency: request.store.currency, status: 'active' });
+    if (!plan) throw new AppError('Subscription plan is unavailable for this store.', 404, 'SUBSCRIPTION_PLAN_NOT_FOUND');
+    const existing = await SubscriptionChangeRequest.findOne({ audience: 'seller', storeId: request.store._id, status: 'requested' });
+    if (existing) throw new AppError('A subscription change is already awaiting review.', 409, 'SUBSCRIPTION_CHANGE_PENDING');
+    const row = await SubscriptionChangeRequest.create({
+      publicId: publicId('scr'), audience: 'seller', userId: request.user._id, storeId: request.store._id, storePublicId: request.store.publicId,
+      planId: plan._id, planPublicId: plan.publicId, country: request.store.country, currency: request.store.currency,
+      requestedPriceMinor: plan.priceMinor, requestedCadence: plan.cadence, note: input.note,
+    });
+    await writeAudit(request, 'seller.subscription_change_requested', { targetType: 'subscription_change_request', targetPublicId: row.publicId, metadata: { planPublicId: plan.publicId } });
+    setFlash(request, 'success', 'Subscription change request submitted. Your current plan stays unchanged until approval and payment are completed.');
+    return response.redirect(routeForPage('seller-subscription'));
+  }),
+);
+
+router.post(
+  '/seller/dashboard/payout-accounts',
+  requireStoreCapability('finance'),
+  asyncHandler(async (request, response) => {
+    const input = z.object({
+      method: z.enum(['mobile_money', 'bank']),
+      label: z.string().trim().min(2).max(100),
+      beneficiary_name: z.string().trim().min(2).max(120),
+      network: z.string().trim().max(80).optional().default(''),
+      account_bank: z.string().trim().max(120).optional().default(''),
+      account_number: z.string().trim().max(120).optional().default(''),
+      phone: z.string().trim().max(40).optional().default(''),
+    }).parse(request.body || {});
+    if (input.method === 'mobile_money' && (!input.network || !input.phone)) throw new AppError('Network and phone are required for mobile-money payouts.', 422, 'PAYOUT_DESTINATION_INVALID');
+    if (input.method === 'bank' && (!input.account_bank || !input.account_number)) throw new AppError('Bank and account number are required for bank payouts.', 422, 'PAYOUT_DESTINATION_INVALID');
+    const destination = { account_bank: input.account_bank, network: input.network, account_number: input.account_number, phone: input.phone, beneficiary_name: input.beneficiary_name };
+    const account = await savePayoutAccount(request, { method: input.method, label: input.label, destination });
+    await writeAudit(request, 'seller.payout_account_created', { targetType: 'payout_account', targetPublicId: account.publicId });
+    setFlash(request, 'success', 'Payout destination added and is awaiting verification.');
+    return response.redirect(routeForPage('seller-payouts'));
+  }),
+);
+
+router.post(
+  '/seller/dashboard/payouts',
+  requireStoreCapability('finance'),
+  asyncHandler(async (request, response) => {
+    const input = z.object({ payoutAccountId: z.string().trim().min(3).max(100), amountMinor: z.coerce.number().int().min(1).max(2_000_000_000), idempotencyKey: z.string().trim().min(8).max(120) }).parse(request.body || {});
+    const payout = await requestPayout(request, { payoutAccountId: input.payoutAccountId, amountMinor: input.amountMinor, idempotencyKey: input.idempotencyKey });
+    await writeAudit(request, 'seller.payout_requested', { targetType: 'payout', targetPublicId: payout.publicId });
+    setFlash(request, 'success', 'Payout request submitted.');
+    return response.redirect(routeForPage('seller-payouts'));
+  }),
 );
 
 router.post('/seller/workspace', asyncHandler(async (request, response) => {
@@ -202,7 +443,7 @@ router.post(
     await thread.save();
     await writeAudit(request, 'seller_contact.seller_reply', { targetType: 'seller_contact', targetPublicId: thread.publicId });
     setFlash(request, 'success', 'Reply sent to the customer.');
-    response.redirect('/seller/messages');
+    response.redirect(sellerDashboardRedirect(request, '/seller/messages', 'seller-messages'));
   }),
 );
 
@@ -217,7 +458,7 @@ router.post(
     await thread.save();
     await writeAudit(request, 'seller_contact.resolved', { targetType: 'seller_contact', targetPublicId: thread.publicId });
     setFlash(request, 'success', 'Conversation marked resolved.');
-    response.redirect('/seller/messages');
+    response.redirect(sellerDashboardRedirect(request, '/seller/messages', 'seller-messages'));
   }),
 );
 
@@ -507,7 +748,7 @@ router.post('/seller/returns/:publicId/respond', workflowLimiter, asyncHandler(a
   const message=String(request.body.message||'').trim().slice(0,2000);if(['contested','escalated'].includes(action)&&message.length<10)throw new AppError('Explain the seller return response in at least 10 characters.',422,'SELLER_RETURN_RESPONSE_REQUIRED');
   const row=await SellerReturnCase.findOne({publicId:request.params.publicId,storeId:request.store._id,status:{$ne:'resolved'}});if(!row)throw new AppError('Seller return case not found.',404,'SELLER_RETURN_NOT_FOUND');
   row.status=action;row.responseMessage=message;row.respondedByUserId=request.user._id;row.respondedAt=new Date();row.timeline.push({type:`seller_return.${action}`,message:message||`Seller marked the return ${action}.`,actorUserId:request.user._id});await row.save();
-  await writeAudit(request,`seller.return_${action}`,{targetType:'seller_return_case',targetPublicId:row.publicId,country:row.country,metadata:{returnPublicId:row.returnPublicId}});setFlash(request,'success','Seller return response recorded for marketplace support.');response.redirect('/seller/returns');
+  await writeAudit(request,`seller.return_${action}`,{targetType:'seller_return_case',targetPublicId:row.publicId,country:row.country,metadata:{returnPublicId:row.returnPublicId}});setFlash(request,'success','Seller return response recorded for marketplace support.');response.redirect(sellerDashboardRedirect(request, '/seller/returns', 'seller-returns'));
 }));
 router.post('/seller/returns/:publicId/evidence', upload(uploadVerificationImage), asyncHandler(async(request,response)=>{
   const row=await SellerReturnCase.findOne({publicId:request.params.publicId,storeId:request.store._id,status:{$ne:'resolved'}});if(!row)throw new AppError('Seller return case not found.',404,'SELLER_RETURN_NOT_FOUND');

@@ -36,8 +36,31 @@ export function featureEnabled(flag,{country,role,identity='anonymous',now=new D
   if(flag.roles?.length&&!flag.roles.includes(role||'customer'))return false;
   return percentageBucket(identity,flag.key)<Number(flag.rolloutPercentage??100);
 }
+const FEATURE_FLAG_CACHE_TTL_MS = 15_000;
+let featureFlagCache = { value: null, expiresAt: 0, promise: null };
+
+async function loadActiveFeatureFlags() {
+  const now = Date.now();
+  if (featureFlagCache.value && featureFlagCache.expiresAt > now) return featureFlagCache.value;
+  if (featureFlagCache.promise) return featureFlagCache.promise;
+  const promise = FeatureFlag.find({ enabled: true }).lean();
+  featureFlagCache = { ...featureFlagCache, promise };
+  try {
+    const value = await promise;
+    featureFlagCache = { value, expiresAt: Date.now() + FEATURE_FLAG_CACHE_TTL_MS, promise: null };
+    return value;
+  } catch (error) {
+    featureFlagCache = { value: null, expiresAt: 0, promise: null };
+    throw error;
+  }
+}
+
+export function clearActiveFeatureCache() {
+  featureFlagCache = { value: null, expiresAt: 0, promise: null };
+}
+
 export async function activeFeatureMap({country,role,identity}){
-  const flags=await FeatureFlag.find({enabled:true}).lean();
+  const flags=await loadActiveFeatureFlags();
   return Object.fromEntries(flags.map(flag=>[flag.key,featureEnabled(flag,{country,role,identity})]));
 }
 
@@ -76,7 +99,7 @@ function safeFlagPayload(payload={}){
 
 export async function applyApproval(approval,decider){
   if(!approval)throw new AppError('Approval request is no longer pending.',409,'APPROVAL_STATE');
-  const session=await mongoose.startSession();let result={},postCommitExportPublicId='';
+  const session=await mongoose.startSession();let result={},postCommitExportPublicId='',invalidateFeatureFlags=false;
   try{
     await session.withTransaction(async()=>{
       const freshApproval=await ApprovalRequest.findOne({_id:approval._id,status:'requested'}).session(session);
@@ -92,7 +115,7 @@ export async function applyApproval(approval,decider){
         let flag=await FeatureFlag.findOne({key:p.key}).session(session);
         if(flag&&freshApproval.country){const existingCountries=flag.countries||[];if(existingCountries.length===0||existingCountries.some(code=>code!==freshApproval.country))throw new AppError('Country Admin cannot modify a global or cross-country feature flag.',403,'COUNTRY_SCOPE');}
         if(!flag)flag=new FeatureFlag({publicId:publicId('flg'),key:p.key});
-        Object.assign(flag,p,{version:Number(flag.version||0)+1,lastReason:freshApproval.reason,updatedByUserId:decider._id});await flag.save({session});result={featureFlag:flag.publicId};
+        Object.assign(flag,p,{version:Number(flag.version||0)+1,lastReason:freshApproval.reason,updatedByUserId:decider._id});await flag.save({session});result={featureFlag:flag.publicId};invalidateFeatureFlags=true;
       }else if(freshApproval.type==='cms_publish'||freshApproval.type==='cms_rollback'){
         const content=await CmsContent.findOne({publicId:freshApproval.targetPublicId}).session(session);if(!content)throw new AppError('CMS content not found.',404,'CMS_NOT_FOUND');
         if(content.country)ensureAdminScope(decider,content.country);
@@ -152,6 +175,7 @@ export async function applyApproval(approval,decider){
     });
   }finally{await session.endSession();}
   if(postCommitExportPublicId){const exp=await DataExport.findOne({publicId:postCommitExportPublicId});if(exp)await generateExport(exp);}
+  if(invalidateFeatureFlags) clearActiveFeatureCache();
   return result;
 }
 

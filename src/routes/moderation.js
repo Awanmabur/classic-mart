@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
+import { routeForPage } from '../dashboard/registry.js';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { decryptSensitive } from '../core/sensitive.js';
 import { publicId, slugify } from '../core/ids.js';
@@ -12,8 +14,11 @@ import {
   ProductMedia,
   ProductVariant,
   ModerationQaReview,
+  Review,
+  RiskSignal,
   SellerVerification,
   Store,
+  TrustCase,
   VerificationDocument,
 } from '../models/index.js';
 import {
@@ -29,6 +34,7 @@ import { formatMinorUnits } from '../services/catalogue.js';
 import { parseCategoryAttributes } from '../services/catalogue.js';
 import { getCountries } from '../services/country.js';
 import { addOutboxEvent } from '../services/outbox.js';
+import { publishReview, reviewRiskSignal, reviewTrustCase } from '../services/trust.js';
 import { assertOperationalCountry, operationalCountriesFor, operationalCountryScope } from '../services/authorization.js';
 import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 import {
@@ -89,9 +95,50 @@ function renderModeration(request, response, view) {
   });
 }
 
-router.get('/moderation', (_request, response) =>
-  response.redirect('/moderation/products'),
-);
+router.get('/moderation', (_request, response) => response.redirect(routeForPage('moderator-overview')));
+
+router.post('/moderation/dashboard/settings', asyncHandler(async (request, response) => {
+  const density=['comfortable','compact'].includes(String(request.body.density||''))?String(request.body.density):'comfortable';
+  const idleReminderMinutes=[15,30,60].includes(Number(request.body.idleReminderMinutes))?Number(request.body.idleReminderMinutes):30;
+  const priorityUpdates=String(request.body.priorityUpdates||'')==='true';
+  const escalations=String(request.body.escalations||'')==='true';
+  const weeklyReport=String(request.body.weeklyReport||'')==='true';
+  request.user.preferences=request.user.preferences||{};request.user.preferences.dashboard={...(request.user.preferences.dashboard||{}),density,idleReminderMinutes,priorityUpdates,escalations,weeklyReport,landingPage:'moderator-overview'};
+  await request.user.save();
+  await writeAudit(request,'moderation.settings_updated',{targetType:'user',targetPublicId:request.user.publicId,metadata:{density,idleReminderMinutes}});
+  setFlash(request,'success','Moderation workspace settings updated.');
+  return response.redirect(routeForPage('moderator-settings'));
+}));
+
+router.post('/moderation/reviews/:publicId/decision', decisionLimiter, asyncHandler(async (request, response) => {
+  const input=z.object({decision:z.enum(['publish','reject']),reason:z.string().trim().min(3).max(500)}).parse(request.body);
+  const review=await publishReview(request,request.params.publicId,input);
+  await writeAudit(request,'review.moderated',{targetType:'review',targetPublicId:review.publicId,country:review.country,metadata:{decision:input.decision,reason:input.reason}});
+  setFlash(request,'success',input.decision==='publish'?'Review published.':'Review rejected with a recorded reason.');
+  return response.redirect(routeForPage('moderator-reviews'));
+}));
+
+router.post('/moderation/risk-cases/:publicId/status', decisionLimiter, asyncHandler(async (request, response) => {
+  const input=z.object({status:z.enum(['investigating','actioned','dismissed','closed']),enforcement:z.enum(['none','suspend_product','restore_product','suspend_store','restore_store']).default('none'),decision:z.string().trim().min(3).max(1000)}).parse(request.body);
+  const caseDoc=await TrustCase.findOne({publicId:request.params.publicId,...operationalCountryScope(request.user,'country')});
+  if(!caseDoc)throw new AppError('Trust case not found.',404,'TRUST_CASE_NOT_FOUND');
+  const appealReview=caseDoc.status==='appealed';
+  if(caseDoc.status==='appealed'&&caseDoc.assignedUserId&&String(caseDoc.assignedUserId)===String(request.user._id))throw new AppError('An appealed trust case requires a different reviewer.',409,'TRUST_APPEAL_FOUR_EYES');
+  await reviewTrustCase(request,caseDoc,input);
+  await writeAudit(request,'trust.case_reviewed',{targetType:'trust_case',targetPublicId:caseDoc.publicId,country:caseDoc.country,metadata:{status:input.status,enforcement:input.enforcement,appealReview}});
+  setFlash(request,'success','Trust case decision recorded.');
+  return response.redirect(routeForPage('moderator-disputes'));
+}));
+
+router.post('/moderation/risk-signals/:publicId/review', decisionLimiter, asyncHandler(async (request, response) => {
+  const input=z.object({status:z.enum(['reviewed','dismissed','actioned']),decision:z.string().trim().min(3).max(1000)}).parse(request.body);
+  const risk=await RiskSignal.findOne({publicId:request.params.publicId,...operationalCountryScope(request.user,'country')});
+  if(!risk)throw new AppError('Risk signal not found.',404,'RISK_NOT_FOUND');
+  await reviewRiskSignal(request,risk,input);
+  await writeAudit(request,'trust.risk_signal_reviewed',{targetType:'risk_signal',targetPublicId:risk.publicId,country:risk.country,metadata:{status:input.status}});
+  setFlash(request,'success','Risk signal review recorded.');
+  return response.redirect(routeForPage('moderator-disputes'));
+}));
 
 router.get(
   '/moderation/products',

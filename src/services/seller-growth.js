@@ -11,6 +11,47 @@ import { issueQuotationDocument } from './business-documents.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
 
 function activeWindowQuery(now=new Date()){return {status:'active',startsAt:{$lte:now},$or:[{endsAt:null},{endsAt:{$exists:false}},{endsAt:{$gt:now}}]};}
+
+const SPONSORED_CACHE_TTL_MS = 20_000;
+const sponsoredOfferCache = new Map();
+
+export function clearSponsoredOfferCache(country = '') {
+  const code = String(country || '').trim().toUpperCase();
+  if (code) sponsoredOfferCache.delete(code);
+  else sponsoredOfferCache.clear();
+}
+
+async function loadSponsoredOfferState(countryCode) {
+  const nowMs = Date.now();
+  const cached = sponsoredOfferCache.get(countryCode);
+  if (cached?.value && cached.expiresAt > nowMs) return cached.value;
+  if (cached?.promise) return cached.promise;
+  const now = new Date(nowMs);
+  const promise = Promise.all([
+    SellerPromotion.find({ country: countryCode, type: 'sponsored', ...activeWindowQuery(now) })
+      .select('publicId productPublicIds disclosureText')
+      .lean(),
+    Campaign.find({
+      country: countryCode,
+      status: 'active',
+      visibility: 'public',
+      $and: [
+        { $or: [{ startsAt: null }, { startsAt: { $exists: false } }, { startsAt: { $lte: now } }] },
+        { $or: [{ endsAt: null }, { endsAt: { $exists: false } }, { endsAt: { $gt: now } }] },
+      ],
+    }).select('publicId productPublicIds commissionBps disclosureText').lean(),
+    CountrySetting.findOne({ code: countryCode, active: true }).select('growth.promoterCommissionBps policyVersion').lean(),
+  ]).then(([placements, campaigns, setting]) => ({ placements, campaigns, setting }));
+  sponsoredOfferCache.set(countryCode, { ...cached, promise });
+  try {
+    const value = await promise;
+    sponsoredOfferCache.set(countryCode, { value, expiresAt: Date.now() + SPONSORED_CACHE_TTL_MS, promise: null });
+    return value;
+  } catch (error) {
+    sponsoredOfferCache.delete(countryCode);
+    throw error;
+  }
+}
 export async function createSellerPromotion(request,input){
   const type=input.type;const productIds=[...new Set((input.productPublicIds||[]).map(String).filter(Boolean))];
   const products=productIds.length?await Product.find({publicId:{$in:productIds},storeId:request.store._id}).lean():[];
@@ -22,7 +63,7 @@ export async function createSellerPromotion(request,input){
     const variants=await ProductVariant.find({productId:{$in:products.map(p=>p._id)},active:true}).lean();
     for(const v of variants){const floor=Number(v.minimumPriceMinor||0);const discounted=Math.max(0,v.priceMinor-Math.max(fixed,Math.floor(v.priceMinor*discountBps/10000)));if(floor>0&&discounted<floor)throw new AppError(`Promotion would price ${v.sku} below its minimum price.`,409,'MINIMUM_PRICE_VIOLATION');}
   }
-  try{return await SellerPromotion.create({publicId:publicId('spr'),storeId:request.store._id,storePublicId:request.store.publicId,country:request.store.country,currency:request.store.currency,type,name:String(input.name).trim().slice(0,140),code:String(input.code||'').trim().toUpperCase(),productPublicIds:productIds,discountBps,fixedDiscountMinor:fixed,minQuantity:Math.max(1,Number(input.minQuantity||1)),minSubtotalMinor:Math.max(0,Number(input.minSubtotalMinor||0)),disclosureText:String(input.disclosureText||'Sponsored placement.').trim().slice(0,300),startsAt:input.startsAt?new Date(input.startsAt):new Date(),endsAt:input.endsAt?new Date(input.endsAt):undefined,status:input.status==='active'?'active':'draft',createdByUserId:request.user._id});}catch(error){if(error?.code===11000)throw new AppError('That voucher code is already in use.',409,'PROMOTION_CODE_EXISTS');throw error;}
+  try{const row=await SellerPromotion.create({publicId:publicId('spr'),storeId:request.store._id,storePublicId:request.store.publicId,country:request.store.country,currency:request.store.currency,type,name:String(input.name).trim().slice(0,140),code:String(input.code||'').trim().toUpperCase(),productPublicIds:productIds,discountBps,fixedDiscountMinor:fixed,minQuantity:Math.max(1,Number(input.minQuantity||1)),minSubtotalMinor:Math.max(0,Number(input.minSubtotalMinor||0)),disclosureText:String(input.disclosureText||'Sponsored placement.').trim().slice(0,300),startsAt:input.startsAt?new Date(input.startsAt):new Date(),endsAt:input.endsAt?new Date(input.endsAt):undefined,status:input.status==='active'?'active':'draft',createdByUserId:request.user._id});clearSponsoredOfferCache(request.store.country);return row;}catch(error){if(error?.code===11000)throw new AppError('That voucher code is already in use.',409,'PROMOTION_CODE_EXISTS');throw error;}
 }
 
 export async function promotionMarginPreview(request,input){
@@ -34,7 +75,7 @@ export async function promotionMarginPreview(request,input){
   return variants.map(v=>{const raw=Math.max(fixed,Math.floor(v.priceMinor*discountBps/10000));const floor=Math.min(v.priceMinor,Math.max(0,Number(v.minimumPriceMinor||0)));const discountMinor=Math.min(raw,Math.max(0,v.priceMinor-floor));const netPriceMinor=v.priceMinor-discountMinor;const costMinor=Math.max(0,Number(v.costMinor||0));return{productPublicId:pmap.get(String(v.productId))?.publicId||'',title:pmap.get(String(v.productId))?.title||'',variantPublicId:v.publicId,sku:v.sku,priceMinor:v.priceMinor,minimumPriceMinor:floor,costMinor,discountMinor,netPriceMinor,marginMinor:netPriceMinor-costMinor,marginBps:netPriceMinor>0?Math.floor((netPriceMinor-costMinor)*10000/netPriceMinor):0};});
 }
 
-export async function setSellerPromotionStatus(request,id,status){const row=await SellerPromotion.findOne({publicId:id,storeId:request.store._id});if(!row)throw new AppError('Promotion not found.',404,'PROMOTION_NOT_FOUND');row.status=status;await row.save();return row;}
+export async function setSellerPromotionStatus(request,id,status){const row=await SellerPromotion.findOne({publicId:id,storeId:request.store._id});if(!row)throw new AppError('Promotion not found.',404,'PROMOTION_NOT_FOUND');row.status=status;await row.save();clearSponsoredOfferCache(request.store.country);return row;}
 export async function scheduleVariantPrice(request,input){const variant=await ProductVariant.findOne({publicId:input.variantId,storeId:request.store._id,active:true});if(!variant)throw new AppError('Variant not found.',404,'VARIANT_NOT_FOUND');const minimum=Math.max(Number(variant.minimumPriceMinor||0),Number(input.minimumPriceMinor||0));const next=Number(input.newPriceMinor);if(next<minimum)throw new AppError('Scheduled price cannot be below the minimum price.',409,'MINIMUM_PRICE_VIOLATION');variant.minimumPriceMinor=minimum;if(input.costMinor!==undefined)variant.costMinor=Math.max(0,Number(input.costMinor));await variant.save();return PriceSchedule.create({publicId:publicId('psch'),storeId:request.store._id,variantId:variant._id,variantPublicId:variant.publicId,previousPriceMinor:variant.priceMinor,newPriceMinor:next,minimumPriceMinor:minimum,startsAt:new Date(input.startsAt),status:'scheduled',createdByUserId:request.user._id});}
 export async function applyDuePriceSchedules(){const due=await PriceSchedule.find({status:'scheduled',startsAt:{$lte:new Date()}}).limit(100);for(const row of due){const variant=await ProductVariant.findById(row.variantId);if(!variant){row.status='failed';row.failureReason='Variant no longer exists.';await row.save();continue;}if(row.newPriceMinor<Math.max(row.minimumPriceMinor,variant.minimumPriceMinor||0)){row.status='failed';row.failureReason='Minimum price changed before schedule execution.';await row.save();continue;}variant.priceMinor=row.newPriceMinor;variant.minimumPriceMinor=Math.max(variant.minimumPriceMinor||0,row.minimumPriceMinor);await variant.save();row.status='applied';row.appliedAt=new Date();await row.save();}}
 export async function createStoreBroadcast(request,input){const row=await StoreBroadcast.create({publicId:publicId('brd'),storeId:request.store._id,storePublicId:request.store.publicId,country:request.store.country,subject:String(input.subject).trim().slice(0,180),body:String(input.body).trim().slice(0,4000),status:'draft',createdByUserId:request.user._id});return row;}
@@ -103,25 +144,8 @@ export function marketplacePromoterCampaignPublicId(country) {
 
 export async function activeSponsoredProducts(country, productPublicIds = []) {
   const countryCode = String(country || '').trim().toUpperCase();
-  const now = new Date();
   const ids = [...new Set((productPublicIds || []).map((value) => String(value || '').trim()).filter(Boolean))];
-  const [placements, campaigns, setting] = await Promise.all([
-    SellerPromotion.find({ country: countryCode, type: 'sponsored', ...activeWindowQuery(now) })
-      .select('publicId productPublicIds disclosureText')
-      .lean(),
-    Campaign.find({
-      country: countryCode,
-      status: 'active',
-      visibility: 'public',
-      $and: [
-        { $or: [{ startsAt: null }, { startsAt: { $exists: false } }, { startsAt: { $lte: now } }] },
-        { $or: [{ endsAt: null }, { endsAt: { $exists: false } }, { endsAt: { $gt: now } }] },
-      ],
-    })
-      .select('publicId productPublicIds commissionBps disclosureText')
-      .lean(),
-    CountrySetting.findOne({ code: countryCode, active: true }).select('growth.promoterCommissionBps policyVersion').lean(),
-  ]);
+  const { placements, campaigns, setting } = await loadSponsoredOfferState(countryCode);
 
   const map = new Map();
   const defaultCommissionBps = Math.max(0, Math.min(5000, Number(setting?.growth?.promoterCommissionBps ?? 300) || 0));

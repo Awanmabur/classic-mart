@@ -7,7 +7,7 @@ import { currentTraceFields, runWithStoredTrace } from '../core/trace.js';
 import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import {
   BusinessInvoice, Chargeback, InventoryMovement, InventoryReservation, Order, PaymentIntent, ProviderEvent, PurchaseOrder, Refund, StockItem,
-  LedgerAccount, LedgerTransaction, PayoutAccount, Payout, ReconciliationRun, SellerOrder, Shipment, Store,
+  LedgerAccount, LedgerTransaction, PayoutAccount, Payout, ReconciliationRun, SellerOrder, Shipment, Store, User,
 } from '../models/index.js';
 import { ensureLedgerAccount, postLedgerTransaction, accountBalanceMinor, sellerSettlementBreakdown, proportionalSettlementSlice } from './money.js';
 import { orderAccessQuery } from './order-access.js';
@@ -81,6 +81,20 @@ async function createOnlineIntent(order,idempotencyKey){
   }
 }
 
+async function createWalletIntent(order,idempotencyKey){
+  const existing=await PaymentIntent.findOne({orderId:order._id,idempotencyKey});
+  if(existing)return existing;
+  const active=await PaymentIntent.findOne({activeKey:order.publicId});
+  if(active)return active;
+  try{
+    const docs=await PaymentIntent.create([{publicId:publicId('pay'),...traceForOrder(order),orderId:order._id,orderPublicId:order.publicId,country:order.country,idempotencyKey,provider:'wallet',purpose:'order_payment',method:'wallet',status:'created',amountMinor:order.totals.totalMinor,currency:order.totals.currency,providerReference:`wallet:${order.publicId}`,activeKey:order.publicId}]);
+    return docs[0];
+  }catch(error){
+    if(error?.code===11000){const raced=await PaymentIntent.findOne({$or:[{orderId:order._id,idempotencyKey},{activeKey:order.publicId}]});if(raced)return raced;}
+    throw error;
+  }
+}
+
 export async function initiatePayment(request,{orderId,idempotencyKey}){
   const order=await Order.findOne(mongoose.trusted(orderAccessQuery(request,orderId,{requiredLevel:'mutate'})));
   if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
@@ -88,6 +102,16 @@ export async function initiatePayment(request,{orderId,idempotencyKey}){
   if(!['unpaid','pending','failed'].includes(order.paymentState)&&!creditInvoicePayable)throw new AppError('This order cannot start another payment.',409,'ORDER_PAYMENT_STATE');
   if(!creditInvoicePayable&&order.reservationExpiresAt<=new Date())throw new AppError('The stock reservation expired. Create the order again.',409,'RESERVATION_EXPIRED');
   const prior=await PaymentIntent.findOne({orderId:order._id,idempotencyKey});if(prior)return paymentView(prior);
+
+  if(order.paymentMethod==='wallet'){
+    if(!request.user?._id||!order.userId||String(order.userId)!==String(request.user._id))throw new AppError('Classic Wallet requires the signed-in customer who owns the order.',403,'WALLET_ORDER_SCOPE');
+    const intent=await createWalletIntent(order,idempotencyKey);
+    if(intent.status==='succeeded')return paymentView(intent);
+    await commitOrderInventoryAndMoney(order,intent,{wallet:true});
+    const { ensureShipmentForOrder }=await import('./logistics.js');
+    await ensureShipmentForOrder(await Order.findById(order._id),order.userId||null);
+    return paymentView(await PaymentIntent.findById(intent._id));
+  }
 
   if(order.paymentMethod==='cod'){
     let intent;
@@ -142,7 +166,7 @@ export async function initiatePayment(request,{orderId,idempotencyKey}){
   }
 }
 
-async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,providerTrackingId='',providerConfirmationCode='',providerPaymentMethod=''}={}){
+async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wallet=false,providerTrackingId='',providerConfirmationCode='',providerPaymentMethod=''}={}){
   const session=await mongoose.startSession();
   try{await session.withTransaction(async()=>{
     const order=await Order.findById(orderLike._id).session(session);
@@ -154,7 +178,7 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,prov
       const clearing=await ensureLedgerAccount({code:'provider_clearing',type:'asset',ownerType:'provider',ownerPublicId:PAYMENT_PROVIDER,country:order.country,currency:order.totals.currency},session);
       const receivable=await ensureLedgerAccount({code:'business_accounts_receivable',type:'asset',ownerType:'business',ownerId:order.businessOrganizationId,ownerPublicId:String(order.businessOrganizationId),country:order.country,currency:order.totals.currency},session);
       await postLedgerTransaction({idempotencyKey:`business-invoice-payment:${intent.publicId}`,referenceType:'business_invoice_payment',referencePublicId:invoice.publicId,currency:order.totals.currency,country:order.country,description:`Pesapal payment for business invoice ${invoice.invoiceNumber}`,entries:[{account:clearing,debitMinor:intent.amountMinor,creditMinor:0,memo:'Verified Pesapal business invoice payment'},{account:receivable,debitMinor:0,creditMinor:intent.amountMinor,memo:'Clear business accounts receivable'}]},session);
-      intent.status='succeeded';intent.paidAt=intent.paidAt||new Date();intent.activeKey=undefined;intent.providerTrackingId=providerTrackingId||intent.providerTrackingId;intent.providerTransactionId=intent.providerTrackingId||intent.providerTransactionId;intent.providerConfirmationCode=providerConfirmationCode||intent.providerConfirmationCode;intent.providerPaymentMethod=providerPaymentMethod||intent.providerPaymentMethod;
+      intent.status='succeeded';intent.paidAt=intent.paidAt||new Date();intent.activeKey=undefined;intent.providerTrackingId=providerTrackingId||intent.providerTrackingId;intent.providerTransactionId=intent.providerTrackingId||intent.providerTransactionId;intent.providerConfirmationCode=providerConfirmationCode||intent.providerConfirmationCode;intent.providerPaymentMethod=wallet?'Classic Wallet':(providerPaymentMethod||intent.providerPaymentMethod);if(wallet)intent.providerStatus='COMPLETED';
       invoice.status='paid';invoice.paidMinor=invoice.totalMinor;invoice.paidAt=intent.paidAt;invoice.paymentIntentPublicId=intent.publicId;invoice.timeline.push({type:'paid',message:'Business credit invoice paid through verified Pesapal transaction.'});
       order.paymentState='paid';syncLegacyOrderStatus(order);order.timeline.push({type:'business_invoice.paid',message:`Business invoice ${invoice.invoiceNumber} paid through Pesapal.`});
       const { issuePaymentReceipt }=await import('./financial-documents.js');await issuePaymentReceipt(order,intent,session);
@@ -169,6 +193,15 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,prov
       }
       return;
     }
+    let walletAccount=null;
+    if(wallet){
+      const customer=order.userId?await User.findById(order.userId).select('publicId country currency').session(session).lean():null;
+      if(!customer)throw new AppError('Classic Wallet customer record is missing.',409,'WALLET_CUSTOMER_MISSING');
+      if(String(customer.country||'').toUpperCase()!==String(order.country||'').toUpperCase()||String(customer.currency||'').toUpperCase()!==String(order.totals.currency||'').toUpperCase())throw new AppError('Classic Wallet currency or country does not match this order.',409,'WALLET_CURRENCY_MISMATCH');
+      walletAccount=await ensureLedgerAccount({code:'customer_wallet',type:'liability',ownerType:'customer',ownerId:customer._id,ownerPublicId:customer.publicId,country:order.country,currency:order.totals.currency},session);
+      const available=await accountBalanceMinor(walletAccount._id,session);
+      if(available<Number(order.totals.totalMinor||0))throw new AppError('Classic Wallet balance is insufficient for this order.',409,'WALLET_BALANCE_INSUFFICIENT');
+    }
     for(const item of order.items){
       const reservation=await InventoryReservation.findOne({publicId:item.reservationPublicId,status:'active'}).session(session);
       if(!reservation)throw new AppError('Order stock reservation is no longer active.',409,'RESERVATION_INACTIVE');
@@ -178,14 +211,14 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,prov
       );
       if(!stock)throw new AppError('Reserved stock is inconsistent.',409,'STOCK_CONFLICT');
       reservation.status='committed';reservation.committedAt=new Date();await reservation.save({session});
-      await InventoryMovement.create([{publicId:publicId('mov'),storeId:reservation.storeId,stockItemId:stock._id,variantId:stock.variantId,warehouseId:stock.warehouseId,type:'sale',quantity:-reservation.quantity,onHandBefore:stock.onHand+reservation.quantity,onHandAfter:stock.onHand,reservedBefore:stock.reserved+reservation.quantity,reservedAfter:stock.reserved,reason:cod?'COD order confirmed':'Pesapal verified payment sale',reference:order.publicId,actorUserId:reservation.actorUserId}],{session});
+      await InventoryMovement.create([{publicId:publicId('mov'),storeId:reservation.storeId,stockItemId:stock._id,variantId:stock.variantId,warehouseId:stock.warehouseId,type:'sale',quantity:-reservation.quantity,onHandBefore:stock.onHand+reservation.quantity,onHandAfter:stock.onHand,reservedBefore:stock.reserved+reservation.quantity,reservedAfter:stock.reserved,reason:cod?'COD order confirmed':wallet?'Classic Wallet payment sale':'Pesapal verified payment sale',reference:order.publicId,actorUserId:reservation.actorUserId}],{session});
     }
     if(cod){
       order.paymentState='pending';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.cod_pending',message:'Cash on delivery selected. Payment will be collected during fulfilment.'});
     }else{
-      order.paymentState='paid';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.verified',message:'Payment independently verified with Pesapal.'});
-      const clearing=await ensureLedgerAccount({code:'provider_clearing',type:'asset',ownerType:'provider',ownerPublicId:PAYMENT_PROVIDER,country:order.country,currency:order.totals.currency},session);
-      const entries=[{account:clearing,debitMinor:order.totals.totalMinor,creditMinor:0,memo:'Verified Pesapal customer payment'}];
+      order.paymentState='paid';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.verified',message:wallet?'Payment completed using Classic Wallet.':'Payment independently verified with Pesapal.'});
+      const clearing=wallet?null:await ensureLedgerAccount({code:'provider_clearing',type:'asset',ownerType:'provider',ownerPublicId:PAYMENT_PROVIDER,country:order.country,currency:order.totals.currency},session);
+      const entries=wallet?[{account:walletAccount,debitMinor:order.totals.totalMinor,creditMinor:0,memo:'Classic Wallet customer payment'}]:[{account:clearing,debitMinor:order.totals.totalMinor,creditMinor:0,memo:'Verified Pesapal customer payment'}];
       const sellerOrders=await SellerOrder.find({orderId:order._id}).session(session).lean();
       let platformFeeTotal=0;
       for(const sellerOrder of sellerOrders){
@@ -197,7 +230,7 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,prov
       const platformRevenueMinor=platformFeeTotal+Number(order.totals.shippingMinor||0);
       if(platformRevenueMinor>0){const revenue=await ensureLedgerAccount({code:'platform_revenue',type:'revenue',ownerType:'platform',ownerPublicId:'classic-mart',country:order.country,currency:order.totals.currency},session);entries.push({account:revenue,debitMinor:0,creditMinor:platformRevenueMinor,memo:'Marketplace fees and delivery revenue'});}
       if(order.totals.taxMinor>0){const tax=await ensureLedgerAccount({code:'tax_payable',type:'liability',ownerType:'platform',ownerPublicId:'classic-mart',country:order.country,currency:order.totals.currency},session);entries.push({account:tax,debitMinor:0,creditMinor:order.totals.taxMinor,memo:'Collected marketplace tax liability'});}
-      await postLedgerTransaction({idempotencyKey:`payment:${intent.publicId}`,referenceType:'payment',referencePublicId:intent.publicId,currency:order.totals.currency,country:order.country,description:`Pesapal payment for ${order.publicId}`,entries},session);
+      await postLedgerTransaction({idempotencyKey:`payment:${intent.publicId}`,referenceType:'payment',referencePublicId:intent.publicId,currency:order.totals.currency,country:order.country,description:wallet?`Classic Wallet payment for ${order.publicId}`:`Pesapal payment for ${order.publicId}`,entries},session);
       const { makeOrderCommissionsPayable }=await import('./promoters.js');await makeOrderCommissionsPayable(order,session);
       const { applyGrowthForPaidOrder }=await import('./stage9.js');await applyGrowthForPaidOrder(order,session);
       if(order.businessInvoiceId){
@@ -206,10 +239,10 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,prov
       }
       intent.status='succeeded';intent.paidAt=intent.paidAt||new Date();intent.activeKey=undefined;
       intent.providerTrackingId=providerTrackingId||intent.providerTrackingId;intent.providerTransactionId=intent.providerTrackingId||intent.providerTransactionId;
-      intent.providerConfirmationCode=providerConfirmationCode||intent.providerConfirmationCode;intent.providerPaymentMethod=providerPaymentMethod||intent.providerPaymentMethod;
+      intent.providerConfirmationCode=providerConfirmationCode||intent.providerConfirmationCode;intent.providerPaymentMethod=wallet?'Classic Wallet':(providerPaymentMethod||intent.providerPaymentMethod);if(wallet)intent.providerStatus='COMPLETED';
       const { issuePaymentReceipt }=await import('./financial-documents.js');await issuePaymentReceipt(order,intent,session);
     }
-    await SellerOrder.updateMany({orderId:order._id,status:'pending_payment'},{$set:{status:'confirmed'},$push:{timeline:{type:cod?'payment.cod_pending':'payment.verified',message:cod?'COD order confirmed for fulfilment.':'Pesapal payment verified.'}}},{session});
+    await SellerOrder.updateMany({orderId:order._id,status:'pending_payment'},{$set:{status:'confirmed'},$push:{timeline:{type:cod?'payment.cod_pending':'payment.verified',message:cod?'COD order confirmed for fulfilment.':wallet?'Classic Wallet payment verified.':'Pesapal payment verified.'}}},{session});
     await order.save({session});await intent.save({session});
   });}finally{await session.endSession();}
 }
@@ -408,7 +441,7 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
       }
     }
     if(cleanAllocations.length&&allocationTotal!==amount)throw new AppError('Refund allocations must equal the refund amount.',422,'REFUND_ALLOCATION_TOTAL');
-    let provider=intent.provider==='cod'?'cod_manual':PAYMENT_PROVIDER;
+    let provider=intent.provider==='cod'?'cod_manual':PAYMENT_PROVIDER;if(intent.provider==='wallet')provider='wallet';
     if(provider===PAYMENT_PROVIDER){
       const priorProvider=await Refund.exists({paymentIntentId:intent._id,provider:PAYMENT_PROVIDER,status:{$in:['pending','processing','completed']}}).session(session);
       const card=/card|visa|master|amex/i.test(String(intent.providerPaymentMethod||''));
@@ -426,6 +459,11 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
 
 export async function createRefund(request,input){
   const {refund,order,intent,existing}=await reserveRefund(request,input);if(existing)return refund;
+  if(refund.provider==='wallet'){
+    refund.status='completed';refund.completedAt=new Date();refund.completedByUserId=request.user?._id;refund.providerRefundId=`wallet:${refund.publicId}`;refund.providerStatus='COMPLETED';refund.providerMessage='Refund returned to Classic Wallet.';
+    await postRefundLedger(order,refund,intent);
+    return Refund.findById(refund._id);
+  }
   if(refund.provider!=='pesapal')return refund;
   try{
     const payload=await requestPesapalRefund({confirmationCode:intent.providerConfirmationCode,amount:major(refund.amountMinor,refund.currency),username:request.user?.name||request.user?.email||'Classic Mart Finance',remarks:refund.reason});
@@ -491,7 +529,12 @@ async function postRefundLedger(orderLike,refundLike,intentLike){
       const accounts=await LedgerAccount.find({_id:{$in:originalCredits.map(row=>row.accountId)}}).session(session),accountById=new Map(accounts.map(row=>[String(row._id),row]));
       for(const row of originalCredits){const account=accountById.get(String(row.accountId));if(!account)throw new AppError('Original settlement ledger account is missing.',409,'REFUND_ORIGINAL_SETTLEMENT_MISSING');entries.push({account,debitMinor:Number(row.creditMinor||0),creditMinor:0,memo:`Exact reversal of ${original.publicId}`});}
     }
-    const clearing=await ensureLedgerAccount({code:intent.provider==='cod'?'cod_clearing':'provider_clearing',type:'asset',ownerType:intent.provider==='cod'?'platform':'provider',ownerPublicId:intent.provider==='cod'?'classic-mart':PAYMENT_PROVIDER,country:order.country,currency:order.totals.currency},session);entries.push({account:clearing,debitMinor:0,creditMinor:refund.amountMinor,memo:intent.provider==='cod'?'COD refund disbursed':'Customer refund'});
+    if(intent.provider==='wallet'){
+      const customer=order.userId?await User.findById(order.userId).select('publicId').session(session).lean():null;if(!customer)throw new AppError('Classic Wallet customer record is missing.',409,'WALLET_CUSTOMER_MISSING');
+      const wallet=await ensureLedgerAccount({code:'customer_wallet',type:'liability',ownerType:'customer',ownerId:order.userId,ownerPublicId:customer.publicId,country:order.country,currency:order.totals.currency},session);entries.push({account:wallet,debitMinor:0,creditMinor:refund.amountMinor,memo:'Classic Wallet refund credit'});
+    }else{
+      const clearing=await ensureLedgerAccount({code:intent.provider==='cod'?'cod_clearing':'provider_clearing',type:'asset',ownerType:intent.provider==='cod'?'platform':'provider',ownerPublicId:intent.provider==='cod'?'classic-mart':PAYMENT_PROVIDER,country:order.country,currency:order.totals.currency},session);entries.push({account:clearing,debitMinor:0,creditMinor:refund.amountMinor,memo:intent.provider==='cod'?'COD refund disbursed':'Customer refund'});
+    }
     await postLedgerTransaction({idempotencyKey:`refund:${refund.publicId}`,referenceType:'refund',referencePublicId:refund.publicId,currency:refund.currency,country:order.country,description:`Refund for ${order.publicId}`,entries},session);
     const previous=await Refund.aggregate([{$match:{orderId:order._id,status:'completed',_id:{$ne:refund._id}}},{$group:{_id:null,total:{$sum:'$amountMinor'}}}]).session(session);const completedMinor=Number(previous[0]?.total||0)+refund.amountMinor,fully=completedMinor>=order.totals.totalMinor;
     intent.status=fully?'refunded':'partially_refunded';order.paymentState=fully?'refunded':'partially_refunded';order.refundState=fully?'complete':'partial';if(order.fulfillmentState==='cancelled'&&order.cancellation?.requestedAt)order.cancellationState='cancelled';syncLegacyOrderStatus(order);await intent.save({session});order.timeline.push({type:'refund.completed',message:`Refund ${refund.publicId} completed.`});

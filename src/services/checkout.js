@@ -42,7 +42,7 @@ async function deliveryQuote({ countryCode, currency, city, method, subtotalMino
   const setting = await CountrySetting.findOne({ code: countryCode, active: true }).lean();
   if (!setting) throw new AppError('Checkout is unavailable in this country.', 409, 'COUNTRY_UNAVAILABLE');
   if (setting.currency !== currency) throw new AppError('Cart currency does not match the selected country.', 409, 'CURRENCY_CONFLICT');
-  if (!setting.payments?.[paymentMethod]) throw new AppError('That payment method is not enabled in this country.', 409, 'PAYMENT_METHOD_UNAVAILABLE');
+  if (paymentMethod !== 'wallet' && !setting.payments?.[paymentMethod]) throw new AppError('That payment method is not enabled in this country.', 409, 'PAYMENT_METHOD_UNAVAILABLE');
   const deliveryEnabled = method === 'standard' ? setting.delivery?.standardEnabled !== false : method === 'express' ? setting.delivery?.expressEnabled !== false : setting.delivery?.pickupEnabled !== false;
   if (!deliveryEnabled) throw new AppError('That delivery method is disabled in this country.', 409, 'DELIVERY_METHOD_UNAVAILABLE');
 
@@ -90,7 +90,7 @@ export async function checkoutOptions(request, city = '') {
   return {
     country: request.country.code,
     currency: setting.currency,
-    payments: setting.payments,
+    payments: { ...setting.payments, wallet: Boolean(request.user) },
     freeStandardShippingThresholdMinor: setting.freeStandardShippingThresholdMinor,
     pickupPoints: pickupPoints.map(point => ({ id: point.publicId, name: point.name, city: point.city, address: point.address, openingHours: point.openingHours })),
     zones: zones.map(zone => ({ id: zone.publicId, name: zone.name, cities: zone.cities, standardFeeMinor: zone.standardFeeMinor, expressFeeMinor: zone.expressFeeMinor, standardSlaHours: zone.standardSlaHours, expressSlaHours: zone.expressSlaHours, matchesCity: normalizedCity ? zone.cities.some(value => value.toLowerCase() === normalizedCity) : false })),
@@ -350,6 +350,7 @@ export async function releaseExpiredReservations() {
 
 export async function reviewCheckout(request, input) {
   await releaseExpiredReservations();
+  if (input.paymentMethod === 'wallet' && !request.user) throw new AppError('Sign in to use Classic Wallet.', 401, 'WALLET_AUTH_REQUIRED');
   const cart = await getOrCreateCart(request);
   const view = await cartView(cart);
   if (!view.items.length) throw new AppError('Your cart is empty.', 409, 'CART_EMPTY');
@@ -382,6 +383,7 @@ export async function reviewCheckout(request, input) {
 }
 
 export async function placeOrder(request, input) {
+  if (input.paymentMethod === 'wallet' && !request.user) throw new AppError('Sign in to use Classic Wallet.', 401, 'WALLET_AUTH_REQUIRED');
   const key = sessionKey(request);
   const existing = await Order.findOne({ idempotencyKey: input.idempotencyKey, sessionKey: key }).lean();
   if (existing) return orderView(existing);

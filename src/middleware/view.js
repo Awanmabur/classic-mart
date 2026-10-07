@@ -1,4 +1,28 @@
 import { hasPermission, roleLabel } from '../core/roles.js';
+import { env } from '../config/env.js';
+
+const SOCIAL_CHANNELS = Object.freeze([
+  ['facebook', 'Facebook', '/assets/icons/facebook-f.svg'],
+  ['x', 'X', '/assets/icons/x-twitter.svg'],
+  ['instagram', 'Instagram', '/assets/icons/instagram.svg'],
+  ['youtube', 'YouTube', '/assets/icons/youtube.svg'],
+  ['pinterest', 'Pinterest', '/assets/icons/pinterest.svg'],
+]);
+
+function configuredSocialLinks() {
+  return SOCIAL_CHANNELS.flatMap(([key, label, icon]) => {
+    const value = String(env.social?.[key] || '').trim();
+    if (!value) return [];
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' ? [{ label, icon, url: url.toString() }] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+const socialLinks = Object.freeze(configuredSocialLinks());
 
 export function viewLocals(request, response, next) {
   const flash = request.session?.flash;
@@ -7,6 +31,8 @@ export function viewLocals(request, response, next) {
     flash,
     hasPermission,
     roleLabel,
+    socialLinks,
+    currentPath: request.originalUrl || request.url || '/',
     deliveryCity: String(request.session?.deliveryCity || ''),
     deliveryLocation: request.session?.deliveryCity ? `${request.session.deliveryCity}, ${request.country?.name || ''}`.replace(/,\s*$/, '') : request.country?.name,
     formatMoney(value, currency = request.user?.currency || request.country?.currency || 'UGX') {

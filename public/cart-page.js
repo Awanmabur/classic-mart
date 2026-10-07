@@ -258,6 +258,7 @@
   function paymentSummary(data) {
     if (data.payment === 'card') return `<span class="confirm-detail-icon"><img src="/assets/icons/credit-card.svg" alt=""></span><div><strong>Card</strong><p>Payment pending · hosted payment follows order creation</p></div>`;
     if (data.payment === 'mobile') return `<span class="confirm-detail-icon"><img src="/assets/icons/mobile-screen-button.svg" alt=""></span><div><strong>Mobile money</strong><p>Payment pending · provider approval is required</p></div>`;
+    if (data.payment === 'wallet') return `<span class="confirm-detail-icon"><img src="/assets/icons/credit-card.svg" alt=""></span><div><strong>Classic Wallet</strong><p>Wallet balance is debited securely after order creation</p></div>`;
     return `<span class="confirm-detail-icon"><img src="/assets/icons/basket-shopping.svg" alt=""></span><div><strong>Cash on delivery</strong><p>Payment remains pending until delivery reconciliation.</p></div>`;
   }
 

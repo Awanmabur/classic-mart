@@ -47,7 +47,7 @@
     },
     {
       "name": "My orders",
-      "url": "/dashboard?section=orders",
+      "url": "/account/orders",
       "icons": [
         {
           "src": "/assets/pwa-192.png",

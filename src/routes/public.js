@@ -75,12 +75,10 @@ async function publishedTestimonials(countryCode, limit = 3) {
 router.get('/', async (request, response, next) => {
   try {
     const connected = mongoose.connection.readyState === 1;
-    const catalogue = connected
-      ? await getStorefront(request.country).then((row) => decorateSponsored(row, request.country.code))
-      : { country: request.country, products: [], categories: [], brands: [], sellers: [] };
-    response.set('Cache-Control', 'public, max-age=10, stale-while-revalidate=30');
-    const [cmsBanner, cmsHomeModule, cmsCollection, homeHeroSlides, pressArticles, homeTestimonials] = connected
+    const emptyCatalogue = { country: request.country, products: [], categories: [], brands: [], sellers: [] };
+    const [catalogue, cmsBanner, cmsHomeModule, cmsCollection, homeHeroSlides, pressArticles, homeTestimonials] = connected
       ? await Promise.all([
+          getStorefront(request.country).then((row) => decorateSponsored(row, request.country.code)),
           publishedCms('home.banner.primary', request.country?.code),
           publishedCms('home.module.primary', request.country?.code),
           publishedCms('home.collection.primary', request.country?.code),
@@ -88,7 +86,8 @@ router.get('/', async (request, response, next) => {
           publishedCmsList({ prefix: 'press.article.', type: 'press', country: request.country?.code, limit: 6 }),
           publishedTestimonials(request.country?.code, 3),
         ])
-      : [null, null, null, [], [], []];
+      : [emptyCatalogue, null, null, null, [], [], []];
+    response.set('Cache-Control', 'public, max-age=10, stale-while-revalidate=30');
     return response.render('index', {
       initialStorefront: catalogue,
       initialStorefrontJson: JSON.stringify(catalogue).replace(/</g, '\u003c'),
@@ -214,7 +213,7 @@ router.get('/onboarding.html', (request, response) =>
   response.redirect(301, `/onboarding${request.url.slice(request.path.length)}`),
 );
 router.get('/profile.html', (_request, response) =>
-  response.redirect(301, '/dashboard'),
+  response.redirect(301, '/account/profile'),
 );
 router.get('/payment-policy.html', (_request, response) =>
   response.redirect(301, '/payments'),

@@ -6,8 +6,8 @@
   <meta name="robots" content="noindex,nofollow">
   <% const snap=document.snapshot||{}, body=snap.quotation||snap.purchaseOrder||snap.invoice||snap.delivery||{}, titles={quotation:'Quotation',purchase_order:'Purchase order',tax_invoice:'Tax invoice',delivery_note:'Delivery note'}; const title=titles[document.type]||'Business document'; %>
   <title><%=title%> <%=document.documentNumber%> — Classic Mart</title>
-  <link rel="stylesheet" href="/dashboard.css">
-  <link rel="stylesheet" href="/dashboard-workspaces.css">
+  <link rel="stylesheet" href="/dashboard/styles.css">
+  <link rel="stylesheet" href="/dashboard/role-workspaces.css"><link rel="stylesheet" href="/dashboard/design-system.css">
   <style>
     .doc-page{max-width:980px;margin:30px auto;padding:0 16px}.doc-card{background:#fff;border:1px solid #e1e6ee;border-radius:22px;padding:24px}.doc-head,.doc-row{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.doc-meta{color:#667085}.doc-number{font-family:ui-monospace,monospace}.doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:20px 0}.doc-party{border:1px solid #e5e7eb;border-radius:14px;padding:14px}.doc-table{width:100%;border-collapse:collapse;margin:20px 0}.doc-table th,.doc-table td{text-align:left;padding:11px 8px;border-bottom:1px solid #eceff3;vertical-align:top}.doc-table th:last-child,.doc-table td:last-child{text-align:right}.doc-totals{max-width:420px;margin-left:auto}.doc-row{padding:6px 0}.doc-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.doc-actions a,.doc-actions button{border-radius:999px}.integrity{word-break:break-all;font-family:ui-monospace,monospace;font-size:.82rem}.legacy{padding:11px 13px;border:1px solid #e5c36c;border-radius:12px;background:#fffaf0}@media(max-width:680px){.doc-head{display:block}.doc-grid{grid-template-columns:1fr}.doc-card{padding:16px}.doc-table{font-size:.9rem}.doc-table th:nth-child(2),.doc-table td:nth-child(2){display:none}}@media print{.doc-actions{display:none}.doc-page{margin:0;max-width:none}.doc-card{border:0;padding:0}}
   </style>

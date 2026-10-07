@@ -11,7 +11,7 @@ const refundSchema=new Schema({
   reason:{type:String,required:true,maxlength:300},
   allocations:{type:[allocationSchema],default:[]},
   providerRefundId:{type:String,maxlength:180},
-  provider:{type:String,enum:['pesapal','cod_manual','external_manual'],default:'pesapal',index:true},
+  provider:{type:String,enum:['pesapal','cod_manual','external_manual','wallet'],default:'pesapal',index:true},
   providerStatus:{type:String,maxlength:120,default:''},
   providerMessage:{type:String,maxlength:400,default:''},
   requestedByUserId:{type:Schema.Types.ObjectId,ref:'User'},

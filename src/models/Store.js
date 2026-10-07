@@ -44,6 +44,13 @@ const storeSchema = new Schema(
       minlength: 3,
       maxlength: 3,
     },
+    operations: {
+      primaryCategory: { type: String, trim: true, maxlength: 100, default: '' },
+      pickupCity: { type: String, trim: true, maxlength: 120, default: '' },
+      supportEmail: { type: String, trim: true, lowercase: true, maxlength: 254, default: '' },
+      supportPhone: { type: String, trim: true, maxlength: 32, default: '' },
+      fulfillmentMode: { type: String, enum: ['merchant', 'warehouse', 'hybrid'], default: 'merchant' },
+    },
     status: {
       type: String,
       enum: ['pending_verification', 'verified', 'suspended', 'closed'],

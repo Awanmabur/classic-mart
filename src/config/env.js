@@ -57,6 +57,7 @@ function validEncryptionKey(value) {
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development';
+const simpleLoginMode = boolean(process.env.SIMPLE_LOGIN, true);
 const mediaStorageDriver = String(process.env.MEDIA_STORAGE_DRIVER || (nodeEnv === 'production' ? '' : 'filesystem')).trim().toLowerCase();
 const storagePersistence = String(process.env.STORAGE_PERSISTENCE || '').trim().toLowerCase();
 const persistentStorageRoot = String(process.env.PERSISTENT_STORAGE_ROOT || '').trim();
@@ -72,7 +73,7 @@ if (nodeEnv === 'production') {
       'Production requires SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM with MAIL_MODE=smtp.',
     );
   }
-  if (process.env.SMS_MODE !== 'twilio' || !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_FROM) {
+  if (!simpleLoginMode && (process.env.SMS_MODE !== 'twilio' || !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_FROM)) {
     throw new Error('Production requires SMS_MODE=twilio with TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM for phone verification.');
   }
   if (!['clamd', 'clamscan'].includes(process.env.MALWARE_SCAN_MODE || '')) {
@@ -103,7 +104,7 @@ if (nodeEnv === 'production') {
   if (process.env.SECURITY_INTEGRITY_KEY === process.env.SESSION_SECRET || process.env.SECURITY_INTEGRITY_KEY === process.env.TOKEN_PEPPER || process.env.SECURITY_INTEGRITY_KEY === process.env.DATA_ENCRYPTION_KEY) {
     throw new Error('SECURITY_INTEGRITY_KEY must be independent from all other application secrets.');
   }
-  if (!boolean(process.env.PRIVILEGED_MFA_REQUIRED, true)) {
+  if (!simpleLoginMode && !boolean(process.env.PRIVILEGED_MFA_REQUIRED, true)) {
     throw new Error('Production requires PRIVILEGED_MFA_REQUIRED=true.');
   }
   if (!boolean(process.env.IDS_ENABLED, true) || !boolean(process.env.IPS_ENABLED, true)) {
@@ -197,6 +198,9 @@ export const env = Object.freeze({
     'development-only-sensitive-data-encryption-key',
   trustProxy: integer(process.env.TRUST_PROXY, 0),
   metricsToken: process.env.METRICS_TOKEN || '',
+  auth: Object.freeze({
+    simpleLogin: simpleLoginMode,
+  }),
   disasterRecovery: Object.freeze({
     maxRpoMinutes: Math.max(1, integer(process.env.DR_MAX_RPO_MINUTES, 60)),
     maxRtoMinutes: Math.max(1, integer(process.env.DR_MAX_RTO_MINUTES, 240)),
@@ -274,7 +278,7 @@ export const env = Object.freeze({
   security: Object.freeze({
     idsEnabled: boolean(process.env.IDS_ENABLED, true),
     ipsEnabled: boolean(process.env.IPS_ENABLED, true),
-    privilegedMfaRequired: boolean(process.env.PRIVILEGED_MFA_REQUIRED, nodeEnv === 'production'),
+    privilegedMfaRequired: simpleLoginMode ? false : boolean(process.env.PRIVILEGED_MFA_REQUIRED, nodeEnv === 'production'),
     integrityKey: secret('SECURITY_INTEGRITY_KEY', 'development-only-security-integrity-key-change-before-production'),
     eventRetentionDays: Math.max(30, integer(process.env.SECURITY_EVENT_RETENTION_DAYS, 180)),
     highEventRetentionDays: Math.max(180, integer(process.env.SECURITY_HIGH_EVENT_RETENTION_DAYS, 730)),
@@ -293,6 +297,13 @@ export const env = Object.freeze({
       udpPort: integer(process.env.SIEM_UDP_PORT, 514),
       timeoutMs: integer(process.env.SIEM_TIMEOUT_MS, 5000),
     }),
+  }),
+  social: Object.freeze({
+    facebook: String(process.env.SOCIAL_FACEBOOK_URL || '').trim(),
+    x: String(process.env.SOCIAL_X_URL || '').trim(),
+    instagram: String(process.env.SOCIAL_INSTAGRAM_URL || '').trim(),
+    youtube: String(process.env.SOCIAL_YOUTUBE_URL || '').trim(),
+    pinterest: String(process.env.SOCIAL_PINTEREST_URL || '').trim(),
   }),
   admin: Object.freeze({
     name: process.env.ADMIN_NAME || 'Classic Mart Super Admin',

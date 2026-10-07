@@ -460,3 +460,7 @@
   object-fit: cover !important;
   object-position: center !important;
 }
+
+/* v2.13.50 compact catalogue media */
+.catalog-product-image { height: 158px; }
+@media (max-width: 720px) { .catalog-product-image { height: 146px; } }

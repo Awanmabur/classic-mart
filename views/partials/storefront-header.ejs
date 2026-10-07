@@ -1,0 +1,97 @@
+<%
+  const shellUrl = typeof currentPath === 'string' && currentPath ? currentPath : '/';
+  const shellPath = shellUrl.split('?')[0] || '/';
+  const accountHref = user ? '/account/profile' : `/login?next=${encodeURIComponent(shellUrl)}`;
+  const accountLabel = user?.name ? user.name.trim().split(/\s+/)[0] : 'Sign in';
+%>
+<div class="utility-bar">
+  <div class="container utility-inner">
+    <button class="utility-location text-button" data-open="locationModal" type="button">
+      <img alt="" aria-hidden="true" src="/assets/icons/location-dot.svg"/>
+      Deliver to <strong id="deliveryLocation"><%= deliveryLocation || country?.name || 'Uganda' %></strong>
+    </button>
+    <div class="shipping-note">
+      <img alt="" aria-hidden="true" src="/assets/icons/truck-fast.svg"/>
+      <strong>Delivery pricing</strong> calculated for your country at checkout
+    </div>
+    <nav aria-label="Utility navigation" class="utility-links">
+      <a class="text-button" href="/signup?role=seller">Sell on Classic Mart</a>
+      <a class="text-button utility-text-link" href="/sellers">Seller Center</a>
+      <a class="text-button utility-text-link" href="/signup?role=promoter">Promoters Center</a>
+      <a class="text-button" href="/track-order">Track Order</a>
+      <a class="text-button" href="/help">Help &amp; Support</a>
+      <button aria-expanded="false" class="language-button" id="languageButton" type="button">
+        <img alt="" aria-hidden="true" src="/assets/icons/globe.svg"/> <%= country?.locale?.split('-')[0].toUpperCase() || 'EN' %> | <%= currency || country?.currency || 'UGX' %>
+        <img alt="" aria-hidden="true" class="tiny-icon" src="/assets/icons/chevron-down.svg"/>
+      </button>
+    </nav>
+  </div>
+</div>
+<header class="site-header" id="top">
+  <div class="container header-main">
+    <a aria-label="Classic Mart home" class="brand" href="/">
+      <img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"/>
+      <small>Everything, for everyone</small>
+    </a>
+    <form class="search-bar" id="searchForm" role="search">
+      <label class="sr-only" for="searchCategory">Product category</label>
+      <select aria-label="Product category" class="category-select" id="searchCategory">
+        <option value="all">Loading categories…</option>
+      </select>
+      <label class="sr-only" for="searchInput">Search products</label>
+      <input autocomplete="off" id="searchInput" placeholder="Search for products, brands and more..." type="search"/>
+      <div class="search-tool-actions" aria-label="Alternative search options">
+        <button aria-label="Search by image" class="search-tool-button" data-image-search type="button" title="Search by image"><img alt="" aria-hidden="true" src="/assets/icons/camera.svg"/></button>
+        <button aria-label="Search by voice" class="search-tool-button" data-voice-search type="button" title="Search by voice"><img alt="" aria-hidden="true" src="/assets/icons/microphone.svg"/></button>
+        <input accept="image/jpeg,image/png,image/webp,image/avif" class="sr-only" data-image-search-input type="file"/>
+      </div>
+      <button class="search-button" type="submit">
+        <img alt="" aria-hidden="true" src="/assets/icons/magnifying-glass.svg"/><span>Search</span>
+      </button>
+      <div aria-label="Search suggestions" class="search-suggestions" id="searchSuggestions" role="listbox"></div>
+    </form>
+    <div class="header-actions">
+      <a aria-label="<%= user ? 'Open your Classic Mart account' : 'Sign in to Classic Mart' %>" class="header-action header-action-link" href="<%= accountHref %>">
+        <span class="header-action-icon"><img alt="" aria-hidden="true" src="/assets/icons/user.svg"/></span>
+        <span class="header-action-copy"><small><%= user ? 'Your account' : 'Welcome' %></small><strong><%= accountLabel %></strong></span>
+        <img alt="" aria-hidden="true" class="header-chevron" src="/assets/icons/chevron-right.svg"/>
+      </a>
+      <a aria-label="Open your wishlist" class="header-action wishlist-trigger" href="/wishlist">
+        <span class="header-action-icon"><img alt="" aria-hidden="true" src="/assets/icons/heart-regular.svg"/></span>
+        <span class="header-action-copy"><small>Saved items</small><strong>Wishlist</strong></span>
+        <b class="count-badge wishlist-count-badge" data-wishlist-count="">0</b>
+      </a>
+      <a aria-label="Open your full cart and checkout" class="header-action cart-trigger" href="/cart" id="cartTrigger">
+        <span class="header-action-icon"><img alt="" aria-hidden="true" src="/assets/icons/cart-shopping.svg"/></span>
+        <span class="header-action-copy"><small>Your basket</small><strong>Cart</strong></span>
+        <b class="count-badge" id="cartCount">0</b>
+      </a>
+    </div>
+  </div>
+  <div class="nav-shell">
+    <div class="container nav-inner">
+      <a class="browse-button" href="/categories">
+        <img alt="" aria-hidden="true" src="/assets/icons/bars.svg"/>
+        <span>Browse Categories</span>
+        <img alt="" aria-hidden="true" class="browse-chevron" src="/assets/icons/chevron-right.svg"/>
+      </a>
+      <nav aria-label="Primary navigation" class="primary-nav" id="primaryNav">
+        <span class="primary-nav-main">
+          <a class="<%= shellPath === '/' ? 'active' : '' %>" href="/">Home</a>
+          <a class="<%= shellPath === '/categories' ? 'active' : '' %>" href="/categories">Categories</a>
+          <a href="/products?view=deals">Flash Deals <span class="hot-badge">HOT</span></a>
+          <a href="/products?view=new">New Arrivals</a>
+          <a href="/products?view=brands">Top Brands</a>
+          <a href="/#features">Features</a>
+          <a class="<%= shellPath === '/ask-classic' ? 'active' : '' %>" href="/ask-classic">Ask Classic</a>
+          <a class="<%= shellPath === '/wishlist' ? 'active' : '' %>" href="/wishlist">Wishlist</a>
+          <a class="<%= shellPath === '/compare' ? 'active' : '' %>" href="/compare">Compare</a>
+        </span>
+        <span aria-label="Featured marketplace links" class="primary-nav-end">
+          <a href="/products?view=deals">Best Deals</a>
+          <a class="classic-live-link" href="/products?view=fresh"><span aria-hidden="true" class="live-dot"></span>Classic Live</a>
+        </span>
+      </nav>
+    </div>
+  </div>
+</header>

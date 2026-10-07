@@ -1575,7 +1575,7 @@
       ['/categories', 'table-cells-large.svg', 'Categories', ''],
       ['/signup?role=seller', 'plus.svg', 'Sell', 'mobile-bottom-nav__sell'],
       ['/wishlist', 'heart-regular.svg', 'Wishlist', ''],
-      ['/dashboard', 'user.svg', 'Profile', ''],
+      ['/account/profile', 'user.svg', 'Profile', ''],
     ];
     nav.innerHTML = items.map(([href, icon, label, extraClass]) => {
       const active = !extraClass && (href === '/' ? current === '/' : current === href || current.startsWith(`${href}/`));

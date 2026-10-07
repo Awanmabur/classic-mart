@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import { z } from 'zod';
+import { routeForPage } from '../dashboard/registry.js';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import { requireAuth, requireOnboarding, requireVerified } from '../middleware/auth.js';
@@ -16,7 +17,8 @@ import {
   adminCountryScope, applyApproval, createApproval, createCmsRevision, exportPath,
   platformReport, queueConsentCampaign, revealGiftCard,
 } from '../services/stage9.js';
-import { clearMfa, PRIVILEGED_MFA_ROLES } from '../services/mfa.js';
+import { clearMfa } from '../services/mfa.js';
+import { PRIVILEGED_MFA_ROLES } from '../middleware/privileged-mfa-paths.js';
 import { invalidateIpBlockCache, verifySecurityEventIntegrity, writeSecurityEvent } from '../services/security.js';
 import { ensureLaunchEvidence, RECOVERY_EVIDENCE_KEYS } from '../services/launch.js';
 import { env } from '../config/env.js';
@@ -29,6 +31,20 @@ import { hydratePlatformAuthorization, platformGrantRowsForAdmin } from '../serv
 
 const router=Router();
 const adminOnly=(req,_res,next)=>['country_admin','super_admin'].includes(req.user?.role)?next():next(new AppError('Administrator access required.',403,'FORBIDDEN'));
+const superAdminOnly=(req,_res,next)=>req.user?.role==='super_admin'?next():next(new AppError('Super Admin access required.',403,'FORBIDDEN'));
+
+router.get('/super-admin',noStore,requireAuth,requireVerified,requireOnboarding,superAdminOnly,(_request,res)=>res.redirect(routeForPage('super-overview')));
+
+router.post('/super-admin/dashboard/settings',noStore,requireAuth,requireVerified,requireOnboarding,superAdminOnly,asyncHandler(async(req,res)=>{
+  const density=z.enum(['comfortable','compact']).parse(req.body.density||'comfortable');
+  const idleReminderMinutes=z.coerce.number().int().refine((value)=>[15,30,60].includes(value),'Unsupported reminder interval').parse(req.body.idleReminderMinutes||30);
+  req.user.preferences ||= {}; req.user.preferences.dashboard ||= {};
+  Object.assign(req.user.preferences.dashboard,{density,idleReminderMinutes,priorityUpdates:req.body.priorityUpdates==='true'||req.body.priorityUpdates==='on',escalations:req.body.escalations==='true'||req.body.escalations==='on',weeklyReport:req.body.weeklyReport==='true'||req.body.weeklyReport==='on'});
+  await req.user.save();
+  await writeAudit(req,'super_admin.dashboard_settings_updated',{targetType:'user',targetPublicId:req.user.publicId,metadata:{density,idleReminderMinutes}});
+  setFlash(req,'success','Super Admin workspace preferences updated.');
+  return res.redirect(routeForPage('super-settings'));
+}));
 router.post('/admin/impersonation/stop', noStore, requireAuth, asyncHandler(async(req,res)=>{const prior=req.session.impersonation;const targetPublicId=req.user?.publicId||'';delete req.session.impersonation;await writeAudit(req,'admin.impersonation_stopped',{targetType:'user',targetPublicId,metadata:{approval:prior?.approvalPublicId||''}});res.redirect('/admin/impersonation');}));
 router.use('/admin',noStore,requireAuth,requireVerified,requireOnboarding,adminOnly);
 function countryScope(req,field='country'){return operationalCountryScope(req.user,field);}
@@ -51,18 +67,19 @@ function ensureCountry(req,country){
   return clean;
 }
 
-router.get('/admin',asyncHandler(async(req,res)=>{
-  const scope=countryScope(req);
-  const sellerStores=req.user.role==='country_admin'?await (await import('../models/Store.js')).Store.find(countryScope(req)).select('_id').lean():null;
-  const payoutAccountIds=req.user.role==='country_admin'?await PayoutAccount.find(countryScope(req)).distinct('_id'):null;
-  const payoutQuery=payoutAccountIds?{payoutAccountId:{$in:payoutAccountIds},status:{$in:['requested','approved']}}:{status:{$in:['requested','approved']}};
-  const [approvals,support,trust,payouts,products,sellers,promoters,incidents]=await Promise.all([
-    ApprovalRequest.countDocuments({...scope,status:'requested'}),SupportTicket.countDocuments({...scope,status:{$nin:['resolved','closed']}}),TrustCase.countDocuments({...scope,status:{$nin:['resolved','dismissed']}}),Payout.countDocuments(payoutQuery),Product.countDocuments(req.user.role==='country_admin'?{...countryScope(req,'countries'),status:'submitted'}:{status:'submitted'}),SellerVerification.countDocuments(sellerStores?{storeId:{$in:sellerStores.map(x=>x._id)},status:{$in:['submitted','appealed']}}:{status:{$in:['submitted','appealed']}}),PromoterVerification.countDocuments({...scope,status:'submitted'}),Incident.countDocuments({...scope,status:{$ne:'resolved'}}),
-  ]);
-  const recentApprovals=await ApprovalRequest.find(scope).populate('requestedByUserId','name publicId').sort({createdAt:-1}).limit(12).lean();
-  res.render('admin',{section:'attention',counts:{approvals,support,trust,payouts,products,sellers,promoters,incidents},recentApprovals});
-}));
+router.get('/admin',asyncHandler(async(req,res)=>res.redirect(routeForPage(req.user.role==='super_admin'?'super-overview':'admin-overview'))));
 
+router.post('/admin/dashboard/settings',asyncHandler(async(req,res)=>{
+  if(req.user.role!=='country_admin')throw new AppError('Country Admin access required.',403,'FORBIDDEN');
+  const density=z.enum(['comfortable','compact']).parse(req.body.density||'comfortable');
+  const idleReminderMinutes=z.coerce.number().int().min(15).max(120).parse(req.body.idleReminderMinutes||30);
+  req.user.preferences ||= {}; req.user.preferences.dashboard ||= {};
+  Object.assign(req.user.preferences.dashboard,{density,idleReminderMinutes,priorityUpdates:req.body.priorityUpdates==='true'||req.body.priorityUpdates==='on',weeklyReport:req.body.weeklyReport==='true'||req.body.weeklyReport==='on'});
+  await req.user.save();
+  await writeAudit(req,'admin.dashboard_settings_updated',{targetType:'user',targetPublicId:req.user.publicId,metadata:{density,idleReminderMinutes}});
+  setFlash(req,'success','Country Admin workspace preferences updated.');
+  return res.redirect(routeForPage('admin-settings'));
+}));
 
 router.get('/admin/business',asyncHandler(async(req,res)=>{const base=req.user.role==='country_admin'?countryScope(req):{};const page=await pagedQuery(BusinessOrganization,base,req.query.after,{populate:[['ownerUserId','name email']]});res.render('admin',{section:'business',organizations:page.items,queuePage:page.page});}));
 router.post('/admin/business/:id/request-terms',asyncHandler(async(req,res)=>{const org=await BusinessOrganization.findOne({publicId:req.params.id,...(req.user.role==='country_admin'?countryScope(req):{})});if(!org)throw new AppError('Business organization not found.',404,'BUSINESS_ORG_NOT_FOUND');const payload={approved:req.body.approved==='on',invoiceTermsDays:req.body.invoiceTermsDays,creditLimitMinor:req.body.creditLimitMinor};const approval=await createApproval({user:req.user,type:'business_credit_terms',country:org.country,targetType:'business_organization',targetPublicId:org.publicId,payload,reason:req.body.reason});await writeAudit(req,'admin.business_terms_requested',{targetType:'approval',targetPublicId:approval.publicId,country:org.country,metadata:{organization:org.publicId}});setFlash(req,'success','Business credit terms sent to approval centre.');res.redirect('/admin/business');}));

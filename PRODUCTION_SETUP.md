@@ -56,7 +56,7 @@ Cloudflare R2 media storage is ready.
 
 The check writes a short random probe object, reads it back, verifies its checksum and deletes it. Startup and `launch:check` perform the same fail-closed R2 readiness validation.
 
-Uploaded marketplace media now goes to R2. The Render disk is not used for product/KYC/evidence images in production; it remains only for temporary export/privacy artifacts. The v2.13.49 development path is also R2-first when using `.env.example`; the initial catalogue import uploads its processed product images directly to the configured private R2 bucket.
+Uploaded marketplace media now goes to R2. The Render disk is not used for product/KYC/evidence images in production; it remains only for temporary export/privacy artifacts. The v2.13.51 development path is also R2-first when using `.env.example`; the initial catalogue import uploads its processed product images directly to the configured private R2 bucket.
 
 ## First production bootstrap
 

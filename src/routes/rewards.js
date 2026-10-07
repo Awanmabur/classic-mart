@@ -25,6 +25,6 @@ router.get('/account/rewards',asyncHandler(async(req,res)=>{
 router.post('/account/rewards/gift-card',asyncHandler(async(req,res)=>{
   const result=await redeemGiftCard({user:req.user,code:req.body.code});
   await writeAudit(req,'growth.gift_card_redeemed',{targetType:'gift_card',targetPublicId:result.card.publicId,country:req.user.country,metadata:{points:result.points}});
-  setFlash(req,'success',`Gift card redeemed for ${result.points} reward point(s).`);res.redirect('/account/rewards');
+  setFlash(req,'success',`Gift card redeemed for ${result.points} reward point(s).`);res.redirect(String(req.body.returnTo||'')==='/dashboard/rewards'?'/dashboard/rewards':'/account/rewards');
 }));
 export default router;

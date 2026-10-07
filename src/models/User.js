@@ -103,7 +103,15 @@ const userSchema = new Schema(
     timeZone: { type: String, default: 'Africa/Kampala', maxlength: 64 },
     consents: { type: consentSchema, required: true },
     roleProfile: { type: roleProfileSchema, default: () => ({}) },
-    preferences: { lowData: { type: Boolean, default: false } },
+    preferences: {
+      lowData: { type: Boolean, default: false },
+      notifications: {
+        orders: { type: Boolean, default: true },
+        wishlist: { type: Boolean, default: true },
+        offers: { type: Boolean, default: false },
+        club: { type: Boolean, default: true },
+      },
+    },
     security: {
       failedLoginCount: { type: Number, default: 0, min: 0 },
       lockedUntil: Date,

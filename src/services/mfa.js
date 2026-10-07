@@ -3,10 +3,9 @@ import { AppError } from '../core/errors.js';
 import { hashToken, verifyPassword } from '../core/crypto.js';
 import { decryptSensitive, encryptSensitive } from '../core/sensitive.js';
 import { Device, User } from '../models/index.js';
+import { PRIVILEGED_MFA_ROLES } from '../middleware/privileged-mfa-paths.js';
 
 const BASE32='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-export const PRIVILEGED_MFA_ROLES=Object.freeze(new Set(['seller','warehouse','support','moderator','finance','country_admin','super_admin']));
-
 function base32Encode(buffer){
   let bits='';
   for(const byte of buffer)bits+=byte.toString(2).padStart(8,'0');

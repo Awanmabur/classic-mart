@@ -1,0 +1,103 @@
+name: Classic Mart CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+      - run: npm ci
+      - name: Start MongoDB replica set and Redis
+        run: |
+          docker run -d --name classic-mart-mongo --network host mongo:8 mongod --port 27018 --replSet rs0 --bind_ip_all
+          docker run -d --name classic-mart-redis --network host redis:8-alpine
+          for i in $(seq 1 60); do docker exec classic-mart-mongo mongosh --port 27018 --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1 && break; sleep 1; done
+          docker exec classic-mart-mongo mongosh --port 27018 --quiet --eval 'try{rs.status()}catch(e){rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27018"}]})}'
+          for i in $(seq 1 60); do docker exec classic-mart-mongo mongosh --port 27018 --quiet --eval 'if(!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1 && break; sleep 1; done
+      - name: Static, security, frontend and functional gates
+        run: npm run check && npm run security:check && npm run frontend:audit && npm run functionality:audit
+        env: &testenv
+          NODE_ENV: test
+          MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci?replicaSet=rs0
+          REDIS_URL: redis://127.0.0.1:6379
+      - name: Automated tests
+        run: npm test
+        env: *testenv
+      - name: Database topology, integration and concurrency audits
+        run: npm run db:verify && npm run audit:integration && npm run audit:concurrency
+        env: *testenv
+      - name: Migration dry run
+        run: npm run migrate:plan
+        env: *testenv
+      - name: Prepare deterministic browser fixture password
+        run: |
+          ADMIN_PASSWORD="Ci$(openssl rand -hex 12)A9!"
+          echo "::add-mask::$ADMIN_PASSWORD"
+          echo "ADMIN_PASSWORD=$ADMIN_PASSWORD" >> "$GITHUB_ENV"
+      - name: Seed browser test data
+        run: node scripts/seed.js
+        env: *testenv
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Real-browser and WCAG accessibility gates
+        run: npm run browser:check
+        env: *testenv
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: classic-mart-browser-diagnostics
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+      - name: Dependency vulnerability gate
+        run: npm audit --audit-level=high
+      - name: SBOM and sanitized release
+        run: npm run security:sbom && npm run release:build
+        env: *testenv
+      - name: Build production container image
+        run: |
+          docker build --pull --build-arg BUILD_SHA=${{ github.sha }} -t classic-mart:${{ github.sha }} .
+          docker image inspect classic-mart:${{ github.sha }} --format '{{.Id}}' > artifacts/container-image-id.txt
+      - name: Scan production container for HIGH/CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: classic-mart:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Attest sanitized release provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-path: 'dist/*.zip'
+      - name: Attest sanitized release SBOM
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@v4
+        with:
+          subject-path: 'dist/*.zip'
+          sbom-path: artifacts/classic-mart-sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: classic-mart-release
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            artifacts/classic-mart-sbom.cdx.json
+            artifacts/container-image-id.txt
+          if-no-files-found: error

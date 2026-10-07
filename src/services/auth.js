@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import {
   hashPassword,
@@ -141,11 +142,13 @@ export async function registerUser(input, request) {
     throw error;
   }
 
-  const developmentCode = await issueCode({
-    user,
-    purpose: 'verify_email',
-    ip: request.ip,
-  });
+  const developmentCode = env.auth.simpleLogin
+    ? undefined
+    : await issueCode({
+        user,
+        purpose: 'verify_email',
+        ip: request.ip,
+      });
   return { user, developmentCode };
 }
 

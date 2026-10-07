@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import { loginDestination } from '../dashboard/landing.js';
+import { hydratePlatformAuthorization } from '../services/platform-grants.js';
+import { env } from '../config/env.js';
 import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { randomToken } from '../core/crypto.js';
@@ -42,7 +45,7 @@ router.post('/staff/invitations/:token/accept',requireAuth,asyncHandler(async(re
   const result=await acceptPlatformStaffInvitation(request,request.params.token);
   await writeAudit(request,'staff.invitation_accepted',{targetType:'platform_staff_invitation',targetPublicId:result.invitation.publicId,country:result.invitation.approvalCountry,metadata:{approval:result.approval.publicId,role:result.invitation.role,countries:result.invitation.operationalCountries}});
   setFlash(request,'success','Staff invitation accepted. Privileged access remains inactive until a different administrator approves it.');
-  return response.redirect('/dashboard');
+  return response.redirect('/');
 }));
 
 const authenticationLimit = rateLimit({
@@ -70,7 +73,7 @@ function safeNext(value) {
     value.startsWith('/') &&
     !value.startsWith('//')
     ? value
-    : '/dashboard';
+    : '/';
 }
 
 
@@ -106,21 +109,23 @@ async function establishSession(request, user, remember) {
   request.session.cookie.maxAge = remember
     ? 30 * 24 * 60 * 60_000
     : 8 * 60 * 60_000;
-  await createDevice(user, request);
-  if (continuity.cartKey) {
-    await Order.updateMany(
-      { sessionKey: continuity.cartKey, userId: null },
-      { $set: { userId: user._id } },
-    );
-  }
+  await Promise.all([
+    createDevice(user, request),
+    continuity.cartKey
+      ? Order.updateMany(
+          { sessionKey: continuity.cartKey, userId: null },
+          { $set: { userId: user._id } },
+        )
+      : Promise.resolve(),
+  ]);
   await saveSession(request);
 }
 
 router.get('/login', (request, response) => {
-  if (request.user) return response.redirect('/dashboard');
+  if (request.user) return response.redirect(loginDestination(request.user, request.query.next));
   return response.render('login', {
     pageError: null,
-    values: { identity: '' },
+    values: { email: '' },
     next: safeNext(request.query.next),
   });
 });
@@ -131,22 +136,25 @@ router.post(
   asyncHandler(async (request, response) => {
     try {
       const input = loginSchema.parse(request.body);
-      const user = await authenticate(input.identity, input.password, request);
-      if (user.security?.mfaEnabled) {
-        await beginMfaChallenge(request, user, Boolean(input.remember), input.next);
+      const user = await authenticate(input.email, input.password, request);
+      await hydratePlatformAuthorization(user);
+      if (!env.auth.simpleLogin && user.security?.mfaEnabled) {
+        await beginMfaChallenge(request, user, false, input.next);
         await writeSecurityEvent(request, 'mfa.challenge_started', { actor: user, category: 'mfa', severity: 'low', result: 'success' });
         return response.redirect('/mfa');
       }
-      await establishSession(request, user, Boolean(input.remember));
+      await establishSession(request, user, false);
       await writeAudit(request, 'identity.login', {
         actor: user,
         targetType: 'user',
         targetPublicId: user.publicId,
       });
-      if (!user.emailVerifiedAt) return response.redirect('/verify-email');
-      if (!user.phoneVerifiedAt) return response.redirect('/verify-phone');
-      if (!user.onboardingCompletedAt) return response.redirect('/onboarding');
-      return response.redirect(safeNext(input.next));
+      if (!env.auth.simpleLogin) {
+        if (!user.emailVerifiedAt) return response.redirect('/verify-email');
+        if (!user.phoneVerifiedAt) return response.redirect('/verify-phone');
+        if (!user.onboardingCompletedAt) return response.redirect('/onboarding');
+      }
+      return response.redirect(loginDestination(user, input.next));
     } catch (error) {
       await writeAudit(request, 'identity.login', {
         result: 'failure',
@@ -154,7 +162,7 @@ router.post(
       });
       return response.status(error.status || 422).render('login', {
         pageError: error.message,
-        values: { identity: request.body.identity || '' },
+        values: { email: request.body.email || '' },
         next: safeNext(request.body.next),
       });
     }
@@ -164,7 +172,7 @@ router.post(
 
 
 router.get('/mfa', asyncHandler(async (request, response) => {
-  if (request.user) return response.redirect('/dashboard');
+  if (request.user) return response.redirect('/');
   const challenge = request.session?.mfaChallenge;
   if (!challenge?.userId || !challenge.issuedAt || Date.now() - Number(challenge.issuedAt) > 10 * 60_000) {
     delete request.session.mfaChallenge;
@@ -194,7 +202,7 @@ router.post('/mfa', authenticationLimit, asyncHandler(async (request, response) 
     if (!user.emailVerifiedAt) return response.redirect('/verify-email');
     if (!user.phoneVerifiedAt) return response.redirect('/verify-phone');
     if (!user.onboardingCompletedAt) return response.redirect('/onboarding');
-    return response.redirect(nextPath);
+    return response.redirect(loginDestination(user, nextPath));
   } catch (error) {
     await writeSecurityEvent(request, 'mfa.challenge_failed', { category: 'mfa', severity: 'medium', result: 'failure', metadata: { code: error.code || 'MFA_FAILED' } });
     return response.status(error.status || 422).render('mfa', { pageError: error.message, recovery: true });
@@ -202,7 +210,7 @@ router.post('/mfa', authenticationLimit, asyncHandler(async (request, response) 
 }));
 
 router.get('/signup', (request, response) => {
-  if (request.user) return response.redirect('/dashboard');
+  if (request.user) return response.redirect('/');
   return response.render('signup', { pageError: null, values: { referralCode: String(request.query.ref || '').trim().slice(0,24) } });
 });
 
@@ -218,19 +226,24 @@ router.post(
         catch (referralError) { await writeAudit(request, 'growth.referral_rejected', { actor: user, targetType: 'referral', result: 'failure', metadata: { code: referralError.code || 'REFERRAL_INVALID' } }); }
       }
       await establishSession(request, user, false);
-      setFlash(
-        request,
-        'success',
-        'Your account was created. Enter the six-digit email code.',
-        developmentCode
-          ? `Development verification code: ${developmentCode}`
-          : undefined,
-      );
+      if (env.auth.simpleLogin) {
+        setFlash(request, 'success', 'Your account was created. You are signed in.');
+      } else {
+        setFlash(
+          request,
+          'success',
+          'Your account was created. Enter the six-digit email code.',
+          developmentCode
+            ? `Development verification code: ${developmentCode}`
+            : undefined,
+        );
+      }
       await writeAudit(request, 'identity.signup', {
         actor: user,
         targetType: 'user',
         targetPublicId: user.publicId,
       });
+      if (env.auth.simpleLogin) return response.redirect('/');
       return response.redirect('/verify-email');
     } catch (error) {
       await writeAudit(request, 'identity.signup', {
@@ -253,7 +266,7 @@ router.post(
 router.get('/verify-email', requireAuth, (request, response) => {
   if (request.user.emailVerifiedAt) {
     if (!request.user.phoneVerifiedAt) return response.redirect('/verify-phone');
-    return response.redirect(request.user.onboardingCompletedAt ? '/dashboard' : '/onboarding');
+    return response.redirect(request.user.onboardingCompletedAt ? '/' : '/onboarding');
   }
   return response.render('verify-email', { pageError: null });
 });
@@ -304,7 +317,7 @@ router.post(
 
 router.get('/verify-phone', requireAuth, (request, response) => {
   if (!request.user.emailVerifiedAt) return response.redirect('/verify-email');
-  if (request.user.phoneVerifiedAt) return response.redirect(request.user.onboardingCompletedAt ? '/dashboard' : '/onboarding');
+  if (request.user.phoneVerifiedAt) return response.redirect(request.user.onboardingCompletedAt ? '/' : '/onboarding');
   return response.render('verify-phone', { pageError: null });
 });
 
@@ -325,7 +338,7 @@ router.post('/verify-phone', requireAuth, authenticationLimit, asyncHandler(asyn
     await verifyPhone(request.user, input.code);
     setFlash(request, 'success', 'Your phone number is verified.');
     await writeAudit(request, 'identity.phone_verified', { targetType: 'user', targetPublicId: request.user.publicId });
-    return response.redirect(request.user.onboardingCompletedAt ? '/dashboard' : '/onboarding');
+    return response.redirect(request.user.onboardingCompletedAt ? '/' : '/onboarding');
   } catch (error) {
     return response.status(error.status || 422).render('verify-phone', { pageError: error.message });
   }

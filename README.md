@@ -1,8 +1,18 @@
 # Classic Mart
 
-Current cumulative release: **v2.13.49**.
+Current staged dashboard checkpoint: **v2.13.71 — Customer Dashboard only**.
 
-Classic Mart is a server-authoritative multi-vendor marketplace built with Node.js 24, Express 5, EJS, MongoDB, Redis, Pesapal and Cloudflare R2. The public storefront, seller workflows, promoter flows, operations dashboards, payments, fulfilment, returns, finance, moderation and platform administration share the same database-backed services and authorization rules.
+Classic Mart is a server-authoritative multi-vendor marketplace built with Node.js 24, Express 5, EJS, MongoDB, Redis, Pesapal and Cloudflare R2. The approved **Unified Role Dashboard — Polished Final 19** design is being integrated one dashboard at a time on top of the v2.13.70 dashboardless backend. This checkpoint implements only the authenticated Customer workspace; Seller and every later dashboard remain intentionally absent until the Customer package is reviewed and approved.
+
+## Customer dashboard checkpoint
+
+- `/dashboard` is mounted for verified, onboarded **Customer** accounts only. Non-Customer roles receive a fail-closed `403` until their own dashboard checkpoint is approved and implemented.
+- The exact uploaded Final 19 dashboard styles are preserved byte-for-byte. Production uses one Customer shell/partial and no demo role switching, localStorage business state or fake identities.
+- Customer pages: Overview, Orders, Wishlist, Addresses, Rewards, Classic Wallet, Returns, Support, Profile Settings, Categories, Cart, Notifications and Classic Club.
+- Dashboard data is page-scoped: opening one Customer page loads only the data needed for that page rather than preloading hidden sections.
+- Classic Wallet is production-backed: verified Pesapal top-ups credit the customer-wallet liability ledger; authenticated checkout can atomically debit Wallet funds; insufficient funds fail before capture; Wallet-funded refunds credit the same customer wallet.
+- Normal account routes remain available under `/account/*` for Profile, Orders, Security, Messages, Returns & Support, Privacy, Rewards and Connected Apps.
+- Release gates require the Customer dashboard and explicitly reject Seller, Promoter, Finance, Support, Warehouse, Moderator, Country Admin and Super Admin dashboard implementations in this checkpoint.
 
 ## External-service-first development
 
@@ -17,13 +27,13 @@ npm run media:r2:check
 npm run dev
 ```
 
-`npm run dev` is now only:
+`npm run dev` is intentionally stable:
 
 ```text
-node --watch src/server.js
+node src/server.js
 ```
 
-It does not mutate MongoDB configuration.
+It does not mutate MongoDB configuration or restart unexpectedly while files change. Use `npm run dev:watch` only when automatic source watching is explicitly wanted.
 
 Use one explicit Atlas database such as `classic-mart`. Classic Mart never falls back to MongoDB's implicit `test` database for initial catalogue import.
 

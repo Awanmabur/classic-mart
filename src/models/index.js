@@ -129,3 +129,13 @@ export { PlatformGrant } from './PlatformGrant.js';
 
 
 export { WorkerHeartbeat } from './WorkerHeartbeat.js';
+export { Coupon } from './Coupon.js';
+export { SubscriptionPlan } from './SubscriptionPlan.js';
+export { CustomerAddress } from './CustomerAddress.js';
+export { Notification } from './Notification.js';
+export { MarketplaceConversation } from './MarketplaceConversation.js';
+export { SubscriptionEnrollment } from './SubscriptionEnrollment.js';
+
+export { SubscriptionChangeRequest } from './SubscriptionChangeRequest.js';
+
+export { WalletTopUp } from './WalletTopUp.js';
