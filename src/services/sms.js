@@ -21,9 +21,7 @@ export async function sendPhoneVerificationCode({ phone, name, code }) {
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    let detail = '';
-    try { detail = String((await response.json())?.message || ''); } catch {}
-    throw new AppError(detail ? `SMS provider rejected the verification message: ${detail.slice(0,160)}` : 'SMS provider could not deliver the verification code.', 502, 'SMS_DELIVERY_FAILED');
+    throw new AppError('SMS provider could not accept the verification code. Please try again later.', 502, 'SMS_DELIVERY_FAILED');
   }
   return { delivered: true, recipient: phone, name };
 }

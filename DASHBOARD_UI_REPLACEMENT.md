@@ -101,8 +101,17 @@ live checks pass against MongoDB 8 with replica-set transactions and Chromium.
 The historical repository tests were updated for the current approved shell,
 role-based landing, retired routes and current media storage/sanitization APIs;
 security assertions for authorization, traversal and SVG rejection are retained.
-The full repository suite passes: 345 tests, 345 passed, zero failures and zero
+The full repository suite passes: 349 tests, 349 passed, zero failures and zero
 skips when the isolated live-test servers, replica-set URI and Chromium executable
-are configured. Without live settings, the six external-process cases are skipped;
+are configured. Without live settings, the seven external-process cases are skipped;
 that mode alone does not verify the live customer integration. These results do
 not certify production integrations or the untested complete commerce lifecycle.
+
+## Messaging security update
+
+Gmail configuration and a no-send SMTP verification command are documented in
+[docs/GMAIL_AND_SMS_SETUP.md](docs/GMAIL_AND_SMS_SETUP.md). SMTP now requires
+verified TLS. Verification-code consumption and failed-guess accounting are
+atomic; failed deliveries invalidate their issued codes. eSMS Africa has been
+requested as the SMS provider, but its adapter awaits the official API contract.
+No eSMS Africa integration or live Gmail delivery is claimed as verified here.

@@ -70,17 +70,23 @@ async function issueCode({ user, purpose, ip }) {
     { userId: user._id, purpose, consumedAt: null },
     { $set: { consumedAt: new Date() } },
   );
-  await VerificationToken.create({
+  const issued = await VerificationToken.create({
     userId: user._id,
     purpose,
     tokenHash: hashToken(code),
     expiresAt: new Date(Date.now() + CODE_DURATION_MS),
     requestedIpHash: hashValue(ip || ''),
   });
-  const delivery = purpose === 'verify_phone'
-    ? await sendPhoneVerificationCode({ phone: user.phone, name: user.name, code })
-    : await sendVerificationCode({ email: user.email, name: user.name, code, purpose });
-  return delivery.developmentCode;
+  try {
+    const delivery = purpose === 'verify_phone'
+      ? await sendPhoneVerificationCode({ phone: user.phone, name: user.name, code })
+      : await sendVerificationCode({ email: user.email, name: user.name, code, purpose });
+    return delivery.developmentCode;
+  } catch (error) {
+    // A provider failure must never leave a usable code or a false send success.
+    await VerificationToken.updateOne({ _id: issued._id, consumedAt: null }, { $set: { consumedAt: new Date() } });
+    throw error;
+  }
 }
 
 export async function registerUser(input, request) {
@@ -194,8 +200,10 @@ export async function consumeCode(userId, purpose, code) {
 
   const matches = safeEqual(hashToken(code), token.tokenHash);
   if (!matches) {
-    token.attempts += 1;
-    await token.save();
+    await VerificationToken.updateOne(
+      { _id: token._id, consumedAt: null, attempts: { $lt: 5 } },
+      { $inc: { attempts: 1 } },
+    );
     throw new AppError(
       'The verification code is invalid or expired.',
       422,
@@ -203,9 +211,13 @@ export async function consumeCode(userId, purpose, code) {
     );
   }
 
-  token.consumedAt = new Date();
-  await token.save();
-  return token;
+  const claimed = await VerificationToken.findOneAndUpdate(
+    { _id: token._id, consumedAt: null, attempts: { $lt: 5 }, expiresAt: { $gt: new Date() } },
+    { $set: { consumedAt: new Date() } },
+    { returnDocument: 'after' },
+  );
+  if (!claimed) throw new AppError('The verification code is invalid or expired.', 422, 'INVALID_CODE');
+  return claimed;
 }
 
 export async function verifyEmail(user, code) {

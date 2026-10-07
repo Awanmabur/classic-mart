@@ -30,7 +30,7 @@
         <div class="auth-form-head">
           <span class="auth-kicker">Verify phone</span>
           <h2>Enter your six-digit code.</h2>
-          <p>The code is sent to <strong><%= user.phone %></strong>.</p>
+          <p>Send a code to <strong><%= user.phone %></strong>, then enter it below.</p>
         </div>
         <form action="/verify-phone" class="auth-form" method="post">
           <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
@@ -44,7 +44,7 @@
         </form>
         <form action="/verify-phone/send" class="auth-form compact-server-form" method="post">
           <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
-          <button class="auth-social-button full-server-button" type="submit">Send a New Code</button>
+          <button class="auth-social-button full-server-button" type="submit">Send Verification Code</button>
         </form>
         <form action="/logout" class="auth-form compact-server-form" method="post">
           <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
