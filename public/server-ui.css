@@ -12,8 +12,14 @@
   border: 0;
   color: #526078;
   background: transparent;
+  font: inherit;
   font-weight: 700;
+  min-height: 44px;
+  cursor: pointer;
 }
+
+.auth-text-button:hover { color: var(--orange-dark, #d95600); }
+.auth-submit:focus-visible, .auth-social-button:focus-visible, .auth-text-button:focus-visible { outline: 2px solid var(--orange-dark, #d95600); outline-offset: 3px; }
 
 .auth-message.error,
 .role-server-message.error {

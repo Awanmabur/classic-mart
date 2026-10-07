@@ -74,12 +74,13 @@ async function issueCode({ user, purpose, ip }) {
     userId: user._id,
     purpose,
     tokenHash: hashToken(code),
+    recipientHash: hashValue(purpose === 'verify_phone' ? normalizePhone(user.phone) : normalizeEmail(user.email)),
     expiresAt: new Date(Date.now() + CODE_DURATION_MS),
     requestedIpHash: hashValue(ip || ''),
   });
   try {
     const delivery = purpose === 'verify_phone'
-      ? await sendPhoneVerificationCode({ phone: user.phone, name: user.name, code })
+      ? await sendPhoneVerificationCode({ phone: normalizePhone(user.phone), name: user.name, code })
       : await sendVerificationCode({ email: user.email, name: user.name, code, purpose });
     return delivery.developmentCode;
   } catch (error) {
@@ -180,10 +181,11 @@ export async function resendVerification(user, request) {
   });
 }
 
-export async function consumeCode(userId, purpose, code) {
+export async function consumeCode(userId, purpose, code, recipientHash) {
   const token = await VerificationToken.findOne({
     userId,
     purpose,
+    ...(recipientHash ? { recipientHash } : {}),
     consumedAt: null,
     expiresAt: { $gt: new Date() },
   })
@@ -239,7 +241,7 @@ export async function resendPhoneVerification(user, request) {
 
 export async function verifyPhone(user, code) {
   if (!user.emailVerifiedAt) throw new AppError('Verify your email first.', 409, 'EMAIL_UNVERIFIED');
-  await consumeCode(user._id, 'verify_phone', code);
+  await consumeCode(user._id, 'verify_phone', code, hashValue(normalizePhone(user.phone)));
   if (!user.phoneVerifiedAt) { user.phoneVerifiedAt = new Date(); await user.save(); }
   return user;
 }

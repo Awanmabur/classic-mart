@@ -93,3 +93,17 @@ Production may use `SMS_MODE=disabled` (or leave SMS_MODE unset) until credentia
 are ready. Optional phone verification then fails safely; it cannot mark a phone
 verified. Production never falls back to development SMS log codes. Configuring
 `SMS_MODE=esms` still requires a live key. Staff MFA requirements are unchanged.
+
+## Verification review
+
+Email verification confirms mailbox control, not legal identity. Optional phone
+verification confirms number control and is not a replacement for privileged MFA.
+Phone tokens are now bound to a hash of the number they were sent to; changing the
+profile number cannot make an old code verify the new number. Existing unbound
+phone tokens from earlier versions require a new send. This is deliberate.
+
+The email verification page loads the same shared button styles as phone
+verification. Resend buttons remain secondary actions, while verify buttons remain
+primary actions; account switching has a consistent text-button style. All three
+have visible keyboard focus, and secondary/account-switch targets are at least
+44px high. Mobile browser checks verified both pages after real local signup.

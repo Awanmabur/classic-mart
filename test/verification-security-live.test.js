@@ -5,8 +5,8 @@ import mongoose from 'mongoose';
 process.env.NODE_ENV='test';
 process.env.SMS_MODE='unconfigured';
 const {VerificationToken}=await import('../src/models/index.js');
-const {consumeCode,resendPhoneVerification}=await import('../src/services/auth.js');
-const {hashToken}=await import('../src/core/crypto.js');
+const {consumeCode,resendPhoneVerification,verifyPhone}=await import('../src/services/auth.js');
+const {hashToken,hashValue}=await import('../src/core/crypto.js');
 const uri=process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI;
 
 test('MongoDB verification codes are single-use under concurrency, cap guesses and invalidate failed SMS sends',{skip:!uri},async()=>{
@@ -27,6 +27,21 @@ test('MongoDB verification codes are single-use under concurrency, cap guesses a
     await consumeCode(userId,'verify_phone','445566');
     assert.ok((await VerificationToken.findById(phoneOnly._id)).consumedAt);
     await assert.rejects(resendPhoneVerification({_id:userId,phone:'+256700000001'},{ip:'127.0.0.1'}),{code:'EMAIL_UNVERIFIED'});
+
+    // A code sent to a previous number must not verify a newly edited number.
+    const oldPhone='+256700000111';
+    const currentPhone='+256700000222';
+    const bound=await VerificationToken.create({userId,purpose:'verify_phone',tokenHash:hashToken('778899'),recipientHash:hashValue(oldPhone),expiresAt:new Date(Date.now()+600000)});
+    let saved=false;
+    const changedUser={_id:userId,emailVerifiedAt:new Date(),phone:currentPhone,async save(){saved=true;}};
+    await assert.rejects(verifyPhone(changedUser,'778899'),{code:'INVALID_CODE'});
+    assert.equal(saved,false);
+    assert.ok(!changedUser.phoneVerifiedAt);
+    assert.ok(!(await VerificationToken.findById(bound._id)).consumedAt);
+    changedUser.phone=oldPhone;
+    await verifyPhone(changedUser,'778899');
+    assert.equal(saved,true);
+    assert.ok(changedUser.phoneVerifiedAt);
 
     const token=await VerificationToken.create({userId,purpose:'verify_email',tokenHash:hashToken('123456'),expiresAt:new Date(Date.now()+600000)});
     const claims=await Promise.allSettled(Array.from({length:12},()=>consumeCode(userId,'verify_email','123456')));

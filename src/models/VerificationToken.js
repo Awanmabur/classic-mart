@@ -18,6 +18,7 @@ const verificationTokenSchema = new mongoose.Schema(
     expiresAt: { type: Date, required: true, index: { expires: 0 } },
     consumedAt: Date,
     attempts: { type: Number, default: 0, min: 0, max: 10 },
+    recipientHash: { type: String, select: false },
     requestedIpHash: { type: String, select: false },
   },
   { timestamps: true },
