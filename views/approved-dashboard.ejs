@@ -63,7 +63,7 @@
     <header class="topbar">
       <div class="brand-area">
         <button class="round-icon mobile-menu" id="mobileMenuBtn" aria-label="Open navigation"><svg><use href="#i-menu"></use></svg></button>
-        <a href="#dashboard" class="brand dashboard-brand" data-page-target="dashboard" aria-label="Classic Mart dashboard">
+        <a href="/dashboard/dashboard" class="brand dashboard-brand" data-page-target="dashboard" aria-label="Classic Mart dashboard">
           <img class="dashboard-brand-logo" src="/approved-dashboard/assets/classic-mart-logo.png" alt="Classic Mart" />
         </a>
       </div>
@@ -89,15 +89,15 @@
 
     <aside class="sidebar" id="sidebar">
       <nav class="side-navigation">
-        <a class="side-link active" href="#dashboard" data-page-target="dashboard"><svg><use href="#i-grid"></use></svg><span>Dashboard</span></a>
-        <a class="side-link" href="#orders" data-page-target="orders"><svg><use href="#i-clipboard"></use></svg><span>My Orders</span></a>
-        <a class="side-link" href="#wishlist" data-page-target="wishlist"><svg><use href="#i-heart"></use></svg><span>Wishlist</span><b><%= liveCustomer ? liveHeader.wishlistCount : 5 %></b></a>
-        <a class="side-link" href="#addresses" data-page-target="addresses"><svg><use href="#i-pin"></use></svg><span>Addresses</span></a>
-        <a class="side-link" href="#rewards" data-page-target="rewards"><svg><use href="#i-award"></use></svg><span>Rewards</span><b id="sidePoints"><%= liveCustomer ? liveHeader.points : 320 %></b></a>
-        <a class="side-link" href="#wallet" data-page-target="wallet"><svg><use href="#i-wallet"></use></svg><span>Wallet</span><b id="sideWallet"><%= liveCustomer ? formatMoney(liveHeader.balanceMinor, user.currency) : "UGX 85,000" %></b></a>
-        <a class="side-link" href="#returns" data-page-target="returns"><svg><use href="#i-refresh"></use></svg><span>Returns &amp; Refunds</span></a>
-        <a class="side-link" href="#support" data-page-target="support"><svg><use href="#i-support"></use></svg><span>Support Tickets</span></a>
-        <a class="side-link" href="#profile" data-page-target="profile"><svg><use href="#i-user"></use></svg><span>Profile Settings</span></a>
+        <a class="side-link active" href="/dashboard/dashboard" data-page-target="dashboard"><svg><use href="#i-grid"></use></svg><span>Dashboard</span></a>
+        <a class="side-link" href="/dashboard/orders" data-page-target="orders"><svg><use href="#i-clipboard"></use></svg><span>My Orders</span></a>
+        <a class="side-link" href="/dashboard/wishlist" data-page-target="wishlist"><svg><use href="#i-heart"></use></svg><span>Wishlist</span><b><%= liveCustomer ? liveHeader.wishlistCount : 5 %></b></a>
+        <a class="side-link" href="/dashboard/addresses" data-page-target="addresses"><svg><use href="#i-pin"></use></svg><span>Addresses</span></a>
+        <a class="side-link" href="/dashboard/rewards" data-page-target="rewards"><svg><use href="#i-award"></use></svg><span>Rewards</span><b id="sidePoints"><%= liveCustomer ? liveHeader.points : 320 %></b></a>
+        <a class="side-link" href="/dashboard/wallet" data-page-target="wallet"><svg><use href="#i-wallet"></use></svg><span>Wallet</span><b id="sideWallet"><%= liveCustomer ? formatMoney(liveHeader.balanceMinor, user.currency) : "UGX 85,000" %></b></a>
+        <a class="side-link" href="/dashboard/returns" data-page-target="returns"><svg><use href="#i-refresh"></use></svg><span>Returns &amp; Refunds</span></a>
+        <a class="side-link" href="/dashboard/support" data-page-target="support"><svg><use href="#i-support"></use></svg><span>Support Tickets</span></a>
+        <a class="side-link" href="/dashboard/profile" data-page-target="profile"><svg><use href="#i-user"></use></svg><span>Profile Settings</span></a>
       </nav>
 
       <section class="sidebar-club-card">

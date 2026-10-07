@@ -179,3 +179,26 @@ literal server-render targets so stale UI cannot silently return.
 Removal verification: all 359 tests passed with zero failures or skips; project,
 security and frontend checks passed. Retired asset URLs return HTTP 404 directly.
 Ten authenticated customer/account paths passed the browser check.
+
+## Customer page layout and navigation corrections
+
+Customer sidebar links now open clean server routes such as `/dashboard/addresses`
+and `/dashboard/rewards`. Customer initialization removes old page fragments;
+within-page links scroll without adding a fragment to the URL.
+
+My Orders restores the approved All, Processing, Shipped and Delivered tabs.
+Filters use the customer's database-backed fulfillment states, including partial
+shipping/delivery, and display an empty state when a selected status has no rows.
+
+Addresses restores the approved Region, optional Postal code and address-type
+selector. Region and postal code persist in MongoDB and populate the edit form;
+existing custom address labels remain editable. Rewards forms, points typography,
+account headings, Password & Security panels, button alignment and checkbox sizing
+now follow the approved dashboard styling. The original three Final19 base CSS
+files remain unchanged; corrections are scoped in the approved session stylesheet.
+
+Verification: all 360 tests passed with zero failures or skips, including real
+MongoDB address persistence and Chromium order-filter tests. Project, security
+and frontend checks passed. All 13 customer pages and Password & Security were
+checked in Chromium at desktop (1366px) and mobile (390px) widths for clean URLs,
+button styling and horizontal overflow.

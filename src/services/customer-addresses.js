@@ -10,6 +10,8 @@ export const customerAddressSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   phone: z.string().trim().min(7).max(32),
   address: z.string().trim().min(5).max(240),
+  region: z.string().trim().max(120).optional().default(''),
+  postalCode: z.string().trim().max(30).optional().default(''),
   city: z.string().trim().min(2).max(120),
   country: z.string().trim().regex(/^[A-Za-z]{2}$/).transform((value) => value.toUpperCase()),
   note: z.string().trim().max(500).optional().default(''),

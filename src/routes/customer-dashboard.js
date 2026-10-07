@@ -47,6 +47,8 @@ const addressSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   phone: z.string().trim().min(5).max(32),
   address: z.string().trim().min(3).max(240),
+  region: z.string().trim().max(120).optional().default(''),
+  postalCode: z.string().trim().max(30).optional().default(''),
   city: z.string().trim().min(2).max(120),
   country: z.string().trim().length(2).optional(),
   note: z.string().trim().max(500).optional().default(''),
@@ -60,7 +62,7 @@ router.post('/dashboard/addresses', asyncHandler(async (request, response) => {
   if (shouldDefault) await CustomerAddress.updateMany({ userId: request.user._id, archivedAt: null }, { $set: { isDefault: false } });
   const address = await CustomerAddress.create({
     publicId: publicId('adr'), userId: request.user._id, label: input.label, fullName: input.fullName,
-    phone: input.phone, address: input.address, city: input.city, country, note: input.note, isDefault: shouldDefault,
+    phone: input.phone, address: input.address, city: input.city, region: input.region, postalCode: input.postalCode, country, note: input.note, isDefault: shouldDefault,
   });
   await writeAudit(request, 'customer.address_created', { targetType: 'customer_address', targetPublicId: address.publicId, country });
   setFlash(request, 'success', 'Delivery address saved.');

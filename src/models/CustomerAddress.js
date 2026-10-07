@@ -7,6 +7,8 @@ const schema = new Schema({
   fullName:{type:String,required:true,trim:true,maxlength:120},
   phone:{type:String,required:true,trim:true,maxlength:32},
   address:{type:String,required:true,trim:true,maxlength:240},
+  region:{type:String,trim:true,maxlength:120,default:''},
+  postalCode:{type:String,trim:true,maxlength:30,default:''},
   city:{type:String,required:true,trim:true,maxlength:120},
   country:{type:String,required:true,uppercase:true,minlength:2,maxlength:2,index:true},
   note:{type:String,trim:true,maxlength:500,default:''},

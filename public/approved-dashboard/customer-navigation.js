@@ -13,6 +13,11 @@
       form.append(token); document.body.append(form); form.submit();
       return;
     }
+    const anchor = event.target.closest('a[href^="#"]');
+    if (anchor && !anchor.dataset.pageTarget) {
+      const destination = document.getElementById(anchor.getAttribute('href').slice(1));
+      if (destination) { event.preventDefault(); destination.scrollIntoView({behavior:'smooth',block:'start'}); }
+    }
     const target = event.target.closest('[data-page-target]');
     if (target) {
       event.preventDefault();
@@ -31,6 +36,17 @@
     }
   });
   document.getElementById('classicAiBtn')?.addEventListener('click', () => location.assign('/ask-classic'));
+  document.querySelectorAll('[data-order-filter]').forEach(button => button.addEventListener('click', () => {
+    const status = button.dataset.orderFilter;
+    document.querySelectorAll('[data-order-filter]').forEach(tab => {
+      const active = tab === button; tab.classList.toggle('active', active); tab.setAttribute('aria-pressed', String(active));
+    });
+    const rows = [...document.querySelectorAll('[data-order-group]')];
+    rows.forEach(row => { row.hidden = status !== 'all' && row.dataset.orderGroup !== status; });
+    const empty = document.getElementById('orderFilterEmpty');
+    if (empty) empty.hidden = status === 'all' || rows.some(row => !row.hidden);
+    document.querySelector('.rich-order-list > .empty-state:not(#orderFilterEmpty)')?.toggleAttribute('hidden', status !== 'all');
+  }));
   const search = document.getElementById('searchForm');
   search?.addEventListener('submit', event => {
     event.preventDefault();

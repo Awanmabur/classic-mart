@@ -25,7 +25,7 @@ async function loadOverview(request){
   return {recentOrders,orderCount,loyalty,wallet,wishlist,cart,unread,monthlySavingsMinor:Number(monthlySavingsRows[0]?.total||0),club:customerClubSummary(loyalty,Number(spendRows[0]?.total||0),await CountrySetting.findOne({code:request.country.code,active:true}).lean())};
 }
 async function loadOrders(request){const orders=await Order.find({userId:request.user._id}).select('publicId status paymentState fulfillmentState cancellationState returnState refundState totals items paymentMethod deliveryMethod createdAt updatedAt').sort({createdAt:-1}).limit(50).lean();return {orders};}
-async function loadAddresses(request){return {addresses:await listCustomerAddresses(request.user._id)};}
+async function loadAddresses(request){return {addresses:await listCustomerAddresses(request.user._id),countries:await getCountries()};}
 async function loadRewards(request){const [loyalty,entries]=await Promise.all([LoyaltyAccount.findOne({userId:request.user._id}).lean(),LoyaltyEntry.find({userId:request.user._id}).sort({createdAt:-1}).limit(40).lean()]);return {loyalty,entries};}
 async function loadWallet(request){return {wallet:await customerWalletSummary(request.user)};}
 async function loadReturns(request){
