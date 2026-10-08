@@ -6,10 +6,11 @@ import { publicId } from '../core/ids.js';
 import { currentTraceFields } from '../core/trace.js';
 import { encryptSensitive } from '../core/sensitive.js';
 import {
-  CountrySetting, DeliveryException, DeliveryOffer, EvidenceDocument, InventoryDiscrepancy, InventoryMovement, Order, Parcel, PaymentIntent, ReconciliationRun, ReturnRequest, SellerOrder, SellerShipment, Shipment, ShippingZone, StockItem, Store, Warehouse, WarehouseTask, WarehouseWave,
+  CountrySetting, DeliveryException, DeliveryOffer, DeliveryProfile, EvidenceDocument, InventoryDiscrepancy, InventoryMovement, InventoryReservation, Order, Parcel, PaymentIntent, PlatformGrant, ReconciliationRun, ReturnRequest, SellerOrder, SellerShipment, Shipment, ShippingZone, StockItem, Store, User, Warehouse, WarehouseTask, WarehouseWave,
 } from '../models/index.js';
 import { ensureLedgerAccount, postLedgerTransaction, sellerSettlementBreakdown } from './money.js';
 import { refreshOrderLifecycle, syncLegacyOrderStatus } from './order-state.js';
+import { assertWarehouseScope, operationalCountryScope, warehouseScopesFor } from './authorization.js';
 
 const allowedTransitions = Object.freeze({
   ready: ['offered'], offered: ['assigned', 'ready'], assigned: ['picked_up', 'failed'], picked_up: ['in_transit', 'failed'],
@@ -41,10 +42,8 @@ async function createDeliveryExceptionInSession({shipment,type,reasonCode,descri
 
 
 async function ensureSellerShipmentsForRoot(order,rootShipment,actorUserId,session){
-  const [sellerOrders,parcels]=await Promise.all([
-    SellerOrder.find({orderId:order._id}).session(session),
-    Parcel.find({shipmentId:rootShipment._id}).session(session),
-  ]);
+  const sellerOrders=await SellerOrder.find({orderId:order._id}).session(session);
+  const parcels=await Parcel.find({shipmentId:rootShipment._id}).session(session);
   const parcelByStore=new Map(parcels.map(row=>[String(row.storePublicId),row]));
   for(const sellerOrder of sellerOrders){
     const parcel=parcelByStore.get(String(sellerOrder.storePublicId));
@@ -63,8 +62,8 @@ async function syncSellerShipmentFromParcel(parcel,actorUserId,session){
   await SellerShipment.updateOne({parcelId:parcel._id},{$set:set,$push:{timeline:{type:`parcel.${parcel.status}`,message:`Seller parcel ${parcel.publicId} moved to ${String(parcel.status).replaceAll('_',' ')}.`,actorUserId}}},{session});
 }
 async function ensureShipmentInSession(order, actorUserId, session) {
+  if(!orderCanFulfil(order))throw new AppError('Order is not ready for fulfilment.',409,'ORDER_NOT_READY');
   const existing = await Shipment.findOne({ orderId: order._id, kind: 'outbound' }).session(session); if (existing) { await ensureSellerShipmentsForRoot(order,existing,actorUserId,session); return existing; }
-  if (!['confirmed', 'paid'].includes(order.status) && order.paymentMethod !== 'cod') throw new AppError('Order is not ready for fulfilment.', 409, 'ORDER_NOT_READY');
   const pickup = String(crypto.randomInt(100000, 999999)); const delivery = String(crypto.randomInt(100000, 999999));
   const deliveryPolicy=await deliveryPolicyForOrder(order,session);const createdAt=new Date();
   const shipmentTrace={traceId:order.traceId||currentTraceFields().traceId,traceSpanId:order.traceSpanId||currentTraceFields().traceSpanId};
@@ -83,14 +82,51 @@ export async function ensureShipmentForOrder(order, actorUserId, session=null) {
 }
 
 export async function offerShipment({ shipment, deliveryUserId, earningMinor, currency, actorUserId }) {
-  if (!['ready', 'offered'].includes(shipment.status) || shipment.deliveryUserId) throw new AppError('Shipment cannot be offered in its current state.', 409, 'SHIPMENT_OFFER_STATE');
-  const offer = await DeliveryOffer.findOneAndUpdate(
-    { shipmentId: shipment._id, deliveryUserId },
-    { $set: { shipmentPublicId: shipment.publicId, country: shipment.country, earningMinor, currency, status: 'offered', expiresAt: new Date(Date.now() + 15 * 60 * 1000), respondedAt: null }, $setOnInsert: { publicId: publicId('dof') } },
-    { upsert: true, returnDocument: 'after' },
-  );
-  if (shipment.status === 'ready') { shipment.status = 'offered'; shipment.timeline.push({ type: 'offered', message: 'Delivery job offered to an approved partner.', actorUserId }); await shipment.save(); }
-  return offer;
+  if(!Number.isSafeInteger(earningMinor)||earningMinor<0)throw new AppError('Delivery earning must be a non-negative whole amount.',422,'DELIVERY_EARNING_INVALID');
+  const session=await mongoose.startSession();
+  try{return await session.withTransaction(async()=>{
+    const actor=await User.findOne({_id:actorUserId,status:'active'}).select('role country platformAccessManagedAt security.tokenVersion +operationalCountries').session(session).lean();
+    if(!actor)throw new AppError('Active logistics operations access is required.',403,'DELIVERY_OFFER_FORBIDDEN');
+    const storedRole=actor.role;let grant=null;
+    if(actor.platformAccessManagedAt){
+      const now=new Date();
+      const grants=await PlatformGrant.find({userId:actor._id,status:'active',startsAt:{$lte:now},expiresAt:{$gt:now}}).sort({createdAt:-1}).limit(2).session(session).lean();
+      if(grants.length>1)throw new AppError('Multiple active platform grants detected.',403,'PLATFORM_GRANT_CONFLICT');
+      grant=grants[0]||null;actor.authorizationContext={platformManaged:true,activePlatformGrants:grants};actor.role=grant?.role||'customer';
+    }
+    if(!['warehouse','country_admin','super_admin'].includes(actor.role))throw new AppError('Active logistics operations access is required.',403,'DELIVERY_OFFER_FORBIDDEN');
+    const current=await Shipment.findOne({_id:shipment._id,...operationalCountryScope(actor)}).session(session);
+    if(!current)throw new AppError('Shipment not found.',404,'SHIPMENT_NOT_FOUND');
+    if(!['ready','offered'].includes(current.status)||current.deliveryUserId)throw new AppError('Shipment cannot be offered in its current state.',409,'SHIPMENT_OFFER_STATE');
+    if(warehouseScopesFor(actor).length){
+      const order=await Order.findOne({_id:current.orderId,country:current.country}).select('items.reservationPublicId').session(session).lean();
+      const reservationIds=[...new Set((order?.items||[]).map(item=>item.reservationPublicId))];
+      const reservations=await InventoryReservation.find({publicId:{$in:reservationIds}}).select('stockItemId').session(session).lean();
+      const stock=await StockItem.find({_id:{$in:reservations.map(row=>row.stockItemId)}}).select('warehouseId').session(session).lean();
+      const warehouseIds=[...new Set(stock.map(row=>String(row.warehouseId)))];
+      const warehouses=await Warehouse.find({_id:{$in:warehouseIds},country:current.country}).select('publicId').session(session).lean();
+      if(!reservationIds.length||reservations.length!==reservationIds.length||stock.length!==new Set(reservations.map(row=>String(row.stockItemId))).size||warehouses.length!==warehouseIds.length)throw new AppError('Shipment warehouse scope cannot be verified.',403,'WAREHOUSE_SCOPE');
+      for(const warehouse of warehouses)assertWarehouseScope(actor,warehouse.publicId);
+    }
+    const recipient=await User.findOne({_id:deliveryUserId,status:'active',role:'delivery',country:current.country}).select('_id').session(session).lean();
+    const profile=recipient?await DeliveryProfile.findOne({userId:recipient._id,country:current.country,verificationStatus:'approved',available:true}).session(session).lean():null;
+    if(!profile)throw new AppError('Approved available delivery partner not found.',404,'DELIVERY_NOT_FOUND');
+    if(current.cod?.required&&!profile.codEnabled)throw new AppError('This delivery partner is not approved to collect COD.',409,'DELIVERY_COD_NOT_ALLOWED');
+    if(String(currency).toUpperCase()!==current.cod.currency)throw new AppError('Delivery earning currency must match the shipment.',422,'DELIVERY_CURRENCY_INVALID');
+    // Fence authorization records so concurrent suspension or grant revocation
+    // conflicts with this transaction and retries against the latest authority.
+    if(grant){
+      const now=new Date();
+      const fenced=await PlatformGrant.updateOne({_id:grant._id,status:'active',startsAt:{$lte:now},expiresAt:{$gt:now}},{$inc:{__v:1}},{session});
+      if(fenced.matchedCount!==1)throw new AppError('Active logistics operations access is required.',403,'DELIVERY_OFFER_FORBIDDEN');
+    }
+    const fencedActor=await User.updateOne({_id:actor._id,status:'active',role:storedRole,'security.tokenVersion':Number(actor.security?.tokenVersion||0)},{$inc:{__v:1}},{session});
+    if(fencedActor.matchedCount!==1)throw new AppError('Active logistics operations access is required.',403,'DELIVERY_OFFER_FORBIDDEN');
+    const offer=await DeliveryOffer.findOneAndUpdate({shipmentId:current._id,deliveryUserId},{$set:{shipmentPublicId:current.publicId,country:current.country,earningMinor,currency:current.cod.currency,status:'offered',expiresAt:new Date(Date.now()+15*60*1000),respondedAt:null},$setOnInsert:{publicId:publicId('dof')}},{upsert:true,returnDocument:'after',session});
+    if(current.status==='ready'){current.status='offered';current.timeline.push({type:'offered',message:'Delivery job offered to an approved partner.',actorUserId});}
+    // Always write the shipment to serialize offers against assignment/cancellation.
+    current.markModified('status');await current.save({session});return offer;
+  });}finally{await session.endSession();}
 }
 
 async function postDeliveryEarning(shipment, session = null) {
@@ -103,31 +139,64 @@ async function postDeliveryEarning(shipment, session = null) {
 }
 
 export async function acceptDeliveryOffer({ offer, actorUserId }) {
-  if (offer.status !== 'offered' || offer.expiresAt <= new Date()) throw new AppError('This delivery offer expired or is no longer available.', 409, 'OFFER_UNAVAILABLE');
   const session = await mongoose.startSession();
   try { return await session.withTransaction(async () => {
-    const shipment = await Shipment.findOneAndUpdate({ _id: offer.shipmentId, status: 'offered', deliveryUserId: null }, { $set: { deliveryUserId: actorUserId, status: 'assigned', assignedAt: new Date() }, $push: { timeline: { type: 'assigned', message: 'Delivery partner accepted an explicit offer.', actorUserId } } }, { returnDocument: 'after', session });
+    const actor=await User.findOne({_id:actorUserId,status:'active',role:'delivery'}).select('country').session(session).lean();
+    if(!actor)throw new AppError('An active delivery account is required.',403,'DELIVERY_ACTOR_INVALID');
+    const profile=await DeliveryProfile.findOne({userId:actorUserId,country:actor.country,verificationStatus:'approved',available:true}).session(session).lean();
+    if(!profile)throw new AppError('You must be approved and available.',403,'DELIVERY_NOT_AVAILABLE');
+    const currentOffer=await DeliveryOffer.findOne({_id:offer._id,deliveryUserId:actorUserId,country:profile.country,status:'offered',expiresAt:{$gt:new Date()}}).session(session);
+    if(!currentOffer)throw new AppError('This delivery offer expired or is no longer available.',409,'OFFER_UNAVAILABLE');
+    const currentShipment=await Shipment.findOne({_id:currentOffer.shipmentId,country:profile.country,status:'offered',deliveryUserId:null}).session(session);
+    if(!currentShipment)throw new AppError('Shipment was assigned to another partner.',409,'JOB_UNAVAILABLE');
+    if(currentShipment.cod?.required&&!profile.codEnabled)throw new AppError('This delivery partner is not approved to collect COD.',403,'DELIVERY_COD_NOT_ALLOWED');
+    const shipment = await Shipment.findOneAndUpdate({ _id: currentShipment._id, status: 'offered', deliveryUserId: null }, { $set: { deliveryUserId: actorUserId, status: 'assigned', assignedAt: new Date() }, $push: { timeline: { type: 'assigned', message: 'Delivery partner accepted an explicit offer.', actorUserId } } }, { returnDocument: 'after', session });
     if (!shipment) throw new AppError('Shipment was assigned to another partner.', 409, 'JOB_UNAVAILABLE');
-    offer.status = 'accepted'; offer.respondedAt = new Date(); await offer.save({ session });
-    await DeliveryOffer.updateMany({ shipmentId: shipment._id, _id: { $ne: offer._id }, status: 'offered' }, { $set: { status: 'cancelled', respondedAt: new Date() } }, { session });
+    currentOffer.status = 'accepted'; currentOffer.respondedAt = new Date(); await currentOffer.save({ session });
+    await DeliveryOffer.updateMany({ shipmentId: shipment._id, _id: { $ne: currentOffer._id }, status: 'offered' }, { $set: { status: 'cancelled', respondedAt: new Date() } }, { session });
     return shipment;
   }); } finally { await session.endSession(); }
 }
 
 export async function transitionShipment({ shipment, nextStatus, actorUserId, proofCode = '', reason = '', reasonCode = 'other', rescheduledFor = null }) {
-  const session=await mongoose.startSession();let result;
+  const session=await mongoose.startSession();let result,rejection;
   try{await session.withTransaction(async()=>{
-    const current=await Shipment.findOne({_id:shipment._id,deliveryUserId:shipment.deliveryUserId}).select('+pickupCodeHash +deliveryCodeHash +pickupCodeEncrypted +deliveryCodeEncrypted').session(session);
+    // Transaction retries must discard results from the aborted attempt.
+    result=null;rejection=null;
+    const actor=await User.findOne({_id:actorUserId,status:'active',role:'delivery'}).select('country').session(session).lean();
+    if(!actor)throw new AppError('An active delivery account is required.',403,'DELIVERY_ACTOR_INVALID');
+    const profile=await DeliveryProfile.findOne({userId:actorUserId,country:actor.country,verificationStatus:'approved'}).select('country codEnabled').session(session).lean();
+    if(!profile)throw new AppError('Approved delivery verification is required.',403,'DELIVERY_NOT_APPROVED');
+    const current=await Shipment.findOne({_id:shipment._id,deliveryUserId:actorUserId,country:profile.country}).select('+pickupCodeHash +deliveryCodeHash +pickupCodeEncrypted +deliveryCodeEncrypted').session(session);
     if(!current)throw new AppError('Shipment not found.',404,'SHIPMENT_NOT_FOUND');
+    if(current.cod?.required&&!profile.codEnabled)throw new AppError('This delivery account is not approved to collect COD.',403,'DELIVERY_COD_NOT_ALLOWED');
     if (!canTransitionShipment(current.status, nextStatus)) throw new AppError('Shipment status transition is not allowed.', 409, 'SHIPMENT_TRANSITION_INVALID');
     if(current.proofLockedUntil&&current.proofLockedUntil>new Date())throw new AppError('Proof-code verification is temporarily locked after repeated failures.',429,'PROOF_LOCKED');
-    if (nextStatus === 'picked_up' && current.kind === 'outbound') {const unreadyParcels = await Parcel.countDocuments({ shipmentId: current._id, status: { $ne: 'handed_over' } }).session(session);if (unreadyParcels > 0) throw new AppError('Every seller parcel must be packed and handed over before carrier pickup.', 409, 'PARCEL_HANDOFF_REQUIRED');}
+    if(current.kind==='outbound'){
+      const order=await Order.findOne({_id:current.orderId,country:current.country}).session(session);
+      if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
+      if(order.fulfillmentState==='cancelled'||!['none','rejected'].includes(order.cancellationState)||['cancelled','cancellation_pending','expired'].includes(order.status))throw new AppError('This order is frozen for cancellation.',409,'ORDER_CANCELLED');
+      if(['picked_up','in_transit','delivered'].includes(nextStatus)){
+        const paid=['paid','partially_refunded'].includes(order.paymentState);
+        const cod=order.paymentMethod==='cod'&&order.paymentState==='pending'&&order.status==='confirmed';
+        const credit=order.paymentMethod==='credit_terms'&&order.paymentState==='credit_due'&&order.status==='confirmed';
+        if(!paid&&!cod&&!credit)throw new AppError('Order payment is not ready for fulfilment.',409,'ORDER_NOT_READY');
+      }
+      if(nextStatus==='picked_up'||nextStatus==='delivered'){
+        const parcels=await Parcel.find({shipmentId:current._id}).select('status').session(session).lean();
+        const expected=nextStatus==='picked_up'?'handed_over':'in_transit';
+        if(!parcels.length||parcels.length!==current.parcelCount||parcels.some(parcel=>parcel.status!==expected))throw new AppError(nextStatus==='picked_up'?'Every seller parcel must be packed and handed over before carrier pickup.':'Every seller parcel must remain in carrier custody before delivery.',409,nextStatus==='picked_up'?'PARCEL_HANDOFF_REQUIRED':'PARCEL_DELIVERY_STATE');
+      }
+    }
     const verifyField=nextStatus==='picked_up'?'pickupCodeHash':nextStatus==='delivered'?'deliveryCodeHash':'';
     if(verifyField&&!verifyProofCode(proofCode,current[verifyField])){
-      const attemptsField=nextStatus==='picked_up'?'pickupProofAttempts':'deliveryProofAttempts';current[attemptsField]=Number(current[attemptsField]||0)+1;if(current[attemptsField]>=5){current.proofLockedUntil=new Date(Date.now()+15*60*1000);current[attemptsField]=0;}await current.save({session});throw new AppError(`${nextStatus==='picked_up'?'Pickup':'Delivery'} verification code is invalid.`,422,'PROOF_INVALID');
+      const attemptsField=nextStatus==='picked_up'?'pickupProofAttempts':'deliveryProofAttempts';current[attemptsField]=Number(current[attemptsField]||0)+1;if(current[attemptsField]>=5){current.proofLockedUntil=new Date(Date.now()+15*60*1000);current[attemptsField]=0;}await current.save({session});
+      // Throw after the transaction commits; throwing here would roll back the
+      // attempt counter and let incorrect proof codes bypass the lockout.
+      rejection=new AppError(`${nextStatus==='picked_up'?'Pickup':'Delivery'} verification code is invalid.`,422,'PROOF_INVALID');return;
     }
     current.status = nextStatus;
-    if (nextStatus === 'picked_up') { current.pickedUpAt = new Date();current.pickupProofAttempts=0;current.pickupCodeEncrypted=''; await Parcel.updateMany({ shipmentId: current._id, status: { $in: ['packed', 'handed_over'] } }, { $set: { status: 'in_transit' }, $push: { timeline: { type: 'picked_up', message: 'Parcel picked up by delivery partner.', actorUserId } } },{session}); await SellerShipment.updateMany({rootShipmentId:current._id,status:'handed_over'},{$set:{status:'in_transit'},$push:{timeline:{type:'carrier.picked_up',message:`Consolidated carrier shipment ${current.publicId} picked up this seller shipment.`,actorUserId}}},{session}); }
+    if (nextStatus === 'picked_up') { current.pickedUpAt = new Date();current.pickupProofAttempts=0;current.proofLockedUntil=null;current.pickupCodeEncrypted=''; await Parcel.updateMany({ shipmentId: current._id, status: { $in: ['packed', 'handed_over'] } }, { $set: { status: 'in_transit' }, $push: { timeline: { type: 'picked_up', message: 'Parcel picked up by delivery partner.', actorUserId } } },{session}); await SellerShipment.updateMany({rootShipmentId:current._id,status:'handed_over'},{$set:{status:'in_transit'},$push:{timeline:{type:'carrier.picked_up',message:`Consolidated carrier shipment ${current.publicId} picked up this seller shipment.`,actorUserId}}},{session}); }
     if (nextStatus === 'delivered') {
       const proofEvidence=await latestDeliveryEvidence(current.publicId,['delivery_photo','delivery_signature'],session,current.lastAttemptAt||current.assignedAt||null);const photo=proofEvidence.find(row=>row.documentType==='delivery_photo');const signature=proofEvidence.find(row=>row.documentType==='delivery_signature');
       if(current.proofPolicy?.deliveryPhotoRequired&&!photo)throw new AppError('Upload the required delivery proof photo before confirming delivery.',422,'DELIVERY_PHOTO_REQUIRED');
@@ -157,7 +226,7 @@ export async function transitionShipment({ shipment, nextStatus, actorUserId, pr
     if (nextStatus === 'rescheduled') { const date = new Date(rescheduledFor); if (!Number.isFinite(date.getTime()) || date <= new Date()) throw new AppError('Choose a future reschedule time.', 422, 'RESCHEDULE_INVALID'); current.rescheduledFor = date; }
     if (nextStatus === 'returned') { await Parcel.updateMany({ shipmentId: current._id }, { $set: { status: 'returned' }, $push: { timeline: { type: 'returned', message: 'Parcel returned to seller/warehouse.', actorUserId } } },{session}); await SellerShipment.updateMany({rootShipmentId:current._id},{$set:{status:'returned'},$push:{timeline:{type:'carrier.returned',message:`Consolidated carrier shipment ${current.publicId} was returned.`,actorUserId}}},{session}); }
     current.timeline.push({ type: nextStatus, message: reason || `Shipment moved to ${nextStatus.replaceAll('_', ' ')}.`, actorUserId }); await current.save({session});if(current.kind==='outbound')await refreshOrderLifecycle(current.orderId,{session});result=current;
-  });return result;}finally{await session.endSession();}
+  });if(rejection)throw rejection;return result;}finally{await session.endSession();}
 }
 
 async function recordCycleCountInSession({ stockItemId, countedOnHand, actorUserId, reason = 'Cycle count', sourceKey }, session) {
@@ -355,12 +424,32 @@ export async function releasePickWave({wavePublicId,actorUserId,force=false}){
   }finally{await session.endSession();}
 }
 
-export async function executeWarehouseTask({ task, actorUserId, disposition = '' }) {
-  const session = await mongoose.startSession();
-  try { return await session.withTransaction(async () => {
+function orderCanFulfil(order){
+  if(!order||order.fulfillmentState==='cancelled'||!['none','rejected'].includes(order.cancellationState)||['cancelled','cancellation_pending','expired'].includes(order.status))return false;
+  if(['paid','partially_refunded'].includes(order.paymentState))return true;
+  return order.status==='confirmed'&&((order.paymentMethod==='cod'&&order.paymentState==='pending')||(order.paymentMethod==='credit_terms'&&order.paymentState==='credit_due'));
+}
+
+async function warehouseParcelForTask(task,warehouse,session){
+  if(!task.parcelId)throw new AppError('This warehouse task needs a parcel.',422,'TASK_DATA_REQUIRED');
+  const parcel=await Parcel.findById(task.parcelId).session(session);
+  if(!parcel)throw new AppError('Parcel not found.',404,'PARCEL_NOT_FOUND');
+  const store=await Store.findOne({_id:task.storeId,publicId:parcel.storePublicId,country:warehouse.country}).select('_id').session(session);
+  const shipment=await Shipment.findOne({_id:parcel.shipmentId,country:warehouse.country}).session(session);
+  if(!store||!shipment||(task.shipmentId&&String(task.shipmentId)!==String(shipment._id))||(task.orderId&&String(task.orderId)!==String(shipment.orderId)))throw new AppError('Parcel is outside this warehouse task scope.',409,'WAREHOUSE_PARCEL_SCOPE');
+  if(shipment.kind==='outbound'){
+    const order=await Order.findOne({_id:shipment.orderId,country:warehouse.country}).session(session);
+    if(!orderCanFulfil(order)||!['ready','offered','assigned'].includes(shipment.status))throw new AppError('Order is no longer ready for warehouse fulfilment.',409,'ORDER_NOT_READY');
+  }else if(['delivered','returned','cancelled'].includes(shipment.status))throw new AppError('This shipment is no longer ready for warehouse fulfilment.',409,'PARCEL_STATE');
+  return parcel;
+}
+
+async function executeWarehouseTaskInSession({task,actorUserId,disposition},session){
+    const actor=await User.findOne({_id:actorUserId,status:'active'}).select('_id').session(session).lean();
+    if(!actor)throw new AppError('An active warehouse task operator is required.',403,'WAREHOUSE_ACTOR_INVALID');
     const current = await WarehouseTask.findOne({ _id: task._id, status: 'in_progress', assignedUserId: actorUserId }).session(session);
     if (!current) throw new AppError('Claim this warehouse task before execution; only the assigned operator can complete it.', 409, 'WAREHOUSE_TASK_NOT_OWNED');
-    const warehouse = await Warehouse.findById(current.warehouseId).session(session);
+    const warehouse = await Warehouse.findOne({_id:current.warehouseId,storeId:current.storeId,active:true}).session(session);
     if (!warehouse) throw new AppError('Warehouse no longer exists.', 409, 'WAREHOUSE_MISSING');
 
     if (current.type === 'receive') {
@@ -375,13 +464,13 @@ export async function executeWarehouseTask({ task, actorUserId, disposition = ''
       const before=stock.binCode||'';stock.binCode=current.binCode;await stock.save({session});
       await InventoryMovement.create([{publicId:publicId('mov'),storeId:stock.storeId,stockItemId:stock._id,variantId:stock.variantId,warehouseId:stock.warehouseId,type:'put_away',quantity:0,onHandBefore:stock.onHand,onHandAfter:stock.onHand,reservedBefore:stock.reserved,reservedAfter:stock.reserved,damagedBefore:stock.damaged,damagedAfter:stock.damaged,quarantinedBefore:stock.quarantined,quarantinedAfter:stock.quarantined,binBefore:before,binAfter:stock.binCode,reason:current.notes||'Put-away completed',reference:current.reference,actorUserId}],{session});current.result={binCode:stock.binCode};
     } else if (current.type === 'pick') {
-      if(!current.parcelId)throw new AppError('Pick task needs a parcel.',422,'TASK_DATA_REQUIRED');const parcel=await Parcel.findById(current.parcelId).session(session);if(!parcel)throw new AppError('Parcel not found.',404,'PARCEL_NOT_FOUND');if(!['created','picking'].includes(parcel.status))throw new AppError('Parcel is not ready for picking.',409,'PARCEL_STATE');
+      const parcel=await warehouseParcelForTask(current,warehouse,session);if(!['created','picking'].includes(parcel.status))throw new AppError('Parcel is not ready for picking.',409,'PARCEL_STATE');
       const total=parcel.items.reduce((sum,item)=>sum+item.quantity,0);const remaining=total-parcel.pickedQuantity;const qty=current.quantity||remaining;if(!Number.isSafeInteger(qty)||qty<=0||qty>remaining)throw new AppError('Pick quantity exceeds the parcel requirement.',422,'PICK_QUANTITY_INVALID');parcel.pickedQuantity+=qty;parcel.status=parcel.pickedQuantity===total?'picked':'picking';parcel.timeline.push({type:'pick',message:`Picked ${qty} item(s); ${parcel.pickedQuantity}/${total} complete.`,actorUserId});await parcel.save({session});await syncSellerShipmentFromParcel(parcel,actorUserId,session);current.result={pickedQuantity:qty,totalPicked:parcel.pickedQuantity,required:total,parcelStatus:parcel.status};
     } else if (current.type === 'pack') {
-      if (!current.parcelId) throw new AppError('Pack task needs a parcel.', 422, 'TASK_DATA_REQUIRED'); const parcel = await Parcel.findById(current.parcelId).session(session); if (!parcel) throw new AppError('Parcel not found.', 404, 'PARCEL_NOT_FOUND');if(parcel.status!=='picked')throw new AppError('Parcel must be completely picked before packing.',409,'PARCEL_STATE');
+      const parcel=await warehouseParcelForTask(current,warehouse,session);if(parcel.status!=='picked')throw new AppError('Parcel must be completely picked before packing.',409,'PARCEL_STATE');
       parcel.status='packed';parcel.timeline.push({type:'pack',message:'Parcel packing verified.',actorUserId});await parcel.save({session});await syncSellerShipmentFromParcel(parcel,actorUserId,session);current.result={parcelStatus:parcel.status};
     } else if (current.type === 'dispatch') {
-      if (!current.parcelId) throw new AppError('Dispatch task needs a parcel.', 422, 'TASK_DATA_REQUIRED'); const parcel = await Parcel.findById(current.parcelId).session(session); if (!parcel) throw new AppError('Parcel not found.', 404, 'PARCEL_NOT_FOUND');if(parcel.status!=='packed')throw new AppError('Only a packed parcel can be dispatched.',409,'PARCEL_STATE');
+      const parcel=await warehouseParcelForTask(current,warehouse,session);if(parcel.status!=='packed')throw new AppError('Only a packed parcel can be dispatched.',409,'PARCEL_STATE');
       parcel.status='handed_over';parcel.timeline.push({type:'dispatch',message:'Parcel dispatched for carrier handoff.',actorUserId});await parcel.save({session});await syncSellerShipmentFromParcel(parcel,actorUserId,session);current.result={parcelStatus:parcel.status};
     } else if (current.type === 'cycle_count') {
       if(!current.stockItemId||!Number.isSafeInteger(current.quantity)||current.quantity<0)throw new AppError('Cycle count needs a stock item and counted on-hand quantity.',422,'TASK_DATA_REQUIRED');
@@ -412,7 +501,14 @@ export async function executeWarehouseTask({ task, actorUserId, disposition = ''
     } else throw new AppError('Warehouse task type is unsupported.',422,'TASK_TYPE_INVALID');
 
     current.status='completed';current.completedAt=new Date();current.assignmentHistory.push({userId:actorUserId,action:'completed',at:current.completedAt});await current.save({session});await refreshWarehouseWaveInSession(current.wavePublicId,actorUserId,current.publicId,session);return current;
-  }); } finally { await session.endSession(); }
+}
+
+export async function executeWarehouseTask({task,actorUserId,disposition='',session=null}){
+  const input={task,actorUserId,disposition};
+  if(session)return executeWarehouseTaskInSession(input,session);
+  const owned=await mongoose.startSession();
+  try{return await owned.withTransaction(()=>executeWarehouseTaskInSession(input,owned));}
+  finally{await owned.endSession();}
 }
 
 export async function recordCodHandover({shipment,actorUserId,declaredAmountMinor,evidenceDocumentId}){

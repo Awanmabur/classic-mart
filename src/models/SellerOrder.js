@@ -9,4 +9,6 @@ const schema=new Schema({
  timeline:{type:[new Schema({type:String,message:String,at:{type:Date,default:Date.now}},{_id:false})],default:[]},
 },{timestamps:true,optimisticConcurrency:true});
 schema.index({orderId:1,storeId:1},{unique:true});
+schema.index({storeId:1,country:1,currency:1,createdAt:-1,_id:-1});
+schema.index({storeId:1,country:1,status:1,createdAt:-1,_id:-1});
 export const SellerOrder=mongoose.model('SellerOrder',schema);

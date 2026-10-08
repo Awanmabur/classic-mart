@@ -164,7 +164,7 @@ export async function executeExternalIdempotency(request, operation, { leaseMs =
     row = claimed;
   }
   try {
-    const result = await operation();
+    const result = await operation({ recordId: row._id, expiresAt });
     const statusCode = Number(result?.statusCode || 200);
     const body = result?.body ?? {};
     await ApiIdempotency.updateOne({ _id: row._id, status: 'in_progress' }, { $set: { status: 'completed', statusCode, responseBody: body, lockedUntil: null, expiresAt } });
@@ -189,7 +189,24 @@ async function postPinnedWebhook(rawUrl,headers,body){const target=await resolve
 export async function createWebhookEndpoint({user,store,url,events}){const member=await StoreMember.findOne({userId:user._id,storeId:store._id});if(!membershipCanDevelop(member))throw new AppError('Only store owners/admins can create webhooks.',403,'WEBHOOK_FORBIDDEN');const activeCount=await WebhookEndpoint.countDocuments({storeId:store._id,status:{$ne:'revoked'}});if(activeCount>=20)throw new AppError('Revoke an existing webhook endpoint before creating another.',409,'WEBHOOK_LIMIT');const safeUrl=await assertWebhookTarget(url);const clean=[...new Set((events||[]).filter(x=>WEBHOOK_EVENTS.includes(x)))];if(!clean.length)throw new AppError('Choose at least one webhook event.',422,'WEBHOOK_EVENT_REQUIRED');const secret=`whsec_${randomToken(36)}`;const endpoint=await WebhookEndpoint.create({publicId:publicId('whk'),storeId:store._id,createdByUserId:user._id,url:safeUrl,events:clean,secretEncrypted:encryptSensitive(secret),secretLast4:secret.slice(-4)});return {endpoint,secret};}
 export async function rotateWebhookSecret({user,store,publicId:endpointPublicId}){const member=await StoreMember.findOne({userId:user._id,storeId:store._id});if(!membershipCanDevelop(member))throw new AppError('Only store owners/admins can rotate webhooks.',403,'WEBHOOK_FORBIDDEN');const endpoint=await WebhookEndpoint.findOne({publicId:endpointPublicId,storeId:store._id,status:{$ne:'revoked'}}).select('+secretEncrypted');if(!endpoint)throw new AppError('Webhook endpoint not found.',404,'WEBHOOK_NOT_FOUND');const secret=`whsec_${randomToken(36)}`;endpoint.secretEncrypted=encryptSensitive(secret);endpoint.secretLast4=secret.slice(-4);endpoint.rotatedAt=new Date();await endpoint.save();return {endpoint,secret};}
 export async function revokeWebhookEndpoint({user,store,publicId:endpointPublicId}){const member=await StoreMember.findOne({userId:user._id,storeId:store._id});if(!membershipCanDevelop(member))throw new AppError('Only store owners/admins can revoke webhooks.',403,'WEBHOOK_FORBIDDEN');const endpoint=await WebhookEndpoint.findOne({publicId:endpointPublicId,storeId:store._id,status:{$ne:'revoked'}});if(!endpoint)throw new AppError('Webhook endpoint not found.',404,'WEBHOOK_NOT_FOUND');endpoint.status='revoked';endpoint.revokedAt=new Date();await endpoint.save();return endpoint;}
-export async function queueWebhookEvent({storeId,eventType,resourcePublicId,payload}){if(!WEBHOOK_EVENTS.includes(eventType))return 0;const endpoints=await WebhookEndpoint.find({storeId,status:'active',events:eventType}).lean();const eventId=`evt_${hashValue(`${eventType}:${resourcePublicId}:${Date.now()}:${randomToken(8)}`).slice(0,36)}`;let count=0;for(const endpoint of endpoints){try{await WebhookDelivery.create({publicId:publicId('whd'),endpointId:endpoint._id,storeId,eventId,eventType,payload:{resourcePublicId,...payload},nextAttemptAt:new Date()});count++;}catch(e){if(e?.code!==11000)throw e;}}return count;}
+export async function queueWebhookEvent({storeId,eventType,resourcePublicId,payload,session=null,eventId:stableEventId=''}){
+  if(!WEBHOOK_EVENTS.includes(eventType))return 0;
+  const endpoints=await WebhookEndpoint.find({storeId,status:'active',events:eventType}).session(session).lean();
+  const eventId=stableEventId||`evt_${hashValue(`${eventType}:${resourcePublicId}:${Date.now()}:${randomToken(8)}`).slice(0,36)}`;
+  let count=0;
+  for(const endpoint of endpoints){
+    const delivery={publicId:publicId('whd'),endpointId:endpoint._id,storeId,eventId,eventType,payload:{resourcePublicId,...payload},nextAttemptAt:new Date()};
+    // Upsert permits a stable committed event to be safely reused. In an outer
+    // transaction a duplicate-key error would abort all fulfilment writes.
+    if(session||stableEventId){
+      const result=await WebhookDelivery.updateOne({endpointId:endpoint._id,eventId},{$setOnInsert:delivery},{upsert:true,session});
+      count+=result.upsertedCount;
+    }else{
+      try{await WebhookDelivery.create(delivery);count++;}catch(error){if(error?.code!==11000)throw error;}
+    }
+  }
+  return count;
+}
 export function webhookSignature(secret,timestamp,body){return `v1=${crypto.createHmac('sha256',secret).update(`${timestamp}.${body}`).digest('hex')}`;}
 export async function deliverWebhookBatch({limit=30,workerId=`webhook:${process.pid}`,leaseMs=60_000}={}){
   let delivered=0,failed=0,checked=0;

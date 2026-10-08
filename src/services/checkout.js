@@ -27,6 +27,7 @@ import {
   ProductVariant,
   PurchaseOrder,
   SellerOrder,
+  SellerShipment,
   SellerPromotion,
   Shipment,
   ShippingZone,
@@ -586,6 +587,7 @@ async function cancelUnfulfilledLogistics(order, actorUserId, session) {
   shipment.timeline.push({ type: 'cancelled', message: 'Shipment cancelled before carrier pickup.', actorUserId });
   await shipment.save({ session });
   await Parcel.updateMany({ shipmentId: shipment._id, status: { $nin: ['delivered','returned'] } }, { $set: { status: 'cancelled' }, $push: { timeline: { type: 'cancelled', message: 'Parcel cancelled before carrier pickup.', actorUserId } } }, { session });
+  await SellerShipment.updateMany({ rootShipmentId: shipment._id, status: { $nin: ['delivered','returned','cancelled'] } }, { $set: { status: 'cancelled' }, $push: { timeline: { type: 'order.cancelled', message: 'Seller shipment cancelled before carrier pickup.', actorUserId } } }, { session });
   await DeliveryOffer.updateMany({ shipmentId: shipment._id, status: 'offered' }, { $set: { status: 'cancelled', respondedAt: new Date() } }, { session });
 }
 
@@ -595,17 +597,22 @@ export async function cancelOrder(request, orderId, reason = 'Customer requested
   if (order.cancellationState === 'cancelled' || order.status === 'expired' || order.refundState === 'complete') return orderView(order.toObject());
   if (order.cancellationState === 'processing' || ['pending','processing'].includes(order.refundState)) throw new AppError('This order already has an active refund or cancellation process.', 409, 'ORDER_CANCELLATION_STATE');
   const cleanReason = String(reason || '').trim().slice(0, 300) || 'Customer requested cancellation';
-  const paidOnline = ['paid','partially_refunded'].includes(order.paymentState) && order.paymentMethod !== 'cod';
+  let paidOnline = false;
 
   // Freeze fulfilment and restore stock first. External refund submission happens only
   // after this transaction commits, so a provider success can never leave the order fulfilable.
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
+      paidOnline = false;
       order = await Order.findById(order._id).session(session);
       if (!order) throw new AppError('Order not found.', 404, 'ORDER_NOT_FOUND');
       if (order.cancellationState === 'cancelled' || order.status === 'expired' || order.refundState === 'complete') return;
       if (order.cancellationState === 'processing') return;
+      // Payment may complete after the initial access check or during a retry.
+      // Classify the fresh transaction snapshot before freezing fulfilment.
+      paidOnline = ['paid','partially_refunded'].includes(order.paymentState)
+        && !['cod','exchange'].includes(order.paymentMethod) && Number(order.totals.totalMinor)>0;
       await cancelUnfulfilledLogistics(order, request.user?._id || order.userId || null, session);
       await restoreOrderInventoryForCancellation(order, request, session);
       order.cancellation = order.cancellation || {};

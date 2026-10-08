@@ -1234,7 +1234,7 @@ export const DASHBOARD_ROUTES = Object.freeze({
   "seller-staff": "/seller/staff",
   "seller-developers": "/seller/developers",
   "seller-settings": "/account/profile",
-  "seller-shipping": "/seller/orders",
+  "seller-shipping": "/seller/shipping",
   "seller-customers": "/seller/messages",
   "seller-coupons": "/seller/campaigns",
   "seller-earnings": "/money",

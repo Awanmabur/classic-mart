@@ -98,18 +98,31 @@ async function createWalletIntent(order,idempotencyKey){
 export async function initiatePayment(request,{orderId,idempotencyKey}){
   const order=await Order.findOne(mongoose.trusted(orderAccessQuery(request,orderId,{requiredLevel:'mutate'})));
   if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
+  const prior=await PaymentIntent.findOne({orderId:order._id,idempotencyKey});
+  if(prior){
+    // A provider intent may already exist when an earlier transaction rolled
+    // back. Resume local payment authorisation rather than caching that failure.
+    if(order.paymentMethod==='cod'&&prior.provider==='cod'&&['created','pending_collection'].includes(prior.status)&&['unpaid','pending'].includes(order.paymentState)&&order.status==='pending_payment'){
+      await commitOrderInventoryAndMoney(order,prior,{cod:true});
+      return paymentView(await PaymentIntent.findById(prior._id));
+    }
+    if(order.paymentMethod==='wallet'&&prior.provider==='wallet'&&prior.status==='created'&&['unpaid','pending','failed'].includes(order.paymentState)){
+      if(!request.user?._id||!order.userId||String(order.userId)!==String(request.user._id))throw new AppError('Classic Wallet requires the signed-in customer who owns the order.',403,'WALLET_ORDER_SCOPE');
+      await commitOrderInventoryAndMoney(order,prior,{wallet:true});
+      return paymentView(await PaymentIntent.findById(prior._id));
+    }
+    await reconcileAuthorizedShipment(order,prior);
+    return paymentView(prior);
+  }
   const creditInvoicePayable=order.paymentMethod==='credit_terms'&&order.paymentState==='credit_due';
   if(!['unpaid','pending','failed'].includes(order.paymentState)&&!creditInvoicePayable)throw new AppError('This order cannot start another payment.',409,'ORDER_PAYMENT_STATE');
   if(!creditInvoicePayable&&order.reservationExpiresAt<=new Date())throw new AppError('The stock reservation expired. Create the order again.',409,'RESERVATION_EXPIRED');
-  const prior=await PaymentIntent.findOne({orderId:order._id,idempotencyKey});if(prior)return paymentView(prior);
 
   if(order.paymentMethod==='wallet'){
     if(!request.user?._id||!order.userId||String(order.userId)!==String(request.user._id))throw new AppError('Classic Wallet requires the signed-in customer who owns the order.',403,'WALLET_ORDER_SCOPE');
     const intent=await createWalletIntent(order,idempotencyKey);
     if(intent.status==='succeeded')return paymentView(intent);
     await commitOrderInventoryAndMoney(order,intent,{wallet:true});
-    const { ensureShipmentForOrder }=await import('./logistics.js');
-    await ensureShipmentForOrder(await Order.findById(order._id),order.userId||null);
     return paymentView(await PaymentIntent.findById(intent._id));
   }
 
@@ -118,12 +131,10 @@ export async function initiatePayment(request,{orderId,idempotencyKey}){
     try{
       [intent]=await PaymentIntent.create([{
         publicId:publicId('pay'),...traceForOrder(order),orderId:order._id,orderPublicId:order.publicId,country:order.country,idempotencyKey,provider:'cod',method:'cod',
-        status:'pending_collection',amountMinor:order.totals.totalMinor,currency:order.totals.currency,providerReference:`cod:${order.publicId}`,activeKey:order.publicId,
+        status:'created',amountMinor:order.totals.totalMinor,currency:order.totals.currency,providerReference:`cod:${order.publicId}`,activeKey:order.publicId,
       }]);
     }catch(error){if(error?.code===11000){intent=await PaymentIntent.findOne({$or:[{orderId:order._id,idempotencyKey},{activeKey:order.publicId}]});}else throw error;}
     await commitOrderInventoryAndMoney(order,intent,{cod:true});
-    const { ensureShipmentForOrder }=await import('./logistics.js');
-    await ensureShipmentForOrder(await Order.findById(order._id),order.userId||null);
     return paymentView(await PaymentIntent.findById(intent._id));
   }
 
@@ -166,12 +177,43 @@ export async function initiatePayment(request,{orderId,idempotencyKey}){
   }
 }
 
+function shipmentPaymentAuthorized(order,intent){
+  if(!order||!intent||!['none','rejected'].includes(order.cancellationState)||['cancelled','expired','cancellation_pending','refunded'].includes(order.status))return false;
+  if(intent.provider==='cod')return order.paymentMethod==='cod'&&order.paymentState==='pending'&&intent.status==='pending_collection';
+  if(intent.provider==='wallet')return order.paymentMethod==='wallet'&&order.paymentState==='paid'&&intent.status==='succeeded';
+  return intent.provider===PAYMENT_PROVIDER&&order.paymentState==='paid'&&intent.status==='succeeded'&&intent.providerStatus==='COMPLETED'&&Boolean(intent.lastVerifiedAt)&&Boolean(intent.providerTrackingId);
+}
+
+async function ensureAuthorizedShipmentInSession(order,intent,session){
+  if(!shipmentPaymentAuthorized(order,intent))return;
+  const references=order.items.map(item=>item.reservationPublicId);
+  const committed=await InventoryReservation.countDocuments({publicId:{$in:references},status:'committed'}).session(session);
+  if(committed!==new Set(references).size)throw new AppError('Confirmed order inventory is not fully committed.',409,'RESERVATION_INCONSISTENT');
+  const { ensureShipmentForOrder }=await import('./logistics.js');
+  await ensureShipmentForOrder(order,order.userId||null,session);
+}
+
+async function reconcileAuthorizedShipment(orderLike,intentLike){
+  if(!shipmentPaymentAuthorized(orderLike,intentLike))return;
+  const session=await mongoose.startSession();
+  try{await session.withTransaction(async()=>{
+    const order=await Order.findById(orderLike._id).session(session);
+    const intent=await PaymentIntent.findById(intentLike._id).session(session);
+    if(!shipmentPaymentAuthorized(order,intent))return;
+    // Fence cancellation against replay repair even when no payment or stock
+    // fields change. Reconciliation never recommits inventory or ledger entries.
+    order.markModified('paymentState');order.increment();await order.save({session});
+    await ensureAuthorizedShipmentInSession(order,intent,session);
+  });}finally{await session.endSession();}
+}
+
 async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wallet=false,providerTrackingId='',providerConfirmationCode='',providerPaymentMethod=''}={}){
   const session=await mongoose.startSession();
   try{await session.withTransaction(async()=>{
     const order=await Order.findById(orderLike._id).session(session);
     const intent=await PaymentIntent.findById(intentLike._id).session(session);
     if(!order||!intent)return;
+    if(!['none','rejected'].includes(order.cancellationState)||['cancelled','expired','cancellation_pending','refunded'].includes(order.status))throw new AppError('This order is no longer available for payment.',409,'ORDER_PAYMENT_STATE');
     if(intent.purpose==='business_invoice'&&order.paymentMethod==='credit_terms'&&order.paymentState==='credit_due'){
       const invoice=order.businessInvoiceId?await BusinessInvoice.findById(order.businessInvoiceId).session(session):null;
       if(!invoice||!['open','overdue'].includes(invoice.status))throw new AppError('Business credit invoice is not payable.',409,'BUSINESS_INVOICE_NOT_PAYABLE');
@@ -182,7 +224,8 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
       invoice.status='paid';invoice.paidMinor=invoice.totalMinor;invoice.paidAt=intent.paidAt;invoice.paymentIntentPublicId=intent.publicId;invoice.timeline.push({type:'paid',message:'Business credit invoice paid through verified Pesapal transaction.'});
       order.paymentState='paid';syncLegacyOrderStatus(order);order.timeline.push({type:'business_invoice.paid',message:`Business invoice ${invoice.invoiceNumber} paid through Pesapal.`});
       const { issuePaymentReceipt }=await import('./financial-documents.js');await issuePaymentReceipt(order,intent,session);
-      await invoice.save({session});await order.save({session});await intent.save({session});return;
+      await invoice.save({session});await order.save({session});await intent.save({session});
+      await ensureAuthorizedShipmentInSession(order,intent,session);return;
     }
     if(['paid','confirmed'].includes(order.status)){
       if(!cod&&intent.status!=='succeeded'){
@@ -191,8 +234,11 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
         intent.providerConfirmationCode=providerConfirmationCode||intent.providerConfirmationCode;intent.providerPaymentMethod=providerPaymentMethod||intent.providerPaymentMethod;
         await intent.save({session});
       }
+      order.markModified('paymentState');order.increment();await order.save({session});
+      await ensureAuthorizedShipmentInSession(order,intent,session);
       return;
     }
+    if(order.reservationExpiresAt<=new Date())throw new AppError('The stock reservation expired. Create the order again.',409,'RESERVATION_EXPIRED');
     let walletAccount=null;
     if(wallet){
       const customer=order.userId?await User.findById(order.userId).select('publicId country currency').session(session).lean():null;
@@ -215,6 +261,7 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
     }
     if(cod){
       order.paymentState='pending';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.cod_pending',message:'Cash on delivery selected. Payment will be collected during fulfilment.'});
+      intent.status='pending_collection';
     }else{
       order.paymentState='paid';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.verified',message:wallet?'Payment completed using Classic Wallet.':'Payment independently verified with Pesapal.'});
       const clearing=wallet?null:await ensureLedgerAccount({code:'provider_clearing',type:'asset',ownerType:'provider',ownerPublicId:PAYMENT_PROVIDER,country:order.country,currency:order.totals.currency},session);
@@ -244,6 +291,7 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
     }
     await SellerOrder.updateMany({orderId:order._id,status:'pending_payment'},{$set:{status:'confirmed'},$push:{timeline:{type:cod?'payment.cod_pending':'payment.verified',message:cod?'COD order confirmed for fulfilment.':wallet?'Classic Wallet payment verified.':'Pesapal payment verified.'}}},{session});
     await order.save({session});await intent.save({session});
+    await ensureAuthorizedShipmentInSession(order,intent,session);
   });}finally{await session.endSession();}
 }
 
@@ -269,7 +317,6 @@ export async function verifyAndApplyPayment(intentPublicId,orderTrackingId){
     if(!amountMatches||!currencyMatches||!referenceMatches){intent.status='failed';intent.activeKey=undefined;intent.failureCode='VERIFICATION_MISMATCH';intent.failureMessage='Pesapal amount, currency or merchant reference did not match the payment intent.';await intent.save();if(['unpaid','pending'].includes(order.paymentState)){order.paymentState='failed';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.failed',message:'Pesapal verification did not match the order.'});await order.save();}return paymentView(intent);}
     await intent.save();
     await commitOrderInventoryAndMoney(order,intent,{providerTrackingId:tracking,providerConfirmationCode:data.confirmation_code||'',providerPaymentMethod:data.payment_method||''});
-    const { ensureShipmentForOrder }=await import('./logistics.js');await ensureShipmentForOrder(await Order.findById(order._id),order.userId||null);
     return paymentView(await PaymentIntent.findById(intent._id));
   }
   if(status==='FAILED'||status==='INVALID'){

@@ -9,6 +9,7 @@ import { setFlash } from '../middleware/view.js';
 import { canAccessWorkspace, allowedWorkspacesFor } from '../dashboard/access.js';
 import { DASHBOARD_PAGES, routeForPage } from '../dashboard/registry.js';
 import { liveAccountHeader } from '../dashboard/live-account-header.js';
+import { sellerNavigation, SELLER_LIVE_ROUTES } from '../dashboard/seller-navigation.js';
 import { uploadProductImage } from '../services/media.js';
 import { sellerProductList, sellerProductOptions, sellerProductDetail, createSellerProduct, updateSellerProduct,
   addSellerProductVariant, updateSellerProductVariant, createSellerProductWarehouse, adjustSellerProductStock,
@@ -24,7 +25,6 @@ const seller = [...common, (request, _response, next) => canAccessWorkspace(requ
 const reviewer = [...common, requirePermission('catalogue:moderate')];
 const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const uploadLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
-const sellerReady = new Set(['seller-store', 'seller-products', 'seller-add-product']);
 const reviewerReady = new Set(['moderator-sellers', 'moderator-products']);
 const navigation = (workspace, ready) => DASHBOARD_PAGES[workspace].map(row => ({ id: row[0], label: row[1], icon: row[2], href: routeForPage(row[0]), ready: ready.has(row[0]) }));
 const productPath = id => '/seller/products/' + encodeURIComponent(id);
@@ -52,9 +52,9 @@ async function sellerPage(request, response, mode = 'detail', error = '') {
   const options = data.options || (mode === 'create' ? data : {});
   const product = data.product;
   return response.render('approved-dashboard', { ...header, workspace: 'seller', initialPage: mode === 'create' ? 'seller-add-product' : 'seller-products',
-    customerRoutes: { ...header.customerRoutes, 'seller-store': '/seller/store', 'seller-products': '/seller/products', 'seller-add-product': '/seller/products/new' },
+    customerRoutes: { ...header.customerRoutes, ...SELLER_LIVE_ROUTES },
     allowedWorkspaces: allowedWorkspacesFor(request.user),
-    liveSeller: { profileRole: 'Seller', store: options.store || request.store.toObject(), navigation: navigation('seller', sellerReady),
+    liveSeller: { profileRole: 'Seller', store: options.store || request.store.toObject(), navigation: sellerNavigation(request),
       productFlow: { ...options, ...data, store: options.store || request.store.toObject(), mode, filters, stocks: data.stock || [], error,
         draft: error ? preservedDraft(request) : {}, draftSection: error ? request.path.split('/')[4] || 'update' : '', canPublish: product?.status === 'approved',
         canReopen: ['submitted', 'approved', 'published', 'archived'].includes(product?.status),

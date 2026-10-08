@@ -131,3 +131,6 @@ site-wide work and prevent a claim of overall production readiness at this check
 The subsequent [public accessibility milestone](../public-accessibility.md)
 addresses these browser, contrast, focus, search/filter and reflow findings.
 Its verification record describes the covered routes and remaining limits.
+
+The subsequent [seller orders and shipping milestone](orders.md) connects seller
+preparation, parcel tracking and the seller order API to the approved UI.

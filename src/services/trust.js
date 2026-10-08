@@ -5,7 +5,7 @@ import { publicId } from '../core/ids.js';
 import { currentTraceFields } from '../core/trace.js';
 import { decryptSensitive, encryptSensitive } from '../core/sensitive.js';
 import {
-  Dispute, EvidenceDocument, InventoryMovement, Order, Parcel, Product, ProductVariant, Refund, ReturnRequest, Review, RiskSignal,
+  Dispute, EvidenceDocument, InventoryMovement, InventoryReservation, Order, Parcel, Product, ProductVariant, Refund, ReturnRequest, Review, RiskSignal,
   SatisfactionSurvey, SellerOrder, SellerReturnCase, Shipment, StockItem, Store, StoreMember, SupportKnowledge, SupportTicket, TrustCase, Warehouse,
 } from '../models/index.js';
 import { createWarehouseTask, ensureShipmentForOrder, hashProofCode } from './logistics.js';
@@ -137,16 +137,79 @@ export async function inspectReturn(request,returnId,input){
 }
 
 export async function createExchangeReplacement(request,returnId){
-  const doc=await ReturnRequest.findOne({publicId:returnId,...supportScope(request.user)});if(!doc)throw new AppError('Return not found.',404,'RETURN_NOT_FOUND');if(doc.status!=='exchange_pending')throw new AppError('Return is not ready for exchange.',409,'RETURN_STATE');if(doc.replacementOrderPublicId)return Order.findOne({publicId:doc.replacementOrderPublicId});
-  const original=await Order.findById(doc.orderId);if(!original)throw new AppError('Original order not found.',404,'ORDER_NOT_FOUND');
   const session=await mongoose.startSession();let replacement;
   try{await session.withTransaction(async()=>{
-    const items=[];
-    for(const returned of doc.items){const originalItem=original.items.find(i=>String(i.linePublicId)===String(returned.orderLineId));const variant=await ProductVariant.findById(returned.variantId).session(session);if(!originalItem||!variant)throw new AppError('Replacement variant is unavailable.',409,'EXCHANGE_VARIANT_UNAVAILABLE');const stock=await StockItem.findOneAndUpdate(mongoose.trusted({variantId:variant._id,storeId:originalItem.storeId,$expr:{$gte:[{$subtract:['$onHand',{$add:['$reserved','$damaged','$quarantined']}]},returned.quantity]}}),{$inc:{onHand:-returned.quantity}},{returnDocument:'before',session});if(!stock)throw new AppError(`Replacement stock is unavailable for ${returned.title}.`,409,'EXCHANGE_STOCK_UNAVAILABLE');await InventoryMovement.create([{publicId:publicId('mov'),storeId:stock.storeId,stockItemId:stock._id,variantId:stock.variantId,warehouseId:stock.warehouseId,type:'sale',quantity:-returned.quantity,onHandBefore:stock.onHand,onHandAfter:stock.onHand-returned.quantity,reservedBefore:stock.reserved,reservedAfter:stock.reserved,reason:`Exchange replacement for ${doc.publicId}`,reference:doc.publicId,actorUserId:request.user._id}],{session});items.push({...originalItem.toObject?.()||originalItem,reservationPublicId:`exchange:${doc.publicId}`,quantity:returned.quantity,unitPriceMinor:0,lineTotalMinor:0});}
-    const [order]=await Order.create([{publicId:publicId('ord'),...currentTraceFields(),idempotencyKey:`exchange:${doc.publicId}`,checkoutId:`exchange:${doc.publicId}`,cartPublicId:`exchange:${doc.publicId}`,sessionKey:original.sessionKey,userId:original.userId,country:original.country,status:'confirmed',paymentState:'paid',fulfillmentState:'unfulfilled',cancellationState:'none',returnState:'none',refundState:'none',deliveryMethod:original.deliveryMethod,shippingZonePublicId:original.shippingZonePublicId,pickupPointPublicId:original.pickupPointPublicId,paymentMethod:'exchange',contact:original.contact,totals:{subtotalMinor:0,shippingMinor:0,discountMinor:0,taxMinor:0,totalMinor:0,currency:original.totals.currency},items,policySnapshot:original.policySnapshot,timeline:[{type:'exchange.created',message:`Replacement order for return ${doc.publicId}.`,actorUserId:request.user._id}],reservationExpiresAt:new Date(Date.now()+365*24*60*60*1000)}],{session});
-    const groups=new Map();for(const item of items){const arr=groups.get(item.storePublicId)||[];arr.push(item);groups.set(item.storePublicId,arr);}const sellerIds=[];for(const [storePublicId,group] of groups){const id=publicId('sord');sellerIds.push(id);await SellerOrder.create([{publicId:id,orderId:order._id,orderPublicId:order.publicId,storeId:group[0].storeId,storePublicId,country:order.country,status:'confirmed',subtotalMinor:0,shippingMinor:0,taxMinor:0,discountMinor:0,currency:order.totals.currency,items:group.map(i=>({productPublicId:i.productPublicId,variantPublicId:i.variantPublicId,title:i.title,sku:i.sku,quantity:i.quantity,unitPriceMinor:0,lineTotalMinor:0,currency:i.currency})),timeline:[{type:'exchange.created',message:`Exchange replacement for ${doc.publicId}.`}]}],{session});}order.sellerOrderPublicIds=sellerIds;await order.save({session});doc.replacementOrderPublicId=order.publicId;doc.status='exchanged';doc.timeline.push({type:'return.exchanged',message:`Replacement order ${order.publicId} created and stock committed.`,actorUserId:request.user._id});await doc.save({session});await SellerReturnCase.updateMany({returnRequestId:doc._id,status:{$ne:'resolved'}},{$set:{status:'resolved'},$push:{timeline:{type:'seller_return.resolved',message:`Exchange completed with replacement order ${order.publicId}.`,actorUserId:request.user._id}}},{session});await refreshOrderLifecycle(original._id,{session});replacement=order;
+    replacement=null;
+    const doc=await ReturnRequest.findOne({publicId:returnId,...supportScope(request.user)}).session(session);
+    if(!doc)throw new AppError('Return not found.',404,'RETURN_NOT_FOUND');
+    if(doc.replacementOrderPublicId){
+      replacement=await Order.findOne({publicId:doc.replacementOrderPublicId,country:doc.country,paymentMethod:'exchange'}).session(session);
+      if(!replacement)throw new AppError('The recorded exchange replacement is unavailable.',409,'EXCHANGE_REPLACEMENT_MISSING');
+      await ensureShipmentForOrder(replacement,request.user._id,session);return;
+    }
+    if(doc.status!=='exchange_pending'||doc.resolution!=='exchange')throw new AppError('Return is not ready for exchange.',409,'RETURN_STATE');
+    const original=await Order.findOne({_id:doc.orderId,country:doc.country,userId:doc.userId}).session(session);
+    if(!original)throw new AppError('Original order not found.',404,'ORDER_NOT_FOUND');
+    // Claim the return before touching stock so concurrent attempts retry against
+    // the committed replacement instead of creating another order or deduction.
+    doc.markModified('status');doc.increment();await doc.save({session});
+    const items=[],expiresAt=new Date(Date.now()+365*24*60*60*1000);
+    for(const [index,returned] of doc.items.entries()){
+      const originalItem=original.items.find(item=>String(item.linePublicId)===String(returned.orderLineId));
+      if(!originalItem||!Number.isSafeInteger(returned.quantity)||returned.quantity<1||returned.quantity>originalItem.quantity||
+        String(originalItem.variantId)!==String(returned.variantId)||String(originalItem.productId)!==String(returned.productId)||
+        (returned.storeId&&String(originalItem.storeId)!==String(returned.storeId))){
+        throw new AppError('Replacement order line is unavailable.',409,'EXCHANGE_VARIANT_UNAVAILABLE');
+      }
+      const variant=await ProductVariant.findOne({_id:returned.variantId,productId:originalItem.productId,
+        storeId:originalItem.storeId,active:true,currency:original.totals.currency}).session(session);
+      const store=await Store.findOne({_id:originalItem.storeId,publicId:originalItem.storePublicId,
+        status:'verified',country:original.country,currency:original.totals.currency}).session(session);
+      if(!variant||!store)throw new AppError('Replacement variant or store is unavailable.',409,'EXCHANGE_VARIANT_UNAVAILABLE');
+      await Store.updateOne({_id:store._id,status:'verified',country:store.country,currency:store.currency},{$inc:{__v:1}},{session});
+      const warehouses=await Warehouse.find({storeId:store._id,country:original.country,active:true}).select('_id').session(session).lean();
+      const stock=await StockItem.findOneAndUpdate(mongoose.trusted({variantId:variant._id,storeId:store._id,
+        warehouseId:{$in:warehouses.map(warehouse=>warehouse._id)},
+        $expr:{$gte:[{$subtract:['$onHand',{$add:['$reserved','$damaged','$quarantined']}]},returned.quantity]}}),
+        {$inc:{onHand:-returned.quantity}},{returnDocument:'before',session,sort:{createdAt:1,_id:1}});
+      if(!stock)throw new AppError(`Replacement stock is unavailable for ${returned.title}.`,409,'EXCHANGE_STOCK_UNAVAILABLE');
+      const warehouse=await Warehouse.findOne({_id:stock.warehouseId,storeId:store._id,country:original.country,active:true}).session(session);
+      if(!warehouse)throw new AppError('Replacement warehouse is unavailable.',409,'EXCHANGE_STOCK_UNAVAILABLE');
+      await Warehouse.updateOne({_id:warehouse._id,active:true,country:warehouse.country},{$inc:{__v:1}},{session});
+      // These units are committed immediately. Recording the exact stock item
+      // makes later seller picking traceable without deducting inventory again.
+      const [reservation]=await InventoryReservation.create([{publicId:publicId('rsv'),
+        idempotencyKey:`exchange:${doc.publicId}:${index}`,storeId:store._id,stockItemId:stock._id,variantId:variant._id,
+        quantity:returned.quantity,status:'committed',committedAt:new Date(),expiresAt,actorUserId:request.user._id}],{session});
+      await InventoryMovement.create([{publicId:publicId('mov'),storeId:stock.storeId,stockItemId:stock._id,
+        variantId:stock.variantId,warehouseId:stock.warehouseId,type:'sale',quantity:-returned.quantity,
+        onHandBefore:stock.onHand,onHandAfter:stock.onHand-returned.quantity,reservedBefore:stock.reserved,reservedAfter:stock.reserved,
+        reason:`Exchange replacement for ${doc.publicId}`,reference:doc.publicId,actorUserId:request.user._id}],{session});
+      items.push({...originalItem.toObject(),linePublicId:publicId('oli'),reservationPublicId:reservation.publicId,
+        quantity:returned.quantity,deliveredQuantity:0,returnReservedQuantity:0,returnedQuantity:0,refundedQuantity:0,
+        unitPriceMinor:0,lineTotalMinor:0,unitCostMinor:variant.costMinor,costSnapshotStatus:'captured'});
+    }
+    const [order]=await Order.create([{publicId:publicId('ord'),...currentTraceFields(),idempotencyKey:`exchange:${doc.publicId}`,checkoutId:`exchange:${doc.publicId}`,cartPublicId:`exchange:${doc.publicId}`,sessionKey:original.sessionKey,userId:original.userId,country:original.country,status:'confirmed',paymentState:'paid',fulfillmentState:'unfulfilled',cancellationState:'none',returnState:'none',refundState:'none',deliveryMethod:original.deliveryMethod,shippingZonePublicId:original.shippingZonePublicId,pickupPointPublicId:original.pickupPointPublicId,paymentMethod:'exchange',contact:original.contact,totals:{subtotalMinor:0,shippingMinor:0,discountMinor:0,taxMinor:0,totalMinor:0,currency:original.totals.currency},items,policySnapshot:original.policySnapshot,timeline:[{type:'exchange.created',message:`Replacement order for return ${doc.publicId}.`}],reservationExpiresAt:expiresAt}],{session});
+    const groups=new Map();for(const item of items){const group=groups.get(item.storePublicId)||[];group.push(item);groups.set(item.storePublicId,group);}
+    const sellerIds=[];
+    for(const [storePublicId,group] of groups){
+      const id=publicId('sord');sellerIds.push(id);
+      await SellerOrder.create([{publicId:id,orderId:order._id,orderPublicId:order.publicId,storeId:group[0].storeId,
+        storePublicId,country:order.country,status:'confirmed',subtotalMinor:0,platformFeeMinor:0,shippingMinor:0,taxMinor:0,
+        discountMinor:0,currency:order.totals.currency,items:group.map(item=>({orderLineId:item.linePublicId,
+          productPublicId:item.productPublicId,variantPublicId:item.variantPublicId,title:item.title,variantTitle:item.variantTitle,
+          sku:item.sku,quantity:item.quantity,unitPriceMinor:0,lineTotalMinor:0,currency:item.currency,
+          unitCostMinor:item.unitCostMinor,costSnapshotStatus:item.costSnapshotStatus,
+          grossMinor:0,discountMinor:0,customerPaidMinor:0,platformFeeMinor:0,sellerReceivableMinor:0})),
+        timeline:[{type:'exchange.created',message:`Exchange replacement for ${doc.publicId}.`}]}],{session});
+    }
+    order.sellerOrderPublicIds=sellerIds;await order.save({session});
+    await ensureShipmentForOrder(order,request.user._id,session);
+    doc.replacementOrderPublicId=order.publicId;doc.status='exchanged';doc.timeline.push({type:'return.exchanged',message:`Replacement order ${order.publicId} created and stock committed.`,actorUserId:request.user._id});await doc.save({session});
+    await SellerReturnCase.updateMany({returnRequestId:doc._id,status:{$ne:'resolved'}},{$set:{status:'resolved'},$push:{timeline:{type:'seller_return.resolved',message:`Exchange completed with replacement order ${order.publicId}.`,actorUserId:request.user._id}}},{session});
+    await refreshOrderLifecycle(original._id,{session});replacement=order;
   });}finally{await session.endSession();}
-  await ensureShipmentForOrder(replacement,request.user._id);return replacement;
+  return replacement;
 }
 
 export async function createDispute(request,input){const order=await Order.findOne({publicId:input.orderId,userId:request.user._id});if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');const existing=await Dispute.exists({orderId:order._id,userId:request.user._id,status:{$nin:['resolved','rejected','closed']},category:input.category});if(existing)throw new AppError('A similar dispute is already open for this order.',409,'DISPUTE_ALREADY_OPEN');return Dispute.create({publicId:publicId('dsp'),userId:request.user._id,orderId:order._id,orderPublicId:order.publicId,country:order.country,category:input.category,subject:input.subject,description:input.description,priority:['counterfeit','payment'].includes(input.category)?'high':'normal',events:[{type:'dispute.opened',message:input.description,actorUserId:request.user._id}]});}

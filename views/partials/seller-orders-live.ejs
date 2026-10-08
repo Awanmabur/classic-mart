@@ -1,0 +1,107 @@
+<%
+  const flow = liveSeller.orderFlow;
+  const isDetail = flow.mode === 'detail';
+  const isShipping = flow.mode === 'shipping';
+  const orders = flow.orders || [];
+  const order = flow.order;
+  const filters = flow.filters || {};
+  const metrics = flow.metrics || {};
+  const warehouses = flow.warehouses || [];
+  const listPath = isShipping ? '/seller/shipping' : '/seller/orders';
+  const orderPath = value => '/seller/orders/' + encodeURIComponent(value.publicId);
+  const label = value => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
+  const orderLabel = value => value.statusLabel || ({ handed_over: 'Ready for pickup', in_transit: 'Shipped', delivered: 'Delivered' }[value.parcel?.status]) || ({ ready: 'Ready for pickup' }[value.status]) || label(value.status);
+  const tone = value => ['delivered', 'fulfilled', 'paid'].includes(value) ? 'good' : ['pending_payment', 'confirmed', 'processing', 'created', 'picking', 'picked', 'packed', 'ready', 'handed_over', 'pending', 'credit_due'].includes(value) ? 'warn' : ['failed', 'payment_failed'].includes(value) ? 'bad' : 'neutral';
+  const pageHref = (status = filters.status || 'all', after = '', includeSearch = true) => {
+    const query = new URLSearchParams();
+    if (status && status !== 'all') query.set('status', status);
+    if (includeSearch && filters.search) query.set('search', filters.search);
+    if (after) query.set('after', after);
+    return listPath + (query.size ? '?' + query.toString() : '');
+  };
+  const exportQuery = new URLSearchParams();
+  if (filters.status && filters.status !== 'all') exportQuery.set('status', filters.status);
+  if (filters.search) exportQuery.set('search', filters.search);
+  if (isShipping) exportQuery.set('shipping', '1');
+  const exportHref = '/seller/orders/export.csv' + (exportQuery.size ? '?' + exportQuery.toString() : '');
+  const stateTabs = [['all', 'All'], ['processing', 'Processing'], ['shipped', 'Shipped'], ['delivered', 'Delivered'], ['pending_payment', 'Pending payment'], ['cancelled', 'Cancelled']];
+  const metricCards = [
+    ['Orders today', metrics.today || 0, 'Placed today', 'i-clipboard'],
+    ['In fulfilment', metrics.processing || 0, 'Preparing for pickup', 'i-box'],
+    ['Shipped', metrics.shipped || 0, 'With the delivery partner', 'i-truck'],
+    ['Delivered', metrics.delivered || 0, 'Delivery confirmed', 'i-check'],
+  ];
+%>
+<section class="app-page active role-page seller-order-page" data-page="<%= isShipping ? 'seller-shipping' : 'seller-orders' %>" data-role="seller">
+  <div class="page-heading role-page-heading">
+    <div><span class="eyebrow">Fulfilment</span><h1><%= isDetail ? 'Order ' + order.publicId : isShipping ? 'Shipping & Delivery' : 'Seller Orders' %></h1><p><%= isDetail ? 'Prepare your items and follow this store’s parcel through pickup and delivery.' : isShipping ? 'Manage pickup addresses, courier handover, tracking, and delivery performance.' : 'Accept, prepare, ship, and complete customer orders within marketplace service levels.' %></p></div>
+    <a class="outline-button icon-button" href="<%= isDetail || isShipping ? '/seller/orders' : '/seller/shipping' %>"><svg aria-hidden="true"><use href="#<%= isDetail || isShipping ? 'i-clipboard' : 'i-truck' %>"></use></svg><%= isDetail || isShipping ? 'View Orders' : 'Shipping & Delivery' %></a>
+  </div>
+  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error" role="alert"><%= flow.error %></div><% } %>
+  <% if (!isDetail) { %>
+    <section class="role-metric-grid" aria-label="Store order summary">
+      <% metricCards.forEach(([name, value, detail, icon], index) => { %><article class="role-metric panel"><span class="role-metric-icon tone-<%= index + 1 %>"><svg aria-hidden="true"><use href="#<%= icon %>"></use></svg></span><div><small><%= name %></small><strong><%= Number(value).toLocaleString('en-UG') %></strong><span><%= detail %></span></div></article><% }); %>
+    </section>
+    <div class="role-content-grid">
+      <section class="panel role-table-panel">
+        <div class="role-panel-head"><div><h2><%= isShipping ? 'Shipping & Delivery records' : 'Seller Orders records' %></h2><p><%= orders.length %> <%= orders.length === 1 ? 'order' : 'orders' %> on this page<%= Number.isFinite(flow.page?.total) ? ' · ' + flow.page.total + ' matching orders' : '' %></p></div><a class="outline-button role-export" href="<%= exportHref %>"><svg aria-hidden="true"><use href="#i-download"></use></svg>Export</a></div>
+        <form class="role-table-tools seller-order-search" method="get" action="<%= listPath %>">
+          <% if (filters.status && filters.status !== 'all') { %><input type="hidden" name="status" value="<%= filters.status %>"><% } %>
+          <label class="role-mini-search"><svg aria-hidden="true"><use href="#i-search"></use></svg><span class="sr-only">Search orders</span><input type="search" name="search" value="<%= filters.search || '' %>" maxlength="100" placeholder="Order reference or product"></label>
+          <button class="outline-button" type="submit">Search</button><% if (filters.search) { %><a class="plain-link" href="<%= pageHref(filters.status || 'all', '', false) %>">Clear Search</a><% } %>
+        </form>
+        <nav class="role-status-tabs seller-order-tabs" aria-label="Order status filters"><% for (const [status, text] of stateTabs) { const active = (filters.status || 'all') === status; %><a class="<%= active ? 'active' : '' %>" href="<%= pageHref(status) %>" aria-current="<%= active ? 'page' : 'false' %>"><%= text %></a><% } %></nav>
+        <div class="role-table-wrap"><table class="role-table"><caption class="sr-only"><%= isShipping ? 'This store’s shipments' : 'This store’s orders' %></caption><thead><tr><% if (isShipping) { %><th scope="col">Shipment</th><th scope="col">Order</th><th scope="col">Handover</th><% } else { %><th scope="col">Order</th><th scope="col">Customer</th><th scope="col">Total</th><% } %><th scope="col">Status</th><th scope="col">Action</th></tr></thead><tbody>
+          <% for (const item of orders) { %><tr>
+            <% if (isShipping) { %><td data-label="Shipment"><span><%= item.sellerShipment?.publicId || item.parcel?.publicId || 'Not created yet' %></span></td><td data-label="Order"><span><%= item.publicId %></span></td><td data-label="Handover"><%= item.sellerShipment?.handedOverAt ? formatDate(item.sellerShipment.handedOverAt) : 'Awaiting handover' %></td><% } else { %><td data-label="Order"><span><%= item.publicId %></span></td><td data-label="Customer"><span><%= item.customerName || 'Customer' %></span></td><td class="seller-order-money" data-label="Total"><%= formatMoney(item.totals?.totalMinor ?? item.subtotalMinor ?? 0, item.currency) %></td><% } %>
+            <td data-label="Status"><span class="role-status <%= tone(item.parcel?.status || item.status) %>"><%= orderLabel(item) %></span></td><td data-label="Action"><a class="outline-button" href="<%= orderPath(item) %>">View Order<span class="sr-only"> <%= item.publicId %></span></a></td>
+          </tr><% } %>
+          <% if (!orders.length) { %><tr><td class="seller-order-empty" colspan="5">No orders match these filters.<% if (filters.search || filters.status && filters.status !== 'all') { %> <a class="plain-link" href="<%= listPath %>">View all orders</a><% } %></td></tr><% } %>
+        </tbody></table></div>
+        <div class="role-table-footer"><span>Showing <%= orders.length %> <%= orders.length === 1 ? 'order' : 'orders' %></span><% if (flow.page?.hasMore) { %><a class="outline-button" href="<%= pageHref(filters.status || 'all', flow.page.next || flow.page.nextCursor) %>">Next Page</a><% } %></div>
+      </section>
+      <aside class="role-side-stack">
+        <section class="panel role-insights"><div class="role-panel-head compact"><div><span class="eyebrow">Decision support</span><h2>What needs attention</h2></div></div><div class="role-insight-list">
+          <article><span>1</span><p><%= metrics.processing || 0 %> orders are being prepared. Open an order to confirm its items and next fulfilment step.</p></article>
+          <article><span>2</span><p><%= metrics.pendingPayment || 0 %> orders are awaiting payment. Fulfilment becomes available when payment is eligible.</p></article>
+          <article><span>3</span><p>Dispatch confirms readiness for pickup. Shipped and delivered update after the delivery partner confirms them.</p></article>
+        </div></section>
+        <section class="panel role-tip-card"><h2>Store fulfilment</h2><p class="form-intro">Every order here contains this store’s items. Open an order to check the recipient, payment, warehouse and parcel progress before taking action.</p></section>
+      </aside>
+    </div>
+  <% } else { const actions = order.actions || flow.actions || {}; const totals = order.totals || {}; const parcel = order.parcel; const contact = order.contact || {}; const version = order.version ?? order.__v ?? 0; %>
+    <div class="role-content-grid seller-order-detail-grid">
+      <div class="role-side-stack">
+        <section class="panel role-table-panel"><div class="role-panel-head"><div><h2>Order Items</h2><p>Marketplace order <%= order.orderPublicId %> · <%= formatDate(order.createdAt) %></p></div><span class="role-status <%= tone(parcel?.status || order.status) %>"><%= orderLabel(order) %></span></div>
+          <div class="role-table-wrap"><table class="role-table"><caption class="sr-only">Items belonging to this store</caption><thead><tr><th scope="col">Product</th><th scope="col">SKU</th><th scope="col">Quantity</th><th scope="col">Unit price</th><th scope="col">Total</th></tr></thead><tbody><% for (const item of order.items || []) { %><tr><td data-label="Product"><div><span><%= item.title %></span><small class="seller-order-cell-note"><%= item.variantTitle %></small></div></td><td data-label="SKU"><%= item.sku %></td><td data-label="Quantity"><%= item.quantity %></td><td class="seller-order-money" data-label="Unit price"><%= formatMoney(item.unitPriceMinor, item.currency || order.currency) %></td><td class="seller-order-money" data-label="Total"><%= formatMoney(item.lineTotalMinor, item.currency || order.currency) %></td></tr><% } %></tbody></table></div>
+          <dl class="seller-order-facts seller-order-totals"><div><dt>Subtotal</dt><dd><%= formatMoney(totals.subtotalMinor || 0, order.currency) %></dd></div><div><dt>Discount</dt><dd><%= formatMoney(totals.discountMinor || 0, order.currency) %></dd></div><div><dt>Delivery</dt><dd><%= formatMoney(totals.shippingMinor || 0, order.currency) %></dd></div><div><dt>Tax</dt><dd><%= formatMoney(totals.taxMinor || 0, order.currency) %></dd></div><div><dt>This store’s order total</dt><dd><strong><%= formatMoney(totals.totalMinor || 0, order.currency) %></strong></dd></div></dl>
+        </section>
+        <section class="panel role-form-section"><div class="role-panel-head compact"><div><h2>Payment & Delivery</h2><p>Use the recipient details only to fulfil this order.</p></div></div><dl class="seller-order-facts">
+          <div><dt>Payment status</dt><dd><%= label(order.paymentState) || 'Not available' %></dd></div><div><dt>Payment method</dt><dd><%= ({cod: 'Cash on delivery', credit_terms: 'Approved credit terms'})[order.paymentMethod] || label(order.paymentMethod) || 'Not available' %></dd></div><div><dt>Delivery method</dt><dd><%= label(order.deliveryMethod) || 'Not available' %></dd></div>
+          <div><dt>Recipient</dt><dd><%= contact.fullName || order.customerName || 'Not available' %></dd></div><% if (contact.phone) { %><div><dt>Phone</dt><dd><%= contact.phone %></dd></div><% } %><% if (contact.address || contact.city) { %><div><dt>Delivery address</dt><dd><%= [contact.address, contact.city, contact.country].filter(Boolean).join(', ') %></dd></div><% } %><% if (contact.note) { %><div><dt>Delivery note</dt><dd><%= contact.note %></dd></div><% } %>
+        </dl></section>
+        <section class="panel role-activity-panel"><div class="role-panel-head compact"><div><h2>Order History</h2><p>Recorded fulfilment and delivery updates.</p></div></div><ol class="seller-order-history"><% for (const event of order.timeline || []) { %><li><span><%= event.message || label(event.type) %></span><time datetime="<%= event.at ? new Date(event.at).toISOString() : '' %>"><%= formatDate(event.at) %></time></li><% } %><% if (!(order.timeline || []).length) { %><li><span>No fulfilment updates recorded yet.</span></li><% } %></ol></section>
+      </div>
+      <aside class="role-side-stack">
+        <section class="panel role-publish-card"><div class="role-panel-head compact"><div><span class="eyebrow">Fulfilment</span><h2>Next Action</h2></div></div>
+          <% if (order.blockedReason) { %><p class="form-intro" role="status"><%= order.blockedReason %></p><% } %>
+          <div class="seller-order-actions"><% for (const [action, actionLabel, help] of [
+            ['processing', 'Start Processing', 'Confirm that you are preparing this order.'],
+            ['pick', 'Pick Items', 'Confirm the ordered quantities have been picked from their reserved warehouses.'],
+            ['pack', 'Confirm Packing', 'Confirm all picked items are together and safely packed.'],
+            ['dispatch', 'Dispatch for Pickup', 'Confirm this packed parcel is ready for the delivery partner to collect.'],
+          ]) { if (!actions[action]) continue; %>
+            <form method="post" action="<%= orderPath(order) %>/<%= action %>"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= version %>"><p class="form-intro"><%= help %></p>
+              <% if (action === 'dispatch' && order.packWarehousePublicId) { %><input type="hidden" name="warehousePublicId" value="<%= order.packWarehousePublicId %>"><p class="form-intro">Fulfilment warehouse: <%= order.packWarehouseName || warehouses[0]?.name || 'Packing warehouse' %></p><% } else if (['pack', 'dispatch'].includes(action)) { if (warehouses.length > 1) { %><label class="seller-order-warehouse" for="orderWarehouse-<%= action %>">Fulfilment warehouse<select id="orderWarehouse-<%= action %>" name="warehousePublicId" required><option value="">Choose consolidation warehouse</option><% for (const warehouse of warehouses) { %><option value="<%= warehouse.publicId %>" <%= flow.draft?.warehousePublicId === warehouse.publicId ? 'selected' : '' %>><%= warehouse.name %><%= warehouse.city ? ' · ' + warehouse.city : '' %></option><% } %></select></label><% } else if (warehouses[0]) { %><input type="hidden" name="warehousePublicId" value="<%= warehouses[0].publicId %>"><% } } %>
+              <button class="primary-button full-button" type="submit"><%= actionLabel %></button>
+            </form><% } %>
+            <% if (!Object.values(actions).some(Boolean) && !order.blockedReason) { %><p class="form-intro">No seller action is available at this stage. Delivery updates appear when the delivery partner confirms pickup or delivery.</p><% } %>
+          </div>
+        </section>
+        <section class="panel role-insights"><div class="role-panel-head compact"><div><h2>Parcel Progress</h2></div></div><dl class="seller-order-facts">
+          <div><dt>Status</dt><dd><%= parcel ? ({handed_over: 'Ready for pickup', in_transit: 'Shipped'})[parcel.status] || label(parcel.status) : 'Awaiting parcel creation' %></dd></div><% if (parcel) { %><div><dt>Picked items</dt><dd><%= parcel.pickedQuantity || 0 %> / <%= parcel.quantity || (order.items || []).reduce((sum, item) => sum + item.quantity, 0) %></dd></div><div><dt>Parcel reference</dt><dd><%= parcel.publicId %></dd></div><% } %><% if (order.sellerShipment) { %><div><dt>Seller shipment</dt><dd><%= order.sellerShipment.publicId %></dd></div><% } %><% if (order.shipment) { %><div><dt>Delivery reference</dt><dd><%= order.shipment.publicId %></dd></div><% } %><% if (order.sellerShipment?.handedOverAt) { %><div><dt>Ready for pickup at</dt><dd><%= formatDate(order.sellerShipment.handedOverAt) %></dd></div><% } %><% if (order.sellerShipment?.deliveredAt) { %><div><dt>Delivered at</dt><dd><%= formatDate(order.sellerShipment.deliveredAt) %></dd></div><% } %>
+        </dl><p class="form-intro seller-order-parcel-note">A dispatched parcel is ready for pickup. It becomes shipped after carrier pickup and delivered after delivery confirmation.</p></section>
+      </aside>
+    </div>
+  <% } %>
+</section>

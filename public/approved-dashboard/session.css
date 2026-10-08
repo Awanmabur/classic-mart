@@ -68,3 +68,45 @@ body:is([data-dashboard-workspace="seller"], [data-dashboard-workspace="moderato
   .seller-product-page .role-table td:last-child { grid-column: auto; display: grid; justify-content: normal; }
   .seller-product-page .role-table td:last-child::before { display: block; }
 }
+
+/* Live order controls reuse the approved panels, table cards and pill buttons. */
+.seller-order-page :is(h1, h2, h3, td, dd, li, a, p) { overflow-wrap: anywhere; }
+.seller-order-page .role-side-stack, .seller-order-page .role-table-panel { min-width: 0; }
+.seller-order-search { margin-bottom: 14px; flex-wrap: wrap; }
+.seller-order-search .role-mini-search { flex: 1; min-width: min(205px, 100%); }
+.seller-order-search :is(input, .outline-button) { min-height: 39px; }
+.seller-order-page .seller-order-tabs { flex-wrap: wrap; overflow: visible; }
+.seller-order-tabs a { min-height: 34px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-pill, 999px); color: #526078; background: #fff; font-size: 11.5px; font-weight: 600; line-height: 1.35; text-decoration: none; white-space: nowrap; }
+.seller-order-tabs a.active { color: #fff; border-color: var(--orange); background: var(--orange); }
+.seller-order-page .seller-order-tabs a:focus-visible { outline: 3px solid var(--text, #17213b); outline-offset: 3px; }
+.seller-order-page .role-table { min-width: 0; table-layout: fixed; }
+.seller-order-page .role-table td { white-space: normal; }
+.seller-order-page .role-table td.seller-order-money { white-space: nowrap; overflow-wrap: normal; }
+.seller-order-cell-note { display: block; margin-top: 4px; color: var(--muted); font-size: inherit; }
+.seller-order-facts { display: grid; gap: 12px; margin: 0; }
+.seller-order-facts > div { display: grid; grid-template-columns: minmax(90px, .8fr) minmax(0, 1.2fr); gap: 12px; align-items: start; }
+.seller-order-facts dt { color: var(--muted); font-size: 11.5px; font-weight: 650; }
+.seller-order-facts dd { margin: 0; color: var(--text); font-size: 12px; line-height: 1.6; }
+.seller-order-totals { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+.seller-order-history { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; }
+.seller-order-history li { display: grid; gap: 4px; padding: 12px 0; border-top: 1px solid var(--border); color: var(--text); font-size: 12px; line-height: 1.6; }
+.seller-order-history li:first-child { border-top: 0; padding-top: 0; }
+.seller-order-history time { color: var(--muted); font-size: 11.5px; }
+.seller-order-actions { display: grid; gap: 18px; }
+.seller-order-actions form { margin: 0; min-width: 0; }
+.seller-order-actions form + form { padding-top: 18px; border-top: 1px solid var(--border); }
+.seller-order-warehouse { display: grid; gap: 7px; margin: 0 0 14px; color: var(--text); font-size: 12px; font-weight: 650; }
+.seller-order-warehouse select { width: 100%; max-width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border); color: var(--text); background: #fff; font: inherit; }
+.seller-order-parcel-note { margin-top: 18px; }
+@media (max-width: 840px) {
+  .seller-order-page .role-table tr { grid-template-columns: minmax(0, 1fr); }
+  .seller-order-page .role-table td:last-child { grid-column: auto; display: grid; justify-content: normal; }
+  .seller-order-page .role-table td:last-child::before { display: block; }
+  .seller-order-page .role-table .seller-order-empty { display: block; }
+  .seller-order-page .role-table .seller-order-empty::before { display: none; }
+  .seller-order-page .role-table td { padding-inline: 0; }
+  .seller-order-page .role-table td > .outline-button { justify-self: start; }
+}
+@media (max-width: 380px) {
+  .seller-order-facts > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}

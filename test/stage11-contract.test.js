@@ -45,7 +45,7 @@ test('Stage 11 mobile tokens rotate and refresh reuse revokes the family', () =>
 
 test('Stage 11 mobile and seller APIs reuse server-authoritative commerce services', () => {
   const routes = read('src/routes/stage11.js');
-  for (const token of ['getOrCreateCart','reviewCheckout','placeOrder','initiatePayment','adjustStock','createWarehouseTask','executeWarehouseTask']) assert.match(routes, new RegExp(token));
+  for (const token of ['getOrCreateCart','reviewCheckout','placeOrder','initiatePayment','adjustStock','sellerOrderList','transitionSellerOrder']) assert.match(routes, new RegExp(token));
   assert.match(routes, /requestId/);
   assert.match(routes, /pageMeta/);
   assert.match(routes, /If-Match/);

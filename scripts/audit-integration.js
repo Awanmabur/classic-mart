@@ -179,6 +179,7 @@ assert.equal((await storefront.publishedSeller(secondStore.slug, country))?.slug
 const customer = await makeUser('customer', 'buyer');
 const promoter = await makeUser('promoter', 'affiliate');
 const delivery = await makeUser('delivery', 'driver');
+await models.DeliveryProfile.create({ publicId: publicId('dlp'), userId: delivery._id, country: 'UG', transport: 'motorcycle', verificationStatus: 'approved', approvedAt: new Date(), available: true, codEnabled: true });
 const support = await makeUser('support', 'support');
 const financeOne = await makeUser('finance', 'finance1');
 const financeTwo = await makeUser('finance', 'finance2');
@@ -318,6 +319,25 @@ const replacementOrder = await trust.createExchangeReplacement({ user: support }
 assert.equal(replacementOrder.status, 'confirmed', 'Stage 8: replacement order must be a real confirmed fulfilment order');
 assert.equal((await models.SellerOrder.countDocuments({ orderId: replacementOrder._id })), 1, 'Stage 8: replacement order must create seller fulfilment order(s)');
 assert.ok(await models.Shipment.exists({ orderId: replacementOrder._id, kind: 'outbound' }), 'Stage 8: replacement exchange must enter the Stage 7 shipment pipeline');
+const replacementReservations = await models.InventoryReservation.find({ publicId: { $in: replacementOrder.items.map(item => item.reservationPublicId) } });
+assert.equal(replacementReservations.length, replacementOrder.items.length, 'Exchange: every replacement line requires its own real stock reservation');
+assert.ok(replacementReservations.every(reservation => reservation.status === 'committed'), 'Exchange: replacement reservations must commit with the shipment');
+assert.ok(replacementOrder.items.every(item => item.deliveredQuantity === 0 && item.returnReservedQuantity === 0 && item.returnedQuantity === 0 && item.refundedQuantity === 0), 'Exchange: replacements cannot inherit original delivery and refund counters');
+const replacementStockBeforeReplay = await models.StockItem.findById(replacementReservations[0].stockItemId).lean();
+assert.equal((await trust.createExchangeReplacement({ user: support }, exchangeDoc.publicId)).publicId, replacementOrder.publicId, 'Exchange: retry must return the same committed replacement');
+assert.equal((await models.StockItem.findById(replacementReservations[0].stockItemId)).onHand, replacementStockBeforeReplay.onHand, 'Exchange: retry cannot consume replacement stock again');
+const sellerOrdersLive = await import('../src/services/seller-orders.js');
+let replacementSellerOrder = await models.SellerOrder.findOne({ orderId: replacementOrder._id });
+const replacementSellerRequest = { id: publicId('req'), user: secondSeller, store: secondStore, country, params: { publicId: replacementSellerOrder.publicId },
+  body: {}, ip: '127.0.0.20', get: () => 'ClassicMartAudit/1.0' };
+assert.equal((await sellerOrdersLive.sellerOrderDetail(replacementSellerRequest)).order.actions.pick, true, 'Exchange: seller live order must be fulfilable from its committed reservation');
+for (const action of ['processing', 'pick', 'pack', 'dispatch']) {
+  replacementSellerOrder = await models.SellerOrder.findById(replacementSellerOrder._id);
+  replacementSellerRequest.body = { version: replacementSellerOrder.__v };
+  await sellerOrdersLive.transitionSellerOrder(replacementSellerRequest, action);
+}
+assert.equal((await models.SellerOrder.findById(replacementSellerOrder._id)).status, 'ready', 'Exchange: seller can complete preparation through the shared live service');
+assert.equal((await models.Order.findById(replacementOrder._id)).fulfillmentState, 'ready', 'Exchange: preparation must await carrier pickup instead of claiming delivery');
 
 const reviewDoc = await trust.createVerifiedReview({ user: customer }, { orderId: paidOrder.publicId, productId: product.publicId, rating: 4, title: 'Audit review', body: 'This verified review was created from a real audit purchase.' });
 assert.equal(reviewDoc.verifiedPurchase, true, 'Stage 8: review must be verified from purchased order');

@@ -1235,6 +1235,8 @@ export function routeForPage(pageId) {
   if (pageId === 'seller-store') return '/seller/store';
   if (pageId === 'seller-products') return '/seller/products';
   if (pageId === 'seller-add-product') return '/seller/products/new';
+  if (pageId === 'seller-orders') return '/seller/orders';
+  if (pageId === 'seller-shipping') return '/seller/shipping';
   if (pageId === 'moderator-products') return '/moderation/products';
   if (pageId === 'moderator-sellers') return '/moderation/verifications';
   return CUSTOMER_ROUTES[pageId] || (pageWorkspace(pageId) ? `/dashboard/${encodeURIComponent(pageId)}` : '/dashboard');
