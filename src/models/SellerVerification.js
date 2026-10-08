@@ -104,6 +104,7 @@ const sellerVerificationSchema = new Schema(
 
 sellerVerificationSchema.index({ status: 1, submittedAt: 1 });
 sellerVerificationSchema.index({ userId: 1, status: 1 });
+sellerVerificationSchema.index({ status: 1, submittedAt: 1, _id: 1 });
 
 export const SellerVerification = mongoose.model(
   'SellerVerification',

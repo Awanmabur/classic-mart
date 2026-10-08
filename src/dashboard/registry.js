@@ -69,7 +69,7 @@ export const DASHBOARD_WORKSPACES = Object.freeze({
   },
   "moderator": {
     "label": "Moderation",
-    "defaultPage": "moderator-overview",
+    "defaultPage": "moderator-sellers",
     "search": "Search products, reviews, sellers and risk cases...",
     "quickLabel": "Review Queue",
     "quickPage": "moderator-products",
@@ -1233,6 +1233,7 @@ export function defaultPageFor(workspace) {
 
 export function routeForPage(pageId) {
   if (pageId === 'seller-store') return '/seller/store';
+  if (pageId === 'moderator-sellers') return '/moderation/verifications';
   return CUSTOMER_ROUTES[pageId] || (pageWorkspace(pageId) ? `/dashboard/${encodeURIComponent(pageId)}` : '/dashboard');
 }
 

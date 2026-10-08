@@ -81,3 +81,7 @@ settlement and subscriptions still need their own complete UI-to-backend work an
 validation before being enabled. Store verification is read-only in this milestone.
 Email/SMS delivery and Pesapal settlement were not tested against live providers
 in this change. Overall production readiness remains unverified.
+
+The subsequent [verification milestone](verification.md) now connects document
+submission, independent review, rejection, appeal and approval. The remaining
+scope above describes this earlier store-settings checkpoint.

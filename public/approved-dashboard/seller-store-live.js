@@ -1,7 +1,7 @@
 (() => {
   'use strict';
-  document.body.dataset.workspace = 'seller';
-  if (location.pathname !== '/seller/store') {
+  document.body.dataset.workspace = document.body.dataset.dashboardWorkspace;
+  if (document.querySelector('[data-seller-settings-panel]') && location.pathname !== '/seller/store') {
     const section = document.querySelector('[data-seller-settings-panel].active')?.dataset.sellerSettingsPanel || 'identity';
     history.replaceState(null, '', '/seller/store?section=' + encodeURIComponent(section));
   }

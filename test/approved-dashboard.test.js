@@ -17,7 +17,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cases = {
   customer: 'dashboard', seller: 'seller-store', promoter: 'promoter-overview',
   country_admin: 'admin-overview', super_admin: 'super-overview', finance: 'finance-overview',
-  support: 'support-overview', warehouse: 'warehouse-overview', moderator: 'moderator-overview',
+  support: 'support-overview', warehouse: 'warehouse-overview', moderator: 'moderator-sellers',
   business: 'business-overview', delivery: 'dashboard',
 };
 
@@ -68,10 +68,11 @@ test('real login/session routes land every role in the approved UI; unauthorized
       await agent.get('/dashboard/super-overview').expect(403);
       await agent.get('/dashboard/warehouse-overview').expect(403);
       await agent.get('/dashboard/unknown').expect(404);
-    } else if (role === 'seller') {
-      await agent.get('/dashboard').expect(302).expect('location', '/seller/store');
-      await agent.get('/dashboard/seller-store').expect(308).expect('location', '/seller/store');
-      await agent.get('/dashboard/seller-overview').expect(503);
+    } else if (role === 'seller' || role === 'moderator') {
+      const landing = role === 'seller' ? '/seller/store' : '/moderation/verifications';
+      await agent.get('/dashboard').expect(302).expect('location', landing);
+      await agent.get('/dashboard/' + page).expect(308).expect('location', landing);
+      await agent.get('/dashboard/' + role + '-overview').expect(503);
     } else {
       const dashboard = await agent.get('/dashboard/' + page).expect(200);
       assert.match(dashboard.text, /\/approved-dashboard\/styles.css/);
@@ -82,7 +83,7 @@ test('real login/session routes land every role in the approved UI; unauthorized
     if (role === 'super_admin') {
       for (const [workspace, rows] of Object.entries(DASHBOARD_PAGES)) {
         if (workspace === 'customer') continue;
-        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(id === 'seller-store' ? 308 : workspace === 'seller' ? 503 : 200);
+        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(['seller-store','moderator-sellers'].includes(id) ? 308 : ['seller','moderator'].includes(workspace) ? 503 : 200);
       }
     }
   }

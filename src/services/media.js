@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import multer from 'multer';
 import sharp from 'sharp';
+import { encryptPrivateBuffer } from '../core/sensitive.js';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import { scanUpload } from './malware.js';
@@ -49,7 +50,7 @@ export const uploadVerificationImage = multer({
   },
 }).single('document');
 
-async function sanitizeImage(file) {
+async function sanitizeImage(file, limitInputPixels = 40_000_000) {
   if (!file?.buffer) {
     throw new AppError('Choose an image to upload.', 422, 'MEDIA_REQUIRED');
   }
@@ -58,7 +59,7 @@ async function sanitizeImage(file) {
   try {
     metadata = await sharp(file.buffer, {
       failOn: 'warning',
-      limitInputPixels: 40_000_000,
+      limitInputPixels,
     }).metadata();
   } catch {
     throw new AppError(
@@ -83,7 +84,7 @@ async function sanitizeImage(file) {
 
   return sharp(file.buffer, {
     failOn: 'warning',
-    limitInputPixels: 40_000_000,
+    limitInputPixels,
   })
     .rotate()
     .resize({
@@ -157,11 +158,7 @@ export async function sanitizeAndStoreVerificationDocument({
   user,
   documentType,
 }) {
-  const sanitized = await sanitizeImage(file);
-  const stored = await writeSanitizedImage(
-    `verification-${verification.publicId}`,
-    sanitized,
-  );
+  const prepared = await prepareVerificationDocument(file, verification.publicId);
   try {
     return await VerificationDocument.create({
       publicId: publicId('doc'),
@@ -169,20 +166,21 @@ export async function sanitizeAndStoreVerificationDocument({
       storeId: store._id,
       userId: user._id,
       documentType,
-      storageKey: stored.storageKey,
-      mimeType: 'image/webp',
-      sizeBytes: sanitized.data.length,
-      width: sanitized.info.width,
-      height: sanitized.info.height,
-      checksumSha256: crypto
-        .createHash('sha256')
-        .update(sanitized.data)
-        .digest('hex'),
+      ...prepared,
     });
   } catch (error) {
-    await deleteMediaObject(stored.storageKey).catch(() => {});
+    await deleteMediaObject(prepared.storageKey).catch(() => {});
     throw error;
   }
+}
+
+export async function prepareVerificationDocument(file, verificationPublicId) {
+  const sanitized = await sanitizeImage(file, 16_000_000);
+  const storageKey = `verification-${verificationPublicId}/${crypto.randomUUID()}.cmv`;
+  await putMediaObject(storageKey, encryptPrivateBuffer(sanitized.data, storageKey), { contentType: 'application/octet-stream', cacheControl: 'private, no-store' });
+  return { storageKey, encrypted: true, mimeType: 'image/webp', sizeBytes: sanitized.data.length,
+    width: sanitized.info.width, height: sanitized.info.height,
+    checksumSha256: crypto.createHash('sha256').update(sanitized.data).digest('hex') };
 }
 
 

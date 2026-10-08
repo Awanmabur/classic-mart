@@ -3,10 +3,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { hasPermission } from '../core/roles.js';
-import { Product, ProductMedia, Store, VerificationDocument } from '../models/index.js';
+import { Product, ProductMedia, Store } from '../models/index.js';
 import { noStore } from '../middleware/request.js';
 import { isMediaObjectNotFound } from '../services/object-storage.js';
+import { sendVerificationDocument } from '../services/verification-media.js';
 import { sendStoredMedia } from '../services/media-delivery.js';
+import { readableVerificationDocument } from '../services/seller-verification.js';
 
 const router = Router();
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -45,20 +47,9 @@ router.get('/media/catalogue/:publicId', asyncHandler(async (request, response) 
 }));
 
 router.get('/media/verification/:publicId', noStore, asyncHandler(async (request, response) => {
-  if (!request.user) throw new AppError('Authentication required.', 401, 'UNAUTHENTICATED');
-  const document = await VerificationDocument.findOne({ publicId: request.params.publicId }).select('+storageKey');
-  if (!document) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
-  let mayModerate = hasPermission(request.user, 'catalogue:moderate');
-  if (mayModerate && request.user.role === 'country_admin') {
-    mayModerate = Boolean(await Store.exists({ _id: document.storeId, country: request.user.country }));
-  }
-  const mayView = String(document.userId) === String(request.user._id) || mayModerate;
-  if (!mayView) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
-  return sendStoredMedia(response, document.storageKey, {
-    cacheControl: 'private, no-store',
-    contentType: 'image/webp',
-    contentDisposition: 'inline',
-  });
+  const document = await readableVerificationDocument(request.user, request.params.publicId);
+  response.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  return sendVerificationDocument(response, document);
 }));
 
 export default router;

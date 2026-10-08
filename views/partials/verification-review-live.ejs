@@ -1,0 +1,25 @@
+<% const flow = liveSeller.reviewFlow; const record = flow.record; %>
+<section class="app-page active role-page" data-page="moderator-sellers" data-role="moderator">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow">Marketplace trust</span><h1>Seller Verification Review</h1><p>Review evidence only for your assigned countries. Claim a case before recording an independent decision.</p></div><a class="outline-button icon-button" href="/moderation/verifications">Review Queue</a></div>
+  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error" role="alert"><%= flow.error %></div><% } %>
+  <% if (!record) { %>
+    <section class="panel role-table-panel"><div class="role-panel-head"><div><h2>Awaiting review</h2><p><%= flow.items.length %> cases on this page</p></div></div>
+      <div class="role-table-wrap"><table class="role-table"><thead><tr><th>Store</th><th>Country</th><th>Legal name</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead><tbody>
+      <% for (const item of flow.items) { %><tr><td><%= item.store.name %></td><td><%= item.store.country %></td><td><%= item.legalName %></td><td><span class="member-pill"><%= item.status %></span></td><td><%= formatDate(item.submittedAt) %></td><td><a class="outline-button" href="/moderation/verifications/<%= item.publicId %>">Review Case</a></td></tr><% } %>
+      <% if (!flow.items.length) { %><tr><td colspan="6">No seller verifications are awaiting review in your assigned countries.</td></tr><% } %>
+      </tbody></table></div><% if (flow.page.hasMore) { %><div class="role-table-footer"><a class="outline-button" href="/moderation/verifications?after=<%= flow.page.next %>">Next Page</a></div><% } %>
+    </section>
+  <% } else { const canAct = ['submitted','appealed'].includes(record.status) && flow.store.status === 'pending_verification'; const assigned = String(record.assignedUserId || '') === String(user._id); %>
+    <section class="panel form-panel role-form-section"><div class="section-heading"><div><h2><%= flow.store.name %></h2><p class="form-intro"><%= flow.store.country %> · <%= record.sellerType %> · <%= record.status %></p></div></div>
+      <div class="role-form-grid"><label>Legal name<input readonly value="<%= record.legalName %>"></label><label>Registration number<input readonly value="<%= record.registrationNumber || '' %>"></label><label>Tax number<input readonly value="<%= record.taxNumber || '' %>"></label><label>Review assignment<input readonly value="<%= assigned ? 'Assigned to you' : record.assignedUserId ? 'Assigned to another reviewer' : 'Unassigned' %>"></label></div>
+      <% if (record.appeal?.message) { %><p><strong>Appeal:</strong> <%= record.appeal.message %></p><% } %>
+      <% if (record.reviewReason) { %><p><strong>Decision reason:</strong> <%= record.reviewReason %></p><% } %>
+      <h3>Current evidence</h3><% for (const document of flow.documents) { %><article class="role-security-row"><div><strong><%= document.documentType %></strong><small><%= document.status %></small></div><a class="outline-button" href="/moderation/verifications/<%= record.publicId %>/documents/<%= document.publicId %>" target="_blank" rel="noopener noreferrer">View Document</a></article><% } %>
+      <% if (canAct) { %><form method="post" action="/moderation/verifications/<%= record.publicId %>/<%= assigned ? 'release' : 'claim' %>"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= record.__v %>"><button class="outline-button" type="submit" <%= record.assignedUserId && !assigned ? 'disabled' : '' %>><%= assigned ? 'Release Case' : 'Claim Case' %></button></form><% } %>
+    </section>
+    <% if (canAct && assigned) { %><form method="post" action="/moderation/verifications/<%= record.publicId %>/decision" class="panel form-panel role-form-section">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= record.__v %>"><h2>Independent decision</h2><p class="form-intro">Confirm every required document belongs to this business. Rejection requires a clear reason of at least 10 characters.</p><div class="role-form-grid"><label class="wide">Decision reason<textarea name="reason" rows="4" maxlength="1000"></textarea></label></div><div class="seller-verification-actions"><button class="primary-button" type="submit" name="decision" value="approve">Approve Verification</button><button class="outline-button" type="submit" name="decision" value="reject">Reject Verification</button></div>
+    </form><% } %>
+    <section class="panel form-panel role-form-section"><h2>Review history</h2><% for (const entry of record.reviewHistory || []) { %><p><strong><%= entry.action %></strong> · <%= formatDate(entry.at) %><% if (entry.reason) { %> · <%= entry.reason %><% } %></p><% } %></section>
+  <% } %>
+</section>

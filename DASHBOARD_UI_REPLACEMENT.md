@@ -223,3 +223,13 @@ validation, store permissions, MFA gating, stale-edit checks and transactional
 audit evidence. Other seller dashboard pages remain disabled until their own
 workflows are connected and verified. See the [seller milestone](docs/seller/store-settings.md)
 for completed behavior, test evidence and remaining scope.
+
+### Seller verification and independent review
+
+Seller verification now works at `/seller/verification`, including private
+uploads, submission, rejection reasons, appeals and final approval. Moderators
+review their assigned countries at `/moderation/verifications`. Document and
+identifier encryption, current-evidence checks, independent reviewers, exclusive
+claims, transactional audit/notifications and desktop/mobile browser checks cover
+this flow. See the [verification milestone](docs/seller/verification.md) for test
+evidence, provider limits and remaining work.

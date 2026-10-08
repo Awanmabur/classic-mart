@@ -1,0 +1,36 @@
+<% const flow = liveSeller.verificationFlow; const record = flow.record; const draft = flow.draft || {}; const editable = ['draft','rejected'].includes(record.status); %>
+<section class="app-page active role-page" data-page="seller-store" data-role="seller">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow">Store compliance</span><h1>Seller Verification</h1><p>Upload your evidence and submit accurate business details for independent review.</p></div><a class="outline-button icon-button" href="/seller/store">Store Settings</a></div>
+  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error" role="alert"><%= flow.error %></div><% } %>
+  <section class="panel form-panel role-form-section"><div class="section-heading"><div><h2>Verification status</h2><p class="form-intro"><%= record.status === 'approved' ? 'Your store has been verified.' : record.status === 'submitted' || record.status === 'appealed' ? 'Your evidence is awaiting review. Documents are locked while review is in progress.' : 'Upload current documents before completing the submission below.' %></p></div><span class="member-pill"><%= record.status %></span></div>
+    <% if (record.submittedAt) { %><p>Submitted: <%= formatDate(record.submittedAt) %></p><% } %>
+    <% if (record.reviewedAt) { %><p>Last review: <%= formatDate(record.reviewedAt) %></p><% } %>
+    <% if (record.reviewReason) { %><p class="form-intro"><strong>Review reason:</strong> <%= record.reviewReason %></p><% } %>
+    <% if (record.appeal?.message) { %><p class="form-intro"><strong>Your appeal:</strong> <%= record.appeal.message %></p><% } %>
+  </section>
+  <div class="role-editor-layout seller-verification-layout">
+    <div class="role-editor-main">
+      <section class="panel form-panel role-form-section"><h2>Verification documents</h2><p class="form-intro">An identity document is required. Registered businesses also need a registration document. Upload JPEG, PNG, WebP or AVIF images at least 320 × 320 pixels, at most 16 megapixels and up to 8 MB. A new upload replaces the current document of that type. After rejection, replace each rejected required document before submitting again.</p>
+        <% if (!flow.documents.length) { %><p>No documents uploaded yet.</p><% } %>
+        <% for (const document of flow.documents) { %><article class="role-security-row"><div><strong><%= document.documentType %></strong><small><%= document.status %> · <%= document.width %> × <%= document.height %></small></div><a class="outline-button" href="/seller/verification/documents/<%= document.publicId %>" target="_blank" rel="noopener noreferrer">View document</a></article><% } %>
+        <% if (editable) { %><form method="post" action="/seller/verification/documents" enctype="multipart/form-data" class="seller-verification-upload">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= record.__v %>">
+          <div class="role-form-grid"><label>Document type<select name="documentType" required><option value="identity">Identity</option><option value="registration">Business registration</option><option value="tax">Tax</option><option value="address">Address</option></select></label><label>Document image<input type="file" name="document" accept="image/jpeg,image/png,image/webp,image/avif" required></label></div><button class="primary-button" type="submit">Upload Document</button>
+        </form><% } %>
+      </section>
+      <% if (record.status === 'rejected') { %><form method="post" action="/seller/verification/appeal" class="panel form-panel role-form-section">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= record.__v %>"><h2>Appeal a decision</h2><p class="form-intro">Explain why the current evidence should be reconsidered. To supply new evidence, replace documents and submit a new review instead.</p><div class="role-form-grid"><label class="wide">Appeal explanation<textarea name="message" rows="4" minlength="20" maxlength="1000" required><%= draft.message || '' %></textarea></label></div><button class="outline-button" type="submit">Submit Appeal</button>
+      </form><% } %>
+    </div>
+    <form method="post" action="/seller/verification/submit" class="panel form-panel role-form-section">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= record.__v %>"><h2>Legal &amp; business details</h2><p class="form-intro">Upload documents first, then complete these details. Sensitive identifiers are stored encrypted.</p>
+      <fieldset class="seller-settings-fields" <%= editable ? '' : 'disabled' %>><div class="role-form-grid">
+        <label>Seller type<select name="sellerType" required><option value="individual" <%= (draft.sellerType || record.sellerType) === 'individual' ? 'selected' : '' %>>Individual</option><option value="business" <%= (draft.sellerType || record.sellerType) === 'business' ? 'selected' : '' %>>Registered business</option></select></label>
+        <label>Legal name<input name="legalName" value="<%= draft.legalName ?? record.legalName %>" minlength="2" maxlength="180" required></label>
+        <label>Registration number<input name="registrationNumber" value="<%= draft.registrationNumber ?? record.registrationNumber ?? '' %>" maxlength="80" autocomplete="off"><small>Required for registered businesses</small></label>
+        <label>Tax number<input name="taxNumber" value="<%= draft.taxNumber ?? record.taxNumber ?? '' %>" maxlength="80" autocomplete="off"></label>
+        <label class="wide seller-verification-declaration"><input type="checkbox" name="declaration" value="yes" required><span>I confirm these details and documents are accurate and I am authorized to represent this store.</span></label>
+      </div><button class="primary-button" type="submit">Submit for Review</button></fieldset>
+    </form>
+  </div>
+</section>

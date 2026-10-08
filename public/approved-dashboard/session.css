@@ -50,4 +50,9 @@ a.full-button, a.view-orders-button { display: flex; }
 .reward-option:has(.dashboard-form) h3, .reward-option:has(.dashboard-form) p { min-height: 0; }
 .reward-option .dashboard-form > button { justify-self: start; margin: 0; }
 .seller-settings-fields { padding: 0; margin: 0; border: 0; min-width: 0; }
-body[data-dashboard-workspace="seller"] .side-link:disabled { cursor: not-allowed; opacity: .55; background: transparent; width: 100%; text-align: left; }
+body:is([data-dashboard-workspace="seller"], [data-dashboard-workspace="moderator"]) .side-link:disabled { cursor: not-allowed; opacity: .55; background: transparent; width: 100%; text-align: left; }
+.seller-verification-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.seller-verification-upload { margin-top: 18px; }
+.seller-verification-declaration { display: flex !important; gap: 10px; align-items: flex-start; }
+.seller-verification-declaration input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex-shrink: 0; }
+.seller-verification-layout { margin-top: 18px; }

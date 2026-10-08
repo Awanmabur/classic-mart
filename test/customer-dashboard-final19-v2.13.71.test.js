@@ -50,6 +50,6 @@ test('Customer page loader is page-scoped, not all-pages preload',()=>{
 test('retired role compatibility views are removed and unfinished operations remain blocked in production',()=>{
   const wrappers=['seller-dashboard.ejs','promoter-dashboard.ejs','finance-dashboard.ejs','support-dashboard.ejs','warehouse-dashboard.ejs','moderator-dashboard.ejs','country-admin-dashboard.ejs','super-admin-dashboard.ejs'];
   for(const name of wrappers) assert.equal(exists(`views/${name}`),false);
-  assert.match(read('src/routes/approved-dashboard.js'),/workspace !== 'customer' && \(workspace === 'seller' \|\| env.isProduction\)/);
+  assert.match(read('src/routes/approved-dashboard.js'),/workspace !== 'customer' && \(\['seller', 'moderator'\]\.includes\(workspace\) \|\| env.isProduction\)/);
   assert.match(read('src/routes/approved-dashboard.js'),/503, 'DASHBOARD_NOT_CONNECTED'/);
 });
