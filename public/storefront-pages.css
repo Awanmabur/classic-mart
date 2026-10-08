@@ -1586,15 +1586,3 @@ body:not(.home-page) :where(main, .onboarding-shell) textarea,
 /* v2.13.50 compact related media */
 .preview-related-image { height: 108px; }
 @media (max-width: 720px) { .preview-related-image { height: 96px; } }
-
-.auth-phone-wrap select { min-width: 0; max-width: 48%; border: 0; border-right: 1px solid #e5e7eb; background: transparent; padding: 12px 8px; font: inherit; color: inherit; }
-.auth-phone-wrap input { flex: 1; }
-.auth-phone-wrap select:focus-visible { outline: 2px solid #ff6500; outline-offset: -2px; }
-
-/* Phone country selector uses the approved rounded select treatment. */
-.auth-phone-wrap { display: flex; border-radius: 28px; }
-.auth-phone-wrap select {
-  flex: 0 0 48%; width: 48%; appearance: none; border-right: 1px solid #dce2ea; border-radius: 28px 0 0 28px;
-  padding: 16px 34px 16px 20px; color: #344054;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='m4 5 3 3 3-3' fill='none' stroke='%23344054' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center;
-}

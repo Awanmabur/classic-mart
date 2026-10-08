@@ -71,7 +71,7 @@ test('seller store settings persist through authenticated forms, reject stale ed
     const store = await Store.findOne({ ownerUserId: owner.user._id });
     storeIds.push(store._id);
     assert.equal(store.status, 'pending_verification');
-    assert.match(page.text, /\+256 · Uganda/);
+    assert.match(page.text, /Uganda \(\+256\)/);
     assert.match(page.text, /seller-store-live\.js/);
     assert.doesNotMatch(page.text, /Development preview|Stanbic|9421|hello@classicmart.example|\/approved-dashboard\/role-workspaces\.js/);
     assert.match(page.headers['cache-control'], /private/);
@@ -141,11 +141,24 @@ test('seller store settings persist through authenticated forms, reject stale ed
       for (const width of [1366, 390]) {
         await browserPage.setViewportSize({ width, height: 950 });
         const browserResponse = await browserPage.goto(base + '/seller/store');
+        await browserPage.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {}))));
         await browserPage.screenshot({ path: `/tmp/classic-mart-seller-store-initial-${width}.png`, fullPage: true });
         assert.equal(browserResponse.status(), 200, `Browser reached ${new URL(browserPage.url()).pathname}`);
         assert.equal(await browserPage.locator('#sellerIdentity').count(), 1, `Browser rendered ${await browserPage.title()}`);
         assert.equal(new URL(browserPage.url()).hash, '');
         assert.ok(await browserPage.locator('#sellerIdentity').isVisible());
+        const phoneCountry = browserPage.getByRole('combobox', { name: 'Phone country code', exact: true });
+        assert.equal(await phoneCountry.evaluate(element => getComputedStyle(element).fontWeight), '400');
+        assert.equal(await phoneCountry.evaluate(element => getComputedStyle(element).color), 'rgba(0, 0, 0, 0)');
+        assert.equal(await phoneCountry.evaluate(element => getComputedStyle(element).borderWidth), '0px');
+        assert.equal(await browserPage.locator('.phone-country-display').textContent(), '+256');
+        await phoneCountry.selectOption('KE');
+        assert.equal(await browserPage.locator('.phone-country-display').textContent(), '+254');
+        assert.equal(await browserPage.locator('[name="supportPhone"]').inputValue(), '781977217');
+        await phoneCountry.selectOption('UG');
+        await browserPage.locator('#sellerIdentity button[type="submit"]').click();
+        await browserPage.waitForURL('**/seller/store?section=identity');
+        assert.equal((await Store.findById(store._id)).operations.supportPhone, '+256781977217');
         await browserPage.locator('[data-seller-settings-tab="operations"]').click();
         assert.ok(await browserPage.locator('#sellerOperations').isVisible());
         assert.equal(await browserPage.locator('#sellerIdentity').isVisible(), false);

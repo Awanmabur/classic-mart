@@ -4,9 +4,14 @@ Phone dropdowns use `libphonenumber-js` country/calling-code metadata and Node's
 international country names. The list is generated once, with no hand-written
 country table or remote country request during signup. Market country settings
 remain separate from a person's phone country. Signup and seller support contacts
-validate country-specific possible lengths and persist E.164 numbers. Country
-codes are shown first in the approved rounded dropdown so they stay visible on
-small screens.
+validate country-specific possible lengths and persist E.164 numbers. Seller
+forms display the national number separately from the calling code, while saved
+contacts retain their complete international number. The closed rounded control
+displays only the selected calling code, such as
+`+256`. Opening the native dropdown shows alphabetical country names and calling
+codes, such as `Uganda (+256)`. Keyboard and touch selection, reset and browser
+back restoration keep the displayed code synchronized. Without JavaScript, the
+native control retains readable country labels.
 
 The only external SMS adapter is eSMS Africa. Deployment examples and the Render
 blueprint use it. Configure secrets in the server environment, never in frontend

@@ -243,3 +243,11 @@ is eSMS Africa. An API key selects that adapter automatically when SMS_MODE is
 omitted; log mode explicitly reports that no SMS was sent. See
 [SMS configuration and verification](docs/production/SMS.md) for safe configuration,
 provider diagnostics and live-delivery limits.
+
+### Exact calling-code display
+
+The closed phone selector displays only the calling code (`+256`), with normal
+text weight, the reference chevron and a thin separator beside the phone number.
+The native dropdown uses alphabetical `Country (+code)` labels generated from
+phone metadata. Signup and seller settings share this control; keyboard selection,
+reset synchronization and the no-JavaScript fallback are covered by browser checks.

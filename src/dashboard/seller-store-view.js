@@ -12,12 +12,13 @@ export async function renderSellerStore(request, response, { error = '', section
     SellerVerification.findOne({ storeId: request.store._id }).select('status sellerType legalName reviewReason').lean(),
   ]);
   const store = request.store.toObject();
-  const phoneCountry = parsePhoneNumberFromString(store.operations?.supportPhone || '')?.country || store.country;
+  const supportPhone = parsePhoneNumberFromString(store.operations?.supportPhone || '');
+  const phoneCountry = supportPhone?.country || store.country;
   const completion = Math.round([store.name, store.description, store.operations?.supportEmail, store.operations?.supportPhone].filter(Boolean).length / 4 * 100);
   return response.render('approved-dashboard', {
     ...header, customerRoutes: { ...header.customerRoutes, 'seller-store': '/seller/store' }, workspace: 'seller', initialPage: 'seller-store',
     allowedWorkspaces: allowedWorkspacesFor(request.user),
-    liveSeller: { store, countries, phoneCountries: getPhoneCountries(), verification, phoneCountry, completion, error, draft, verificationFlow, profileRole: 'Seller', section: section || request.query.section || 'identity',
+    liveSeller: { store, countries, phoneCountries: getPhoneCountries(), verification, phoneCountry, supportPhoneNational: supportPhone?.nationalNumber || store.operations?.supportPhone || '', completion, error, draft, verificationFlow, profileRole: 'Seller', section: section || request.query.section || 'identity',
       navigation: DASHBOARD_PAGES.seller.map(row => ({ id: row[0], label: row[1], icon: row[2], href: routeForPage(row[0]), ready: row[0] === 'seller-store' })),
     },
   });

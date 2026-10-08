@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/design-system.css') %>" />
   <link rel="icon" type="image/png" href="/approved-dashboard/assets/classic-mart-icon.png" />
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/session.css') %>" />
+  <% if (sellerLive && !liveSeller.reviewFlow && !liveSeller.verificationFlow) { %><link rel="stylesheet" href="<%= assetUrl('/phone-country.css') %>" /><% } %>
 </head>
 <body data-dashboard-live="<%= liveCustomer %>" data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= initialPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>">
   <meta name="csrf-token" content="<%= csrfToken %>">
@@ -157,5 +158,6 @@
   <script src="<%= assetUrl('/approved-dashboard/enhancements.js') %>"></script>
   <script src="<%= assetUrl('/approved-dashboard/session-controls.js') %>"></script><% } else { %><script defer src="<%= assetUrl('/approved-dashboard/customer-live.js') %>"></script><script defer src="<%= assetUrl('/approved-dashboard/customer-navigation.js') %>"></script><% } %>
   <% if (sellerLive) { %><script defer src="<%= assetUrl('/approved-dashboard/seller-store-live.js') %>"></script><% } %>
+  <% if (sellerLive && !liveSeller.reviewFlow && !liveSeller.verificationFlow) { %><script defer src="<%= assetUrl('/phone-country.js') %>"></script><% } %>
 </body>
 </html>
