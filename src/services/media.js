@@ -113,22 +113,28 @@ export async function sanitizeAndStoreProductImage({
   altText,
   position,
 }) {
-  const sanitized = await sanitizeImage(file);
+  const prepared = await prepareProductImage(file, product.publicId);
+  try {
+    return await ProductMedia.create({ publicId: publicId('med'), productId: product._id, storeId: product.storeId,
+      ...prepared, altText, position, status: 'ready' });
+  } catch (error) {
+    await deleteMediaObject(prepared.storageKey).catch(() => {});
+    await deleteMediaObject(prepared.thumbnailStorageKey).catch(() => {});
+    throw error;
+  }
+}
+
+export async function prepareProductImage(file, productPublicId) {
+  const sanitized = await sanitizeImage(file, 16_000_000);
   const thumbnail = await sharp(sanitized.data)
     .resize({ width: 480, height: 480, fit: 'inside', withoutEnlargement: true })
     .webp({ quality: 80, effort: 5 })
     .toBuffer({ resolveWithObject: true });
-  const stored = await writeSanitizedImage(product.publicId, sanitized);
-  const thumbnailStored = await writeSanitizedImage(
-    product.publicId,
-    thumbnail,
-  );
-
+  let stored, thumbnailStored;
   try {
-    return await ProductMedia.create({
-      publicId: publicId('med'),
-      productId: product._id,
-      storeId: product.storeId,
+    stored = await writeSanitizedImage(productPublicId, sanitized);
+    thumbnailStored = await writeSanitizedImage(productPublicId, thumbnail);
+    return {
       storageKey: stored.storageKey,
       thumbnailStorageKey: thumbnailStored.storageKey,
       originalName: path.basename(file.originalname).slice(0, 180),
@@ -140,13 +146,10 @@ export async function sanitizeAndStoreProductImage({
         .createHash('sha256')
         .update(sanitized.data)
         .digest('hex'),
-      altText,
-      position,
-      status: 'ready',
-    });
+    };
   } catch (error) {
-    await deleteMediaObject(stored.storageKey).catch(() => {});
-    await deleteMediaObject(thumbnailStored.storageKey).catch(() => {});
+    if (stored) await deleteMediaObject(stored.storageKey).catch(() => {});
+    if (thumbnailStored) await deleteMediaObject(thumbnailStored.storageKey).catch(() => {});
     throw error;
   }
 }

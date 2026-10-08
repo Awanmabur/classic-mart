@@ -83,7 +83,7 @@ test('real login/session routes land every role in the approved UI; unauthorized
     if (role === 'super_admin') {
       for (const [workspace, rows] of Object.entries(DASHBOARD_PAGES)) {
         if (workspace === 'customer') continue;
-        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(['seller-store','moderator-sellers'].includes(id) ? 308 : ['seller','moderator'].includes(workspace) ? 503 : 200);
+        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(['seller-store','seller-products','seller-add-product','moderator-sellers','moderator-products'].includes(id) ? 308 : ['seller','moderator'].includes(workspace) ? 503 : 200);
       }
     }
   }

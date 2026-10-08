@@ -4,6 +4,14 @@ import path from 'node:path';
 import { env } from '../config/env.js';
 import { awsUriEncode, signAwsV4Request } from '../core/aws-sigv4.js';
 
+class MediaObjectNotFoundError extends Error {
+  constructor() {
+    super('Media object not found.');
+    this.name = 'MediaObjectNotFoundError';
+    this.code = 'MEDIA_OBJECT_NOT_FOUND';
+  }
+}
+
 export function normalizeMediaStorageKey(value) {
   const key = String(value || '').replaceAll('\\', '/').replace(/^\/+/, '');
   const segments = key.split('/');
@@ -62,7 +70,7 @@ async function r2Request(method, key, { body = Buffer.alloc(0), contentType = ''
       body: ['GET', 'HEAD', 'DELETE'].includes(method) ? undefined : payload,
       signal: controller.signal,
     });
-    if (response.status === 404) throw new MediaObjectNotFoundError(key);
+    if (response.status === 404) throw new MediaObjectNotFoundError();
     if (!response.ok) {
       const detail = (await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300);
       throw new Error(`R2 ${method} failed with HTTP ${response.status}${detail ? `: ${detail}` : ''}`);
@@ -103,7 +111,7 @@ export async function readMediaObject(key) {
   try {
     return { body: await fs.readFile(filesystemPath(safeKey)), contentType: 'application/octet-stream', etag: '' };
   } catch (error) {
-    if (error?.code === 'ENOENT') throw new MediaObjectNotFoundError(safeKey);
+    if (error?.code === 'ENOENT') throw new MediaObjectNotFoundError();
     throw error;
   }
 }

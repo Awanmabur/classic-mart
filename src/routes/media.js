@@ -1,14 +1,13 @@
 import { Router } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asyncHandler, AppError } from '../core/errors.js';
-import { hasPermission } from '../core/roles.js';
-import { Product, ProductMedia, Store } from '../models/index.js';
+import { asyncHandler } from '../core/errors.js';
 import { noStore } from '../middleware/request.js';
 import { isMediaObjectNotFound } from '../services/object-storage.js';
 import { sendVerificationDocument } from '../services/verification-media.js';
 import { sendStoredMedia } from '../services/media-delivery.js';
 import { readableVerificationDocument } from '../services/seller-verification.js';
+import { readableSellerProductImage } from '../services/seller-products.js';
 
 const router = Router();
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -27,16 +26,11 @@ async function sendFirstStoredMedia(response, keys, options) {
 }
 
 router.get('/media/catalogue/:publicId', asyncHandler(async (request, response) => {
-  const media = await ProductMedia.findOne({ publicId: request.params.publicId }).select('+storageKey +thumbnailStorageKey');
-  if (!media) throw new AppError('Media not found.', 404, 'MEDIA_NOT_FOUND');
-  const product = await Product.findById(media.productId).select('ownerUserId status countries');
-  const mayModerate = hasPermission(request.user, 'catalogue:moderate') && (request.user.role !== 'country_admin' || product?.countries.includes(request.user.country));
-  const isPublic = media.status === 'approved' && product?.status === 'published';
-  const mayPreview = isPublic || String(product?.ownerUserId) === String(request.user?._id) || mayModerate;
-  if (!mayPreview) throw new AppError('Media not found.', 404, 'MEDIA_NOT_FOUND');
+  const { media, isPublic } = await readableSellerProductImage(request.user, request.params.publicId);
+  if (!isPublic) response.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   const preferredKey = request.query.size === 'thumb' ? media.thumbnailStorageKey : media.storageKey;
   const sent = await sendFirstStoredMedia(response, [preferredKey, media.storageKey], {
-    cacheControl: isPublic ? 'public, max-age=300, stale-while-revalidate=3600' : 'private, no-store',
+    cacheControl: isPublic ? 'public, max-age=60, must-revalidate' : 'private, no-store',
     contentType: 'image/webp',
   });
   if (sent) return;

@@ -56,3 +56,15 @@ body:is([data-dashboard-workspace="seller"], [data-dashboard-workspace="moderato
 .seller-verification-declaration { display: flex !important; gap: 10px; align-items: flex-start; }
 .seller-verification-declaration input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex-shrink: 0; }
 .seller-verification-layout { margin-top: 18px; }
+.seller-product-filter { margin-bottom: 18px; }
+.seller-product-image { display: block; width: 100%; max-height: 240px; object-fit: contain; }
+.seller-product-media-card { min-width: 0; }
+.seller-product-action-form { margin-top: 12px; }
+.seller-product-variant-form + .seller-product-variant-form { padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--border); }
+.seller-product-lifecycle { display: grid; gap: 12px; }
+.seller-product-page :is(h1, h2, h3, td), .product-review-page :is(h1, h2, h3, td) { overflow-wrap: anywhere; }
+@media (max-width: 840px) {
+  .seller-product-page .role-table tr { grid-template-columns: minmax(0, 1fr); }
+  .seller-product-page .role-table td:last-child { grid-column: auto; display: grid; justify-content: normal; }
+  .seller-product-page .role-table td:last-child::before { display: block; }
+}

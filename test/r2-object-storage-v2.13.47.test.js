@@ -9,6 +9,7 @@ const storageSource=read('src/services/object-storage.js');
 const sigv4Source=read('src/core/aws-sigv4.js');
 const mediaSource=read('src/services/media.js');
 const mediaRoutes=read('src/routes/media.js');
+const productAccess=read('src/services/seller-products.js');
 const trustRoutes=read('src/routes/trust.js');
 const visualSearch=read('src/services/visual-search.js');
 const aiSource=read('src/services/ai.js');
@@ -54,8 +55,11 @@ test('catalogue and private evidence delivery stream from object storage behind 
   assert.doesNotMatch(mediaRoutes,/sendFile\(resolveUploadPath/);
   assert.match(trustRoutes,/sendStoredMedia/);
   assert.doesNotMatch(trustRoutes,/sendFile\(resolveUploadPath/);
-  assert.match(mediaRoutes,/media\.status === 'approved'/);
-  assert.match(mediaRoutes,/product\?\.status === 'published'/);
+  assert.match(mediaRoutes,/readableSellerProductImage\(request\.user, request\.params\.publicId\)/);
+  assert.match(productAccess,/media\.status === 'approved'/);
+  assert.match(productAccess,/product\.status === 'published'/);
+  assert.match(productAccess,/store\.status === 'verified'/);
+  assert.match(productAccess,/hasPublicProductApproval\(product, category, store\)/);
   assert.match(trustRoutes,/Evidence access denied/);
 });
 

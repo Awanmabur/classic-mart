@@ -71,7 +71,7 @@ async function reviewPage(request, response, error = '') {
   return response.render('approved-dashboard', { ...header, customerRoutes: { ...header.customerRoutes, 'moderator-sellers': '/moderation/verifications' },
     workspace: 'moderator', initialPage: 'moderator-sellers', allowedWorkspaces: allowedWorkspacesFor(request.user),
     liveSeller: { profileRole: 'Moderator', reviewFlow: { ...flow, error },
-      navigation: DASHBOARD_PAGES.moderator.map(row => ({ id: row[0], label: row[1], icon: row[2], href: routeForPage(row[0]), ready: row[0] === 'moderator-sellers' })) } });
+      navigation: DASHBOARD_PAGES.moderator.map(row => ({ id: row[0], label: row[1], icon: row[2], href: routeForPage(row[0]), ready: ['moderator-sellers', 'moderator-products'].includes(row[0]) })) } });
 }
 router.get('/moderation/verifications', ...reviewer, asyncHandler((request, response) => reviewPage(request, response)));
 router.get('/moderation/verifications/:publicId', ...reviewer, asyncHandler((request, response) => reviewPage(request, response)));

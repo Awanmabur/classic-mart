@@ -31,7 +31,7 @@ export async function processNotificationOutbox({ limit = 50, workerId=`notifica
   for(let i=0;i<Math.min(Math.max(Number(limit)||50,1),100);i++){
     const now=new Date();
     const event=await OutboxEvent.findOneAndUpdate(
-      {type:{$in:['marketing.campaign_message','store.broadcast','guest.order_access_code','platform.staff_invitation','seller.verification_notification']},availableAt:{$lte:now},$or:[{status:{$in:['pending','failed']}},{status:'processing',lockedUntil:{$lte:now}}]},
+      {type:{$in:['marketing.campaign_message','store.broadcast','guest.order_access_code','platform.staff_invitation','seller.verification_notification','catalogue.product_notification']},availableAt:{$lte:now},$or:[{status:{$in:['pending','failed']}},{status:'processing',lockedUntil:{$lte:now}}]},
       {$set:{status:'processing',lockedBy:workerId,lockedUntil:new Date(now.getTime()+leaseMs)},$inc:{attempts:1}},
       {sort:{createdAt:1},returnDocument:'after'},
     );

@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/design-system.css') %>" />
   <link rel="icon" type="image/png" href="/approved-dashboard/assets/classic-mart-icon.png" />
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/session.css') %>" />
-  <% if (sellerLive && !liveSeller.reviewFlow && !liveSeller.verificationFlow) { %><link rel="stylesheet" href="<%= assetUrl('/phone-country.css') %>" /><% } %>
+  <% if (sellerLive && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow) { %><link rel="stylesheet" href="<%= assetUrl('/phone-country.css') %>" /><% } %>
 </head>
 <body data-dashboard-live="<%= liveCustomer %>" data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= initialPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>">
   <meta name="csrf-token" content="<%= csrfToken %>">
@@ -91,7 +91,7 @@
     <aside class="sidebar" id="sidebar">
       <nav class="side-navigation">
         <% if (sellerLive) { for (const item of liveSeller.navigation) { %>
-        <% if (item.ready) { %><a class="side-link active" href="<%= item.href %>" data-page-target="<%= item.id %>"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></a><% } else { %><button class="side-link" type="button" disabled title="Not available yet"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></button><% } %>
+        <% if (item.ready) { %><a class="side-link <%= initialPage === item.id ? 'active' : '' %>" href="<%= item.href %>" data-page-target="<%= item.id %>"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></a><% } else { %><button class="side-link" type="button" disabled title="Not available yet"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></button><% } %>
         <% } } else { %>
         <a class="side-link active" href="/dashboard" data-page-target="dashboard"><svg><use href="#i-grid"></use></svg><span>Dashboard</span></a>
         <a class="side-link" href="/orders" data-page-target="orders"><svg><use href="#i-clipboard"></use></svg><span>My Orders</span></a>
@@ -120,7 +120,7 @@
     <main class="dashboard page-host" id="pageHost">
 <% if (!liveCustomer) { %><div class="panel dashboard-message" role="note">Development preview: this workspace is not connected to live operations yet.</div><% } %>
 <% if (flash?.message) { %><div class="panel dashboard-message <%= flash.type==='error'?'dashboard-message-error':'' %>" role="<%= flash.type==='error'?'alert':'status' %>"><%= flash.message %></div><% } %>
-<% if (sellerLive && liveSeller.reviewFlow) { %><%- include('partials/verification-review-live') %><% } else if (sellerLive && liveSeller.verificationFlow) { %><%- include('partials/seller-verification-live') %><% } else if (sellerLive) { %><%- include('partials/seller-store-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
+<% if (sellerLive && liveSeller.productFlow) { %><%- include('partials/seller-products-live') %><% } else if (sellerLive && liveSeller.productReviewFlow) { %><%- include('partials/product-review-live') %><% } else if (sellerLive && liveSeller.reviewFlow) { %><%- include('partials/verification-review-live') %><% } else if (sellerLive && liveSeller.verificationFlow) { %><%- include('partials/seller-verification-live') %><% } else if (sellerLive) { %><%- include('partials/seller-store-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
 </main>
   </div>
 
@@ -158,6 +158,6 @@
   <script src="<%= assetUrl('/approved-dashboard/enhancements.js') %>"></script>
   <script src="<%= assetUrl('/approved-dashboard/session-controls.js') %>"></script><% } else { %><script defer src="<%= assetUrl('/approved-dashboard/customer-live.js') %>"></script><script defer src="<%= assetUrl('/approved-dashboard/customer-navigation.js') %>"></script><% } %>
   <% if (sellerLive) { %><script defer src="<%= assetUrl('/approved-dashboard/seller-store-live.js') %>"></script><% } %>
-  <% if (sellerLive && !liveSeller.reviewFlow && !liveSeller.verificationFlow) { %><script defer src="<%= assetUrl('/phone-country.js') %>"></script><% } %>
+  <% if (sellerLive && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow) { %><script defer src="<%= assetUrl('/phone-country.js') %>"></script><% } %>
 </body>
 </html>

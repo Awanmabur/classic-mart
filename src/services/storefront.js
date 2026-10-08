@@ -23,6 +23,62 @@ function key(value) {
   return String(value);
 }
 
+export function hasPublicProductApproval(product, category, store) {
+  if (!product || !category) return false;
+  const review = product.moderation || {};
+  if (!category.restricted && review.riskLevel !== 'high' && !review.secondReviewRequired) return true;
+  const first = review.firstApprovalByUserId;
+  const final = review.reviewedByUserId;
+  return review.secondReviewRequired === false && Boolean(first && final)
+    && key(first) !== key(final)
+    && ![product.ownerUserId, store?.ownerUserId].filter(Boolean).some((owner) => key(owner) === key(first) || key(owner) === key(final));
+}
+
+function eligibleProduct(product, category, store, brand, country) {
+  return product.status === 'published' && product.countries?.includes(country.code)
+    && category?.active === true && (!category.countries?.length || category.countries.includes(country.code))
+    && store?.status === 'verified' && store.country === country.code && store.currency === country.currency
+    && (!product.brandId || (brand?.status === 'approved' && key(brand._id) === key(product.brandId)))
+    && hasPublicProductApproval(product, category, store);
+}
+
+function publicEligibilityStages(country) {
+  return [
+    { $lookup: { from: 'categories', localField: 'categoryId', foreignField: '_id', as: '_publicCategory' } },
+    { $unwind: '$_publicCategory' },
+    { $match: { '_publicCategory.active': true, $or: [{ '_publicCategory.countries': { $size: 0 } }, { '_publicCategory.countries': country.code }] } },
+    { $lookup: { from: 'stores', localField: 'storeId', foreignField: '_id', as: '_publicStore' } },
+    { $unwind: '$_publicStore' },
+    { $match: { '_publicStore.status': 'verified', '_publicStore.country': country.code, '_publicStore.currency': country.currency } },
+    { $lookup: { from: 'brands', localField: 'brandId', foreignField: '_id', as: '_publicBrand' } },
+    { $match: { $or: [{ brandId: null }, { '_publicBrand.status': 'approved' }] } },
+    { $match: { $expr: { $or: [
+      { $and: [{ $ne: ['$_publicCategory.restricted', true] }, { $ne: ['$moderation.riskLevel', 'high'] }, { $ne: ['$moderation.secondReviewRequired', true] }] },
+      { $and: [
+        { $eq: ['$moderation.secondReviewRequired', false] },
+        { $ne: [{ $ifNull: ['$moderation.firstApprovalByUserId', null] }, null] },
+        { $ne: [{ $ifNull: ['$moderation.reviewedByUserId', null] }, null] },
+        { $ne: ['$moderation.firstApprovalByUserId', '$moderation.reviewedByUserId'] },
+        { $ne: ['$moderation.firstApprovalByUserId', '$ownerUserId'] },
+        { $ne: ['$moderation.reviewedByUserId', '$ownerUserId'] },
+        { $ne: ['$moderation.firstApprovalByUserId', '$_publicStore.ownerUserId'] },
+        { $ne: ['$moderation.reviewedByUserId', '$_publicStore.ownerUserId'] },
+      ] },
+    ] } } },
+    { $lookup: {
+      from: 'productvariants', let: { productId: '$_id', storeId: '$storeId' },
+      pipeline: [{ $match: { active: true, currency: country.currency, priceMinor: { $gt: 0 }, $expr: { $and: [{ $eq: ['$productId', '$$productId'] }, { $eq: ['$storeId', '$$storeId'] }, { $eq: [{ $mod: ['$priceMinor', 1] }, 0] }] } } }, { $limit: 1 }, { $project: { _id: 1 } }],
+      as: '_publicVariant',
+    } },
+    { $match: { '_publicVariant.0': { $exists: true } } },
+  ];
+}
+
+async function eligibleProductCount(scope, country) {
+  const [row] = await Product.aggregate([{ $match: scope }, ...publicEligibilityStages(country), { $count: 'count' }]);
+  return row?.count || 0;
+}
+
 function currencyDigits(currency) {
   try {
     return new Intl.NumberFormat('en', {
@@ -88,11 +144,15 @@ export function assembleStorefront({
 
   const normalizedProducts = [];
   for (const product of products) {
-    const productVariants = variantsByProduct.get(key(product._id)) || [];
-    const primaryVariant = productVariants[0];
     const store = storeById.get(key(product.storeId));
     const category = categoryById.get(key(product.categoryId));
-    if (!primaryVariant || !store || !category) continue;
+    const brand = brandById.get(key(product.brandId));
+    if (!eligibleProduct(product, category, store, brand, country)) continue;
+    const productVariants = (variantsByProduct.get(key(product._id)) || []).filter((variant) => variant.active === true
+      && key(variant.storeId) === key(store._id) && variant.currency === country.currency
+      && Number.isSafeInteger(variant.priceMinor) && variant.priceMinor > 0);
+    const primaryVariant = productVariants[0];
+    if (!primaryVariant) continue;
 
     const productMedia = mediaByProduct.get(key(product._id)) || [];
     const available = productVariants.reduce(
@@ -105,7 +165,6 @@ export function assembleStorefront({
       price,
       majorUnits(primaryVariant.compareAtMinor, currency),
     );
-    const brand = brandById.get(key(product.brandId));
     const metrics = metricsByProduct.get(key(product._id)) || { rating: 0, reviews: 0, sold: 0 };
     const publicVariants = productVariants.map((variant) => ({
       id: variant.publicId,
@@ -203,7 +262,7 @@ export function assembleStorefront({
     }
   }
 
-  const publicCategories = categories.map((category) => ({
+  const publicCategories = categories.filter((category) => !category.restricted || productCountByCategory.has(category.slug)).map((category) => ({
     id: category.slug,
     publicId: category.publicId,
     name: category.name,
@@ -284,19 +343,29 @@ export function assembleStorefront({
   };
 }
 
-async function stockAvailability(variantIds) {
+export async function fulfillableStockAvailability(variants, countryCode, { session = null } = {}) {
+  const variantIds = variants.map((variant) => variant._id);
   if (!variantIds.length) return [];
-  return StockItem.aggregate([
+  const aggregate = StockItem.aggregate([
     { $match: { variantId: { $in: variantIds } } },
+    { $lookup: { from: 'warehouses', localField: 'warehouseId', foreignField: '_id', as: 'warehouse' } },
+    { $unwind: '$warehouse' },
+    { $match: { 'warehouse.active': true, 'warehouse.country': countryCode, $expr: { $eq: ['$warehouse.storeId', '$storeId'] } } },
+    { $lookup: { from: 'productvariants', localField: 'variantId', foreignField: '_id', as: 'variant' } },
+    { $unwind: '$variant' },
+    { $match: { 'variant.active': true, $expr: { $eq: ['$variant.storeId', '$storeId'] } } },
     {
       $group: {
         _id: '$variantId',
         available: {
-          $sum: { $max: [0, { $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }] },
+          // A checkout line is reserved in one warehouse; separate warehouses cannot fulfill one line together.
+          $max: { $max: [0, { $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }] },
         },
       },
     },
   ]);
+  if (session) aggregate.session(session);
+  return aggregate;
 }
 
 async function hydrateProducts(products, country, { brandMetrics = [] } = {}) {
@@ -304,7 +373,6 @@ async function hydrateProducts(products, country, { brandMetrics = [] } = {}) {
   if (!productIds.length) {
     const categories = await Category.find({
       active: true,
-      restricted: false,
       $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: country.code }],
     })
       .sort({ name: 1 })
@@ -334,10 +402,9 @@ async function hydrateProducts(products, country, { brandMetrics = [] } = {}) {
       .lean(),
   ]);
   const [stock, categories, brands, stores, reviewMetrics, salesMetrics] = await Promise.all([
-    stockAvailability(variants.map((variant) => variant._id)),
+    fulfillableStockAvailability(variants, country.code),
     Category.find({
       active: true,
-      restricted: false,
       $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: country.code }],
     })
       .sort({ name: 1 })
@@ -346,6 +413,8 @@ async function hydrateProducts(products, country, { brandMetrics = [] } = {}) {
     Store.find({
       _id: mongoose.trusted({ $in: products.map((product) => product.storeId) }),
       status: 'verified',
+      country: country.code,
+      currency: country.currency,
     }).lean(),
     Review.aggregate([
       { $match: { productId: { $in: productIds }, status: 'published', verifiedPurchase: true } },
@@ -391,6 +460,7 @@ async function loadStorefront(country) {
       .lean(),
     Product.aggregate([
       { $match: { status: 'published', countries: country.code, brandId: { $ne: null } } },
+      ...publicEligibilityStages(country),
       { $group: { _id: '$brandId', count: { $sum: 1 } } },
     ]),
   ]);
@@ -443,7 +513,7 @@ export async function searchStorefront(
   const base = { status: 'published', countries: country.code };
 
   if (category) {
-    const row = await Category.findOne({ slug: category, active: true, restricted: false, $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: country.code }] }).select('_id').lean();
+    const row = await Category.findOne({ slug: category, active: true, $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: country.code }] }).select('_id').lean();
     if (!row) return hydrateProducts([], country);
     base.categoryId = row._id;
   }
@@ -453,7 +523,7 @@ export async function searchStorefront(
     base.brandId = row._id;
   }
   if (seller) {
-    const row = await Store.findOne({ slug: seller, status: 'verified' }).select('_id').lean();
+    const row = await Store.findOne({ slug: seller, status: 'verified', country: country.code, currency: country.currency }).select('_id').lean();
     if (!row) return hydrateProducts([], country);
     base.storeId = row._id;
   }
@@ -463,7 +533,7 @@ export async function searchStorefront(
   if (!trimmedQuery) {
     [products, totalResults] = await Promise.all([
       Product.find(base).sort({ publishedAt: -1, _id: -1 }).limit(80).lean(),
-      Product.countDocuments(base),
+      eligibleProductCount(base, country),
     ]);
   } else {
     const normalize = (value) => String(value || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -482,7 +552,7 @@ export async function searchStorefront(
     try {
       [textRows, totalResults] = await Promise.all([
         Product.find(textFilter, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' }, publishedAt: -1 }).limit(120).lean(),
-        Product.countDocuments(textFilter),
+        eligibleProductCount(textFilter, country),
       ]);
     } catch {
       // Text indexes can be unavailable briefly during first-start index creation.
@@ -503,15 +573,17 @@ export async function searchStorefront(
     // Bounded typo recovery is used only when the indexed search produced no candidates.
     if (!combined.size && tokens.length) {
       const prefix = tokens[0].slice(0, Math.max(2, tokens[0].length - 1)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const fallbackRows = await Product.find({ ...base, title: new RegExp(prefix, 'i') }).sort({ publishedAt: -1 }).limit(80).lean();
+      const fallbackScope = { ...base, title: new RegExp(prefix, 'i') };
+      const fallbackRows = await Product.find(fallbackScope).sort({ publishedAt: -1 }).limit(80).lean();
       for (const row of fallbackRows) combined.set(key(row._id), { ...row, _searchScore: 1 });
-      totalResults = fallbackRows.length;
+      totalResults = await eligibleProductCount(fallbackScope, country);
     }
     products = [...combined.values()].sort((a, b) => Number(b._searchScore || 0) - Number(a._searchScore || 0) || new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0)).slice(0, 80);
-    totalResults = Math.max(totalResults, combined.size);
   }
 
   const hydrated = await hydrateProducts(products, country);
+  // Exact-identifier matches may add public products outside the full-text results.
+  totalResults = Math.max(totalResults, hydrated.products.length);
   return { ...hydrated, totalResults, generatedAt: new Date().toISOString() };
 }
 
@@ -537,8 +609,8 @@ export async function publishedSellers(country, { after = '', limit = 50 } = {})
   const pageSize=Math.min(Math.max(Number(limit)||50,10),100),countryCode=country.code;
   const cursor=decodeCursor(after,{type:'date'});
   const common=[
-    {$match:{status:'verified',country:countryCode}},
-    {$lookup:{from:'products',let:{storeId:'$_id'},pipeline:[{$match:{$expr:{$and:[{$eq:['$storeId','$$storeId']},{$eq:['$status','published']},{$in:[countryCode,'$countries']}]}}},{$count:'count'}],as:'productStats'}},
+    {$match:{status:'verified',country:countryCode,currency:country.currency}},
+    {$lookup:{from:'products',let:{storeId:'$_id'},pipeline:[{$match:{status:'published',countries:countryCode,$expr:{$eq:['$storeId','$$storeId']}}},...publicEligibilityStages(country),{$count:'count'}],as:'productStats'}},
     {$set:{productCount:{$ifNull:[{$arrayElemAt:['$productStats.count',0]},0]}}},
     {$match:{productCount:{$gt:0}}},
   ];
@@ -557,12 +629,12 @@ export async function publishedSellers(country, { after = '', limit = 50 } = {})
 }
 
 export async function publishedSeller(slug, country, { after = '', limit = 50 } = {}) {
-  const store=await Store.findOne({slug:String(slug),status:'verified',country:country.code}).lean();
+  const store=await Store.findOne({slug:String(slug),status:'verified',country:country.code,currency:country.currency}).lean();
   if(!store)return null;
   const base={storeId:store._id,status:'published',countries:country.code},pageSize=Math.min(Math.max(Number(limit)||50,10),100);
   const [rows,total]=await Promise.all([
-    Product.find(cursorScope(base,after,{field:'publishedAt',direction:-1,type:'date'})).sort({publishedAt:-1,_id:-1}).limit(pageSize+1).lean(),
-    Product.countDocuments(base),
+    Product.aggregate([{$match:cursorScope(base,after,{field:'publishedAt',direction:-1,type:'date'})},...publicEligibilityStages(country),{$sort:{publishedAt:-1,_id:-1}},{$limit:pageSize+1}]),
+    eligibleProductCount(base, country),
   ]);
   if(!total)return null;
   const productPage=pageResult(rows,{field:'publishedAt',direction:-1,type:'date',limit:pageSize,total});

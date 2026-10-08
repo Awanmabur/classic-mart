@@ -99,13 +99,14 @@ test('customer dashboard data, addresses and notifications persist and isolate a
     assert.match((await agent.get('/profile').expect(200)).text,/Customer Updated/);
 
     const suffix = crypto.randomBytes(8).toString('hex');
-    const categoryId = new mongoose.Types.ObjectId(), storeId = new mongoose.Types.ObjectId(), productId = new mongoose.Types.ObjectId(), variantId = new mongoose.Types.ObjectId();
+    const categoryId = new mongoose.Types.ObjectId(), storeId = new mongoose.Types.ObjectId(), productId = new mongoose.Types.ObjectId(), variantId = new mongoose.Types.ObjectId(), warehouseId = new mongoose.Types.ObjectId();
     const productPublicId = 'prd_' + suffix, variantPublicId = 'var_' + suffix;
     await db.collection('stores').insertOne({_id:storeId,publicId:'sto_'+suffix,ownerUserId:new mongoose.Types.ObjectId(),name:'Verification Store',slug:'verification-'+suffix,country:'UG',currency:'UGX',status:'verified'});
     await db.collection('categories').insertOne({_id:categoryId,publicId:'cat_'+suffix,name:'Verification Category',slug:'verification-'+suffix,active:true,restricted:false,countries:['UG']});
     await db.collection('products').insertOne({_id:productId,publicId:productPublicId,storeId,ownerUserId:user._id,categoryId,title:'Account scoped cart product',slug:'verification-'+suffix,description:'Verification product',countries:['UG'],status:'published',tags:[],createdAt:new Date(),publishedAt:new Date()});
     await db.collection('productvariants').insertOne({_id:variantId,publicId:variantPublicId,productId,storeId,sku:'TEST-'+suffix,title:'Default',priceMinor:15000,currency:'UGX',active:true});
-    await db.collection('stockitems').insertOne({publicId:'stk_'+suffix,storeId,warehouseId:new mongoose.Types.ObjectId(),variantId,onHand:5,reserved:0,damaged:0,quarantined:0});
+    await db.collection('warehouses').insertOne({_id:warehouseId,publicId:'whs_'+suffix,storeId,ownerUserId:user._id,name:'Verification Warehouse',country:'UG',city:'Kampala',address:'Verification warehouse street',active:true});
+    await db.collection('stockitems').insertOne({publicId:'stk_'+suffix,storeId,warehouseId,variantId,onHand:5,reserved:0,damaged:0,quarantined:0});
     const cartPage = await agent.get('/cart').expect(200);
     const headers = {'x-csrf-token':csrf(cartPage.text)};
     await agent.post('/api/v1/storefront/wishlist/'+productPublicId).set(headers).send({}).expect(201);
@@ -132,6 +133,7 @@ test('customer dashboard data, addresses and notifications persist and isolate a
     await agent.delete('/api/v1/storefront/wishlist/'+productPublicId).set(headers).expect(200);
     assert.doesNotMatch((await agent.get('/wishlist').expect(200)).text,/Account scoped cart product/);
     await db.collection('stockitems').deleteMany({variantId});
+    await db.collection('warehouses').deleteOne({_id:warehouseId,storeId});
     await db.collection('productvariants').deleteOne({_id:variantId});
     await db.collection('products').deleteOne({_id:productId});
     await db.collection('stores').deleteOne({_id:storeId});

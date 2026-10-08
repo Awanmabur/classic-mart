@@ -8,9 +8,12 @@ import { orderDisplayStatus, syncLegacyOrderStatus } from './order-state.js';
 import { promotionQuote } from './seller-growth.js';
 import { publicProductImageUrl } from './product-media-url.js';
 import { allocateSellerLineSettlement } from './money.js';
+import { fulfillableStockAvailability, hasPublicProductApproval } from './storefront.js';
 import {
+  Brand,
   BusinessInvoice,
   Cart,
+  Category,
   CountrySetting,
   DeliveryOffer,
   InventoryMovement,
@@ -29,6 +32,7 @@ import {
   ShippingZone,
   StockItem,
   Store,
+  Warehouse,
 } from '../models/index.js';
 
 const RESERVATION_MS = 15 * 60 * 1000;
@@ -160,24 +164,45 @@ export async function getOrCreateCart(request) {
   } finally { await session.endSession(); }
 }
 
+async function purchasableContext(product, countryCode, { session = null } = {}) {
+  if (!product || product.status !== 'published' || !product.countries?.includes(countryCode)) return null;
+  const queries = [
+    () => Store.findOne({ _id: product.storeId, status: 'verified', country: countryCode }).session(session).lean(),
+    () => Category.findOne({ _id: product.categoryId, active: true, $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: countryCode }] }).session(session).lean(),
+    () => product.brandId ? Brand.findOne({ _id: product.brandId, status: 'approved' }).session(session).lean() : null,
+    () => CountrySetting.findOne({ code: countryCode, active: true }).session(session).lean(),
+  ];
+  // MongoDB does not support concurrent operations within a single transaction.
+  const rows = [];
+  if (session) { for (const query of queries) rows.push(await query()); }
+  else rows.push(...await Promise.all(queries.map((query) => query())));
+  const [store, category, brand, setting] = rows;
+  if (!store || !category || !setting || store.currency !== setting.currency || (product.brandId && !brand)
+    || !hasPublicProductApproval(product, category, store)) return null;
+  return { store, category, currency: setting.currency };
+}
+
+function matchesSellableVariant(variant, product, context) {
+  return variant?.active === true && String(variant.productId) === String(product._id)
+    && String(variant.storeId) === String(context.store._id) && variant.currency === context.currency
+    && Number.isSafeInteger(variant.priceMinor) && variant.priceMinor > 0;
+}
+
 async function resolveSellable(productPublicId, variantPublicId, countryCode) {
   const product = await Product.findOne({
     publicId: productPublicId,
     status: 'published',
     countries: countryCode,
   }).lean();
-  if (!product) throw new AppError('Product is unavailable.', 404, 'PRODUCT_UNAVAILABLE');
+  const context = await purchasableContext(product, countryCode);
+  if (!context) throw new AppError('Product is unavailable.', 404, 'PRODUCT_UNAVAILABLE');
 
   const variant = variantPublicId
-    ? await ProductVariant.findOne({ publicId: variantPublicId, productId: product._id, active: true }).lean()
-    : await ProductVariant.findOne({ productId: product._id, active: true }).sort({ priceMinor: 1 }).lean();
-  if (!variant) throw new AppError('No sellable variant is available.', 409, 'VARIANT_UNAVAILABLE');
+    ? await ProductVariant.findOne({ publicId: variantPublicId, productId: product._id, storeId: product.storeId, currency: context.currency, active: true }).lean()
+    : await ProductVariant.findOne({ productId: product._id, storeId: product.storeId, currency: context.currency, active: true }).sort({ priceMinor: 1, _id: 1 }).lean();
+  if (!matchesSellableVariant(variant, product, context)) throw new AppError('No sellable variant is available.', 409, 'VARIANT_UNAVAILABLE');
 
-  const stock = await StockItem.aggregate([
-    { $match: { variantId: variant._id } },
-    { $group: { _id: '$variantId', onHand: { $sum: '$onHand' }, reserved: { $sum: '$reserved' }, damaged: { $sum: '$damaged' }, quarantined: { $sum: '$quarantined' } } },
-    { $project: { available: { $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] } } },
-  ]);
+  const stock = await fulfillableStockAvailability([variant], countryCode);
   if (!stock[0] || stock[0].available <= 0) throw new AppError('This item is out of stock.', 409, 'OUT_OF_STOCK');
   return { product, variant, available: stock[0].available };
 }
@@ -188,6 +213,7 @@ export async function addCartItem(request, { productId, variantId, quantity }) {
   const requested = Math.max(1, Math.min(99, Number(quantity) || 1));
   const existing = cart.items.find(item => item.variantId.equals(sellable.variant._id));
   const nextQuantity = Number(existing?.quantity || 0) + requested;
+  if (nextQuantity > 99) throw new AppError('A cart option can contain at most 99 items.', 422, 'CART_QUANTITY_LIMIT');
   if (nextQuantity > sellable.available) {
     throw new AppError(`Only ${sellable.available} item(s) are available for this option.`, 409, 'INSUFFICIENT_STOCK');
   }
@@ -205,11 +231,10 @@ export async function setCartItemQuantity(request, variantPublicId, quantity) {
   if (!item) throw new AppError('Cart item was not found.', 404, 'CART_ITEM_NOT_FOUND');
   if (quantity <= 0) cart.items = cart.items.filter(entry => !entry.variantId.equals(variant._id));
   else {
-    const stock = await StockItem.aggregate([
-      { $match: { variantId: variant._id } },
-      { $group: { _id: null, onHand: { $sum: '$onHand' }, reserved: { $sum: '$reserved' }, damaged: { $sum: '$damaged' }, quarantined: { $sum: '$quarantined' } } },
-      { $project: { available: { $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] } } },
-    ]);
+    const product = await Product.findById(item.productId).lean();
+    const context = await purchasableContext(product, request.country.code);
+    if (!context || !matchesSellableVariant(variant, product, context)) throw new AppError('Cart item is unavailable.', 409, 'CART_CHANGED');
+    const stock = await fulfillableStockAvailability([variant], request.country.code);
     const available = stock[0]?.available || 0;
     if (quantity > available) throw new AppError(`Only ${available} item(s) are available.`, 409, 'INSUFFICIENT_STOCK');
     item.quantity = Math.min(quantity, 99);
@@ -260,21 +285,26 @@ export async function cartView(cart) {
   const cartItems = Array.from(cart.items || []);
   const variantIds = cartItems.map((item) => item.variantId);
   const productIds = cartItems.map((item) => item.productId);
-  const [variants, products, media, stock] = await Promise.all([
+  const [variants, products, media, setting] = await Promise.all([
     variantIds.length ? ProductVariant.find({ _id: mongoose.trusted({ $in: variantIds }), active: true }).lean() : [],
     productIds.length ? Product.find({ _id: mongoose.trusted({ $in: productIds }), status: 'published', countries: cart.country }).lean() : [],
     productIds.length ? ProductMedia.find({ productId: mongoose.trusted({ $in: productIds }), status: 'approved' }).sort({ productId: 1, position: 1, createdAt: 1 }).lean() : [],
-    variantIds.length ? StockItem.aggregate([
-      { $match: { variantId: { $in: variantIds } } },
-      { $group: { _id: '$variantId', onHand: { $sum: '$onHand' }, reserved: { $sum: '$reserved' }, damaged: { $sum: '$damaged' }, quarantined: { $sum: '$quarantined' } } },
-      { $project: { available: { $max: [0, { $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }] } } },
-    ]) : [],
+    CountrySetting.findOne({ code: cart.country, active: true }).lean(),
   ]);
-  const storeIds = [...new Set(variants.map((row) => String(row.storeId)))].map((id) => new mongoose.Types.ObjectId(id));
-  const stores = storeIds.length ? await Store.find({ _id: mongoose.trusted({ $in: storeIds }), status: 'verified' }).lean() : [];
+  const storeIds = [...new Set(products.map((row) => String(row.storeId)))].map((id) => new mongoose.Types.ObjectId(id));
+  const categoryIds = [...new Set(products.map((row) => String(row.categoryId)))].map((id) => new mongoose.Types.ObjectId(id));
+  const brandIds = [...new Set(products.map((row) => row.brandId && String(row.brandId)).filter(Boolean))].map((id) => new mongoose.Types.ObjectId(id));
+  const [stores, categories, brands, stock] = await Promise.all([
+    storeIds.length ? Store.find({ _id: mongoose.trusted({ $in: storeIds }), status: 'verified', country: cart.country, currency: setting?.currency }).lean() : [],
+    categoryIds.length ? Category.find({ _id: mongoose.trusted({ $in: categoryIds }), active: true, $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: cart.country }] }).lean() : [],
+    brandIds.length ? Brand.find({ _id: mongoose.trusted({ $in: brandIds }), status: 'approved' }).lean() : [],
+    fulfillableStockAvailability(variants, cart.country),
+  ]);
   const variantById = new Map(variants.map((row) => [String(row._id), row]));
   const productById = new Map(products.map((row) => [String(row._id), row]));
   const storeById = new Map(stores.map((row) => [String(row._id), row]));
+  const categoryById = new Map(categories.map((row) => [String(row._id), row]));
+  const brandById = new Map(brands.map((row) => [String(row._id), row]));
   const mediaByProduct = new Map();
   for (const row of media) if (!mediaByProduct.has(String(row.productId))) mediaByProduct.set(String(row.productId), row);
   const stockByVariant = new Map(stock.map((row) => [String(row._id), Math.max(0, Number(row.available || 0))]));
@@ -284,8 +314,11 @@ export async function cartView(cart) {
     const variant = variantById.get(String(item.variantId));
     const product = productById.get(String(item.productId));
     if (!variant || !product) continue;
-    const store = storeById.get(String(variant.storeId));
-    if (!store) continue;
+    const store = storeById.get(String(product.storeId));
+    const category = categoryById.get(String(product.categoryId));
+    if (!setting || !store || !category || (product.brandId && !brandById.has(String(product.brandId)))
+      || !hasPublicProductApproval(product, category, store)
+      || !matchesSellableVariant(variant, product, { store, currency: setting.currency })) continue;
     const productMedia = mediaByProduct.get(String(product._id));
     rows.push({
       productId: product.publicId,
@@ -305,7 +338,7 @@ export async function cartView(cart) {
   }
   const currencies = new Set(rows.map((row) => row.currency));
   if (currencies.size > 1) throw new AppError('Cart contains mixed currencies. Remove out-of-country items and try again.', 409, 'CART_CURRENCY_CONFLICT');
-  const currency = rows[0]?.currency || (cart.country === 'UG' ? 'UGX' : 'USD');
+  const currency = rows[0]?.currency || setting?.currency || (cart.country === 'UG' ? 'UGX' : 'USD');
   const subtotalMinor = rows.reduce((sum, item) => sum + item.priceMinor * item.quantity, 0);
   const promotions = await promotionQuote({ rows, country: cart.country, codes: cart.promotionCodes || [] });
   const discountMinor = Math.min(subtotalMinor, promotions.discountMinor);
@@ -371,6 +404,7 @@ export async function reviewCheckout(request, input) {
   const cart = await getOrCreateCart(request);
   const view = await cartView(cart);
   if (!view.items.length) throw new AppError('Your cart is empty.', 409, 'CART_EMPTY');
+  if (view.items.length !== cart.items.length) throw new AppError('A cart item is no longer available. Update the cart before checking out.', 409, 'CART_CHANGED');
   const currencies = new Set(view.items.map(item => item.currency));
   if (currencies.size !== 1) throw new AppError('Cart items must use one checkout currency.', 409, 'CURRENCY_CONFLICT');
   for (const item of view.items) if (item.quantity > item.available) throw new AppError(`${item.name} no longer has enough stock.`, 409, 'INSUFFICIENT_STOCK');
@@ -418,14 +452,18 @@ export async function placeOrder(request, input) {
     await session.withTransaction(async () => {
       const freshCart = await Cart.findById(cart._id).session(session);
       if (!freshCart?.items.length) throw new AppError('Your cart is empty.', 409, 'CART_EMPTY');
+      if (freshCart.country !== request.country.code) throw new AppError('The selected country changed. Review checkout again.', 409, 'CART_CHANGED');
       const orderItems = [];
       for (const item of freshCart.items) {
+        if (!Number.isSafeInteger(item.quantity) || item.quantity < 1 || item.quantity > 99) throw new AppError('A cart quantity is invalid.', 409, 'CART_CHANGED');
         const variant = await ProductVariant.findById(item.variantId).session(session).lean();
         const product = await Product.findById(item.productId).session(session).lean();
-        const store = variant ? await Store.findById(variant.storeId).session(session).lean() : null;
-        if (!variant?.active || !product || product.status !== 'published' || !store) throw new AppError('A cart item is no longer available.', 409, 'CART_CHANGED');
+        const context = await purchasableContext(product, request.country.code, { session });
+        if (!context || !matchesSellableVariant(variant, product, context)) throw new AppError('A cart item is no longer available.', 409, 'CART_CHANGED');
+        const store = context.store;
+        const warehouses = await Warehouse.find({ storeId: store._id, active: true, country: request.country.code }).select('_id').session(session).lean();
         const stock = await StockItem.findOneAndUpdate(
-          mongoose.trusted({ variantId: variant._id, storeId: variant.storeId, $expr: { $gte: [{ $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }, item.quantity] } }),
+          mongoose.trusted({ variantId: variant._id, storeId: store._id, warehouseId: { $in: warehouses.map((warehouse) => warehouse._id) }, $expr: { $gte: [{ $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }, item.quantity] } }),
           { $inc: { reserved: item.quantity } },
           { returnDocument: 'after', session },
         );
