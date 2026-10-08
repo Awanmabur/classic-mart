@@ -58,14 +58,14 @@
 <span>Referral code <small>(optional)</small></span>
 <span class="auth-input-wrap"><img alt="" src="/assets/icons/gift.svg"/><input autocomplete="off" maxlength="24" name="referralCode" placeholder="e.g. CM12AB34CD" type="text" value="<%= values.referralCode || '' %>"/></span>
 </label>
-<label class="auth-field">
-<span>Create password</span>
-<span class="auth-input-wrap"><img alt="" src="/assets/icons/lock.svg"/><input autocomplete="new-password" id="signUpPassword" maxlength="128" minlength="12" name="password" placeholder="12+ characters, mixed case and a number" required="" type="password"/><button aria-label="Show password" class="password-toggle" data-password-toggle="signUpPassword" type="button"><img alt="" src="/assets/icons/eye.svg"/></button></span>
-</label>
-<label class="auth-field">
-<span>Confirm password</span>
-<span class="auth-input-wrap"><img alt="" src="/assets/icons/lock.svg"/><input autocomplete="new-password" id="signUpConfirmPassword" maxlength="128" minlength="12" name="confirmPassword" placeholder="Repeat your password" required="" type="password"/><button aria-label="Show password" class="password-toggle" data-password-toggle="signUpConfirmPassword" type="button"><img alt="" src="/assets/icons/eye.svg"/></button></span>
-</label>
+<div class="auth-field">
+<label class="auth-field-label" for="signUpPassword">Create password</label>
+<span class="auth-input-wrap"><img alt="" src="/assets/icons/lock.svg"/><input autocomplete="new-password" id="signUpPassword" maxlength="128" minlength="12" name="password" placeholder="12+ characters, mixed case and a number" required="" type="password"/><button aria-controls="signUpPassword" aria-label="Show password" class="password-toggle" data-password-toggle="signUpPassword" type="button"><img alt="" src="/assets/icons/eye.svg"/></button></span>
+</div>
+<div class="auth-field">
+<label class="auth-field-label" for="signUpConfirmPassword">Confirm password</label>
+<span class="auth-input-wrap"><img alt="" src="/assets/icons/lock.svg"/><input autocomplete="new-password" id="signUpConfirmPassword" maxlength="128" minlength="12" name="confirmPassword" placeholder="Repeat your password" required="" type="password"/><button aria-controls="signUpConfirmPassword" aria-label="Show password" class="password-toggle" data-password-toggle="signUpConfirmPassword" type="button"><img alt="" src="/assets/icons/eye.svg"/></button></span>
+</div>
 <label class="auth-check"><input id="acceptTerms" name="acceptTerms" required="" type="checkbox"/>I agree to the Terms of Service and Privacy Policy.</label>
 <label class="auth-check"><input name="marketing" type="checkbox"/>Send me useful offers (optional).</label>
 <p aria-live="polite" class="auth-message<%= pageError ? ' error' : '' %>" id="authMessage" role="status"><%= pageError || '' %></p>

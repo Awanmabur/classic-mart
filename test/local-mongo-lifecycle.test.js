@@ -14,10 +14,19 @@ test('external development resolves the configured Atlas URI without rewriting i
     '',
   ].join('\n');
   assert.equal(projectMongoMode({ nodeEnv: 'development', source }), 'external');
-  assert.equal(
-    projectMongoUri({ nodeEnv: 'development', source }),
-    'mongodb+srv://user:password@example.mongodb.net/classic-mart-dev',
-  );
+  // This test supplies a file fixture; the runner's live MongoDB URI must not
+  // take precedence over that fixture or leak into the assertion output.
+  const originalProcessMongoUri = process.env.MONGO_URI;
+  delete process.env.MONGO_URI;
+  try {
+    assert.equal(
+      projectMongoUri({ nodeEnv: 'development', source }),
+      'mongodb+srv://user:password@example.mongodb.net/classic-mart-dev',
+    );
+  } finally {
+    if (originalProcessMongoUri === undefined) delete process.env.MONGO_URI;
+    else process.env.MONGO_URI = originalProcessMongoUri;
+  }
 });
 
 test('environment updater still collapses duplicate managed settings safely', () => {

@@ -69,11 +69,15 @@
     filteredProducts: products.slice(0, 12),
     csrfToken: '',
     heroIndex: 0,
-    heroTimer: null,
     lastFocused: null,
     deepLinkOpened: false,
     recentRecorded: new Set(),
     dealCountdownTimer: null,
+    filterLastFocused: null,
+    filterCloseTimer: null,
+    modalCloseTimer: null,
+    modalFocusTimer: null,
+    previewOperation: 0,
   };
   const previewState = { productId: '', variantId: '', quantity: 1 };
 
@@ -293,7 +297,7 @@
   function productCard(product) {
     const wished = state.wishlist.includes(product.id);
     return `
-      <article class="product-card" data-product-preview="${product.id}" data-product-id="${product.id}" data-category="${product.category}" data-brand="${escapeHtml(product.brand)}" data-price="${product.price}" data-rating="${product.rating}" tabindex="0" role="button" aria-label="Open ${escapeHtml(product.name)} preview">
+      <article class="product-card" data-product-preview="${product.id}" data-product-id="${product.id}" data-category="${product.category}" data-brand="${escapeHtml(product.brand)}" data-price="${product.price}" data-rating="${product.rating}">
         <div class="product-image">
           <span class="product-badge ${badgeClass(product)}">${escapeHtml(product.badge)}</span>
           ${imageWithFallback(product.image, product.name)}
@@ -304,7 +308,7 @@
           </button>
         </div>
         <div class="product-info">
-          <h3>${escapeHtml(product.name)}</h3>
+          <h3><button aria-label="Open ${escapeHtml(product.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" type="button">${escapeHtml(product.name)}</button></h3>
           <div class="product-meta-row">
             <div class="price"><strong>${money(product.price, product.currency)}</strong></div>
             <div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div>
@@ -319,14 +323,14 @@
     const livePrice = Number(product.price || 0);
     const discount = compareAt > livePrice && compareAt > 0 ? Math.max(1, Math.round((1 - livePrice / compareAt) * 100)) : 0;
     return `
-      <article class="compact-product" data-product-preview="${product.id}" data-product-id="${product.id}" tabindex="0" role="button" aria-label="Open ${escapeHtml(product.name)} preview">
+      <article class="compact-product" data-product-preview="${product.id}" data-product-id="${product.id}">
         <div class="compact-image">
           <span class="deal-badge">${discount}% Off</span>
           ${imageWithFallback(product.image, product.name)}
           <span class="category-badge">${escapeHtml(categoryLabel(product.category))}</span>
           ${sponsoredBadge(product)}
         </div>
-        <h3>${escapeHtml(product.name)}</h3>
+        <h3><button aria-label="Open ${escapeHtml(product.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" type="button">${escapeHtml(product.name)}</button></h3>
         <div class="product-meta-row">
           <div class="price"><strong>${money(product.price, product.currency)}</strong></div>
           <div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div>
@@ -338,21 +342,21 @@
 
   function recommendCard(product) {
     return `
-      <article class="recommend-card" data-product-preview="${product.id}" tabindex="0" role="button" aria-label="Open ${escapeHtml(product.name)} preview">
+      <article class="recommend-card" data-product-preview="${product.id}">
         <div class="recommend-image">${imageWithFallback(product.image, product.name)}<span class="category-badge">${escapeHtml(categoryLabel(product.category))}</span>${sponsoredBadge(product)}</div>
-        <div><h3>${escapeHtml(product.name)}</h3><div class="product-meta-row"><div class="price"><strong>${money(product.price, product.currency)}</strong></div><div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div></div></div>
+        <div><h3><button aria-label="Open ${escapeHtml(product.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" type="button">${escapeHtml(product.name)}</button></h3><div class="product-meta-row"><div class="price"><strong>${money(product.price, product.currency)}</strong></div><div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div></div></div>
       </article>`;
   }
 
   function miniProductCard(product, index) {
     return `
-      <article class="mini-product-card ${index >= 3 ? 'mobile-extra-card' : ''}" data-product-preview="${product.id}" tabindex="0" role="button" aria-label="Open ${escapeHtml(product.name)} preview">
+      <article class="mini-product-card ${index >= 3 ? 'mobile-extra-card' : ''}" data-product-preview="${product.id}">
         <div class="mini-product-image">
           ${imageWithFallback(product.image, product.name)}
           <span class="category-badge">${escapeHtml(categoryLabel(product.category))}</span>
           ${sponsoredBadge(product)}
         </div>
-        <h3>${escapeHtml(product.name)}</h3>
+        <h3><button aria-label="Open ${escapeHtml(product.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" type="button">${escapeHtml(product.name)}</button></h3>
         <div class="mini-card-footer"><strong>${money(product.price, product.currency)}</strong><span>${product.reviews ? `${product.rating.toFixed(1)} ★` : 'New'}</span></div>
       </article>`;
   }
@@ -517,12 +521,6 @@
     if (!target) return;
     const recommended = products.slice().sort((a, b) => b.rating - a.rating || b.reviews - a.reviews).slice(0, 12);
     target.innerHTML = recommended.map(recommendCard).join('');
-    qsa('.recommend-card', target).forEach(card => card.addEventListener('keydown', event => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        openProductModal(card.dataset.productPreview);
-      }
-    }));
   }
 
 
@@ -545,12 +543,6 @@
     if (!target) return;
     const freshProducts = products.slice().sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt)).slice(0, 6);
     target.innerHTML = freshProducts.map(miniProductCard).join('');
-    qsa('.mini-product-card', target).forEach(card => card.addEventListener('keydown', event => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        openProductModal(card.dataset.productPreview);
-      }
-    }));
   }
 
   function renderRecentlyViewed() {
@@ -690,6 +682,10 @@
   }
 
   async function toggleWishlist(id) {
+    if (!state.csrfToken) {
+      location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`;
+      return;
+    }
     const productId = String(id);
     const product = productById(productId);
     const index = state.wishlist.indexOf(productId);
@@ -719,12 +715,15 @@
   }
 
   async function openProductModal(id) {
+    const operation = ++state.previewOperation;
+    const returnFocus = qs('#productModal.open') ? state.lastFocused : document.activeElement;
     let product = productById(id);
     if (!product) return;
     try {
       const detailResponse = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
       if (detailResponse.ok) {
         const detailPayload = await detailResponse.json();
+        if (operation !== state.previewOperation) return;
         product = normalizeProduct({ ...product, ...(detailPayload.product || {}) });
         const productIndex = products.findIndex((item) => String(item.id) === String(product.id));
         if (productIndex >= 0) products[productIndex] = product;
@@ -732,6 +731,7 @@
     } catch {
       // Preserve the already-rendered catalogue card when the detail request is temporarily unavailable.
     }
+    if (operation !== state.previewOperation) return;
     const wished = state.wishlist.includes(product.id);
     const initialVariant = variantById(product, product.variantId);
     previewState.productId = product.id;
@@ -819,10 +819,10 @@
       .slice(0, 5);
 
     const relatedMarkup = relatedProducts.map(item => `
-      <article class="preview-related-card" data-product-preview="${item.id}" tabindex="0" role="button" aria-label="Open ${escapeHtml(item.name)} preview">
+      <article class="preview-related-card" data-product-preview="${item.id}">
         <div class="preview-related-image">${imageWithFallback(item.image, item.name)}</div>
         <div class="preview-related-copy">
-          <h4>${escapeHtml(item.name)}</h4>
+          <h4><button aria-label="Open ${escapeHtml(item.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(item.id)}" type="button">${escapeHtml(item.name)}</button></h4>
           <div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${item.reviews ? `${item.rating.toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div>
           <button type="button" data-add-cart="${item.id}">Add to cart</button>
         </div>
@@ -969,9 +969,9 @@
       const similar = similarResult.status === 'fulfilled' ? (similarResult.value?.products || []) : [];
       const grid = qs('#previewRelatedGrid');
       if (grid && similar.length) grid.innerHTML = similar.slice(0, 5).map(item => `
-        <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(item.name)} preview">
+        <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}">
           <div class="preview-related-image">${imageWithFallback(item.image, item.name)}</div>
-          <div class="preview-related-copy"><h4>${escapeHtml(item.name)}</h4><div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${Number(item.reviews || 0) ? `${Number(item.rating || 0).toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div><button type="button" data-add-cart="${escapeHtml(item.id)}">Add to cart</button></div>
+          <div class="preview-related-copy"><h4><button aria-label="Open ${escapeHtml(item.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(item.id)}" type="button">${escapeHtml(item.name)}</button></h4><div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${Number(item.reviews || 0) ? `${Number(item.rating || 0).toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div><button type="button" data-add-cart="${escapeHtml(item.id)}">Add to cart</button></div>
         </article>`).join('');
       const summary = reviewResult.status === 'fulfilled' ? reviewResult.value?.summary : null;
       const summaryBox = qs('#previewAiSummary');
@@ -1036,37 +1036,48 @@
       showToast(response.ok ? 'Product alert saved.' : (payload.error?.message || 'Alert could not be saved.'));
     }));
     updatePreviewPurchaseSummary();
-    openModal('productModal');
+    openModal('productModal', returnFocus);
   }
 
-  function openModal(id) {
+  function openModal(id, returnFocus = document.activeElement) {
+    if (id !== 'productModal') state.previewOperation += 1;
     closeCart();
     closeFilter();
     const modal = qs(`#${id}`);
     const backdrop = qs('#modalBackdrop');
     if (!modal || !backdrop) return;
-    state.lastFocused = document.activeElement;
-    qsa('.modal.open').forEach(item => {
+    clearTimeout(state.modalCloseTimer);
+    clearTimeout(state.modalFocusTimer);
+    state.lastFocused = returnFocus;
+    qsa('.modal:not([hidden])').forEach(item => {
       item.classList.remove('open');
       item.hidden = true;
+      item.inert = true;
     });
     modal.hidden = false;
+    modal.inert = false;
     backdrop.hidden = false;
     document.body.classList.add('no-scroll');
     requestAnimationFrame(() => {
+      if (modal.inert) return;
       backdrop.classList.add('show');
       modal.classList.add('open');
     });
-    setTimeout(() => modal.querySelector('input, select, textarea, button')?.focus(), 100);
+    state.modalFocusTimer = setTimeout(() => {
+      if (!modal.hidden && !modal.inert) modal.querySelector('input, select, textarea, button')?.focus();
+    }, 100);
   }
 
   function closeAllModals() {
+    state.previewOperation += 1;
     const backdrop = qs('#modalBackdrop');
-    const openModal = qs('.modal.open');
+    const openModal = qs('.modal:not([hidden]):not([inert])');
     if (!openModal) return;
     openModal.classList.remove('open');
+    openModal.inert = true;
+    clearTimeout(state.modalFocusTimer);
     backdrop.classList.remove('show');
-    setTimeout(() => {
+    state.modalCloseTimer = setTimeout(() => {
       openModal.hidden = true;
       backdrop.hidden = true;
     }, 220);
@@ -1082,22 +1093,54 @@
     closeAllModals();
     const drawer = qs('#filterDrawer');
     const backdrop = qs('#drawerBackdrop');
-    drawer.classList.add('open');
-    drawer.setAttribute('aria-hidden', 'false');
+    if (!drawer || !backdrop || drawer.classList.contains('open')) return;
+    state.filterLastFocused = document.activeElement;
+    clearTimeout(state.filterCloseTimer);
+    drawer.hidden = false;
+    drawer.inert = false;
+    qs('#filterButton')?.setAttribute('aria-expanded', 'true');
     backdrop.hidden = false;
-    requestAnimationFrame(() => backdrop.classList.add('show'));
+    requestAnimationFrame(() => {
+      if (drawer.inert) return;
+      drawer.classList.add('open');
+      backdrop.classList.add('show');
+      qs('#closeFilter')?.focus();
+    });
     document.body.classList.add('no-scroll');
   }
 
   function closeFilter() {
     const drawer = qs('#filterDrawer');
-    if (!drawer?.classList.contains('open')) return;
+    if (!drawer || drawer.hidden || drawer.inert) return;
     const backdrop = qs('#drawerBackdrop');
     drawer.classList.remove('open');
-    drawer.setAttribute('aria-hidden', 'true');
+    drawer.inert = true;
+    qs('#filterButton')?.setAttribute('aria-expanded', 'false');
     backdrop.classList.remove('show');
-    setTimeout(() => { backdrop.hidden = true; }, 250);
+    state.filterCloseTimer = setTimeout(() => {
+      drawer.hidden = true;
+      if (!qs('.cart-drawer.open')) backdrop.hidden = true;
+    }, 250);
     document.body.classList.remove('no-scroll');
+    state.filterLastFocused?.focus?.();
+  }
+
+  function trapDialogFocus(event, dialog) {
+    if (event.key !== 'Tab' || !dialog || dialog.hidden || dialog.inert) return;
+    const controls = qsa('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', dialog)
+      .filter(control => !control.closest('[hidden], [inert]') && control.getClientRects().length);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!first) {
+      event.preventDefault();
+      dialog.focus();
+    } else if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   function scrollToSelector(selector) {
@@ -1170,38 +1213,73 @@
     renderTrending(visibleProducts);
 
     if (!value) {
-      panel.classList.remove('show');
-      panel.innerHTML = '';
+      closeSearchSuggestions();
+      panel.innerHTML = '<div aria-label="Search suggestions" id="searchSuggestionsList" role="listbox"></div>';
       return;
     }
 
     const visibleMatches = matches.slice(0, 6);
     panel.innerHTML = `
       <div class="search-results-summary">
-        <span><strong>${matches.length}</strong> result${matches.length === 1 ? '' : 's'} for “${escapeHtml(value)}”</span>
+        <span id="searchSuggestionSummary"><strong>${matches.length}</strong> result${matches.length === 1 ? '' : 's'} for “${escapeHtml(value)}”</span>
         <button data-search-all type="button">View filtered products</button>
       </div>
-      ${visibleMatches.length ? visibleMatches.map(product => `
-        <button class="search-result-option" data-suggestion="${product.id}" type="button" role="option">
+      <div aria-label="Search suggestions" id="searchSuggestionsList" role="listbox">
+      ${visibleMatches.map((product, index) => `
+        <button aria-selected="false" class="search-result-option" data-suggestion="${escapeHtml(product.id)}" id="searchSuggestion-${index}" tabindex="-1" type="button" role="option">
           ${imageWithFallback(product.image, product.name)}
           <span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.subtitle)} · ${escapeHtml(product.brand)}</small></span>
           <b>${money(product.price, product.currency)}</b>
-        </button>`).join('') : '<div class="no-suggestions">No products match your search and selected category.</div>'}`;
+        </button>`).join('')}</div>
+      ${visibleMatches.length ? '' : '<div class="no-suggestions">No products match your search and selected category.</div>'}`;
+    panel.hidden = false;
     panel.classList.add('show');
+    input.setAttribute('aria-expanded', 'true');
+    input.setAttribute('aria-describedby', 'searchSuggestionSummary');
+    input.removeAttribute('aria-activedescendant');
+  }
+
+  function closeSearchSuggestions() {
+    const panel = qs('#searchSuggestions');
+    panel?.classList.remove('show');
+    if (panel) panel.hidden = true;
+    const input = qs('#searchInput');
+    input?.setAttribute('aria-expanded', 'false');
+    input?.removeAttribute('aria-activedescendant');
+    input?.removeAttribute('aria-describedby');
+    qsa('#searchSuggestionsList [role="option"]').forEach(option => option.setAttribute('aria-selected', 'false'));
+  }
+
+  function moveSearchSuggestion(direction) {
+    const input = qs('#searchInput');
+    const options = qsa('#searchSuggestionsList [role="option"]');
+    if (!input || !options.length) return;
+    const current = options.findIndex(option => option.id === input.getAttribute('aria-activedescendant'));
+    const next = direction === 'first' ? 0 : direction === 'last' ? options.length - 1 :
+      current < 0 ? (direction > 0 ? 0 : options.length - 1) : (current + direction + options.length) % options.length;
+    options.forEach((option, index) => option.setAttribute('aria-selected', String(index === next)));
+    input.setAttribute('aria-activedescendant', options[next].id);
+    options[next].scrollIntoView({ block: 'nearest' });
   }
 
   function goToHero(index) {
     const slides = qsa('.hero-slide');
     if (!slides.length) return;
     state.heroIndex = (index + slides.length) % slides.length;
+    const focusMovesWithSlide = slides.some((slide, slideIndex) => slideIndex !== state.heroIndex && slide.contains(document.activeElement));
+    slides.forEach((slide, slideIndex) => {
+      const active = slideIndex === state.heroIndex;
+      slide.inert = !active;
+      slide.setAttribute('aria-hidden', String(!active));
+      slide.classList.toggle('is-active', active);
+    });
     qs('#heroTrack').style.transform = `translateX(-${state.heroIndex * 100}%)`;
-    qsa('#heroDots button').forEach((button, buttonIndex) => button.classList.toggle('active', buttonIndex === state.heroIndex));
-  }
-
-  function startHero() {
-    clearInterval(state.heroTimer);
-    if (qsa('.hero-slide').length < 2) return;
-    state.heroTimer = setInterval(() => goToHero(state.heroIndex + 1), 5600);
+    qsa('#heroDots button').forEach((button, buttonIndex) => {
+      const active = buttonIndex === state.heroIndex;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    if (focusMovesWithSlide) slides[state.heroIndex].querySelector('button, a[href]')?.focus();
   }
 
   function openContent(title, html) {
@@ -1382,6 +1460,7 @@
     const addButton = event.target.closest('[data-add-cart]');
     if (addButton) {
       if (addButton.disabled) return;
+      const hadFocus = document.activeElement === addButton;
       addButton.disabled = true;
       const previousLabel = addButton.textContent;
       addButton.textContent = 'Adding…';
@@ -1391,6 +1470,7 @@
         if (!document.body.contains(addButton)) return;
         addButton.disabled = false;
         addButton.textContent = previousLabel;
+        if (hadFocus && document.activeElement === document.body) addButton.focus();
       }, added ? 1000 : 0);
       return;
     }
@@ -1516,7 +1596,7 @@
 
     const suggestion = event.target.closest('[data-suggestion]');
     if (suggestion) {
-      qs('#searchSuggestions').classList.remove('show');
+      closeSearchSuggestions();
       openProductModal(suggestion.dataset.suggestion);
       return;
     }
@@ -1558,7 +1638,6 @@
         const motion = motions[Math.floor(Math.random() * motions.length)];
         card.classList.add(`promo-motion-${motion}`);
         card.addEventListener('animationend', () => card.classList.remove(`promo-motion-${motion}`), { once: true });
-        window.setTimeout(run, 3000 + Math.random() * 3200 + index * 320);
       };
       window.setTimeout(run, 1200 + index * 850 + Math.random() * 900);
     });
@@ -1615,21 +1694,20 @@
         toggle.setAttribute('aria-expanded', 'false');
       }
       if (!event.target.closest('.search-bar')) {
-        qs('#searchSuggestions')?.classList.remove('show');
-        qs('#searchInput')?.setAttribute('aria-expanded', 'false');
+        closeSearchSuggestions();
       }
     });
 
     const searchInput = qs('#searchInput');
     const searchPanel = qs('#searchSuggestions');
 
-    const refreshSearch = () => {
-      updateSearchSuggestions();
-      searchInput?.setAttribute('aria-expanded', String(searchPanel?.classList.contains('show')));
-    };
-
-    searchInput?.setAttribute('aria-controls', 'searchSuggestions');
+    searchInput?.setAttribute('role', 'combobox');
+    searchInput?.setAttribute('aria-autocomplete', 'list');
+    searchInput?.setAttribute('aria-controls', 'searchSuggestionsList');
     searchInput?.setAttribute('aria-expanded', 'false');
+
+    const refreshSearch = updateSearchSuggestions;
+
     searchInput?.addEventListener('input', refreshSearch);
     searchInput?.addEventListener('search', refreshSearch);
     searchInput?.addEventListener('focus', () => {
@@ -1637,8 +1715,33 @@
     });
     searchInput?.addEventListener('keydown', event => {
       if (event.key === 'Escape') {
-        searchPanel?.classList.remove('show');
-        searchInput.setAttribute('aria-expanded', 'false');
+        if (searchPanel && !searchPanel.hidden) {
+          event.preventDefault();
+          event.stopPropagation();
+          closeSearchSuggestions();
+        }
+        return;
+      }
+      if (event.key === 'Tab') {
+        closeSearchSuggestions();
+        return;
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (searchInput.value.trim() && searchPanel?.hidden) refreshSearch();
+        if (!qsa('#searchSuggestionsList [role="option"]').length || searchPanel?.hidden) return;
+        event.preventDefault();
+        moveSearchSuggestion(event.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+      if (!searchPanel || searchPanel.hidden) return;
+      const selected = document.getElementById(searchInput.getAttribute('aria-activedescendant'));
+      if ((event.key === 'Home' || event.key === 'End') && selected) {
+        event.preventDefault();
+        moveSearchSuggestion(event.key === 'Home' ? 'first' : 'last');
+      } else if (event.key === 'Enter' && selected) {
+        event.preventDefault();
+        closeSearchSuggestions();
+        openProductModal(selected.dataset.suggestion);
       }
     });
     qs('#searchCategory')?.addEventListener('change', () => {
@@ -1654,6 +1757,9 @@
       if (category !== 'all') params.set('category', category);
       window.location.href = `/search${params.toString() ? `?${params}` : ''}`;
     });
+    qs('#searchForm')?.addEventListener('focusout', event => {
+      if (!event.currentTarget.contains(event.relatedTarget)) closeSearchSuggestions();
+    });
 
     qsa('.slider-arrow').forEach(button => {
       button.addEventListener('click', () => {
@@ -1663,9 +1769,9 @@
       });
     });
 
-    qs('#heroPrev')?.addEventListener('click', () => { goToHero(state.heroIndex - 1); startHero(); });
-    qs('#heroNext')?.addEventListener('click', () => { goToHero(state.heroIndex + 1); startHero(); });
-    qsa('#heroDots button').forEach(button => button.addEventListener('click', () => { goToHero(Number(button.dataset.slide)); startHero(); }));
+    qs('#heroPrev')?.addEventListener('click', () => goToHero(state.heroIndex - 1));
+    qs('#heroNext')?.addEventListener('click', () => goToHero(state.heroIndex + 1));
+    qsa('#heroDots button').forEach(button => button.addEventListener('click', () => goToHero(Number(button.dataset.slide))));
 
     let touchStart = 0;
     qs('#heroSlider')?.addEventListener('touchstart', event => { touchStart = event.touches[0].clientX; }, { passive: true });
@@ -1673,7 +1779,6 @@
       const delta = event.changedTouches[0].clientX - touchStart;
       if (Math.abs(delta) > 45) {
         goToHero(state.heroIndex + (delta < 0 ? 1 : -1));
-        startHero();
       }
     }, { passive: true });
 
@@ -1749,14 +1854,7 @@
         return;
       }
 
-      if (event.key === 'Enter' || event.key === ' ') {
-        const card = event.target.closest?.('[data-product-preview]');
-        const isNestedControl = event.target.closest?.('button, a, input, select, textarea') && event.target !== card;
-        if (card && !isNestedControl) {
-          event.preventDefault();
-          openProductModal(card.dataset.productPreview);
-        }
-      }
+      trapDialogFocus(event, qs('#filterDrawer:not([hidden]):not([inert]), .modal:not([hidden]):not([inert])'));
     });
 
     const backToTop = qs('#backToTop');
@@ -1826,7 +1924,7 @@
     ensureMobileBottomNav();
     bindEvents();
     observeSections();
-    startHero();
+    goToHero(0);
     startPromoAnimations();
     await hydrateOnlineCatalog();
     openProductFromUrl();

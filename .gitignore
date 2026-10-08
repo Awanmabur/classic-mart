@@ -13,6 +13,8 @@ logs/
 artifacts/
 coverage/
 dist/
+test-results/
+playwright-report/
 
 # Generated release/runtime files
 *.log

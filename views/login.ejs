@@ -45,10 +45,10 @@
 <span>Email address</span>
 <span class="auth-input-wrap"><img alt="" src="/assets/icons/user.svg"/><input autocomplete="email" id="signInEmail" name="email" placeholder="Email address" required="" type="email" value="<%= values.email %>"/></span>
 </label>
-<label class="auth-field">
-<span>Password</span>
-<span class="auth-input-wrap"><img alt="" src="/assets/icons/lock.svg"/><input autocomplete="current-password" id="signInPassword" maxlength="128" name="password" placeholder="Enter your password" required="" type="password"/><button aria-label="Show password" class="password-toggle" data-password-toggle="signInPassword" type="button"><img alt="" src="/assets/icons/eye.svg"/></button></span>
-</label>
+<div class="auth-field">
+<label class="auth-field-label" for="signInPassword">Password</label>
+<span class="auth-input-wrap"><img alt="" src="/assets/icons/lock.svg"/><input autocomplete="current-password" id="signInPassword" maxlength="128" name="password" placeholder="Enter your password" required="" type="password"/><button aria-controls="signInPassword" aria-label="Show password" class="password-toggle" data-password-toggle="signInPassword" type="button"><img alt="" src="/assets/icons/eye.svg"/></button></span>
+</div>
 <div class="auth-row">
 <a class="auth-text-link" href="/forgot-password" id="forgotPassword">Forgot password?</a>
 </div>

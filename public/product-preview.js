@@ -21,6 +21,9 @@
     loaded: false,
     loading: null,
     lastFocused: null,
+    closeTimer: null,
+    focusTimer: null,
+    operation: 0,
   };
 
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -199,24 +202,34 @@
     return state.loading;
   }
 
-  function openModal() {
-    state.lastFocused = document.activeElement;
+  function openModal(returnFocus = document.activeElement) {
+    clearTimeout(state.closeTimer);
+    clearTimeout(state.focusTimer);
+    state.lastFocused = returnFocus;
     modal.hidden = false;
+    modal.inert = false;
     backdrop.hidden = false;
     document.body.classList.add('no-scroll');
     requestAnimationFrame(() => {
+      if (modal.inert) return;
       backdrop.classList.add('show');
       modal.classList.add('open');
     });
-    setTimeout(() => modal.querySelector('button, a, input, select, textarea')?.focus(), 80);
+    state.focusTimer = setTimeout(() => {
+      if (!modal.hidden && !modal.inert) modal.querySelector('button, a, input, select, textarea')?.focus();
+    }, 80);
   }
 
   function closeModal() {
+    state.operation += 1;
+    if (modal.hidden || modal.inert) return;
     modal.classList.remove('open');
+    modal.inert = true;
+    clearTimeout(state.focusTimer);
     backdrop.classList.remove('show');
     qs('#productShareMenu')?.setAttribute('hidden', '');
     document.body.classList.remove('no-scroll');
-    setTimeout(() => {
+    state.closeTimer = setTimeout(() => {
       modal.hidden = true;
       backdrop.hidden = true;
       content.innerHTML = '';
@@ -352,10 +365,10 @@
       .slice(0, 5);
 
     const relatedMarkup = relatedProducts.map((item) => `
-      <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(item.name)} preview">
+      <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}">
         <div class="preview-related-image">${imageWithFallback(item.image, item.name)}</div>
         <div class="preview-related-copy">
-          <h4>${escapeHtml(item.name)}</h4>
+          <h4><button aria-label="Open ${escapeHtml(item.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(item.id)}" type="button">${escapeHtml(item.name)}</button></h4>
           <div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${item.reviews ? `${item.rating.toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div>
           <button type="button" data-preview-related-add="${escapeHtml(item.id)}">Add to cart</button>
         </div>
@@ -517,9 +530,9 @@
       const grid = qs('#previewRelatedGrid', modal);
       if (grid && similar.length) {
         grid.innerHTML = similar.slice(0, 5).map((item) => `
-          <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(item.name)} preview">
+          <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}">
             <div class="preview-related-image">${imageWithFallback(item.image, item.name)}</div>
-            <div class="preview-related-copy"><h4>${escapeHtml(item.name)}</h4><div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${Number(item.reviews || 0) ? `${Number(item.rating || 0).toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div><button type="button" data-preview-related-add="${escapeHtml(item.id)}">Add to cart</button></div>
+            <div class="preview-related-copy"><h4><button aria-label="Open ${escapeHtml(item.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(item.id)}" type="button">${escapeHtml(item.name)}</button></h4><div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${Number(item.reviews || 0) ? `${Number(item.rating || 0).toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div><button type="button" data-preview-related-add="${escapeHtml(item.id)}">Add to cart</button></div>
           </article>`).join('');
       }
       const summary = reviewResult.status === 'fulfilled' ? reviewResult.value?.summary : null;
@@ -531,20 +544,24 @@
   }
 
   async function openProduct(productId) {
+    const operation = ++state.operation;
+    const returnFocus = !modal.hidden && !modal.inert ? state.lastFocused : document.activeElement;
     const id = String(productId || '');
     if (!id) return;
     try {
       await ensureCatalogue();
+      if (operation !== state.operation) return;
       let product = productById(id);
       if (!product) throw new Error('This product is no longer available.');
       content.innerHTML = '<div class="product-preview-loading" role="status">Loading product preview…</div>';
-      openModal();
+      openModal(returnFocus);
       try {
         const response = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, {
           credentials: 'same-origin', headers: { Accept: 'application/json' },
         });
         if (response.ok) {
           const payload = await response.json();
+          if (operation !== state.operation) return;
           product = normalizeProduct({ ...product, ...(payload.product || {}) });
           const index = state.products.findIndex((item) => item.id === product.id);
           if (index >= 0) state.products[index] = product;
@@ -552,10 +569,12 @@
       } catch {
         // Keep the live catalogue card data if product detail enrichment is temporarily unavailable.
       }
+      if (operation !== state.operation) return;
       renderProduct(product);
       recordRecent(product.id);
       loadAiEnhancements(product);
     } catch (error) {
+      if (operation !== state.operation) return;
       closeModal();
       showToast(error.message || 'Product preview could not be opened.');
     }
@@ -874,10 +893,18 @@
 
   backdrop.addEventListener('click', closeModal);
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !modal.hidden) closeModal();
-    if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[data-product-preview]')) {
+    if (event.key === 'Escape') closeModal();
+    if (event.key !== 'Tab' || modal.hidden || modal.inert) return;
+    const controls = qsa('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', modal)
+      .filter(control => !control.closest('[hidden], [inert]') && control.getClientRects().length);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (event.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
       event.preventDefault();
-      openProduct(event.target.dataset.productPreview);
+      last?.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) {
+      event.preventDefault();
+      first?.focus();
     }
   });
 

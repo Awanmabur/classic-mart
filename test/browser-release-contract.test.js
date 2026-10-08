@@ -30,7 +30,7 @@ test('browser suite covers desktop, mobile, authenticated navigation and WCAG AA
   assert.match(accessibility, /reduced-motion preference/);
   assert.match(accessibility, /visible focus indicator/);
   assert.match(accessibility, /minimum target size/);
-  assert.match(critical, /authenticated operational tables become labelled phone cards/);
+  assert.match(critical, /authenticated seller product tables become labelled phone cards/);
 });
 
 test('Node 24 CI installs the browser, seeds data, runs the gate and uploads diagnostics', () => {

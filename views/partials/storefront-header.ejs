@@ -43,12 +43,13 @@
       <div class="search-tool-actions" aria-label="Alternative search options">
         <button aria-label="Search by image" class="search-tool-button" data-image-search type="button" title="Search by image"><img alt="" aria-hidden="true" src="/assets/icons/camera.svg"/></button>
         <button aria-label="Search by voice" class="search-tool-button" data-voice-search type="button" title="Search by voice"><img alt="" aria-hidden="true" src="/assets/icons/microphone.svg"/></button>
-        <input accept="image/jpeg,image/png,image/webp,image/avif" class="sr-only" data-image-search-input type="file"/>
+        <label class="sr-only" for="imageSearchInput">Choose an image to search for similar products</label>
+        <input accept="image/jpeg,image/png,image/webp,image/avif" class="sr-only" data-image-search-input id="imageSearchInput" tabindex="-1" type="file"/>
       </div>
-      <button class="search-button" type="submit">
+      <button aria-label="Search products" class="search-button" type="submit">
         <img alt="" aria-hidden="true" src="/assets/icons/magnifying-glass.svg"/><span>Search</span>
       </button>
-      <div aria-label="Search suggestions" class="search-suggestions" id="searchSuggestions" role="listbox"></div>
+      <div class="search-suggestions" hidden id="searchSuggestions"><div aria-label="Search suggestions" id="searchSuggestionsList" role="listbox"></div></div>
     </form>
     <div class="header-actions">
       <a aria-label="<%= user ? 'Open your Classic Mart account' : 'Sign in to Classic Mart' %>" class="header-action header-action-link" href="<%= accountHref %>">

@@ -119,11 +119,15 @@ Pesapal calls were made. Orders/fulfilment, returns, staff management, seller
 finance, subscriptions and the remaining role dashboards still need their own
 complete approved-UI integrations and validation.
 
-A separate run of the broader public-site Playwright suite did not pass: it
+A separate run at this product checkpoint of the broader public-site Playwright suite did not pass: it
 reported 27 failures, three passes and four skips. Existing public accessibility
 issues include contrast, search/filter accessibility, nested controls, focus
 indicators and homepage overflow at 320 CSS pixels. Some browser cases also
 failed before application assertions because the runner could not create a
 headless profile; some test selectors are ambiguous. The affected public views,
 styles and scripts are unchanged from `ee7589a`. These findings are remaining
-site-wide work and prevent a claim of overall production readiness.
+site-wide work and prevent a claim of overall production readiness at this checkpoint.
+
+The subsequent [public accessibility milestone](../public-accessibility.md)
+addresses these browser, contrast, focus, search/filter and reflow findings.
+Its verification record describes the covered routes and remaining limits.

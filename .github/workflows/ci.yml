@@ -38,10 +38,14 @@ jobs:
         env: *testenv
       - name: Database topology, integration and concurrency audits
         run: npm run db:verify && npm run audit:integration && npm run audit:concurrency
-        env: *testenv
+        env: &databaseenv
+          NODE_ENV: test
+          MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci?replicaSet=rs0
+          REDIS_URL: redis://127.0.0.1:6379
+          CLASSIC_MART_TEST_MONGO_OVERRIDE: '1'
       - name: Migration dry run
         run: npm run migrate:plan
-        env: *testenv
+        env: *databaseenv
       - name: Prepare deterministic browser fixture password
         run: |
           ADMIN_PASSWORD="Ci$(openssl rand -hex 12)A9!"
@@ -49,12 +53,18 @@ jobs:
           echo "ADMIN_PASSWORD=$ADMIN_PASSWORD" >> "$GITHUB_ENV"
       - name: Seed browser test data
         run: node scripts/seed.js
-        env: *testenv
+        env: &browserenv
+          NODE_ENV: test
+          MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci?replicaSet=rs0
+          REDIS_URL: redis://127.0.0.1:6379
+          ADMIN_EMAIL: admin@classicmart.local
+          ADMIN_PHONE: '+256700000001'
+          CLASSIC_MART_TEST_MONGO_OVERRIDE: '1'
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Real-browser and WCAG accessibility gates
         run: npm run browser:check
-        env: *testenv
+        env: *browserenv
       - name: Upload browser diagnostics
         if: always()
         uses: actions/upload-artifact@v4

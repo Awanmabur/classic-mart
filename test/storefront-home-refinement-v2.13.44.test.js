@@ -15,7 +15,7 @@ test('mobile bottom navigation uses a unique elevated seller signup action in th
     assert.match(source, /\bSell\b/);
     assert.match(source, /mobile-bottom-nav__sell/);
   }
-  assert.match(css, /\.mobile-bottom-nav a\.mobile-bottom-nav__sell\s*\{[^}]*background:\s*var\(--orange\)[^}]*transform:\s*translateY\(-/s);
+  assert.match(css, /\.mobile-bottom-nav a\.mobile-bottom-nav__sell\s*\{[^}]*background:\s*var\(--orange-accessible\)[^}]*transform:\s*translateY\(-/s);
   assert.match(css, /\.mobile-bottom-nav a\.mobile-bottom-nav__sell img\s*\{[^}]*filter:\s*brightness\(0\)\s*invert\(1\)/s);
 });
 
@@ -35,5 +35,5 @@ test('homepage category More control is a jump shortcut, not a visibility gate',
 
 test('public service worker advances its cache namespace for the v2.13.44 shell change', () => {
   const sw = read('public/sw.js');
-  assert.match(sw, /classic-mart-public-v28/);
+  assert.match(sw, /classic-mart-public-v29/);
 });

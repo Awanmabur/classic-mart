@@ -31,7 +31,7 @@ test('approved phone arrows, coloured search tools and brand wordmarks stay in f
   assert.match(script, /brand-samsung/);
   assert.match(script, /qsa\('\.mobile-more-wrap'\)\.forEach/);
   assert.doesNotMatch(script, /wrap\.innerHTML = `<button class="mobile-section-more"/);
-  assert.match(styles, /data-image-search.*color: var\(--orange\)/s);
+  assert.match(styles, /data-image-search.*color: var\(--orange-accessible\)/s);
   assert.match(styles, /data-voice-search.*color: #1165df/s);
   assert.match(styles, /#brands \.brand-row[\s\S]*z-index: 7/);
   assert.match(styles, /section-heading-actions \.section-next-button[\s\S]*position: static !important/);
