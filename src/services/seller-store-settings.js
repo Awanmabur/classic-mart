@@ -5,7 +5,7 @@ import { storeCapabilities } from './store.js';
 import { writeAudit } from './audit.js';
 import { clearStorefrontCache } from './storefront.js';
 import { sellerStoreIdentitySchema, sellerStoreOperationsSchema } from '../validation/seller-store.js';
-import { getCountries } from './country.js';
+import { getPhoneCountries } from './phone-countries.js';
 
 // Recheck membership in the transaction; never accept a store ID from a form.
 export async function saveSellerStoreSettings(request, section) {
@@ -13,7 +13,7 @@ export async function saveSellerStoreSettings(request, section) {
     section === 'operations' ? sellerStoreOperationsSchema : null;
   if (!schema) throw new AppError('Unknown store settings section.', 422, 'STORE_SECTION_INVALID');
   const input = schema.parse(request.body);
-  if (section === 'identity' && !(await getCountries()).some(country => country.code === input.supportPhoneCountry)) {
+  if (section === 'identity' && !getPhoneCountries().some(country => country.code === input.supportPhoneCountry)) {
     throw new AppError('Choose an available phone country.', 422, 'COUNTRY_UNAVAILABLE');
   }
   const session = await mongoose.startSession();

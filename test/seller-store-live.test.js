@@ -71,7 +71,7 @@ test('seller store settings persist through authenticated forms, reject stale ed
     const store = await Store.findOne({ ownerUserId: owner.user._id });
     storeIds.push(store._id);
     assert.equal(store.status, 'pending_verification');
-    assert.match(page.text, /Uganda \(\+256\)/);
+    assert.match(page.text, /\+256 · Uganda/);
     assert.match(page.text, /seller-store-live\.js/);
     assert.doesNotMatch(page.text, /Development preview|Stanbic|9421|hello@classicmart.example|\/approved-dashboard\/role-workspaces\.js/);
     assert.match(page.headers['cache-control'], /private/);

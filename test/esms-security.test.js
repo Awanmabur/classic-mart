@@ -50,3 +50,23 @@ test('eSMS rejects invalid phone numbers and codes before network access', async
   await assert.rejects(sendPhoneVerificationCode({...input,code:'bad'}),{code:'SMS_INVALID_REQUEST'});
   assert.equal(mock.mock.callCount(),0);
 });
+
+
+test('eSMS reports actionable errors without exposing provider response details', async t => {
+  for (const [status, code] of [[401, 'SMS_AUTH_FAILED'], [403, 'SMS_AUTH_FAILED'], [402, 'SMS_CREDIT_REQUIRED'], [429, 'SMS_PROVIDER_RATE_LIMITED']]) {
+    const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({ detail: 'SECRET_PROVIDER_DETAIL' }, { status }));
+    await assert.rejects(sendPhoneVerificationCode(input), error => error.code === code && !error.message.includes('SECRET_PROVIDER_DETAIL'));
+    assert.equal(mock.mock.callCount(), 1); mock.mock.restore();
+  }
+});
+
+test('eSMS balance accepts the provider decimal representation and rejects malformed values', async t => {
+  for (const value of [10, '10.50', '0']) {
+    const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({ balance: value, currency: 'UGX' }));
+    assert.equal((await verifySmsConfiguration()).creditAvailable, Number(value) > 0); mock.mock.restore();
+  }
+  for (const value of ['', null, 'invalid', []]) {
+    const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({ balance: value, currency: 'UGX' }));
+    await assert.rejects(verifySmsConfiguration(), { code: 'SMS_DELIVERY_FAILED' }); mock.mock.restore();
+  }
+});

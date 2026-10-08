@@ -76,10 +76,10 @@ if (nodeEnv === 'production') {
       'Production requires SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM with MAIL_MODE=smtp.',
     );
   }
-  const smsConfigured = (process.env.SMS_MODE === 'esms' && process.env.ESMS_API_KEY?.startsWith('esms_live_')) ||
-    (process.env.SMS_MODE === 'twilio' && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM);
-  if (process.env.SMS_MODE && process.env.SMS_MODE !== 'disabled' && !smsConfigured) {
-    throw new Error('Production requires SMS_MODE=esms with a live ESMS_API_KEY, or configured Twilio, for phone verification.');
+  const smsMode = process.env.SMS_MODE || (process.env.ESMS_API_KEY ? 'esms' : 'disabled');
+  const smsConfigured = smsMode === 'esms' && process.env.ESMS_API_KEY?.startsWith('esms_live_');
+  if (smsMode !== 'disabled' && !smsConfigured) {
+    throw new Error('Production requires eSMS Africa with a live ESMS_API_KEY for phone verification.');
   }
   if (!['clamd', 'clamscan'].includes(process.env.MALWARE_SCAN_MODE || '')) {
     throw new Error('Production requires MALWARE_SCAN_MODE=clamd or clamscan for untrusted uploads.');
@@ -247,12 +247,9 @@ export const env = Object.freeze({
       '',
   }),
   sms: Object.freeze({
-    mode: process.env.SMS_MODE || (nodeEnv === 'production' ? 'disabled' : 'log'),
+    mode: process.env.SMS_MODE || (process.env.ESMS_API_KEY ? 'esms' : (nodeEnv === 'production' ? 'disabled' : 'log')),
     esmsApiKey: process.env.ESMS_API_KEY || '',
     esmsSenderId: process.env.ESMS_SENDER_ID || '',
-    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
-    authToken: process.env.TWILIO_AUTH_TOKEN || '',
-    from: process.env.TWILIO_FROM || '',
   }),
   pesapal: Object.freeze({
     baseUrl: process.env.PESAPAL_BASE_URL || (boolean(process.env.PESAPAL_SANDBOX, true) ? 'https://cybqa.pesapal.com/pesapalv3' : 'https://pay.pesapal.com/v3'),

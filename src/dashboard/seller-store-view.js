@@ -1,3 +1,4 @@
+import { getPhoneCountries } from '../services/phone-countries.js';
 import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 import { SellerVerification } from '../models/index.js';
 import { liveAccountHeader } from './live-account-header.js';
@@ -16,7 +17,7 @@ export async function renderSellerStore(request, response, { error = '', section
   return response.render('approved-dashboard', {
     ...header, customerRoutes: { ...header.customerRoutes, 'seller-store': '/seller/store' }, workspace: 'seller', initialPage: 'seller-store',
     allowedWorkspaces: allowedWorkspacesFor(request.user),
-    liveSeller: { store, countries, verification, phoneCountry, completion, error, draft, verificationFlow, profileRole: 'Seller', section: section || request.query.section || 'identity',
+    liveSeller: { store, countries, phoneCountries: getPhoneCountries(), verification, phoneCountry, completion, error, draft, verificationFlow, profileRole: 'Seller', section: section || request.query.section || 'identity',
       navigation: DASHBOARD_PAGES.seller.map(row => ({ id: row[0], label: row[1], icon: row[2], href: routeForPage(row[0]), ready: row[0] === 'seller-store' })),
     },
   });

@@ -93,4 +93,4 @@ service only after profiling shows an operational or scaling boundary.
 
 
 ### Phone verification hardening (v2.8.2 audit)
-Protected account areas require both server-verified email and phone. Phone verification codes are single-use server tokens; development may use the log adapter, while production requires the configured Twilio adapter. Changing the phone number clears `phoneVerifiedAt` and requires re-verification.
+Protected account areas require server-verified email; phone verification is optional unless a specific operation requires it. Phone verification codes are single-use server tokens; development may use the log adapter, while production requires the configured eSMS Africa adapter. Changing the phone number clears `phoneVerifiedAt` and requires re-verification.

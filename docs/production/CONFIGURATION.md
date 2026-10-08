@@ -51,7 +51,7 @@ SMTP variables:
 `MAIL_MODE`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`.
 
 SMS variables:
-`SMS_MODE`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`.
+`SMS_MODE=esms`, `ESMS_API_KEY`, optional approved `ESMS_SENDER_ID`.
 
 Development may log mail/SMS; production must not pretend a logged message was delivered to a user.
 

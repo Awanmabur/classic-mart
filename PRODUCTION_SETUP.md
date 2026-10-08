@@ -9,7 +9,7 @@ This production package contains no development database bootstrap, reset toolin
 3. HTTPS public domain in `BASE_URL`.
 4. Live Pesapal API 3.0 merchant key/secret with `PESAPAL_SANDBOX=false`. The first HTTPS deploy may start without `PESAPAL_IPN_ID`; checkout remains fail-closed until you register `BASE_URL/webhooks/pesapal`, store the returned IPN ID, and redeploy.
 5. SMTP credentials for transactional email.
-6. Twilio credentials for phone verification, unless another SMS adapter is implemented before launch.
+6. eSMS Africa live credentials for phone verification.
 7. ClamAV scanning for untrusted uploads. The production Docker image includes `clamscan` and refreshes virus definitions during image build, so the default Render launch does not require a separate ClamAV service.
 8. Private Cloudflare R2 bucket for marketplace media. Production requires `MEDIA_STORAGE_DRIVER=r2`, the Cloudflare S3 endpoint, bucket name, Access Key ID and Secret Access Key. Keep the bucket private; do not enable `r2.dev` or public access for this launch because KYC/evidence shares the storage boundary.
 9. Durable mounted filesystem at `PERSISTENT_STORAGE_ROOT` for temporary exports/privacy files only. Marketplace uploads are stored in R2. On Render, mount `/var/data` and use `/var/data/classic-mart` as the root for those temporary operational files.

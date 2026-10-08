@@ -1,3 +1,4 @@
+import { getPhoneCountries } from '../services/phone-countries.js';
 import { Router } from 'express';
 import { customerView } from '../dashboard/customer-view.js';
 import { loginDestination } from '../dashboard/landing.js';
@@ -210,7 +211,7 @@ router.post('/mfa', authenticationLimit, asyncHandler(async (request, response) 
 }));
 
 router.use('/signup', asyncHandler(async (request, response, next) => {
-  response.locals.phoneCountries = await getCountries();
+  response.locals.phoneCountries = getPhoneCountries();
   response.locals.defaultPhoneCountry = request.country.code;
   next();
 }));
@@ -335,7 +336,7 @@ router.get('/verify-phone', requireAuth, (request, response) => {
 router.post('/verify-phone/send', requireAuth, authenticationLimit, asyncHandler(async (request, response) => {
   try {
     const developmentCode = await resendPhoneVerification(request.user, request);
-    setFlash(request, 'success', 'A phone verification code was sent.', developmentCode ? `Development phone verification code: ${developmentCode}` : undefined);
+    setFlash(request, 'success', developmentCode ? 'Development code prepared. No SMS was sent.' : 'Your verification SMS was accepted for sending. Delivery may take a moment.', developmentCode ? `Development phone verification code: ${developmentCode}` : undefined);
     await writeAudit(request, 'identity.phone_code_sent', { targetType: 'user', targetPublicId: request.user.publicId });
     return response.redirect('/verify-phone');
   } catch (error) {

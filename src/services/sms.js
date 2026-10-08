@@ -18,30 +18,14 @@ export async function sendPhoneVerificationCode({ phone, name, code }) {
     }
     return { delivered: result.status === 'delivered', accepted: true, providerId: result.id, recipient: phone, name };
   }
-  if (env.sms.mode !== 'twilio') throw new AppError('SMS delivery is not configured.', 503, 'SMS_NOT_CONFIGURED');
-  const { accountSid, authToken, from } = env.sms;
-  if (!accountSid || !authToken || !from) throw new AppError('SMS delivery is not configured.', 503, 'SMS_NOT_CONFIGURED');
-  const body = new URLSearchParams({
-    To: phone,
-    From: from,
-    Body: `Classic Mart verification code: ${code}. It expires in 10 minutes. Do not share this code.`,
-  });
-  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-    },
-    body,
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) {
-    throw new AppError('SMS provider could not accept the verification code. Please try again later.', 502, 'SMS_DELIVERY_FAILED');
-  }
-  return { delivered: true, recipient: phone, name };
+  throw new AppError('eSMS Africa delivery is not configured.', 503, 'SMS_NOT_CONFIGURED');
 }
 
-function smsFailure() {
+function smsFailure(status) {
+  if ([401, 403].includes(status)) return new AppError('eSMS Africa authentication or permissions failed. Check the configured API key.', 502, 'SMS_AUTH_FAILED');
+  if (status === 402) return new AppError('eSMS Africa has insufficient SMS credit. Contact support.', 502, 'SMS_CREDIT_REQUIRED');
+  if (status === 429) return new AppError('SMS sending is temporarily rate limited. Please try again later.', 429, 'SMS_PROVIDER_RATE_LIMITED');
+
   return new AppError('SMS provider could not accept the verification code. Please try again later.', 502, 'SMS_DELIVERY_FAILED');
 }
 
@@ -56,16 +40,17 @@ async function esmsRequest(path, body) {
       redirect: 'error',
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) throw smsFailure();
+    if (!response.ok) throw smsFailure(response.status);
     const result = await response.json();
     if (!result || typeof result !== 'object' || Array.isArray(result)) throw smsFailure();
     return result;
-  } catch { throw smsFailure(); }
+  } catch (error) { if (error instanceof AppError) throw error; throw smsFailure(); }
 }
 
 export async function verifySmsConfiguration() {
   if (env.sms.mode !== 'esms' || !env.sms.esmsApiKey) throw new AppError('eSMS Africa delivery is not configured.', 503, 'SMS_NOT_CONFIGURED');
   const result = await esmsRequest('/balance');
-  if (typeof result.balance !== 'number' || !Number.isFinite(result.balance) || typeof result.currency !== 'string' || !result.currency) throw smsFailure();
-  return { authenticated: true, creditAvailable: result.balance > 0 };
+  const balance = typeof result.balance === 'number' ? result.balance : typeof result.balance === 'string' && /^\d+(?:\.\d+)?$/.test(result.balance) ? Number(result.balance) : NaN;
+  if (!Number.isFinite(balance) || typeof result.currency !== 'string' || !result.currency) throw smsFailure();
+  return { authenticated: true, creditAvailable: balance > 0 };
 }

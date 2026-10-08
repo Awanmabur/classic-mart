@@ -54,7 +54,7 @@ application or an authentication/payment test.
 Use Node 24, npm ci, an actual transaction-capable MongoDB replica set in MONGO_URI,
 and the settings in .env.example. Then run npm start. Development log delivery
 shows verification codes on the verification pages. That does not verify SMTP or
-Twilio delivery. Use your actual account signup; no preview accounts are shipped.
+eSMS Africa delivery. Use your actual account signup; no preview accounts are shipped.
 
 Production configuration is illustrated by .env.production.example. Configure
 actual secrets through your deployment's secret settings, not source control.
@@ -62,13 +62,13 @@ Production verification and privileged MFA remain required.
 
 ## Provider configuration still required
 
-The current workspace has no Pesapal, SMTP or Twilio credentials. Configure sandbox
+The current workspace has no Pesapal, SMTP or eSMS Africa credentials. Configure sandbox
 credentials for provider verification, then live credentials only for release:
 
 - PESAPAL_CONSUMER_KEY, PESAPAL_CONSUMER_SECRET, PESAPAL_IPN_ID; sandbox verification
   uses PESAPAL_SANDBOX=true and the existing sandbox URL.
 - MAIL_MODE=smtp, SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, SMTP_FROM.
-- SMS_MODE=twilio, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM.
+- SMS_MODE=esms, ESMS_API_KEY, ESMS_SENDER_ID.
 
 Provider callbacks require a reachable configured BASE_URL and registered IPN.
 Production requires live Pesapal configuration. Real mail/SMS delivery, payment
@@ -120,7 +120,7 @@ Live eSMS receipt and Gmail authentication remain unverified without account cre
 Implemented from the provider SDK contract: bearer-authenticated HTTPS sending,
 strict response validation, timeout and redirect protection, optional approved
 sender ID, and a no-send balance/authentication check (`npm run sms:verify`).
-Production accepts a live eSMS key or configured Twilio. See
+Production accepts a live eSMS key. See
 [configuration instructions](docs/GMAIL_AND_SMS_SETUP.md). No live provider credentials
 are present here, so actual SMS receipt and Gmail authentication remain unverified.
 
@@ -233,3 +233,13 @@ identifier encryption, current-evidence checks, independent reviewers, exclusive
 claims, transactional audit/notifications and desktop/mobile browser checks cover
 this flow. See the [verification milestone](docs/seller/verification.md) for test
 evidence, provider limits and remaining work.
+
+### Phone country selector and eSMS-only configuration
+
+Signup and seller support phone selectors now use library-generated calling codes
+and international country names, with the calling code first and the approved
+rounded dropdown style. The only external SMS adapter and deployment configuration
+is eSMS Africa. An API key selects that adapter automatically when SMS_MODE is
+omitted; log mode explicitly reports that no SMS was sent. See
+[SMS configuration and verification](docs/production/SMS.md) for safe configuration,
+provider diagnostics and live-delivery limits.

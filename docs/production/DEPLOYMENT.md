@@ -6,7 +6,7 @@ Use Node.js 24.x exactly as declared by `engines`. Production requires a transac
 ## Before deployment
 1. Take and verify a database backup/restore point.
 2. Generate independent random values for session, token pepper, data encryption, security integrity, origin guard/SIEM/metrics tokens as used.
-3. Configure production SMTP, Twilio SMS verification and malware scanner.
+3. Configure production SMTP, eSMS Africa SMS verification and malware scanner.
 4. Configure HTTPS `BASE_URL`, trusted proxy topology and launch countries.
 5. Configure Pesapal live API credentials and base URL.
 6. Run `npm ci` with Node 24.

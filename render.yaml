@@ -78,12 +78,10 @@ services:
       - key: SMTP_FROM
         sync: false
       - key: SMS_MODE
-        value: twilio
-      - key: TWILIO_ACCOUNT_SID
+        value: esms
+      - key: ESMS_API_KEY
         sync: false
-      - key: TWILIO_AUTH_TOKEN
-        sync: false
-      - key: TWILIO_FROM
+      - key: ESMS_SENDER_ID
         sync: false
       - key: ADMIN_NAME
         value: Classic Mart Super Admin

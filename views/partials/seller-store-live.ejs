@@ -22,7 +22,7 @@
         <fieldset <%= locked ? 'disabled' : '' %> class="seller-settings-fields"><div class="role-form-grid">
           <label>Store name<input name="name" value="<%= draft.name ?? sellerStore.name %>" required minlength="2" maxlength="140" autocomplete="organization"></label>
           <label>Contact email<input name="supportEmail" type="email" value="<%= draft.supportEmail ?? ops.supportEmail ?? '' %>" maxlength="254" autocomplete="email"></label>
-          <label>Phone country code<select name="supportPhoneCountry" required><% for (const country of liveSeller.countries) { %><option value="<%= country.code %>" <%= country.code === (draft.supportPhoneCountry ?? liveSeller.phoneCountry) ? 'selected' : '' %>><%= country.name %> (<%= country.phonePrefix %>)</option><% } %></select></label>
+          <label>Phone country code<select name="supportPhoneCountry" required><% for (const country of liveSeller.phoneCountries) { %><option value="<%= country.code %>" <%= country.code === (draft.supportPhoneCountry ?? liveSeller.phoneCountry) ? 'selected' : '' %>><%= country.phonePrefix %> · <%= country.name %></option><% } %></select></label>
           <label>Phone number<input name="supportPhone" type="tel" value="<%= draft.supportPhone ?? ops.supportPhone ?? '' %>" maxlength="30" autocomplete="tel" placeholder="Include the selected country code"></label>
           <label>Country<input value="<%= sellerStore.country %>" readonly aria-describedby="sellerRegionHint"></label>
           <label>Currency<input value="<%= sellerStore.currency %>" readonly></label>
