@@ -56,10 +56,6 @@
   cursor: pointer;
 }
 
-.role-heading > span,
-.role-card em { color: var(--orange-accessible); }
-.role-next,
-.role-card:has(input:checked)::after { color: var(--text); }
 .role-card:has(input:focus-visible) {
   outline: 3px solid var(--navy);
   outline-offset: 3px;

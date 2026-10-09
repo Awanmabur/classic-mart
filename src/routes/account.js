@@ -31,17 +31,30 @@ function profileReturn(request){return ['/profile','/dashboard/profile'].include
 router.use(
   ['/onboarding', '/account'],
   noStore,
+  (request, response, next) => {
+    const path = new URL(request.originalUrl, 'http://localhost').pathname;
+    const sellerIntent = path === '/onboarding/seller' || (path === '/onboarding' && request.query.role === 'seller');
+    if (request.method === 'GET' && sellerIntent && !request.user && path === '/onboarding') return response.redirect('/signup?role=seller');
+    if (request.method === 'GET' && sellerIntent && request.user?.role === 'customer' && !request.user.platformAccessManagedAt) request.session.accountSetupNext = '/onboarding/seller';
+    return next();
+  },
   requireAuth,
   requireVerified,
 );
 
 async function renderSellerEnrollment(request, response, pageError = '') {
   const actor = await sellerEnrollmentPreview(request);
-  if (actor.role === 'seller') return response.redirect('/seller/store');
+  if (actor.role === 'seller') {
+    delete request.session.accountSetupNext;
+    return response.redirect('/seller/store');
+  }
   const draft = {};
   if (pageError) for (const field of ['publicName', 'businessName', 'focus', 'location', 'bio', 'transport', 'teamSize']) {
     if (typeof request.body?.[field] === 'string') draft[field] = request.body[field].slice(0, 1000);
   }
+  // Continuation is needed only until the verified enrollment page is reached.
+  // Leaving it must not trap an incomplete customer in seller setup.
+  delete request.session.accountSetupNext;
   return response.render('onboarding', { sellerEnrollment: true, pageError,
     values: { ...actor.roleProfile?.toObject(), ...draft, role: 'seller', version: actor.__v } });
 }
@@ -52,6 +65,7 @@ router.post('/onboarding/seller', sellerEnrollmentLimit, asyncHandler(async (req
   try {
     const actor = await enrollCustomerAsSeller(request, sellerEnrollmentSchema.parse(request.body));
     request.user = actor;
+    delete request.session.accountSetupNext;
     setFlash(request, 'success', 'Your seller account is ready. Complete store verification before publishing products.');
     return response.redirect('/seller/store');
   } catch (error) {
@@ -65,6 +79,7 @@ router.post('/onboarding/seller', sellerEnrollmentLimit, asyncHandler(async (req
 router.get(
   '/onboarding',
   asyncHandler(async (request, response) => {
+    if (request.user.role === 'customer' && request.query.role === 'seller') return response.redirect('/onboarding/seller');
     if (request.user.onboardingCompletedAt) return response.redirect(dashboardLanding(request.user));
     response.render('onboarding', {
       pageError: null,
@@ -183,7 +198,7 @@ async function renderAccountPage(request, response, requestedSection = 'profile'
 router.get(
   '/account/profile',
   asyncHandler((request, response) =>
-    response.redirect('/profile'),
+    response.redirect(dashboardLanding(request.user) === '/dashboard' ? '/profile' : dashboardLanding(request.user)),
   ),
 );
 router.get(

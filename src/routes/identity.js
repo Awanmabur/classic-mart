@@ -1,7 +1,7 @@
 import { getPhoneCountries } from '../services/phone-countries.js';
 import { Router } from 'express';
 import { customerView } from '../dashboard/customer-view.js';
-import { loginDestination } from '../dashboard/landing.js';
+import { hasSellerSignupIntent, loginDestination, signupDestination } from '../dashboard/landing.js';
 import { publicAccountType } from '../core/registration.js';
 import { hydratePlatformAuthorization } from '../services/platform-grants.js';
 import { env } from '../config/env.js';
@@ -75,11 +75,21 @@ function saveSession(request) {
 function safeNext(value) {
   return typeof value === 'string' &&
     value.startsWith('/') &&
-    !value.startsWith('//')
+    !value.startsWith('//') && !/[\\\u0000-\u001f\u007f]/.test(value)
     ? value
     : '/';
 }
 
+function rememberSellerSignup(request, user, nextPath) {
+  if (user.role === 'customer' && !user.platformAccessManagedAt && hasSellerSignupIntent(nextPath)) {
+    request.session.accountSetupNext = '/onboarding/seller';
+  }
+}
+
+function verifiedDestination(request, user = request.user) {
+  if (user.role === 'customer' && !user.platformAccessManagedAt && request.session.accountSetupNext === '/onboarding/seller') return '/onboarding/seller';
+  return user.onboardingCompletedAt ? loginDestination(user) : '/onboarding';
+}
 
 async function beginMfaChallenge(request, user, remember, nextPath) {
   const continuity = {
@@ -131,6 +141,7 @@ router.get('/login', (request, response) => {
     pageError: null,
     values: { email: '' },
     next: safeNext(request.query.next),
+    signupHref: signupDestination(request.query.next),
   });
 });
 
@@ -148,6 +159,7 @@ router.post(
         return response.redirect('/mfa');
       }
       await establishSession(request, user, false);
+      rememberSellerSignup(request, user, input.next);
       await writeAudit(request, 'identity.login', {
         actor: user,
         targetType: 'user',
@@ -155,7 +167,7 @@ router.post(
       });
       if (!env.auth.simpleLogin) {
         if (!user.emailVerifiedAt) return response.redirect('/verify-email');
-        if (!user.onboardingCompletedAt) return response.redirect('/onboarding');
+        if (!user.onboardingCompletedAt) return response.redirect(verifiedDestination(request, user));
       }
       return response.redirect(loginDestination(user, input.next));
     } catch (error) {
@@ -167,6 +179,7 @@ router.post(
         pageError: error.message,
         values: { email: request.body.email || '' },
         next: safeNext(request.body.next),
+        signupHref: signupDestination(request.body.next),
       });
     }
   }),
@@ -200,10 +213,11 @@ router.post('/mfa', authenticationLimit, asyncHandler(async (request, response) 
     const remember = Boolean(challenge.remember);
     delete request.session.mfaChallenge;
     await establishSession(request, user, remember);
+    rememberSellerSignup(request, user, nextPath);
     await writeAudit(request, 'identity.login', { actor: user, targetType: 'user', targetPublicId: user.publicId, metadata: { mfa: result.method } });
     await writeSecurityEvent(request, 'mfa.challenge_succeeded', { actor: user, category: 'mfa', severity: 'low', result: 'success', metadata: { method: result.method } });
     if (!user.emailVerifiedAt) return response.redirect('/verify-email');
-    if (!user.onboardingCompletedAt) return response.redirect('/onboarding');
+    if (!user.onboardingCompletedAt) return response.redirect(verifiedDestination(request, user));
     return response.redirect(loginDestination(user, nextPath));
   } catch (error) {
     await writeSecurityEvent(request, 'mfa.challenge_failed', { category: 'mfa', severity: 'medium', result: 'failure', metadata: { code: error.code || 'MFA_FAILED' } });
@@ -218,7 +232,10 @@ router.use('/signup', asyncHandler(async (request, response, next) => {
 }));
 
 router.get('/signup', (request, response) => {
-  if (request.user?.role === 'customer' && request.query.role === 'seller') return response.redirect('/onboarding/seller');
+  if (request.user?.role === 'customer' && request.query.role === 'seller') {
+    rememberSellerSignup(request, request.user, '/onboarding/seller');
+    return response.redirect('/onboarding/seller');
+  }
   if (request.user) return response.redirect(loginDestination(request.user));
   return response.render('signup', { pageError: null, values: { accountType: publicAccountType(request.query.role), referralCode: String(request.query.ref || '').trim().slice(0,24) } });
 });
@@ -281,7 +298,7 @@ router.post(
 
 router.get('/verify-email', requireAuth, (request, response) => {
   if (request.user.emailVerifiedAt) {
-    return response.redirect(request.user.onboardingCompletedAt ? loginDestination(request.user) : '/onboarding');
+    return response.redirect(verifiedDestination(request));
   }
   return response.render('verify-email', { pageError: null });
 });
@@ -299,7 +316,7 @@ router.post(
         targetType: 'user',
         targetPublicId: request.user.publicId,
       });
-      return response.redirect(request.user.onboardingCompletedAt ? loginDestination(request.user) : '/onboarding');
+      return response.redirect(verifiedDestination(request));
     } catch (error) {
       return response.status(error.status || 422).render('verify-email', {
         pageError: error.message,

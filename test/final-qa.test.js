@@ -38,5 +38,5 @@ test('homepage category navigation and filters are database-driven after hydrati
 });
 
 test('service worker cache namespace is advanced for the frontend data/functionality release', () => {
-  assert.match(read('public/sw.js'), /classic-mart-public-v30/);
+  assert.match(read('public/sw.js'), /classic-mart-public-v31/);
 });

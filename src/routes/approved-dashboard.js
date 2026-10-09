@@ -30,9 +30,12 @@ for (const [page, path] of Object.entries(CUSTOMER_ROUTES)) {
     if (!request.user && PUBLIC_CUSTOMER_PAGES.has(page)) return next('route');
     return next();
   }, ...gates, asyncHandler(async (request, response) => {
-    if (page === 'dashboard') {
+    if (page === 'dashboard' || page === 'profile') {
       const landing = dashboardLanding(request.user);
-      if (landing !== path) return response.redirect(landing);
+      // Generic account/profile entry belongs to the account's primary
+      // workspace. Buyer orders and other explicitly shopping pages stay
+      // accessible without turning a seller into a customer account.
+      if (landing !== CUSTOMER_ROUTES.dashboard && landing !== path) return response.redirect(landing);
     }
     return renderPage(request, response, page);
   }));

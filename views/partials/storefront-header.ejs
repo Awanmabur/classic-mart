@@ -1,7 +1,7 @@
 <%
   const shellUrl = typeof currentPath === 'string' && currentPath ? currentPath : '/';
   const shellPath = shellUrl.split('?')[0] || '/';
-  const accountHref = user ? '/account/profile' : `/login?next=${encodeURIComponent(shellUrl)}`;
+  const accountHref = user ? '/account/profile' : '/login?next=%2Fdashboard';
   const accountLabel = user?.name ? user.name.trim().split(/\s+/)[0] : 'Sign in';
 %>
 <div class="utility-bar">

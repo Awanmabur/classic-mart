@@ -1,9 +1,11 @@
 # Public storefront accessibility and browser verification
 
-This milestone follows the seller product lifecycle integration. It fixes the
+The initial 2026-10-08 milestone follows the seller product lifecycle integration. It fixes the
 public-site accessibility failures recorded in [seller/products.md](seller/products.md).
 The approved dashboard template, reference markup and dashboard stylesheets are
-unchanged.
+unchanged at that checkpoint. The later approved-design restoration and its
+current accessibility findings are recorded below; historical passing results
+do not apply to the restored palette.
 
 ## User-visible behaviour
 
@@ -101,10 +103,12 @@ release requirements.
 
 ## Approved public UI correction
 
-The 2026-10-09 correction restores the uploaded application's bright orange,
-teal, coral and green public backgrounds. Card dimensions, pill shapes, page
-structure and typography remain the approved design. Small labels use dark
-foregrounds on bright fills; small links retain their readable orange shade.
+The final 2026-10-09 correction restores the uploaded application's original
+foregrounds as well as its backgrounds. White button labels and icons, orange
+branding, hero/newsletter copy, prices, stars, badges, muted text and hover
+colours match the approved source. The original slider-dot geometry and
+authentication-link decoration are also restored. Card dimensions, pill
+shapes, page structure and typography remain the approved design.
 Keyboard navigation, focus indicators, dialog containment, native product
 actions and delayed-response protections remain enabled.
 
@@ -112,11 +116,40 @@ Promotional cards explicitly establish their image-positioning container.
 Mobile images remain inside their own cards when reduced motion is enabled or
 entry animations have finished, rather than overlapping adjacent cards and
 shopping benefits. Browser regressions verify 320/390-pixel containment and the
-rendered original public background colours. The public service-worker cache
-advances to v30 to refresh existing installations.
+rendered original public colours, including white action labels. The public
+service-worker cache advances to v31 to refresh existing installations.
 
-The corrected branch passed 433 canonical tests with zero failures or skips,
-and 54 desktop/mobile browser checks with four intentional project-specific
-skips. Seller signup and existing-customer enrolment were also exercised through
-real verification/profile forms, with accessible enrolment controls and proper
-card padding and 48-pixel actions at 390 and 1366 pixels.
+Reference comparisons check the uploaded ZIP on the same live DOM. Ninety
+rendered colour comparisons across home, products, about, contact, help, login
+and seller signup matched at 390 and 1366 pixels. Existing colour declarations
+in all five affected stylesheets match the original source. Source comparisons
+also preserve home/catalog geometry. Catalog loading captures match exactly;
+home captures retain small differences from native controls, motion and image
+containment fixes and are not claimed to be pixel-identical.
+
+The targeted brand/containment browser regression passed four checks. The
+separate seller account-entry regression passed eleven real MongoDB/browser
+checks, including verification, MFA and account re-entry. Customer profile
+behaviour remains unchanged; sellers' generic profile entry opens their seller
+workspace. On small screens the dashboard search retains the approved fixed
+10-pixel insets without clipping its action button.
+
+Strict accessibility scans remain enabled. Restoring the original approved
+palette restores its contrast findings: small white labels on bright orange
+have about 2.95:1 contrast, below the AA requirement of 4.5:1. Original slider
+dots also trigger target-size findings. Scans of nine public pages at desktop
+and mobile widths reported those two rule types, without other violations in
+those scanned states. The existing strict WCAG tests intentionally still fail
+these findings; no audit rules or assertions were suppressed. This correction
+does not claim AA compliance or a passing complete release gate.
+
+The broader run recorded 429 passing tests and six failed results: the
+enrolment contrast assertion and its parent result, three stale source
+contracts, and a warehouse test interrupted by a fatal restart of the isolated
+MongoDB server. The affected account/source checks subsequently passed their
+20-test run; warehouse operations subsequently passed ten checks with no
+failures or skips. The strict enrolment contrast assertion remains failing.
+Critical desktop/mobile browser flows passed thirteen checks with three
+intentional project-specific skips. Project/import, security, frontend and
+functionality checks passed. No real messaging or payment provider calls were
+made, and the complete strict suite is not reported as passing.

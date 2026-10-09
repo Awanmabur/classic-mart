@@ -35,12 +35,15 @@ for (const [label, path, heading] of publicPages) {
   });
 }
 
-test('public pages retain approved bright brand fills across marketing and account entry', async ({ page }) => {
+test('public pages retain approved brand fills and white labels across marketing and account entry', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/', { waitUntil: 'networkidle' });
   const orange = 'rgb(255, 101, 0)';
   await expect(page.locator('.search-button')).toHaveCSS('background-color', orange);
+  await expect(page.locator('.search-button')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.browse-button')).toHaveCSS('color', 'rgb(255, 255, 255)');
   await expect(page.locator('.newsletter')).toHaveCSS('background-color', 'rgb(7, 150, 144)');
+  await expect(page.locator('.newsletter')).toHaveCSS('color', 'rgb(255, 255, 255)');
   expect(await page.locator('.hero-slide-a').evaluate(element =>
     getComputedStyle(element, '::before').backgroundColor)).toBe('rgb(0, 164, 156)');
 
@@ -54,12 +57,15 @@ test('public pages retain approved bright brand fills across marketing and accou
   await page.goto('/products', { waitUntil: 'networkidle' });
   await expect(page.locator('.search-button')).toHaveCSS('background-color', orange);
   await expect(page.locator('.catalog-primary-button').first()).toHaveCSS('background-color', orange);
+  await expect(page.locator('.catalog-primary-button').first()).toHaveCSS('color', 'rgb(255, 255, 255)');
   await expect(page.locator('.catalog-card-actions button').first()).toHaveCSS('background-color', orange);
+  await expect(page.locator('.catalog-card-actions button').first()).toHaveCSS('color', 'rgb(255, 255, 255)');
   for (const path of ['/login', '/signup?role=seller']) {
     await page.goto(path, { waitUntil: 'networkidle' });
     const submit = page.locator('.auth-submit');
     await expect(submit).toBeVisible();
     await expect(submit).toHaveCSS('background-color', orange);
+    await expect(submit).toHaveCSS('color', 'rgb(255, 255, 255)');
   }
 });
 

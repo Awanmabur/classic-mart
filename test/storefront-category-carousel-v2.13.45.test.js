@@ -35,5 +35,5 @@ test('category right-arrow uses the shared section scrolling behavior for all cu
 
 test('public cache advances for the restored category carousel shell', () => {
   const sw = read('public/sw.js');
-  assert.match(sw, /classic-mart-public-v30/);
+  assert.match(sw, /classic-mart-public-v31/);
 });

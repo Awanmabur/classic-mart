@@ -56,7 +56,7 @@
 <% if (flash?.details) { %><p class="auth-message"><%= flash.details %></p><% } %>
 <button class="auth-submit" type="submit">Sign In to Classic Mart</button>
 </form>
-<p class="auth-switch">New to Classic Mart? <a href="/signup">Create your free account</a></p>
+<p class="auth-switch">New to Classic Mart? <a href="<%= typeof signupHref === 'undefined' ? '/signup' : signupHref %>">Create your free account</a></p>
 <p class="auth-legal">By continuing, you agree to the Classic Mart <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
 </article>
 </section>

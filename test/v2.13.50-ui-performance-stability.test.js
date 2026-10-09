@@ -136,7 +136,7 @@ test('repeat navigation can reuse static assets instead of forcing CSS and JS re
   assert.match(app, /env\.isProduction[\s\S]*stale-while-revalidate/i);
   assert.doesNotMatch(app, /file\.endsWith\('\.js'\)[\s\S]{0,180}no-cache, max-age=0, must-revalidate/);
   const sw = read('public/sw.js');
-  assert.match(sw, /classic-mart-public-v30/);
+  assert.match(sw, /classic-mart-public-v31/);
   assert.match(sw, /staleWhileRevalidate/);
   assert.match(sw, /liveAsset[\s\S]*staleWhileRevalidate\(request\)/);
 });

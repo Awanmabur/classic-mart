@@ -7,6 +7,27 @@ later sign-in land in the approved seller workspace at `/seller/store`.
 Local `SIMPLE_LOGIN` mode uses the same role-aware landing. There is no
 dashboard role switcher.
 
+Public header, footer and mobile account entries retain `/account/profile`.
+This alias opens the customer's personal profile or the account's primary
+role workspace. `/dashboard` also opens the account's primary workspace. Existing
+sellers visiting bookmarked `/profile` or `/dashboard/profile` addresses
+continue to `/seller/store`; the generic `/account/profile` alias does the
+same. Customer `/account/profile` behaviour stays at its personal profile.
+Explicit buyer order pages remain available to sellers, and shared account
+security pages display the user's assigned role.
+
+The legacy `/onboarding?role=seller` link keeps seller intent instead of
+opening a completed customer's dashboard. Guests are directed to seller
+signup, while existing customers reach deliberate seller enrolment. The
+existing login page's Create Account link keeps that intent too. If an
+existing customer must verify email or finish an incomplete profile first,
+an allowlisted session continuation returns to seller enrolment. Opening
+these pages does not change an account role; confirmation is still required.
+The continuation is consumed when the verified form is reached, so choosing
+Back to marketplace does not trap an incomplete customer in seller setup.
+Ordinary `/signup` remains customer registration, including in development
+simple-login mode. Seller registration starts through the existing Sell links.
+
 Public account types are marketplace participation roles, not operational
 staff privileges. Unknown or privileged account types fail validation. The old
 untrusted `role` registration field cannot create staff or administrators.
@@ -43,7 +64,18 @@ audit rollback. Desktop/mobile checks include enrolment accessibility and
 form/button geometry; simple-login coverage is in
 `test/approved-dashboard.test.js`.
 
-Verified on 2026-10-09: the focused auth regression passed 20 tests with no
+Before the later approved-palette restoration on 2026-10-09, the focused auth regression passed 20 tests with no
 failures or skips, and the complete canonical suite passed 433 tests with no
 failures or skips. Browser enrolment had no violations in the checked WCAG A/AA
 rules at 390 and 1366 pixels. These checks do not certify the complete website.
+
+`test/seller-account-entry-live.test.js` separately verifies actual public Sell
+and Account links in desktop/mobile Chromium, persisted seller identity,
+safe role-aware login destinations, existing-customer aliases, bookmarked
+profile redirects, and seller intent across guest login, email verification,
+and an actual MFA challenge using securely enrolled recovery codes.
+It uses an isolated local MongoDB database and development delivery sinks.
+These workflow checks do not certify provider delivery or accessibility.
+On 2026-10-09 this public-entry regression passed 11 tests with no failures or
+skips; the focused simple-login and shared-shell contracts passed 15 tests
+with no failures or skips.

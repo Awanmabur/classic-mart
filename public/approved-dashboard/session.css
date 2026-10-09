@@ -15,6 +15,10 @@ a.full-button, a.view-orders-button { display: flex; }
 .settings-nav a { display: block; text-decoration: none; color: inherit; padding: 12px 16px; font-size: 12px; }
 @media (max-width: 1100px) { .topbar { grid-template-columns: auto minmax(140px, 1fr) auto; } }
 @media (max-width: 700px) { .topbar { grid-template-columns: auto 1fr; } .topbar > .search { grid-column: 1 / -1; grid-row: 2; } }
+@media (max-width: 620px) {
+  /* The approved mobile search is fixed with 10px insets on both sides. */
+  .topbar > .search { width: auto; }
+}
 
 /* Keep real forms inside the approved card and button layouts. */
 .primary-button, .soft-button, .outline-button, .light-button, .ghost-light-button {

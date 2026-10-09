@@ -35,5 +35,5 @@ test('homepage category More control is a jump shortcut, not a visibility gate',
 
 test('public service worker advances its cache namespace for the v2.13.44 shell change', () => {
   const sw = read('public/sw.js');
-  assert.match(sw, /classic-mart-public-v30/);
+  assert.match(sw, /classic-mart-public-v31/);
 });

@@ -83,7 +83,7 @@
         <button class="round-icon badge-button" data-page-target="notifications" aria-label="Notifications"><svg><use href="#i-bell"></use></svg><b class="red" id="notificationBadge"><%= liveCustomer ? liveHeader.unread : 4 %></b></button>
         <button class="profile-button" id="profileButton">
           <img src="/approved-dashboard/assets/avatar.svg" alt="<%= user?.name || 'Member' %>" />
-          <span><strong>Hi, <%= memberName %></strong><small><%= warehouseLive ? liveWarehouse.profileRole : sellerLive ? liveSeller.profileRole : 'Customer' %></small></span>
+          <span><strong>Hi, <%= memberName %></strong><small><%= warehouseLive ? liveWarehouse.profileRole : sellerLive ? liveSeller.profileRole : roleLabel(user.role) %></small></span>
           <svg><use href="#i-chevron-down"></use></svg>
         </button>
       </div>
