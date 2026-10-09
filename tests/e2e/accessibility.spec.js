@@ -35,6 +35,73 @@ for (const [label, path, heading] of publicPages) {
   });
 }
 
+test('public pages retain approved bright brand fills across marketing and account entry', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const orange = 'rgb(255, 101, 0)';
+  await expect(page.locator('.search-button')).toHaveCSS('background-color', orange);
+  await expect(page.locator('.newsletter')).toHaveCSS('background-color', 'rgb(7, 150, 144)');
+  expect(await page.locator('.hero-slide-a').evaluate(element =>
+    getComputedStyle(element, '::before').backgroundColor)).toBe('rgb(0, 164, 156)');
+
+  await page.getByRole('button', { name: 'Slide 3', exact: true }).click();
+  const thirdSlide = page.locator('.hero-slide-c');
+  await expect(thirdSlide).toHaveAttribute('aria-hidden', 'false');
+  await expect(thirdSlide.getByRole('heading', { level: 2 })).toBeInViewport();
+  expect(await thirdSlide.evaluate(element =>
+    getComputedStyle(element, '::before').backgroundColor)).toBe('rgb(214, 117, 94)');
+
+  await page.goto('/products', { waitUntil: 'networkidle' });
+  await expect(page.locator('.search-button')).toHaveCSS('background-color', orange);
+  await expect(page.locator('.catalog-primary-button').first()).toHaveCSS('background-color', orange);
+  await expect(page.locator('.catalog-card-actions button').first()).toHaveCSS('background-color', orange);
+  for (const path of ['/login', '/signup?role=seller']) {
+    await page.goto(path, { waitUntil: 'networkidle' });
+    const submit = page.locator('.auth-submit');
+    await expect(submit).toBeVisible();
+    await expect(submit).toHaveCSS('background-color', orange);
+  }
+});
+
+test('mobile promotional images stay inside their own cards with reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto('/', { waitUntil: 'networkidle' });
+    const evidence = await page.locator('.promo-card').evaluateAll(cards => cards.map(card => {
+      const box = card.getBoundingClientRect();
+      const image = card.querySelector('img').getBoundingClientRect();
+      const style = getComputedStyle(card);
+      return {
+        label: card.querySelector('strong').textContent,
+        width: box.width,
+        imageWidth: image.width,
+        left: image.left - box.left,
+        top: image.top - box.top,
+        right: image.right - box.right,
+        bottom: image.bottom - box.bottom,
+        position: style.position,
+        overflow: style.overflow,
+      };
+    }));
+    expect(evidence).toHaveLength(3);
+    for (const card of evidence) {
+      const label = `${width}px ${card.label} promotional image`;
+      expect(card.position, label).toBe('relative');
+      expect(card.overflow, label).toBe('hidden');
+      expect(card.imageWidth, label).toBeGreaterThan(0);
+      expect(card.imageWidth, label).toBeLessThanOrEqual(card.width);
+      expect(card.left, label).toBeGreaterThanOrEqual(-1);
+      expect(card.top, label).toBeGreaterThanOrEqual(-1);
+      // The approved composition clips two pixels at the right and nine at the bottom.
+      expect(card.right, label).toBeLessThanOrEqual(3);
+      expect(card.bottom, label).toBeLessThanOrEqual(10);
+    }
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `${width}px homepage reflow`).toBeLessThanOrEqual(2);
+  }
+});
+
 test('keyboard focus reaches the skip link and main content', async ({ page }) => {
   await page.goto('/');
   await page.keyboard.press('Tab');

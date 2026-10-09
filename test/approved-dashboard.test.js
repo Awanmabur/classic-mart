@@ -127,3 +127,28 @@ test('application runtime has no role-selection control or handler', () => {
   assert.doesNotMatch(source + controls, /roleSwitcher|buildRoleSwitcher/);
   assert.match(source, /workspaceName\.textContent/);
 });
+
+test('seller registration retains its account intent when local simple login skips onboarding', async t => {
+  let actor;
+  t.mock.method(User, 'exists', async () => false);
+  t.mock.method(User, 'create', async data => {
+    assert.equal(data.role, 'seller');
+    assert.notEqual(data.passwordHash, 'Dashboard-test-password-2026!');
+    actor = new User(data);
+    actor.save = async () => actor;
+    return actor;
+  });
+  t.mock.method(User, 'findById', () => ({ select: async () => actor }));
+  t.mock.method(Device, 'create', async () => ({}));
+  t.mock.method(Device, 'findOne', async () => ({ save: async () => {} }));
+  t.mock.method(AuditLog, 'create', async () => ({}));
+  const agent = request.agent(createApp(null));
+  const signup = await agent.get('/signup?role=seller').expect(200);
+  assert.match(signup.text, /name="accountType" type="hidden" value="seller"/);
+  const token = signup.text.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
+  await agent.post('/signup').type('form').send({ name: 'Local Seller', email: 'local-seller@example.com', phone: '+256700123456',
+    accountType: 'seller', role: 'super_admin', password: 'Dashboard-test-password-2026!', confirmPassword: 'Dashboard-test-password-2026!',
+    acceptTerms: 'on', _csrf: token }).expect(302).expect('location', '/seller/store');
+  await agent.get('/dashboard').expect(302).expect('location', '/seller/store');
+  await agent.get('/dashboard/super-overview').expect(403);
+});

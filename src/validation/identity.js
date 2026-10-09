@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { canonicalPhone } from '../core/phone.js';
+import { PUBLIC_ACCOUNT_TYPES } from '../core/registration.js';
 
 const trimmed = (minimum, maximum) =>
   z.string().trim().min(minimum).max(maximum);
@@ -23,6 +24,7 @@ export const signUpSchema = z
       .max(30)
       .regex(/^\+?[\d\s()-]+$/),
     phoneCountry: z.string().trim().regex(/^[A-Z]{2}$/).optional(),
+    accountType: z.enum(PUBLIC_ACCOUNT_TYPES).default('customer'),
     password: strongPassword,
     confirmPassword: z.string(),
     acceptTerms: z.literal('on'),
@@ -61,7 +63,7 @@ export const resetSchema = z
   });
 
 export const onboardingSchema = z.object({
-  role: z.enum(['customer', 'business', 'seller', 'promoter', 'delivery']),
+  role: z.enum(PUBLIC_ACCOUNT_TYPES),
   publicName: trimmed(2, 100),
   businessName: z.string().trim().max(140).optional(),
   focus: z.string().trim().max(120).optional(),
@@ -69,6 +71,12 @@ export const onboardingSchema = z.object({
   bio: z.string().trim().max(1_000).optional(),
   transport: z.string().trim().max(80).optional(),
   teamSize: z.string().trim().max(30).optional(),
+});
+
+export const sellerEnrollmentSchema = onboardingSchema.extend({
+  role: z.literal('seller'),
+  confirmSeller: z.literal('on'),
+  version: z.string().regex(/^\d{1,15}$/).transform(Number).refine(Number.isSafeInteger),
 });
 
 export const profileSchema = z.object({

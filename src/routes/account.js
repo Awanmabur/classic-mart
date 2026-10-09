@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { customerView } from '../dashboard/customer-view.js';
 import { dashboardLanding } from '../dashboard/landing.js';
+import { PUBLIC_ACCOUNT_TYPES, publicAccountType } from '../core/registration.js';
 import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { normalizePhone } from '../core/crypto.js';
 import { Device, Order, PrivacyRequest, PromoterContactRequest, SellerContactRequest, StoreMember, User } from '../models/index.js';
@@ -9,6 +11,7 @@ import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { noStore } from '../middleware/request.js';
 import { setFlash } from '../middleware/view.js';
 import { writeAudit } from '../services/audit.js';
+import { enrollCustomerAsSeller, sellerEnrollmentPreview } from '../services/seller-enrollment.js';
 import { getCountries, getCountry } from '../services/country.js';
 import { changePassword } from '../services/auth.js';
 import { beginMfaEnrollment, confirmMfaEnrollment, disableMfa, mfaRequiredForUser, pendingMfaEnrollment, regenerateRecoveryCodes } from '../services/mfa.js';
@@ -18,6 +21,7 @@ import { createPrivacyRequest, privacyExportPayload } from '../services/privacy.
 import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 import {
   onboardingSchema,
+  sellerEnrollmentSchema,
   passwordChangeSchema,
   profileSchema,
 } from '../validation/identity.js';
@@ -31,13 +35,40 @@ router.use(
   requireVerified,
 );
 
+async function renderSellerEnrollment(request, response, pageError = '') {
+  const actor = await sellerEnrollmentPreview(request);
+  if (actor.role === 'seller') return response.redirect('/seller/store');
+  const draft = {};
+  if (pageError) for (const field of ['publicName', 'businessName', 'focus', 'location', 'bio', 'transport', 'teamSize']) {
+    if (typeof request.body?.[field] === 'string') draft[field] = request.body[field].slice(0, 1000);
+  }
+  return response.render('onboarding', { sellerEnrollment: true, pageError,
+    values: { ...actor.roleProfile?.toObject(), ...draft, role: 'seller', version: actor.__v } });
+}
+router.get('/onboarding/seller', asyncHandler((request, response) => renderSellerEnrollment(request, response)));
+const sellerEnrollmentLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false,
+  keyGenerator: request => String(request.user._id) });
+router.post('/onboarding/seller', sellerEnrollmentLimit, asyncHandler(async (request, response) => {
+  try {
+    const actor = await enrollCustomerAsSeller(request, sellerEnrollmentSchema.parse(request.body));
+    request.user = actor;
+    setFlash(request, 'success', 'Your seller account is ready. Complete store verification before publishing products.');
+    return response.redirect('/seller/store');
+  } catch (error) {
+    const status = error.name === 'ZodError' ? 422 : error.status;
+    if (![409, 422].includes(status) || request.accepts(['html', 'json']) === 'json') throw error;
+    response.status(status);
+    return renderSellerEnrollment(request, response, error.name === 'ZodError' ? error.issues[0].message : error.message);
+  }
+}));
+
 router.get(
   '/onboarding',
   asyncHandler(async (request, response) => {
     if (request.user.onboardingCompletedAt) return response.redirect(dashboardLanding(request.user));
     response.render('onboarding', {
       pageError: null,
-      values: { role: request.query.role || 'customer' },
+      values: { role: publicAccountType(request.query.role || request.user.role) },
     });
   }),
 );
@@ -46,8 +77,10 @@ router.post(
   '/onboarding',
   asyncHandler(async (request, response) => {
     try {
+      if (request.user.onboardingCompletedAt) return response.redirect(dashboardLanding(request.user));
       const input = onboardingSchema.parse(request.body);
-      request.user.role = input.role;
+      // Profile completion never overwrites administrator-managed staff access.
+      if (!request.user.platformAccessManagedAt && PUBLIC_ACCOUNT_TYPES.includes(request.user.role)) request.user.role = input.role;
       request.user.roleProfile = {
         publicName: input.publicName,
         businessName: input.businessName,
@@ -62,12 +95,12 @@ router.post(
       setFlash(
         request,
         'success',
-        `${input.role === 'customer' ? 'Customer' : input.role} account role saved.`,
+        `${request.user.role === 'customer' ? 'Customer' : request.user.role} account role saved.`,
       );
       await writeAudit(request, 'identity.onboarding_completed', {
         targetType: 'user',
         targetPublicId: request.user.publicId,
-        metadata: { role: input.role },
+        metadata: { role: request.user.role },
       });
       return response.redirect(dashboardLanding(request.user));
     } catch (error) {

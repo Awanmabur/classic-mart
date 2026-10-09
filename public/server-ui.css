@@ -32,10 +32,42 @@
 
 .server-onboarding-form {
   width: 100%;
+  padding: 42px;
 }
 
 .server-role-actions {
   margin-top: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.server-role-actions :is(.role-back, .role-next) {
+  min-height: 48px;
+  border-radius: 999px;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.role-heading > span,
+.role-card em { color: var(--orange-accessible); }
+.role-next,
+.role-card:has(input:checked)::after { color: var(--text); }
+.role-card:has(input:focus-visible) {
+  outline: 3px solid var(--navy);
+  outline-offset: 3px;
+}
+
+@media (max-width: 700px) {
+  .server-onboarding-form { padding: 24px 16px; }
+  .server-role-actions { flex-direction: column; align-items: stretch; }
 }
 
 .role-server-message {

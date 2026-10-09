@@ -34,13 +34,15 @@
 </div>
 </article>
 <article class="auth-card auth-form-card">
+<% const accountType = values.accountType || 'customer'; const accountLabel = { customer: 'customer', seller: 'seller', promoter: 'promoter', business: 'business buyer', delivery: 'delivery partner' }[accountType] || 'customer'; %>
 <div class="auth-form-head">
-<span class="auth-kicker">Free customer account</span>
-<h2>Create your Classic Mart account.</h2>
-<p>Enter your details below to create your Classic Mart account.</p>
+<span class="auth-kicker">Free <%= accountLabel %> account</span>
+<h2>Create your Classic Mart<%= accountType === 'customer' ? '' : ' ' + accountLabel %> account.</h2>
+<p><%= accountType === 'seller' ? 'Enter your details to start your store. Seller verification is required before publishing products or receiving payments.' : 'Enter your details below to create your Classic Mart account.' %></p>
 </div>
 <form action="/signup" class="auth-form" id="signUpForm" method="post">
 <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+<input name="accountType" type="hidden" value="<%= accountType %>"/>
 <label class="auth-field">
 <span>Full name</span>
 <span class="auth-input-wrap"><img alt="" src="/assets/icons/user.svg"/><input autocomplete="name" id="signUpName" minlength="2" name="name" placeholder="Your full name" required="" type="text" value="<%= values.name || '' %>"/></span>

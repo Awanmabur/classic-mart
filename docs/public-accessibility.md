@@ -98,3 +98,25 @@ screen-reader audit or a site-wide accessibility certification. No real Gmail,
 eSMS or Pesapal delivery/payment calls are made by these tests. The remaining
 role-dashboard integrations and live provider verification retain their separate
 release requirements.
+
+## Approved public UI correction
+
+The 2026-10-09 correction restores the uploaded application's bright orange,
+teal, coral and green public backgrounds. Card dimensions, pill shapes, page
+structure and typography remain the approved design. Small labels use dark
+foregrounds on bright fills; small links retain their readable orange shade.
+Keyboard navigation, focus indicators, dialog containment, native product
+actions and delayed-response protections remain enabled.
+
+Promotional cards explicitly establish their image-positioning container.
+Mobile images remain inside their own cards when reduced motion is enabled or
+entry animations have finished, rather than overlapping adjacent cards and
+shopping benefits. Browser regressions verify 320/390-pixel containment and the
+rendered original public background colours. The public service-worker cache
+advances to v30 to refresh existing installations.
+
+The corrected branch passed 433 canonical tests with zero failures or skips,
+and 54 desktop/mobile browser checks with four intentional project-specific
+skips. Seller signup and existing-customer enrolment were also exercised through
+real verification/profile forms, with accessible enrolment controls and proper
+card padding and 48-pixel actions at 390 and 1366 pixels.

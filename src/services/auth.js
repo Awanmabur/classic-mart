@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { env } from '../config/env.js';
 import { canonicalPhone } from '../core/phone.js';
 import { AppError } from '../core/errors.js';
+import { publicAccountType } from '../core/registration.js';
 import {
   hashPassword,
   hashToken,
@@ -125,7 +126,7 @@ export async function registerUser(input, request) {
       phone: phoneNormalized,
       phoneNormalized,
       passwordHash,
-      role: 'customer',
+      role: publicAccountType(input.accountType),
       country: request.country.code,
       shoppingCountry: request.country.code,
       currency: request.country.currency,

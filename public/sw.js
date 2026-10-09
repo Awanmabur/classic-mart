@@ -1,5 +1,5 @@
 'use strict';
-const CACHE='classic-mart-public-v29';
+const CACHE='classic-mart-public-v30';
 const STATIC=['/offline','/assets/pwa-icon.svg','/assets/pwa-192.png','/assets/pwa-512.png','/assets/product-placeholder.svg'];
 const PRIVATE_PREFIXES=['/dashboard','/orders','/wishlist','/addresses','/rewards','/wallet','/returns','/support','/profile','/categories','/notifications','/club','/seller','/promoter','/admin','/super-admin','/operations','/finance','/warehouse','/moderation','/business','/api/','/account','/cart','/checkout','/track-order','/payments','/ask-classic','/webhooks','/login','/signup','/verify-','/onboarding'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(STATIC)).then(()=>self.skipWaiting()));});

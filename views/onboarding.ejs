@@ -1,10 +1,11 @@
 <!DOCTYPE html>
+<% const sellerStart = typeof sellerEnrollment !== 'undefined' && sellerEnrollment; %>
 <html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
 <head>
   <meta charset="utf-8"/>
   <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
   <meta content="#ff6500" name="theme-color"/>
-  <title>Choose Your Role — Classic Mart</title>
+  <title><%= sellerStart ? 'Start Selling' : 'Choose Your Role' %> — Classic Mart</title>
   <link href="/styles.css" rel="stylesheet"/>
   <link href="/storefront-pages.css" rel="stylesheet"/>
   <link href="/onboarding-role.css" rel="stylesheet"/>
@@ -17,14 +18,15 @@
       <div class="role-step-label"><span>Secure account setup</span><div><i class="active"></i><i class="active"></i><i></i></div></div>
     </header>
     <section class="role-onboarding-card">
-      <form action="/onboarding" class="server-onboarding-form" method="post">
+      <form action="<%= sellerStart ? '/onboarding/seller' : '/onboarding' %>" class="server-onboarding-form" method="post">
         <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
+        <% if (sellerStart) { %><input name="role" type="hidden" value="seller"/><input name="confirmSeller" type="hidden" value="on"/><input name="version" type="hidden" value="<%= values.version %>"/><% } %>
         <div class="role-heading">
           <span>Welcome, <b><%= user.name %></b></span>
-          <h1>How will you use Classic Mart?</h1>
-          <p>Choose your account role and complete the profile fields. Operational roles are still verified before sensitive features are enabled.</p>
+          <h1><%= sellerStart ? 'Start your seller account.' : 'How will you use Classic Mart?' %></h1>
+          <p><%= sellerStart ? 'Your purchases, delivery details and account security stay with this account. Complete your seller profile, then verify your store before publishing products or receiving payments.' : 'Choose your account role and complete the profile fields. Operational roles are still verified before sensitive features are enabled.' %></p>
         </div>
-        <div class="role-grid">
+        <% if (!sellerStart) { %><div class="role-grid">
           <% const roles = [
             ['customer','cart-shopping.svg','Customer','Shop, save products, track orders and manage returns.','Best for everyday shopping'],
             ['seller','store.svg','Seller','Create a storefront, list products and manage customer orders.','For shops and product businesses'],
@@ -39,14 +41,14 @@
               <strong><%= label %></strong><small><%= description %></small><em><%= note %></em>
             </label>
           <% }); %>
-        </div>
+        </div><% } %>
         <div class="role-heading details-heading">
           <span>Profile details</span><h2>Tell us the essentials.</h2>
           <p>These details are stored securely on the server and can be updated later.</p>
         </div>
         <div class="role-form-grid">
           <label class="role-field">Public profile name<input maxlength="100" name="publicName" placeholder="Name shown on your public profile" required value="<%= values.publicName || user.name %>"/></label>
-          <label class="role-field">Business or channel name<input maxlength="140" name="businessName" placeholder="Optional for customers" value="<%= values.businessName || '' %>"/></label>
+          <label class="role-field"><%= sellerStart ? 'Store or business name' : 'Business or channel name' %><input maxlength="140" name="businessName" placeholder="<%= sellerStart ? 'Your store name' : 'Optional for customers' %>" value="<%= values.businessName || '' %>"/></label>
           <label class="role-field">Main focus<input maxlength="120" name="focus" placeholder="Products, category or buying needs" value="<%= values.focus || '' %>"/></label>
           <label class="role-field">Location<input maxlength="180" name="location" placeholder="City, country" required value="<%= values.location || 'Kampala, Uganda' %>"/></label>
           <label class="role-field">Transport mode<input maxlength="80" name="transport" placeholder="Delivery roles only" value="<%= values.transport || '' %>"/></label>
@@ -56,7 +58,7 @@
         <p class="role-server-message<%= pageError ? ' error' : '' %>"><%= pageError || flash?.message || '' %></p>
         <div class="role-step-actions server-role-actions">
           <a class="role-back" href="/">Back to marketplace</a>
-          <button class="role-next" type="submit">Complete Secure Setup</button>
+          <button class="role-next" type="submit"><%= sellerStart ? 'Start My Seller Account' : 'Complete Secure Setup' %></button>
         </div>
       </form>
     </section>

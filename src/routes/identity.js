@@ -2,6 +2,7 @@ import { getPhoneCountries } from '../services/phone-countries.js';
 import { Router } from 'express';
 import { customerView } from '../dashboard/customer-view.js';
 import { loginDestination } from '../dashboard/landing.js';
+import { publicAccountType } from '../core/registration.js';
 import { hydratePlatformAuthorization } from '../services/platform-grants.js';
 import { env } from '../config/env.js';
 import rateLimit from 'express-rate-limit';
@@ -217,8 +218,9 @@ router.use('/signup', asyncHandler(async (request, response, next) => {
 }));
 
 router.get('/signup', (request, response) => {
+  if (request.user?.role === 'customer' && request.query.role === 'seller') return response.redirect('/onboarding/seller');
   if (request.user) return response.redirect(loginDestination(request.user));
-  return response.render('signup', { pageError: null, values: { referralCode: String(request.query.ref || '').trim().slice(0,24) } });
+  return response.render('signup', { pageError: null, values: { accountType: publicAccountType(request.query.role), referralCode: String(request.query.ref || '').trim().slice(0,24) } });
 });
 
 router.post(
@@ -270,6 +272,7 @@ router.post(
           phone: request.body.phone || '',
           phoneCountry: request.body.phoneCountry || '',
           referralCode: request.body.referralCode || '',
+          accountType: publicAccountType(request.body.accountType),
         },
       });
     }

@@ -109,7 +109,7 @@ test('production bootstrap can be rerun after ADMIN_PASSWORD is removed',()=>{
 });
 
 test('category carousel cache namespace advances for always-loaded taxonomy',()=>{
-  assert.match(read('public/sw.js'),/classic-mart-public-v29/);
+  assert.match(read('public/sw.js'),/classic-mart-public-v30/);
 });
 
 
