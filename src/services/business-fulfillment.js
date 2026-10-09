@@ -86,7 +86,7 @@ async function reserveOrCommitLine({ po, line, lineKey, actorUserId, immediate, 
     const available = Math.max(0, Number(snapshot.onHand) - Number(snapshot.reserved) - Number(snapshot.damaged) - Number(snapshot.quarantined));
     if (!available) continue;
     const quantity = Math.min(remaining, available);
-    const update = immediate ? { $inc: { reserved: quantity } } : { $inc: { onHand: -quantity } };
+    const update = immediate ? { $inc: { reserved: quantity, __v: 1 } } : { $inc: { onHand: -quantity, __v: 1 } };
     const stock = await StockItem.findOneAndUpdate(
       {
         _id: snapshot._id,

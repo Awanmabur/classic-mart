@@ -186,7 +186,7 @@ export async function reserveStock({
           $gte: [{ $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }, quantity],
         },
       },
-      { $inc: { reserved: quantity } },
+      { $inc: { reserved: quantity, __v: 1 } },
       { returnDocument: 'after', session, runValidators: true },
     );
     if (!item) {
@@ -255,7 +255,7 @@ export async function releaseReservation({
     }
     const item = await StockItem.findOneAndUpdate(
       { _id: reservation.stockItemId, reserved: { $gte: reservation.quantity } },
-      { $inc: { reserved: -reservation.quantity } },
+      { $inc: { reserved: -reservation.quantity, __v: 1 } },
       { returnDocument: 'after', session, runValidators: true },
     );
     if (!item) {

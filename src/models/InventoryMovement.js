@@ -72,6 +72,7 @@ const inventoryMovementSchema = new Schema(
 
 inventoryMovementSchema.index({ storeId: 1, createdAt: -1 });
 inventoryMovementSchema.index({ stockItemId: 1, createdAt: -1 });
+inventoryMovementSchema.index({ warehouseId: 1, createdAt: -1, _id: -1 });
 
 for (const operation of [
   'updateOne',

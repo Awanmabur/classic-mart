@@ -16,6 +16,7 @@ const inventoryDiscrepancySchema = new Schema({
   reservedSnapshot: { type: Number, required: true, min: 0, immutable: true },
   damagedSnapshot: { type: Number, required: true, min: 0, immutable: true },
   quarantinedSnapshot: { type: Number, required: true, min: 0, immutable: true },
+  stockVersionSnapshot: { type: Number, min: 0, default: null, immutable: true },
   reason: { type: String, required: true, trim: true, maxlength: 300, immutable: true },
   status: { type: String, enum: ['pending_review', 'no_variance', 'approved', 'rejected'], required: true, index: true },
   countedByUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true, immutable: true, index: true },
@@ -28,5 +29,7 @@ const inventoryDiscrepancySchema = new Schema({
 
 inventoryDiscrepancySchema.index({ country: 1, status: 1, createdAt: -1 });
 inventoryDiscrepancySchema.index({ warehouseId: 1, status: 1, createdAt: -1 });
+inventoryDiscrepancySchema.index({ warehouseId: 1, createdAt: -1, _id: -1 });
+inventoryDiscrepancySchema.index({ warehouseId: 1, status: 1, createdAt: -1, _id: -1 });
 
 export const InventoryDiscrepancy = mongoose.model('InventoryDiscrepancy', inventoryDiscrepancySchema);

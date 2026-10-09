@@ -249,7 +249,12 @@ test('seller evidence, independent country-scoped review, rejection, appeal and 
   } finally {
     t.mock.restoreAll(); await browser?.close();
     if (server) await new Promise(resolve => server.close(resolve));
-    assert.equal(mongoose.connection.name, database); await mongoose.connection.dropDatabase(); await mongoose.disconnect();
-    await fs.rm(process.env.UPLOAD_DIR, { recursive: true, force: true });
+    try {
+      assert.equal(mongoose.connection.name, database);
+      if (mongoose.connection.readyState === 1) await mongoose.connection.dropDatabase();
+    } finally {
+      await mongoose.disconnect();
+      await fs.rm(process.env.UPLOAD_DIR, { recursive: true, force: true });
+    }
   }
 });

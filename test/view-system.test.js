@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { WAREHOUSE_ROUTES } from '../src/dashboard/warehouse-routes.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -66,6 +67,9 @@ function registeredRoutePatterns(routeSource) {
   const patterns = [];
   for (const match of routeSource.matchAll(/\b(?:router|app)\.(?:get|post|put|patch|delete|all|use)\(\s*['"]([^'"]+)['"]/g)) {
     patterns.push(match[1]);
+  }
+  if (/Object\.entries\(WAREHOUSE_ROUTES\)/.test(routeSource)) {
+    patterns.push(...Object.values(WAREHOUSE_ROUTES));
   }
   return patterns;
 }

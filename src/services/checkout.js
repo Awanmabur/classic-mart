@@ -34,6 +34,8 @@ import {
   StockItem,
   Store,
   Warehouse,
+  WarehouseTask,
+  WarehouseWave,
 } from '../models/index.js';
 
 const RESERVATION_MS = 15 * 60 * 1000;
@@ -362,7 +364,7 @@ export async function releaseExpiredReservations() {
         if (!current) return;
         await StockItem.updateOne(
           mongoose.trusted({ _id: current.stockItemId, reserved: mongoose.trusted({ $gte: current.quantity }) }),
-          { $inc: { reserved: -current.quantity } },
+          { $inc: { reserved: -current.quantity, __v: 1 } },
           { session },
         );
         current.status = 'expired';
@@ -465,7 +467,7 @@ export async function placeOrder(request, input) {
         const warehouses = await Warehouse.find({ storeId: store._id, active: true, country: request.country.code }).select('_id').session(session).lean();
         const stock = await StockItem.findOneAndUpdate(
           mongoose.trusted({ variantId: variant._id, storeId: store._id, warehouseId: { $in: warehouses.map((warehouse) => warehouse._id) }, $expr: { $gte: [{ $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }, item.quantity] } }),
-          { $inc: { reserved: item.quantity } },
+          { $inc: { reserved: item.quantity, __v: 1 } },
           { returnDocument: 'after', session },
         );
         if (!stock) throw new AppError(`${product.title} no longer has enough stock.`, 409, 'INSUFFICIENT_STOCK');
@@ -563,14 +565,14 @@ async function restoreOrderInventoryForCancellation(order, request, session) {
     if (reservation.status === 'active') {
       const stock = await StockItem.findOneAndUpdate(
         mongoose.trusted({ _id: reservation.stockItemId, reserved: { $gte: reservation.quantity } }),
-        { $inc: { reserved: -reservation.quantity } },
+        { $inc: { reserved: -reservation.quantity, __v: 1 } },
         { returnDocument: 'after', session },
       );
       if (!stock) throw new AppError('Reserved stock is inconsistent.', 409, 'STOCK_CONFLICT');
       reservation.status = 'released'; reservation.releasedAt = new Date(); await reservation.save({ session });
       await InventoryMovement.create([{ publicId: publicId('mov'), storeId: reservation.storeId, stockItemId: stock._id, variantId: reservation.variantId, warehouseId: stock.warehouseId, type: 'release', quantity: -reservation.quantity, onHandBefore: stock.onHand, onHandAfter: stock.onHand, reservedBefore: stock.reserved + reservation.quantity, reservedAfter: stock.reserved, damagedBefore: stock.damaged, damagedAfter: stock.damaged, quarantinedBefore: stock.quarantined, quarantinedAfter: stock.quarantined, reason: 'Order cancelled before stock commitment', reference: order.publicId, actorUserId }], { session });
     } else if (reservation.status === 'committed') {
-      const stock = await StockItem.findOneAndUpdate({ _id: reservation.stockItemId }, { $inc: { onHand: reservation.quantity } }, { returnDocument: 'after', session });
+      const stock = await StockItem.findOneAndUpdate({ _id: reservation.stockItemId }, { $inc: { onHand: reservation.quantity, __v: 1 } }, { returnDocument: 'after', session });
       if (!stock) throw new AppError('Committed stock record is missing.', 409, 'STOCK_CONFLICT');
       await InventoryMovement.create([{ publicId: publicId('mov'), storeId: reservation.storeId, stockItemId: stock._id, variantId: reservation.variantId, warehouseId: stock.warehouseId, type: 'return', quantity: reservation.quantity, onHandBefore: stock.onHand - reservation.quantity, onHandAfter: stock.onHand, reservedBefore: stock.reserved, reservedAfter: stock.reserved, damagedBefore: stock.damaged, damagedAfter: stock.damaged, quarantinedBefore: stock.quarantined, quarantinedAfter: stock.quarantined, reason: 'Pre-fulfilment order cancellation restock', reference: order.publicId, actorUserId }], { session });
     }
@@ -589,6 +591,19 @@ async function cancelUnfulfilledLogistics(order, actorUserId, session) {
   await Parcel.updateMany({ shipmentId: shipment._id, status: { $nin: ['delivered','returned'] } }, { $set: { status: 'cancelled' }, $push: { timeline: { type: 'cancelled', message: 'Parcel cancelled before carrier pickup.', actorUserId } } }, { session });
   await SellerShipment.updateMany({ rootShipmentId: shipment._id, status: { $nin: ['delivered','returned','cancelled'] } }, { $set: { status: 'cancelled' }, $push: { timeline: { type: 'order.cancelled', message: 'Seller shipment cancelled before carrier pickup.', actorUserId } } }, { session });
   await DeliveryOffer.updateMany({ shipmentId: shipment._id, status: 'offered' }, { $set: { status: 'cancelled', respondedAt: new Date() } }, { session });
+  const parcels = await Parcel.find({ shipmentId: shipment._id }).select('_id').session(session).lean();
+  const unfinished = await WarehouseTask.find({ $or: [{ orderId: order._id }, { shipmentId: shipment._id }, { parcelId: { $in: parcels.map(parcel => parcel._id) } }], type: { $in: ['pick', 'pack', 'dispatch'] }, status: { $in: ['open', 'in_progress'] } }).select('_id wavePublicId').session(session).lean();
+  await WarehouseTask.updateMany({ _id: { $in: unfinished.map(task => task._id) }, status: { $in: ['open', 'in_progress'] } }, { $set: { status: 'cancelled', assignedUserId: null, claimedAt: null }, $inc: { __v: 1 } }, { session });
+  for (const wavePublicId of [...new Set(unfinished.map(task => task.wavePublicId).filter(Boolean))]) {
+    const wave = await WarehouseWave.findOne({ publicId: wavePublicId, status: 'in_progress' }).session(session);
+    if (!wave) continue;
+    const remaining = await WarehouseTask.countDocuments({ _id: { $in: wave.taskIds }, status: { $nin: ['completed', 'cancelled'] } }).session(session);
+    if (!remaining) {
+      wave.status = 'completed'; wave.completedAt = new Date();
+      wave.history.push({ action: 'completed', actorUserId, at: wave.completedAt });
+      await wave.save({ session });
+    }
+  }
 }
 
 export async function cancelOrder(request, orderId, reason = 'Customer requested cancellation') {
@@ -632,7 +647,7 @@ export async function cancelOrder(request, orderId, reason = 'Customer requested
         { $set: { status: paidOnline ? 'cancellation_pending' : 'cancelled' }, $push: { timeline: { type: paidOnline ? 'cancellation.refund_required' : 'order.cancelled', message: paidOnline ? 'Fulfilment frozen; provider refund pending.' : 'Marketplace order cancelled before carrier pickup.' } } },
         { session },
       );
-      if (!paidOnline) await PaymentIntent.updateMany({ orderId: order._id, status: { $in: ['created','requires_action','pending','failed','pending_collection'] } }, { $set: { status: 'cancelled', activeKey: null } }, { session });
+      if (!paidOnline) await PaymentIntent.updateMany({ orderId: order._id, status: { $in: ['created','requires_action','pending','failed','pending_collection'] } }, { $set: { status: 'cancelled' }, $unset: { activeKey: 1 } }, { session });
     });
   } finally { await session.endSession(); }
 

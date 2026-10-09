@@ -25,7 +25,7 @@ test('Stage 4 checkout creates pending-payment orders with idempotency and reser
   const service = await read('src/services/checkout.js');
   const order = await read('src/models/Order.js');
   assert.match(service, /idempotencyKey: input\.idempotencyKey/);
-  assert.match(service, /\$inc: \{ reserved: item\.quantity \}/);
+  assert.match(service, /\$inc: \{ reserved: item\.quantity, __v: 1 \}/);
   assert.match(service, /status: 'pending_payment'/);
   assert.match(order, /sessionKey: 1, idempotencyKey: 1/);
 });

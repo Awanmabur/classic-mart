@@ -118,7 +118,7 @@ export async function markReturnReceived(request,returnId,note=''){
     const order=await Order.findById(doc.orderId).session(session);if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
     for(const returned of doc.items){
       const item=order.items.find(x=>String(x.linePublicId)===String(returned.orderLineId));if(!item)throw new AppError('Return order line is missing.',409,'RETURN_ORDER_LINE_MISSING');if(Number(item.returnReservedQuantity||0)<returned.quantity)throw new AppError('Return quantity reservation is inconsistent.',409,'RETURN_RESERVATION_CONFLICT');
-      const warehouseRows=await Warehouse.find({storeId:returned.storeId,active:true}).sort({createdAt:1}).session(session);if(!warehouseRows.length)throw new AppError(`An active warehouse is required before receiving return line ${returned.sku||returned.orderLineId}.`,409,'RETURN_WAREHOUSE_REQUIRED');
+      const warehouseRows=await Warehouse.find({storeId:returned.storeId,country:doc.country,active:true}).sort({createdAt:1}).session(session);if(!warehouseRows.length)throw new AppError(`An active warehouse is required before receiving return line ${returned.sku||returned.orderLineId}.`,409,'RETURN_WAREHOUSE_REQUIRED');
       const warehouseIds=warehouseRows.map(row=>row._id);let stock=await StockItem.findOne({storeId:returned.storeId,variantId:returned.variantId,warehouseId:{$in:warehouseIds}}).sort({createdAt:1}).session(session);if(!stock){const [created]=await StockItem.create([{publicId:publicId('stk'),storeId:returned.storeId,warehouseId:warehouseRows[0]._id,variantId:returned.variantId,onHand:0,reserved:0,damaged:0,quarantined:0,reorderPoint:0}],{session});stock=created;}
       const task=await createWarehouseTask({sourceKey:`return-inspection:${doc.publicId}:${returned.orderLineId}`,warehouseId:stock.warehouseId,storeId:returned.storeId,orderId:order._id,returnRequestId:doc._id,returnOrderLineId:returned.orderLineId,stockItemId:stock._id,variantId:returned.variantId,type:'return_inspection',reference:doc.publicId,notes:`Inspect received return ${doc.publicId} · ${returned.sku||returned.title}`,quantity:returned.quantity},session);
       returned.warehouseTaskPublicId=task.publicId;returned.warehouseInspectionStatus='pending';item.returnReservedQuantity-=returned.quantity;item.returnedQuantity=Number(item.returnedQuantity||0)+returned.quantity;if(item.returnedQuantity>item.deliveredQuantity)throw new AppError('Returned quantity exceeds delivered quantity.',409,'RETURN_QUANTITY_CONFLICT');
@@ -171,7 +171,7 @@ export async function createExchangeReplacement(request,returnId){
       const stock=await StockItem.findOneAndUpdate(mongoose.trusted({variantId:variant._id,storeId:store._id,
         warehouseId:{$in:warehouses.map(warehouse=>warehouse._id)},
         $expr:{$gte:[{$subtract:['$onHand',{$add:['$reserved','$damaged','$quarantined']}]},returned.quantity]}}),
-        {$inc:{onHand:-returned.quantity}},{returnDocument:'before',session,sort:{createdAt:1,_id:1}});
+        {$inc:{onHand:-returned.quantity,__v:1}},{returnDocument:'before',session,sort:{createdAt:1,_id:1}});
       if(!stock)throw new AppError(`Replacement stock is unavailable for ${returned.title}.`,409,'EXCHANGE_STOCK_UNAVAILABLE');
       const warehouse=await Warehouse.findOne({_id:stock.warehouseId,storeId:store._id,country:original.country,active:true}).session(session);
       if(!warehouse)throw new AppError('Replacement warehouse is unavailable.',409,'EXCHANGE_STOCK_UNAVAILABLE');

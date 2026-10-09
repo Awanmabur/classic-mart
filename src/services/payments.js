@@ -253,7 +253,7 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
       if(!reservation)throw new AppError('Order stock reservation is no longer active.',409,'RESERVATION_INACTIVE');
       const stock=await StockItem.findOneAndUpdate(
         mongoose.trusted({_id:reservation.stockItemId,onHand:{$gte:reservation.quantity},reserved:{$gte:reservation.quantity}}),
-        {$inc:{onHand:-reservation.quantity,reserved:-reservation.quantity}},{returnDocument:'after',session},
+        {$inc:{onHand:-reservation.quantity,reserved:-reservation.quantity,__v:1}},{returnDocument:'after',session},
       );
       if(!stock)throw new AppError('Reserved stock is inconsistent.',409,'STOCK_CONFLICT');
       reservation.status='committed';reservation.committedAt=new Date();await reservation.save({session});

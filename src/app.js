@@ -23,6 +23,7 @@ import identityRoutes from './routes/identity.js';
 import accountRoutes from './routes/account.js';
 import dashboardRoutes from './routes/dashboard.js';
 import approvedDashboardRoutes from './routes/approved-dashboard.js';
+import warehouseRoutes from './routes/warehouse.js';
 import sellerStoreSettingsRoutes from './routes/seller-store-settings.js';
 import sellerVerificationRoutes from './routes/seller-verification.js';
 import sellerProductRoutes from './routes/seller-products.js';
@@ -181,6 +182,7 @@ export function createApp(redisClient) {
   app.use(sellerVerificationRoutes);
   app.use(sellerProductRoutes);
   app.use(sellerOrderRoutes);
+  app.use(warehouseRoutes);
   app.use(approvedDashboardRoutes);
   app.use(accountRoutes);
   app.use(dashboardRoutes);

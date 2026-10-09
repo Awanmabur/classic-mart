@@ -1,4 +1,4 @@
-<% const liveCustomer = typeof liveHeader !== 'undefined'; const sellerLive = typeof liveSeller !== 'undefined'; const memberName = String(user?.name || 'Member').trim().split(/\s+/)[0]; %>
+<% const liveCustomer = typeof liveHeader !== 'undefined'; const sellerLive = typeof liveSeller !== 'undefined'; const warehouseLive = typeof liveWarehouse !== 'undefined'; const memberName = String(user?.name || 'Member').trim().split(/\s+/)[0]; %>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/design-system.css') %>" />
   <link rel="icon" type="image/png" href="/approved-dashboard/assets/classic-mart-icon.png" />
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/session.css') %>" />
+  <% if (warehouseLive) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/warehouse-live.css') %>" /><% } %>
   <% if (sellerLive && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow && !liveSeller.orderFlow) { %><link rel="stylesheet" href="<%= assetUrl('/phone-country.css') %>" /><% } %>
 </head>
 <body data-dashboard-live="<%= liveCustomer %>" data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= initialPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>">
@@ -82,7 +83,7 @@
         <button class="round-icon badge-button" data-page-target="notifications" aria-label="Notifications"><svg><use href="#i-bell"></use></svg><b class="red" id="notificationBadge"><%= liveCustomer ? liveHeader.unread : 4 %></b></button>
         <button class="profile-button" id="profileButton">
           <img src="/approved-dashboard/assets/avatar.svg" alt="<%= user?.name || 'Member' %>" />
-          <span><strong>Hi, <%= memberName %></strong><small><%= sellerLive ? liveSeller.profileRole : 'Customer' %></small></span>
+          <span><strong>Hi, <%= memberName %></strong><small><%= warehouseLive ? liveWarehouse.profileRole : sellerLive ? liveSeller.profileRole : 'Customer' %></small></span>
           <svg><use href="#i-chevron-down"></use></svg>
         </button>
       </div>
@@ -90,7 +91,7 @@
 
     <aside class="sidebar" id="sidebar">
       <nav class="side-navigation">
-        <% if (sellerLive) { for (const item of liveSeller.navigation) { %>
+        <% if (warehouseLive || sellerLive) { for (const item of warehouseLive ? liveWarehouse.navigation : liveSeller.navigation) { %>
         <% if (item.ready) { %><a class="side-link <%= initialPage === item.id ? 'active' : '' %>" href="<%= item.href %>" data-page-target="<%= item.id %>"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></a><% } else { %><button class="side-link" type="button" disabled title="Not available yet"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></button><% } %>
         <% } } else { %>
         <a class="side-link active" href="/dashboard" data-page-target="dashboard"><svg><use href="#i-grid"></use></svg><span>Dashboard</span></a>
@@ -120,7 +121,7 @@
     <main class="dashboard page-host" id="pageHost">
 <% if (!liveCustomer) { %><div class="panel dashboard-message" role="note">Development preview: this workspace is not connected to live operations yet.</div><% } %>
 <% if (flash?.message) { %><div class="panel dashboard-message <%= flash.type==='error'?'dashboard-message-error':'' %>" role="<%= flash.type==='error'?'alert':'status' %>"><%= flash.message %></div><% } %>
-<% if (sellerLive && liveSeller.orderFlow) { %><%- include('partials/seller-orders-live') %><% } else if (sellerLive && liveSeller.productFlow) { %><%- include('partials/seller-products-live') %><% } else if (sellerLive && liveSeller.productReviewFlow) { %><%- include('partials/product-review-live') %><% } else if (sellerLive && liveSeller.reviewFlow) { %><%- include('partials/verification-review-live') %><% } else if (sellerLive && liveSeller.verificationFlow) { %><%- include('partials/seller-verification-live') %><% } else if (sellerLive) { %><%- include('partials/seller-store-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
+<% if (warehouseLive) { %><%- include('partials/warehouse-live') %><% } else if (sellerLive && liveSeller.orderFlow) { %><%- include('partials/seller-orders-live') %><% } else if (sellerLive && liveSeller.productFlow) { %><%- include('partials/seller-products-live') %><% } else if (sellerLive && liveSeller.productReviewFlow) { %><%- include('partials/product-review-live') %><% } else if (sellerLive && liveSeller.reviewFlow) { %><%- include('partials/verification-review-live') %><% } else if (sellerLive && liveSeller.verificationFlow) { %><%- include('partials/seller-verification-live') %><% } else if (sellerLive) { %><%- include('partials/seller-store-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
 </main>
   </div>
 

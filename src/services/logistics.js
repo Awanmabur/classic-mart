@@ -229,15 +229,19 @@ export async function transitionShipment({ shipment, nextStatus, actorUserId, pr
   });if(rejection)throw rejection;return result;}finally{await session.endSession();}
 }
 
-async function recordCycleCountInSession({ stockItemId, countedOnHand, actorUserId, reason = 'Cycle count', sourceKey }, session) {
-  if (!Number.isSafeInteger(countedOnHand) || countedOnHand < 0) throw new AppError('Cycle count must be a whole non-negative quantity.', 422, 'COUNT_INVALID');
+const MAX_STOCK_QUANTITY=2_000_000_000;
+async function recordCycleCountInSession({ stockItemId, countedOnHand, actorUserId, reason = 'Cycle count', sourceKey,expectedStockVersion=null }, session) {
+  if (!Number.isSafeInteger(countedOnHand) || countedOnHand < 0||countedOnHand>MAX_STOCK_QUANTITY) throw new AppError('Cycle count must be a whole non-negative quantity within the stock limit.', 422, 'COUNT_INVALID');
   const fresh = await StockItem.findById(stockItemId).session(session);
   if (!fresh) throw new AppError('Stock item not found.', 404, 'STOCK_NOT_FOUND');
-  if (countedOnHand < fresh.reserved + fresh.damaged + fresh.quarantined) throw new AppError('Counted stock cannot be below reserved, damaged and quarantined stock.', 422, 'COUNT_INVALID');
   const existing = sourceKey ? await InventoryDiscrepancy.findOne({ sourceKey }).session(session) : null;
-  if (existing) return existing;
-  const warehouse = await Warehouse.findById(fresh.warehouseId).select('country').session(session);
+  if(existing){if(String(existing.stockItemId)!==String(fresh._id)||existing.countedOnHand!==countedOnHand||String(existing.countedByUserId)!==String(actorUserId))throw new AppError('This count reference belongs to another stock snapshot.',409,'COUNT_SOURCE_CONFLICT');return existing;}
+  if(expectedStockVersion!==null&&Number(fresh.__v||0)!==Number(expectedStockVersion))throw new AppError('Stock changed before this count was recorded. Reload and recount.',409,'STOCK_VERSION_CONFLICT');
+  if (countedOnHand < fresh.reserved + fresh.damaged + fresh.quarantined) throw new AppError('Counted stock cannot be below reserved, damaged and quarantined stock.', 422, 'COUNT_INVALID');
+  const warehouse = await Warehouse.findOne({_id:fresh.warehouseId,storeId:fresh.storeId,active:true}).select('country').session(session);
   if (!warehouse) throw new AppError('Warehouse no longer exists.', 409, 'WAREHOUSE_MISSING');
+  const fenced=await StockItem.updateOne({_id:fresh._id,__v:Number(fresh.__v||0)},{$inc:{__v:1}},{session});
+  if(fenced.matchedCount!==1)throw new AppError('Stock changed before this count was recorded. Reload and recount.',409,'STOCK_VERSION_CONFLICT');
   const variance = countedOnHand - fresh.onHand;
   const [discrepancy] = await InventoryDiscrepancy.create([{
     publicId: publicId('idc'),
@@ -253,6 +257,7 @@ async function recordCycleCountInSession({ stockItemId, countedOnHand, actorUser
     reservedSnapshot: fresh.reserved,
     damagedSnapshot: fresh.damaged,
     quarantinedSnapshot: fresh.quarantined,
+    stockVersionSnapshot:Number(fresh.__v||0)+1,
     reason: String(reason || 'Cycle count').trim().slice(0, 300) || 'Cycle count',
     status: variance === 0 ? 'no_variance' : 'pending_review',
     countedByUserId: actorUserId,
@@ -261,32 +266,30 @@ async function recordCycleCountInSession({ stockItemId, countedOnHand, actorUser
   return discrepancy;
 }
 
-export async function completeCycleCount({ stockItem, countedOnHand, actorUserId, reason = 'Cycle count', sourceKey = '' }) {
+async function withWarehouseTransaction(session,operation){
+  if(session)return operation(session);
+  const owned=await mongoose.startSession();
+  try{return await owned.withTransaction(()=>operation(owned));}
+  finally{await owned.endSession();}
+}
+
+export async function completeCycleCount({ stockItem, countedOnHand, actorUserId, reason = 'Cycle count', sourceKey = '',session=null }) {
   if (!stockItem?._id) throw new AppError('Stock item not found.', 404, 'STOCK_NOT_FOUND');
-  const session = await mongoose.startSession();
-  try {
-    let result;
-    await session.withTransaction(async () => {
-      result = await recordCycleCountInSession({
+  const stableSourceKey=sourceKey||`manual-cycle-count:${publicId('run')}`;
+  return withWarehouseTransaction(session,async session=>recordCycleCountInSession({
         stockItemId: stockItem._id,
         countedOnHand,
         actorUserId,
         reason,
-        sourceKey: sourceKey || `manual-cycle-count:${publicId('run')}`,
-      }, session);
-    });
-    return result;
-  } finally {
-    await session.endSession();
-  }
+        sourceKey:stableSourceKey,
+        expectedStockVersion:Number(stockItem.__v||0),
+      },session));
 }
 
-export async function reviewInventoryDiscrepancy({ discrepancyPublicId, decision, actorUserId, reviewNote = '' }) {
+export async function reviewInventoryDiscrepancy({ discrepancyPublicId, decision, actorUserId, reviewNote = '',session=null }) {
   if (!['approve', 'reject'].includes(decision)) throw new AppError('Choose approve or reject.', 422, 'INVENTORY_REVIEW_INVALID');
-  const session = await mongoose.startSession();
-  try {
     let result;
-    await session.withTransaction(async () => {
+    await withWarehouseTransaction(session,async session=>{
       const discrepancy = await InventoryDiscrepancy.findOne({ publicId: discrepancyPublicId, status: 'pending_review' }).session(session);
       if (!discrepancy) throw new AppError('Pending inventory discrepancy not found.', 404, 'INVENTORY_DISCREPANCY_NOT_FOUND');
       if (String(discrepancy.countedByUserId) === String(actorUserId)) throw new AppError('The operator who counted stock cannot approve or reject their own variance.', 409, 'INVENTORY_REVIEW_FOUR_EYES');
@@ -304,10 +307,12 @@ export async function reviewInventoryDiscrepancy({ discrepancyPublicId, decision
 
       const stock = await StockItem.findById(discrepancy.stockItemId).session(session);
       if (!stock) throw new AppError('Stock item no longer exists.', 409, 'STOCK_MISSING');
+      if(discrepancy.stockVersionSnapshot===null||discrepancy.stockVersionSnapshot===undefined)throw new AppError('This historical count has no trustworthy inventory version. Reject it and record a fresh count.',409,'INVENTORY_DISCREPANCY_STALE');
       const stale = stock.onHand !== discrepancy.expectedOnHand
         || stock.reserved !== discrepancy.reservedSnapshot
         || stock.damaged !== discrepancy.damagedSnapshot
-        || stock.quarantined !== discrepancy.quarantinedSnapshot;
+        || stock.quarantined !== discrepancy.quarantinedSnapshot
+        || Number(stock.__v||0)!==discrepancy.stockVersionSnapshot;
       if (stale) throw new AppError('Stock changed after this count. Reject it and perform a fresh cycle count instead of applying a stale adjustment.', 409, 'INVENTORY_DISCREPANCY_STALE');
       if (discrepancy.countedOnHand < stock.reserved + stock.damaged + stock.quarantined) throw new AppError('The approved count would make unavailable stock exceed on-hand stock.', 409, 'INVENTORY_DISCREPANCY_INVALID');
 
@@ -343,9 +348,6 @@ export async function reviewInventoryDiscrepancy({ discrepancyPublicId, decision
       result = discrepancy;
     });
     return result;
-  } finally {
-    await session.endSession();
-  }
 }
 
 const warehouseTaskSlaHours=Object.freeze({receive:4,put_away:8,pick:2,pack:2,dispatch:2,cycle_count:24,transfer:12,return_inspection:24});
@@ -357,20 +359,20 @@ export async function createWarehouseTask(data, session = null) {
   return WarehouseTask.create(payload);
 }
 
-export async function claimWarehouseTask({taskPublicId,actorUserId}){
+export async function claimWarehouseTask({taskPublicId,actorUserId,session=null}){
   const now=new Date();
   const task=await WarehouseTask.findOneAndUpdate(
-    {publicId:taskPublicId,status:'open',$or:[{assignedUserId:null},{assignedUserId:{$exists:false}}]},
-    {$set:{status:'in_progress',assignedUserId:actorUserId,claimedAt:now},$push:{assignmentHistory:{userId:actorUserId,action:'claimed',at:now}}},
-    {returnDocument:'after'},
+    {publicId:taskPublicId,status:'open',wavePublicId:{$in:['',null]},$or:[{assignedUserId:null},{assignedUserId:{$exists:false}}]},
+    {$set:{status:'in_progress',assignedUserId:actorUserId,claimedAt:now},$inc:{__v:1},$push:{assignmentHistory:{userId:actorUserId,action:'claimed',at:now}}},
+    {returnDocument:'after',session},
   );
   if(!task)throw new AppError('Warehouse task was already claimed or is no longer open.',409,'WAREHOUSE_TASK_CLAIM_CONFLICT');
   return task;
 }
 
-export async function releaseWarehouseTask({taskPublicId,actorUserId,force=false}){
-  const query={publicId:taskPublicId,status:'in_progress'};if(!force)query.assignedUserId=actorUserId;
-  const task=await WarehouseTask.findOneAndUpdate(query,{$set:{status:'open',assignedUserId:null,claimedAt:null},$push:{assignmentHistory:{userId:actorUserId,action:'released',at:new Date()}}},{returnDocument:'after'});
+export async function releaseWarehouseTask({taskPublicId,actorUserId,force=false,session=null}){
+  const query={publicId:taskPublicId,status:'in_progress',wavePublicId:{$in:['',null]}};if(!force)query.assignedUserId=actorUserId;
+  const task=await WarehouseTask.findOneAndUpdate(query,{$set:{status:'open',assignedUserId:null,claimedAt:null},$inc:{__v:1},$push:{assignmentHistory:{userId:actorUserId,action:'released',at:new Date()}}},{returnDocument:'after',session});
   if(!task)throw new AppError('Warehouse task is not assigned to you or is no longer in progress.',409,'WAREHOUSE_TASK_RELEASE_CONFLICT');
   return task;
 }
@@ -385,18 +387,19 @@ async function refreshWarehouseWaveInSession(wavePublicId, actorUserId, taskPubl
   await wave.save({session});
 }
 
-export async function createPickWave({warehouseId,actorUserId,batchSize=20}){
-  const size=Math.max(2,Math.min(50,Number(batchSize)||20));
-  const session=await mongoose.startSession();let wave;
-  try{
-    await session.withTransaction(async()=>{
+export async function createPickWave({warehouseId,actorUserId,batchSize=20,session=null}){
+  if(!Number.isSafeInteger(batchSize)||batchSize<2||batchSize>50)throw new AppError('Pick wave size must be between 2 and 50 tasks.',422,'PICK_WAVE_SIZE_INVALID');
+  const size=batchSize;let wave;
+    await withWarehouseTransaction(session,async session=>{
       const warehouse=await Warehouse.findOne({_id:warehouseId,active:true}).session(session);
       if(!warehouse)throw new AppError('Active warehouse not found.',404,'WAREHOUSE_NOT_FOUND');
-      const candidates=await WarehouseTask.find({warehouseId:warehouse._id,type:'pick',status:'open',$or:[{assignedUserId:null},{assignedUserId:{$exists:false}}]}).sort({dueAt:1,createdAt:1,_id:1}).limit(size).session(session);
+      const candidates=await WarehouseTask.find({warehouseId:warehouse._id,storeId:warehouse.storeId,type:'pick',status:'open',wavePublicId:{$in:['',null]},$or:[{assignedUserId:null},{assignedUserId:{$exists:false}}]}).sort({dueAt:1,createdAt:1,_id:1}).limit(size).session(session);
       if(!candidates.length)throw new AppError('No open pick tasks are available for this warehouse.',404,'PICK_WAVE_EMPTY');
       const wavePublicId=publicId('wav'),claimedAt=new Date(),claimed=[];
       for(const candidate of candidates){
-        const task=await WarehouseTask.findOneAndUpdate({_id:candidate._id,status:'open',$or:[{assignedUserId:null},{assignedUserId:{$exists:false}}]},{$set:{status:'in_progress',assignedUserId:actorUserId,claimedAt,wavePublicId},$push:{assignmentHistory:{userId:actorUserId,action:'claimed',at:claimedAt}}},{returnDocument:'after',session});
+        const parcel=await warehouseParcelForTask(candidate,warehouse,session),requirements=await warehouseParcelTaskRequirements({parcel,warehouse,session});
+        if(!requirements.canPick||(candidate.quantity&&candidate.quantity!==requirements.pickQuantity))throw new AppError('A pick task no longer matches committed warehouse stock.',409,'PICK_WAVE_TASK_INVALID');
+        const task=await WarehouseTask.findOneAndUpdate({_id:candidate._id,status:'open',wavePublicId:{$in:['',null]},$or:[{assignedUserId:null},{assignedUserId:{$exists:false}}]},{$set:{status:'in_progress',assignedUserId:actorUserId,claimedAt,wavePublicId,quantity:requirements.pickQuantity},$inc:{__v:1},$push:{assignmentHistory:{userId:actorUserId,action:'claimed',at:claimedAt}}},{returnDocument:'after',session});
         if(!task)throw new AppError('A pick task was claimed by another operator while the wave was being created. Retry the wave.',409,'PICK_WAVE_CLAIM_CONFLICT');
         claimed.push(task);
       }
@@ -406,42 +409,114 @@ export async function createPickWave({warehouseId,actorUserId,batchSize=20}){
       [wave]=await WarehouseWave.create([{publicId:wavePublicId,warehouseId:warehouse._id,storeId:warehouse.storeId,country:warehouse.country,type:'pick',status:'in_progress',assignedUserId:actorUserId,taskIds:claimed.map(task=>task._id),parcelIds,taskCount:claimed.length,totalQuantity,dueAt:dueDates.length?new Date(Math.min(...dueDates)):undefined,startedAt:claimedAt,history:[{action:'created',actorUserId,at:claimedAt}]}],{session});
     });
     return wave;
-  }finally{await session.endSession();}
 }
 
-export async function releasePickWave({wavePublicId,actorUserId,force=false}){
-  const session=await mongoose.startSession();let result;
-  try{
-    await session.withTransaction(async()=>{
+export async function releasePickWave({wavePublicId,actorUserId,force=false,session=null}){
+  let result;
+    await withWarehouseTransaction(session,async session=>{
       const query={publicId:wavePublicId,status:'in_progress'};if(!force)query.assignedUserId=actorUserId;
       const wave=await WarehouseWave.findOne(query).session(session);
       if(!wave)throw new AppError('Pick wave is not active or is assigned to another operator.',409,'PICK_WAVE_RELEASE_CONFLICT');
       const now=new Date();
-      await WarehouseTask.updateMany({_id:{$in:wave.taskIds},status:'in_progress',wavePublicId:wave.publicId},{$set:{status:'open',assignedUserId:null,claimedAt:null,wavePublicId:''},$push:{assignmentHistory:{userId:actorUserId,action:'released',at:now}}},{session});
+      const pending=await WarehouseTask.find({_id:{$in:wave.taskIds},status:{$nin:['completed','cancelled']}}).select('status wavePublicId assignedUserId').session(session).lean();
+      if(pending.some(task=>task.status!=='in_progress'||task.wavePublicId!==wave.publicId||String(task.assignedUserId)!==String(wave.assignedUserId)))throw new AppError('Wave task ownership changed. Reconcile the wave before release.',409,'PICK_WAVE_RELEASE_CONFLICT');
+      await WarehouseTask.updateMany({_id:{$in:wave.taskIds},status:'in_progress',wavePublicId:wave.publicId,assignedUserId:wave.assignedUserId},{$set:{status:'open',assignedUserId:null,claimedAt:null,wavePublicId:''},$inc:{__v:1},$push:{assignmentHistory:{userId:actorUserId,action:'released',at:now}}},{session});
       wave.status='released';wave.releasedAt=now;wave.history.push({action:'released',actorUserId,at:now});await wave.save({session});result=wave;
     });
     return result;
-  }finally{await session.endSession();}
 }
 
 function orderCanFulfil(order){
-  if(!order||order.fulfillmentState==='cancelled'||!['none','rejected'].includes(order.cancellationState)||['cancelled','cancellation_pending','expired'].includes(order.status))return false;
-  if(['paid','partially_refunded'].includes(order.paymentState))return true;
+  if(!order||order.fulfillmentState==='cancelled'||!['none','rejected'].includes(order.cancellationState)||!['confirmed','paid'].includes(order.status)||['pending','processing','complete'].includes(order.refundState))return false;
+  if(order.paymentState==='paid')return true;
   return order.status==='confirmed'&&((order.paymentMethod==='cod'&&order.paymentState==='pending')||(order.paymentMethod==='credit_terms'&&order.paymentState==='credit_due'));
 }
 
-async function warehouseParcelForTask(task,warehouse,session){
+function assertWarehouseStockScope(stock,task,warehouse){
+  if(!stock||String(stock.warehouseId)!==String(warehouse._id)||String(stock.storeId)!==String(task.storeId)||(task.variantId&&String(stock.variantId)!==String(task.variantId)))throw new AppError('Stock item is outside this warehouse task scope.',409,'STOCK_WAREHOUSE_MISMATCH');
+  if(![stock.onHand,stock.reserved,stock.damaged,stock.quarantined].every(value=>Number.isSafeInteger(value)&&value>=0&&value<=MAX_STOCK_QUANTITY)||stock.reserved+stock.damaged+stock.quarantined>stock.onHand)throw new AppError('Warehouse stock state requires reconciliation.',409,'STOCK_INVALID');
+}
+
+async function fenceWarehouseOrder(orderId,storeId,country,session){
+  const order=await Order.findById(orderId).session(session);
+  if(!orderCanFulfil(order))throw new AppError('Order is no longer ready for warehouse fulfilment.',409,'ORDER_NOT_READY');
+  const fenced=await Order.updateOne({_id:order._id,__v:Number(order.__v||0)},{$inc:{__v:1}},{session});
+  if(fenced.matchedCount!==1)throw new AppError('Order changed during warehouse fulfilment.',409,'ORDER_VERSION_CONFLICT');
+  const fencedStore=await Store.updateOne({_id:storeId,status:'verified',country},{$inc:{__v:1}},{session});
+  if(fencedStore.matchedCount!==1)throw new AppError('This store is paused for warehouse fulfilment.',409,'WAREHOUSE_PARCEL_SCOPE');
+}
+
+async function warehouseParcelForTask(task,warehouse,session,context=false){
   if(!task.parcelId)throw new AppError('This warehouse task needs a parcel.',422,'TASK_DATA_REQUIRED');
   const parcel=await Parcel.findById(task.parcelId).session(session);
   if(!parcel)throw new AppError('Parcel not found.',404,'PARCEL_NOT_FOUND');
-  const store=await Store.findOne({_id:task.storeId,publicId:parcel.storePublicId,country:warehouse.country}).select('_id').session(session);
+  const store=await Store.findOne({_id:task.storeId,publicId:parcel.storePublicId,country:warehouse.country,status:'verified'}).select('_id publicId country status').session(session);
   const shipment=await Shipment.findOne({_id:parcel.shipmentId,country:warehouse.country}).session(session);
   if(!store||!shipment||(task.shipmentId&&String(task.shipmentId)!==String(shipment._id))||(task.orderId&&String(task.orderId)!==String(shipment.orderId)))throw new AppError('Parcel is outside this warehouse task scope.',409,'WAREHOUSE_PARCEL_SCOPE');
+  let order=null;
   if(shipment.kind==='outbound'){
-    const order=await Order.findOne({_id:shipment.orderId,country:warehouse.country}).session(session);
+    order=await Order.findOne({_id:shipment.orderId,country:warehouse.country}).session(session);
     if(!orderCanFulfil(order)||!['ready','offered','assigned'].includes(shipment.status))throw new AppError('Order is no longer ready for warehouse fulfilment.',409,'ORDER_NOT_READY');
   }else if(['delivered','returned','cancelled'].includes(shipment.status))throw new AppError('This shipment is no longer ready for warehouse fulfilment.',409,'PARCEL_STATE');
-  return parcel;
+  return context?{parcel,store,shipment,order}:parcel;
+}
+
+export async function warehouseParcelTaskRequirements({parcel,warehouse,session=null}){
+  const {parcel:current,store,shipment,order}=await warehouseParcelForTask({parcelId:parcel?._id,storeId:warehouse?.storeId},warehouse,session,true);
+  if(shipment.kind!=='outbound')throw new AppError('Warehouse parcel preparation requires an outbound shipment.',409,'WAREHOUSE_PARCEL_SCOPE');
+  const lines=(order?.items||[]).filter(line=>line.storePublicId===current.storePublicId&&String(line.storeId)===String(warehouse.storeId));
+  const reservations=await InventoryReservation.find({publicId:{$in:lines.map(line=>line.reservationPublicId)},storeId:warehouse.storeId,status:'committed'}).session(session).lean();
+  const stocks=await StockItem.find({_id:{$in:reservations.map(row=>row.stockItemId)},storeId:warehouse.storeId}).session(session).lean();
+  const warehouses=await Warehouse.find({_id:{$in:stocks.map(row=>row.warehouseId)},storeId:warehouse.storeId,country:warehouse.country,active:true}).session(session).lean();
+  const completedTasks=await WarehouseTask.find({parcelId:current._id,type:{$in:['pick','pack']},status:'completed'}).select('parcelId orderId shipmentId storeId type status warehouseId result.pickedQuantity completedAt').session(session).lean();
+  return warehouseParcelRequirementsFromContext({parcel:current,warehouse,shipment,order,store,reservations,stocks,warehouses,completedTasks});
+}
+
+// The read-only batch loader and fresh transactional preparation checks share
+// this evaluator, so displayed actions and authoritative mutation rules agree.
+export function warehouseParcelRequirementsFromContext({parcel:current,warehouse,shipment,order,store,reservations=[],stocks=[],warehouses=[],completedTasks=[]}){
+  if(!current||!warehouse||!store||store.status!=='verified'||String(store._id)!==String(warehouse.storeId)||store.publicId!==current.storePublicId||store.country!==warehouse.country||!shipment||shipment.kind!=='outbound'||String(current.shipmentId)!==String(shipment._id)||!order||String(shipment.orderId)!==String(order._id)||order.country!==warehouse.country||shipment.country!==warehouse.country)throw new AppError('Parcel is outside this warehouse task scope.',409,'WAREHOUSE_PARCEL_SCOPE');
+  if(!orderCanFulfil(order)||!['ready','offered','assigned'].includes(shipment.status))throw new AppError('Order is no longer ready for warehouse fulfilment.',409,'ORDER_NOT_READY');
+  const lines=(order.items||[]).filter(line=>line.storePublicId===current.storePublicId&&String(line.storeId)===String(store._id));
+  const key=line=>`${line.productPublicId}:${line.variantPublicId}:${line.sku}`;
+  const quantities=rows=>{const result=new Map();for(const row of rows)result.set(key(row),(result.get(key(row))||0)+Number(row.quantity));return result;};
+  const required=quantities(lines),parcelLines=quantities(current.items);
+  if(!lines.length||required.size!==parcelLines.size||[...required].some(([id,quantity])=>parcelLines.get(id)!==quantity))throw new AppError('Parcel lines do not match the authoritative order.',409,'WAREHOUSE_PARCEL_SCOPE');
+  const reservationIds=lines.map(line=>line.reservationPublicId);
+  if(new Set(reservationIds).size!==lines.length)throw new AppError('Parcel stock commitments require reconciliation.',409,'PICK_RESERVATION_INVALID');
+  const reservationById=new Map(reservations.map(row=>[row.publicId,row]));
+  const stockById=new Map(stocks.map(row=>[String(row._id),row]));
+  const warehouseById=new Map(warehouses.map(row=>[String(row._id),row]));
+  const groups=new Map();
+  for(const line of lines){
+    const reservation=reservationById.get(line.reservationPublicId);
+    if(!reservation||reservation.status!=='committed'||String(reservation.storeId)!==String(store._id)||String(reservation.variantId)!==String(line.variantId)||reservation.quantity!==line.quantity)throw new AppError('Parcel stock commitment requires reconciliation.',409,'PICK_RESERVATION_INVALID');
+    const stock=stockById.get(String(reservation.stockItemId));
+    if(!stock||String(stock.storeId)!==String(store._id)||String(stock.variantId)!==String(line.variantId))throw new AppError('Parcel reservation stock requires reconciliation.',409,'PICK_RESERVATION_INVALID');
+    const sourceWarehouse=warehouseById.get(String(stock.warehouseId));
+    if(!sourceWarehouse||!sourceWarehouse.active||sourceWarehouse.country!==warehouse.country||String(sourceWarehouse.storeId)!==String(store._id))throw new AppError('Parcel reservation warehouse is unavailable.',409,'PICK_WAREHOUSE_INVALID');
+    const groupId=String(sourceWarehouse._id),group=groups.get(groupId)||{warehouseId:sourceWarehouse._id,quantity:0,pickedQuantity:0,items:[]};
+    group.quantity+=line.quantity;group.items.push({sku:line.sku,title:line.title,quantity:line.quantity,binCode:stock.binCode||''});groups.set(groupId,group);
+  }
+  const completed=completedTasks.filter(task=>String(task.parcelId)===String(current._id)&&task.status==='completed');
+  if(completed.some(task=>String(task.orderId)!==String(order._id)||String(task.shipmentId)!==String(shipment._id)||String(task.storeId)!==String(store._id)))throw new AppError('Completed parcel task lineage requires reconciliation.',409,'PICK_QUANTITY_RECONCILIATION_REQUIRED');
+  let picked=0;
+  for(const task of completed.filter(task=>task.type==='pick')){
+    const group=groups.get(String(task.warehouseId)),quantity=Number(task.result?.pickedQuantity||0);
+    if(!group||!Number.isSafeInteger(quantity)||quantity<=0)throw new AppError('Picked warehouse quantities require reconciliation.',409,'PICK_QUANTITY_RECONCILIATION_REQUIRED');
+    group.pickedQuantity+=quantity;picked+=quantity;
+  }
+  if(picked!==current.pickedQuantity||[...groups.values()].some(group=>group.pickedQuantity>group.quantity))throw new AppError('Picked warehouse quantities require reconciliation.',409,'PICK_QUANTITY_RECONCILIATION_REQUIRED');
+  const ownGroup=groups.get(String(warehouse._id));
+  if(!ownGroup)throw new AppError('This warehouse does not hold this parcel reservation.',409,'PICK_WAREHOUSE_INVALID');
+  const packed=completed.filter(task=>task.type==='pack').sort((a,b)=>new Date(b.completedAt).getTime()-new Date(a.completedAt).getTime())[0]||null;
+  if(packed&&!groups.has(String(packed.warehouseId)))throw new AppError('The recorded packing warehouse requires reconciliation.',409,'PACK_WAREHOUSE_UNAVAILABLE');
+  const pickQuantity=ownGroup.quantity-ownGroup.pickedQuantity;
+  return {parcel:current,orderId:order._id,shipmentId:shipment._id,pickQuantity,groupQuantity:ownGroup.quantity,pickItems:ownGroup.items,
+    canPick:['created','picking'].includes(current.status)&&pickQuantity>0,
+    canPack:current.status==='picked'&&picked===[...groups.values()].reduce((sum,group)=>sum+group.quantity,0),
+    canDispatch:current.status==='packed'&&String(packed?.warehouseId||'')===String(warehouse._id),
+    packedWarehouseId:packed?.warehouseId||null};
 }
 
 async function executeWarehouseTaskInSession({task,actorUserId,disposition},session){
@@ -449,55 +524,72 @@ async function executeWarehouseTaskInSession({task,actorUserId,disposition},sess
     if(!actor)throw new AppError('An active warehouse task operator is required.',403,'WAREHOUSE_ACTOR_INVALID');
     const current = await WarehouseTask.findOne({ _id: task._id, status: 'in_progress', assignedUserId: actorUserId }).session(session);
     if (!current) throw new AppError('Claim this warehouse task before execution; only the assigned operator can complete it.', 409, 'WAREHOUSE_TASK_NOT_OWNED');
+    if(current.wavePublicId&&!await WarehouseWave.exists({publicId:current.wavePublicId,status:'in_progress',assignedUserId:actorUserId,warehouseId:current.warehouseId,storeId:current.storeId,taskIds:current._id}).session(session))throw new AppError('This warehouse task is outside your active pick wave.',409,'WAREHOUSE_WAVE_STATE');
     const warehouse = await Warehouse.findOne({_id:current.warehouseId,storeId:current.storeId,active:true}).session(session);
     if (!warehouse) throw new AppError('Warehouse no longer exists.', 409, 'WAREHOUSE_MISSING');
 
     if (current.type === 'receive') {
       if (!current.stockItemId || !Number.isSafeInteger(current.quantity) || current.quantity <= 0) throw new AppError('Receiving needs a stock item and positive quantity.', 422, 'TASK_DATA_REQUIRED');
-      const stock = await StockItem.findById(current.stockItemId).session(session); if (!stock || !stock.warehouseId.equals(warehouse._id)) throw new AppError('Stock item is not in this warehouse.', 409, 'STOCK_WAREHOUSE_MISMATCH');
+      const stock = await StockItem.findById(current.stockItemId).session(session); assertWarehouseStockScope(stock,current,warehouse);
+      if(current.quantity>MAX_STOCK_QUANTITY||stock.onHand+current.quantity>MAX_STOCK_QUANTITY)throw new AppError('Receiving exceeds the stock quantity limit.',422,'STOCK_QUANTITY_LIMIT');
       const before = stock.onHand; stock.onHand += current.quantity; await stock.save({ session });
       await InventoryMovement.create([{ publicId: publicId('mov'), storeId: stock.storeId, stockItemId: stock._id, variantId: stock.variantId, warehouseId: stock.warehouseId, type: 'receipt', quantity: current.quantity, onHandBefore: before, onHandAfter: stock.onHand, reservedBefore: stock.reserved, reservedAfter: stock.reserved, damagedBefore: stock.damaged, damagedAfter: stock.damaged, quarantinedBefore: stock.quarantined, quarantinedAfter: stock.quarantined, reason: current.notes || 'Warehouse receipt', reference: current.reference, actorUserId }], { session });
       current.result = { receivedQuantity: current.quantity };
     } else if (current.type === 'put_away') {
       if (!current.stockItemId || !current.binCode) throw new AppError('Put-away needs a stock item and destination bin.', 422, 'TASK_DATA_REQUIRED');
-      const stock=await StockItem.findById(current.stockItemId).session(session);if(!stock||!stock.warehouseId.equals(warehouse._id))throw new AppError('Stock item is not in this warehouse.',409,'STOCK_WAREHOUSE_MISMATCH');
+      const stock=await StockItem.findById(current.stockItemId).session(session);assertWarehouseStockScope(stock,current,warehouse);
       const before=stock.binCode||'';stock.binCode=current.binCode;await stock.save({session});
       await InventoryMovement.create([{publicId:publicId('mov'),storeId:stock.storeId,stockItemId:stock._id,variantId:stock.variantId,warehouseId:stock.warehouseId,type:'put_away',quantity:0,onHandBefore:stock.onHand,onHandAfter:stock.onHand,reservedBefore:stock.reserved,reservedAfter:stock.reserved,damagedBefore:stock.damaged,damagedAfter:stock.damaged,quarantinedBefore:stock.quarantined,quarantinedAfter:stock.quarantined,binBefore:before,binAfter:stock.binCode,reason:current.notes||'Put-away completed',reference:current.reference,actorUserId}],{session});current.result={binCode:stock.binCode};
     } else if (current.type === 'pick') {
       const parcel=await warehouseParcelForTask(current,warehouse,session);if(!['created','picking'].includes(parcel.status))throw new AppError('Parcel is not ready for picking.',409,'PARCEL_STATE');
-      const total=parcel.items.reduce((sum,item)=>sum+item.quantity,0);const remaining=total-parcel.pickedQuantity;const qty=current.quantity||remaining;if(!Number.isSafeInteger(qty)||qty<=0||qty>remaining)throw new AppError('Pick quantity exceeds the parcel requirement.',422,'PICK_QUANTITY_INVALID');parcel.pickedQuantity+=qty;parcel.status=parcel.pickedQuantity===total?'picked':'picking';parcel.timeline.push({type:'pick',message:`Picked ${qty} item(s); ${parcel.pickedQuantity}/${total} complete.`,actorUserId});await parcel.save({session});await syncSellerShipmentFromParcel(parcel,actorUserId,session);current.result={pickedQuantity:qty,totalPicked:parcel.pickedQuantity,required:total,parcelStatus:parcel.status};
+      const requirements=await warehouseParcelTaskRequirements({parcel,warehouse,session});
+      const total=parcel.items.reduce((sum,item)=>sum+item.quantity,0),qty=current.quantity||requirements.pickQuantity;
+      if(!requirements.canPick||!Number.isSafeInteger(qty)||qty<=0||qty!==requirements.pickQuantity)throw new AppError('Pick quantity must match the remaining committed stock in this warehouse.',422,'PICK_QUANTITY_INVALID');
+      await fenceWarehouseOrder(requirements.orderId,current.storeId,warehouse.country,session);
+      parcel.pickedQuantity+=qty;parcel.status=parcel.pickedQuantity===total?'picked':'picking';parcel.timeline.push({type:'pick',message:`Picked ${qty} item(s); ${parcel.pickedQuantity}/${total} complete.`,actorUserId});await parcel.save({session});await syncSellerShipmentFromParcel(parcel,actorUserId,session);current.result={pickedQuantity:qty,totalPicked:parcel.pickedQuantity,required:total,parcelStatus:parcel.status};
     } else if (current.type === 'pack') {
       const parcel=await warehouseParcelForTask(current,warehouse,session);if(parcel.status!=='picked')throw new AppError('Parcel must be completely picked before packing.',409,'PARCEL_STATE');
+      const requirements=await warehouseParcelTaskRequirements({parcel,warehouse,session});if(!requirements.canPack)throw new AppError('Complete the authoritative warehouse picks before packing.',409,'PARCEL_STATE');
+      await fenceWarehouseOrder(requirements.orderId,current.storeId,warehouse.country,session);
       parcel.status='packed';parcel.timeline.push({type:'pack',message:'Parcel packing verified.',actorUserId});await parcel.save({session});await syncSellerShipmentFromParcel(parcel,actorUserId,session);current.result={parcelStatus:parcel.status};
     } else if (current.type === 'dispatch') {
       const parcel=await warehouseParcelForTask(current,warehouse,session);if(parcel.status!=='packed')throw new AppError('Only a packed parcel can be dispatched.',409,'PARCEL_STATE');
+      const requirements=await warehouseParcelTaskRequirements({parcel,warehouse,session});if(!requirements.canDispatch)throw new AppError('Dispatch must use the warehouse where this parcel was packed.',409,'PACK_WAREHOUSE_UNAVAILABLE');
+      await fenceWarehouseOrder(requirements.orderId,current.storeId,warehouse.country,session);
       parcel.status='handed_over';parcel.timeline.push({type:'dispatch',message:'Parcel dispatched for carrier handoff.',actorUserId});await parcel.save({session});await syncSellerShipmentFromParcel(parcel,actorUserId,session);current.result={parcelStatus:parcel.status};
     } else if (current.type === 'cycle_count') {
-      if(!current.stockItemId||!Number.isSafeInteger(current.quantity)||current.quantity<0)throw new AppError('Cycle count needs a stock item and counted on-hand quantity.',422,'TASK_DATA_REQUIRED');
-      const stock=await StockItem.findById(current.stockItemId).session(session);if(!stock||!stock.warehouseId.equals(warehouse._id))throw new AppError('Stock item is not in this warehouse.',409,'STOCK_WAREHOUSE_MISMATCH');
-      const discrepancy=await recordCycleCountInSession({stockItemId:stock._id,countedOnHand:current.quantity,actorUserId,reason:current.notes||'Warehouse cycle count',sourceKey:`warehouse-task:${current.publicId}`},session);
-      current.result={countedOnHand:discrepancy.countedOnHand,expectedOnHand:discrepancy.expectedOnHand,variance:discrepancy.variance,discrepancyPublicId:discrepancy.publicId,reviewStatus:discrepancy.status};
+      // A queued quantity is a historical physical observation. Stamping the
+      // execution-time stock version cannot make that observation current.
+      throw new AppError('Queued inventory counts require a fresh physical recount. Use Record count in Inventory with the current stock snapshot.',409,'COUNT_RECOUNT_REQUIRED');
     } else if (current.type === 'transfer') {
       if (!current.stockItemId || !current.destinationWarehouseId || !Number.isSafeInteger(current.quantity) || current.quantity <= 0) throw new AppError('Transfer needs stock, destination warehouse and quantity.', 422, 'TASK_DATA_REQUIRED');
-      const source = await StockItem.findById(current.stockItemId).session(session); const destinationWarehouse = await Warehouse.findById(current.destinationWarehouseId).session(session);
-      if (!source || !destinationWarehouse || !source.storeId.equals(destinationWarehouse.storeId)) throw new AppError('Transfer warehouses/store do not match.', 409, 'TRANSFER_SCOPE');
+      const source = await StockItem.findById(current.stockItemId).session(session);assertWarehouseStockScope(source,current,warehouse);
+      const destinationWarehouse = await Warehouse.findOne({_id:current.destinationWarehouseId,storeId:current.storeId,country:warehouse.country,active:true}).session(session);
+      if(!destinationWarehouse||String(destinationWarehouse._id)===String(warehouse._id))throw new AppError('Choose another active warehouse in the same store and country.',409,'TRANSFER_SCOPE');
       if (source.onHand - source.reserved - source.damaged - source.quarantined < current.quantity) throw new AppError('Transfer quantity exceeds available stock.', 409, 'INSUFFICIENT_STOCK');
       let destination = await StockItem.findOne({ warehouseId: destinationWarehouse._id, variantId: source.variantId }).session(session);
       if (!destination) { const docs = await StockItem.create([{ publicId: publicId('stk'), storeId: source.storeId, warehouseId: destinationWarehouse._id, variantId: source.variantId, onHand: 0, reserved: 0, damaged:0, quarantined:0, reorderPoint: source.reorderPoint }], { session }); destination = docs[0]; }
+      if(String(destination.storeId)!==String(current.storeId)||destination.onHand+current.quantity>MAX_STOCK_QUANTITY)throw new AppError('Transfer destination stock is outside scope or exceeds its limit.',409,'TRANSFER_SCOPE');
       const sourceBefore = source.onHand; const destBefore = destination.onHand; source.onHand -= current.quantity; destination.onHand += current.quantity; await source.save({ session }); await destination.save({ session });
-      await InventoryMovement.create([{ publicId: publicId('mov'), storeId: source.storeId, stockItemId: source._id, variantId: source.variantId, warehouseId: source.warehouseId, type: 'transfer', quantity: -current.quantity, onHandBefore: sourceBefore, onHandAfter: source.onHand, reservedBefore: source.reserved, reservedAfter: source.reserved, damagedBefore:source.damaged,damagedAfter:source.damaged,quarantinedBefore:source.quarantined,quarantinedAfter:source.quarantined, reason: 'Warehouse transfer out', reference: current.publicId, actorUserId }, { publicId: publicId('mov'), storeId: destination.storeId, stockItemId: destination._id, variantId: destination.variantId, warehouseId: destination.warehouseId, type: 'transfer', quantity: current.quantity, onHandBefore: destBefore, onHandAfter: destination.onHand, reservedBefore: destination.reserved, reservedAfter: destination.reserved, damagedBefore:destination.damaged,damagedAfter:destination.damaged,quarantinedBefore:destination.quarantined,quarantinedAfter:destination.quarantined, reason: 'Warehouse transfer in', reference: current.publicId, actorUserId }], { session });
+      await InventoryMovement.create([{ publicId: publicId('mov'), storeId: source.storeId, stockItemId: source._id, variantId: source.variantId, warehouseId: source.warehouseId, type: 'transfer', quantity: -current.quantity, onHandBefore: sourceBefore, onHandAfter: source.onHand, reservedBefore: source.reserved, reservedAfter: source.reserved, damagedBefore:source.damaged,damagedAfter:source.damaged,quarantinedBefore:source.quarantined,quarantinedAfter:source.quarantined, reason: 'Warehouse transfer out', reference: current.publicId, actorUserId }, { publicId: publicId('mov'), storeId: destination.storeId, stockItemId: destination._id, variantId: destination.variantId, warehouseId: destination.warehouseId, type: 'transfer', quantity: current.quantity, onHandBefore: destBefore, onHandAfter: destination.onHand, reservedBefore: destination.reserved, reservedAfter: destination.reserved, damagedBefore:destination.damaged,damagedAfter:destination.damaged,quarantinedBefore:destination.quarantined,quarantinedAfter:destination.quarantined, reason: 'Warehouse transfer in', reference: current.publicId, actorUserId }], { session, ordered: true });
       current.result = { transferredQuantity: current.quantity, destinationWarehouseId: destinationWarehouse.publicId };
     } else if (current.type === 'return_inspection') {
       const finalDisposition=current.disposition||disposition;
       if(!current.returnRequestId||!current.returnOrderLineId||!current.stockItemId||!Number.isSafeInteger(current.quantity)||current.quantity<=0||!['good','damaged','quarantine'].includes(finalDisposition))throw new AppError('Return inspection must come from an authoritative received return line and include a disposition.',422,'TASK_DATA_REQUIRED');
-      const returnRequest=await ReturnRequest.findOne({_id:current.returnRequestId,status:'received'}).session(session);if(!returnRequest)throw new AppError('This return is not in the warehouse inspection stage.',409,'RETURN_INSPECTION_STATE');
+      const returnRequest=await ReturnRequest.findOne({_id:current.returnRequestId,status:'received',country:warehouse.country,orderId:current.orderId}).session(session);if(!returnRequest)throw new AppError('This return is not in the warehouse inspection stage or warehouse country.',409,'RETURN_INSPECTION_STATE');
       const returned=returnRequest.items.find(item=>String(item.orderLineId)===String(current.returnOrderLineId));if(!returned||String(returned.storeId)!==String(current.storeId)||String(returned.variantId)!==String(current.variantId)||Number(returned.quantity)!==Number(current.quantity))throw new AppError('Warehouse return task no longer matches the immutable returned order line.',409,'RETURN_INSPECTION_SCOPE');
       if(returned.warehouseInspectionStatus==='completed')throw new AppError('This returned order line was already inspected.',409,'RETURN_INSPECTION_DUPLICATE');
-      if(returned.warehouseTaskPublicId&&String(returned.warehouseTaskPublicId)!==String(current.publicId))throw new AppError('This returned order line belongs to another warehouse task.',409,'RETURN_INSPECTION_TASK_MISMATCH');
+      if(returned.warehouseInspectionStatus!=='pending'||String(returned.warehouseTaskPublicId||'')!==String(current.publicId))throw new AppError('This returned order line belongs to another warehouse task.',409,'RETURN_INSPECTION_TASK_MISMATCH');
+      const order=await Order.findOne({_id:returnRequest.orderId,country:warehouse.country}).session(session);
+      const original=order?.items.find(item=>String(item.linePublicId)===String(returned.orderLineId));
+      if(!original||String(original.variantId)!==String(returned.variantId)||String(original.productId)!==String(returned.productId)||String(original.storeId)!==String(returned.storeId)||returned.quantity>Number(original.deliveredQuantity||0)||returned.quantity>Number(original.returnedQuantity||0))throw new AppError('Returned goods do not match a received, previously delivered order line.',409,'RETURN_INSPECTION_SCOPE');
       const stock=await StockItem.findById(current.stockItemId).session(session);if(!stock||!stock.warehouseId.equals(warehouse._id)||String(stock.storeId)!==String(current.storeId)||String(stock.variantId)!==String(current.variantId))throw new AppError('Stock item is outside the authoritative return-line scope.',409,'STOCK_WAREHOUSE_MISMATCH');
+      if(stock.onHand+current.quantity>MAX_STOCK_QUANTITY)throw new AppError('Returned goods exceed the stock quantity limit.',422,'STOCK_QUANTITY_LIMIT');
       const before={onHand:stock.onHand,damaged:stock.damaged,quarantined:stock.quarantined};stock.onHand+=current.quantity;if(finalDisposition==='damaged')stock.damaged+=current.quantity;if(finalDisposition==='quarantine')stock.quarantined+=current.quantity;await stock.save({session});
       await InventoryMovement.create([{publicId:publicId('mov'),storeId:stock.storeId,stockItemId:stock._id,variantId:stock.variantId,warehouseId:stock.warehouseId,type:'return',quantity:current.quantity,onHandBefore:before.onHand,onHandAfter:stock.onHand,reservedBefore:stock.reserved,reservedAfter:stock.reserved,damagedBefore:before.damaged,damagedAfter:stock.damaged,quarantinedBefore:before.quarantined,quarantinedAfter:stock.quarantined,reason:current.notes||`Returned stock inspected as ${finalDisposition}`,reference:returnRequest.publicId,actorUserId}],{session});
-      returned.warehouseTaskPublicId=current.publicId;returned.warehouseInspectionStatus='completed';returned.stockDisposition=finalDisposition;returned.inspectedQuantity=current.quantity;returned.warehouseInspectedByUserId=actorUserId;returned.warehouseInspectedAt=new Date();returnRequest.timeline.push({type:'return.warehouse_inspected',message:`${returned.sku||returned.title} × ${current.quantity} inspected as ${finalDisposition}.`,actorUserId});await returnRequest.save({session});current.result={returnPublicId:returnRequest.publicId,orderLineId:returned.orderLineId,returnedQuantity:current.quantity,disposition:finalDisposition};
+      returned.warehouseTaskPublicId=current.publicId;returned.warehouseInspectionStatus='completed';returned.stockDisposition=finalDisposition;returned.inspectedQuantity=current.quantity;returned.warehouseInspectedByUserId=actorUserId;returned.warehouseInspectedAt=new Date();returnRequest.timeline.push({type:'return.warehouse_inspected',message:`${returned.sku||returned.title} × ${current.quantity} inspected as ${finalDisposition}.`,actorUserId});await returnRequest.save({session});
+      await Order.updateOne({_id:order._id,__v:Number(order.__v||0)},{$inc:{__v:1},$push:{timeline:{type:'return.warehouse_inspected',message:`Received return ${returnRequest.publicId} stock disposition recorded.`}}},{session});
+      current.result={returnPublicId:returnRequest.publicId,orderLineId:returned.orderLineId,returnedQuantity:current.quantity,disposition:finalDisposition};
     } else throw new AppError('Warehouse task type is unsupported.',422,'TASK_TYPE_INVALID');
 
     current.status='completed';current.completedAt=new Date();current.assignmentHistory.push({userId:actorUserId,action:'completed',at:current.completedAt});await current.save({session});await refreshWarehouseWaveInSession(current.wavePublicId,actorUserId,current.publicId,session);return current;

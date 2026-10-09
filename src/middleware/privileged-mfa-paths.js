@@ -8,7 +8,7 @@ export const PRIVILEGED_MFA_ROLES = Object.freeze(new Set([
   'super_admin',
 ]));
 
-const PRIVILEGED_WEB_PREFIX = /^\/(?:admin|super-admin|seller|finance|operations|moderation|logistics|money)(?:\/|$)/;
+const PRIVILEGED_WEB_PREFIX = /^\/(?:admin|super-admin|seller|warehouse|finance|operations|moderation|logistics|money)(?:\/|$)/;
 const PRIVILEGED_API_PREFIX = /^\/api\/v1\/(?:admin|seller|finance|operations|moderation|logistics|warehouse|support|payouts|payout-accounts)(?:\/|$)/;
 
 export function requiresPrivilegedMfaForRequest(request) {

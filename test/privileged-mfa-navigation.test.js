@@ -19,6 +19,12 @@ test('privileged MFA step-up protects retained privileged headless APIs', () => 
   }
 });
 
+test('warehouse pages and mutations require privileged MFA', () => {
+  for (const path of ['/warehouse', '/warehouse/inventory', '/warehouse/tasks/wtk_test/execute', '/warehouse/reports/export.csv']) {
+    assert.equal(requiresPrivilegedMfaForRequest(req(path, { role: 'warehouse' })), true);
+  }
+});
+
 test('non-privileged roles are never caught by the privileged MFA classifier', () => {
   for (const role of ['customer', 'promoter', 'business', 'delivery']) {
     assert.equal(requiresPrivilegedMfaForRequest(req('/api/v1/finance/refunds', { role })), false);

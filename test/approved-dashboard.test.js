@@ -68,11 +68,11 @@ test('real login/session routes land every role in the approved UI; unauthorized
       await agent.get('/dashboard/super-overview').expect(403);
       await agent.get('/dashboard/warehouse-overview').expect(403);
       await agent.get('/dashboard/unknown').expect(404);
-    } else if (role === 'seller' || role === 'moderator') {
-      const landing = role === 'seller' ? '/seller/store' : '/moderation/verifications';
+    } else if (role === 'seller' || role === 'moderator' || role === 'warehouse') {
+      const landing = role === 'seller' ? '/seller/store' : role === 'warehouse' ? '/warehouse' : '/moderation/verifications';
       await agent.get('/dashboard').expect(302).expect('location', landing);
       await agent.get('/dashboard/' + page).expect(308).expect('location', landing);
-      await agent.get('/dashboard/' + role + '-overview').expect(503);
+      if (role !== 'warehouse') await agent.get('/dashboard/' + role + '-overview').expect(503);
     } else {
       const dashboard = await agent.get('/dashboard/' + page).expect(200);
       assert.match(dashboard.text, /\/approved-dashboard\/styles.css/);
@@ -83,7 +83,7 @@ test('real login/session routes land every role in the approved UI; unauthorized
     if (role === 'super_admin') {
       for (const [workspace, rows] of Object.entries(DASHBOARD_PAGES)) {
         if (workspace === 'customer') continue;
-        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(['seller-store','seller-products','seller-add-product','seller-orders','seller-shipping','moderator-sellers','moderator-products'].includes(id) ? 308 : ['seller','moderator'].includes(workspace) ? 503 : 200);
+        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(workspace === 'warehouse' || ['seller-store','seller-products','seller-add-product','seller-orders','seller-shipping','moderator-sellers','moderator-products'].includes(id) ? 308 : ['seller','moderator'].includes(workspace) ? 503 : 200);
       }
     }
   }

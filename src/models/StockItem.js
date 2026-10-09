@@ -72,6 +72,7 @@ for (const pathName of ['reserved','damaged','quarantined']) {
 }
 stockItemSchema.index({ warehouseId: 1, variantId: 1 }, { unique: true });
 stockItemSchema.index({ storeId: 1, updatedAt: -1 });
+stockItemSchema.index({ warehouseId: 1, updatedAt: -1, _id: -1 });
 stockItemSchema.index({ storeId: 1, variantId: 1, updatedAt: -1, _id: -1 });
 
 export const StockItem = mongoose.model('StockItem', stockItemSchema);

@@ -1,4 +1,5 @@
 import { CUSTOMER_ROUTES } from './customer-routes.js';
+import { WAREHOUSE_ROUTES } from './warehouse-routes.js';
 // Classic Mart production dashboard page registry.
 // Visual labels/page structure are intentionally preserved; route targets bind the design to production server routes.
 
@@ -1232,6 +1233,7 @@ export function defaultPageFor(workspace) {
 }
 
 export function routeForPage(pageId) {
+  if (WAREHOUSE_ROUTES[pageId]) return WAREHOUSE_ROUTES[pageId];
   if (pageId === 'seller-store') return '/seller/store';
   if (pageId === 'seller-products') return '/seller/products';
   if (pageId === 'seller-add-product') return '/seller/products/new';

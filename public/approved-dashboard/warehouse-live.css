@@ -1,0 +1,75 @@
+/* Live warehouse operations reuse the approved panels, controls, and pill buttons. */
+.warehouse-live-page :is(h1, h2, h3, p, a, li, td, dd, span) { overflow-wrap: anywhere; }
+.warehouse-live-page :is(.panel, .role-side-stack, .role-table-panel, .role-form-grid, .role-table-wrap) { min-width: 0; }
+.warehouse-live-page .role-form-grid > .wide { grid-column: 1 / -1; }
+.warehouse-live-page .role-table { min-width: 0; table-layout: fixed; }
+.warehouse-live-page .role-table td { white-space: normal; }
+.warehouse-live-page .role-table th { white-space: normal; }
+.warehouse-live-page .role-welcome { min-height: 0; }
+.warehouse-live-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.warehouse-live-actions form { margin: 0; max-width: 100%; }
+.warehouse-live-actions :is(button, a), .warehouse-live-details summary { max-width: 100%; white-space: normal; }
+.warehouse-live-page .warehouse-live-actions svg { width: 16px; height: 16px; flex-shrink: 0; }
+.warehouse-live-section, .warehouse-live-filter-panel { margin-top: 18px; }
+.warehouse-live-filter-panel { margin-bottom: 18px; }
+.warehouse-live-checkbox { display: flex !important; align-items: center; gap: 10px !important; align-self: end; min-height: 44px; }
+.warehouse-live-checkbox input { width: 18px !important; height: 18px !important; min-height: 18px !important; padding: 0 !important; border-radius: 4px !important; flex-shrink: 0; accent-color: var(--orange); }
+.warehouse-live-cell-note { display: block; margin-top: 4px; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+.warehouse-live-page .warehouse-live-detail-row > td { border-top: 0; padding-top: 0; }
+.warehouse-live-details { min-width: 0; }
+.warehouse-live-details summary { cursor: pointer; list-style: none; display: inline-flex; }
+.warehouse-live-details summary::-webkit-details-marker { display: none; }
+.warehouse-live-details summary::after { content: '+'; font-size: 16px; margin-left: 5px; }
+.warehouse-live-details[open] summary::after { content: '−'; }
+.warehouse-live-details summary:focus-visible { outline: 3px solid var(--text, #17213b); outline-offset: 3px; }
+.warehouse-live-task-form { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.warehouse-live-manifest { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.warehouse-live-manifest :is(h3, h4) { margin: 0 0 12px; font-size: 14px; line-height: 1.5; }
+.warehouse-live-manifest ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.warehouse-live-manifest li { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; font-size: 12px; line-height: 1.6; }
+.warehouse-live-manifest li > div { min-width: 0; }
+.warehouse-live-manifest li > span { flex-shrink: 0; }
+.warehouse-live-manifest small { display: block; margin-top: 4px; color: var(--muted); font-size: 11.5px; }
+.warehouse-live-form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.warehouse-live-create-form { align-content: start; }
+.warehouse-live-create-form h3 { margin: 0 0 4px; font-size: 15px; line-height: 1.5; }
+.warehouse-live-note { margin-top: 18px; }
+.warehouse-live-record-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.warehouse-live-record { min-width: 0; border: 1px solid var(--border); border-radius: 14px; padding: 18px; background: #fff; }
+.warehouse-live-record h3 { margin: 0 0 10px; font-size: 15px; line-height: 1.5; color: var(--text); }
+.warehouse-live-record > :is(a, form) { margin-top: 16px; }
+.warehouse-live-parcel-form { align-items: flex-start; flex-direction: column; }
+.warehouse-live-parcel-form p { margin: 0; }
+.warehouse-live-facts { display: grid; gap: 12px; margin: 0; }
+.warehouse-live-facts > div { display: grid; grid-template-columns: minmax(100px, .9fr) minmax(0, 1.1fr); gap: 12px; align-items: start; }
+.warehouse-live-facts dt { color: var(--muted); font-size: 11.5px; font-weight: 650; }
+.warehouse-live-facts dd { margin: 0; color: var(--text); font-size: 12px; line-height: 1.6; }
+.warehouse-live-wave-form { margin-bottom: 18px; align-items: end; }
+.warehouse-live-scan-results { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+.warehouse-live-scan-results > strong { font-size: 13px; }
+.warehouse-live-scan-results ul { list-style: none; display: grid; gap: 10px; margin: 12px 0 0; padding: 0; }
+.warehouse-live-scan-results li { display: grid; gap: 4px; font-size: 12px; }
+.warehouse-live-scan-results small { color: var(--muted); }
+@media (max-width: 1100px) {
+  .warehouse-live-page .warehouse-live-content { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 840px) {
+  .warehouse-live-page .role-table tr { grid-template-columns: minmax(0, 1fr); }
+  .warehouse-live-page .role-table td:last-child { grid-column: auto; display: grid; justify-content: normal; }
+  .warehouse-live-page .role-table td:last-child::before { display: block; }
+  .warehouse-live-page .role-table td { padding-inline: 0; }
+  .warehouse-live-page .role-table .warehouse-live-detail-row { padding-top: 0; border-top: 0; margin-top: -9px; border-radius: 0 0 12px 12px; }
+  .warehouse-live-page .role-table tr:has(+ .warehouse-live-detail-row) { border-bottom: 0; border-radius: 12px 12px 0 0; }
+  .warehouse-live-page .role-table .warehouse-live-details-cell { display: block; }
+  .warehouse-live-page .role-table .warehouse-live-details-cell::before, .warehouse-live-page .role-table .warehouse-live-empty::before { display: none; }
+  .warehouse-live-page .role-table .warehouse-live-empty { display: block; }
+  .warehouse-live-form-pair, .warehouse-live-record-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .warehouse-live-record { padding: 16px; }
+  .warehouse-live-page .role-form-grid > .wide { grid-column: auto; }
+}
+@media (max-width: 380px) {
+  .warehouse-live-facts > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .warehouse-live-page .role-table td { grid-template-columns: minmax(75px, .7fr) minmax(0, 1.3fr); gap: 8px; }
+}
