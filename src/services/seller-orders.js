@@ -130,7 +130,7 @@ function view(order, root, store, shipment, sellerShipment, parcel, detail = fal
     paymentState: root?.paymentState || 'unpaid', paymentMethod: root?.paymentMethod || '', deliveryMethod: root?.deliveryMethod || '',
     fulfilmentState: sellerShipment?.status || parcel?.status || (order.status === 'processing' ? 'processing' : 'unfulfilled'),
     totals, subtotalMinor: totals.subtotalMinor, discountMinor: totals.discountMinor, shippingMinor: totals.shippingMinor, taxMinor: totals.taxMinor,
-    items, shipment: shipment ? { publicId: shipment.publicId, status: shipment.status, mode: shipment.mode, parcelCount: shipment.parcelCount } : null,
+    items, shipment: shipment ? { publicId: shipment.publicId, status: shipment.status, mode: shipment.mode, parcelCount: shipment.parcelCount, courierName: shipment.courierName || '' } : null,
     sellerShipment: sellerShipment ? { id: sellerShipment.publicId, publicId: sellerShipment.publicId, status: sellerShipment.status,
       parcelPublicId: sellerShipment.parcelPublicId, quantity: sellerShipment.quantity, handedOverAt: sellerShipment.handedOverAt || null,
       deliveredAt: sellerShipment.deliveredAt || null } : null,
@@ -153,11 +153,15 @@ async function contexts(orders, store, session = null, detail = false) {
   const orderIds = orders.map(row => row.orderId), sellerIds = orders.map(row => row._id);
   const rootQuery = () => Order.find({ _id: { $in: orderIds }, country: store.country }).select(rootProjection).session(session).lean();
   const shipmentQuery = () => Shipment.find({ orderId: { $in: orderIds }, country: store.country, kind: 'outbound' })
-    .select('publicId orderId status mode parcelCount').session(session).lean();
+    .select('publicId orderId status mode parcelCount deliveryUserId').session(session).lean();
   const sellerQuery = () => SellerShipment.find({ sellerOrderId: { $in: sellerIds }, storeId: store._id, country: store.country })
     .select('publicId sellerOrderId parcelId parcelPublicId status quantity handedOverAt deliveredAt timeline').session(session).lean();
   const [roots, shipments, sellerShipments] = session ? [await rootQuery(), await shipmentQuery(), await sellerQuery()] :
     await Promise.all([rootQuery(), shipmentQuery(), sellerQuery()]);
+  const courierIds = [...new Set(shipments.map(row => row.deliveryUserId).filter(Boolean).map(String))];
+  const couriers = courierIds.length ? await User.find({ _id: { $in: courierIds } }).select('name').session(session).lean() : [];
+  const courierNames = new Map(couriers.map(row => [String(row._id), row.name]));
+  for (const shipment of shipments) shipment.courierName = courierNames.get(String(shipment.deliveryUserId)) || '';
   const parcels = shipments.length ? await Parcel.find({ shipmentId: { $in: shipments.map(row => row._id) }, storePublicId: store.publicId })
     .select('publicId orderPublicId status items pickedQuantity __v timeline').session(session).lean() : [];
   const rootMap = new Map(roots.map(row => [String(row._id), row])), shipmentMap = new Map(shipments.map(row => [String(row.orderId), row]));
@@ -193,6 +197,7 @@ export async function sellerOrderList(request, { after = '', status = 'all', q =
   const country = await CountrySetting.findOne({ code: store.country, active: true }).select('timeZone').lean();
   const timeZone = country?.timeZone || (store.country === 'UG' ? 'Africa/Kampala' : 'UTC');
   const common = bucketPipeline(store), summaryFacet = [{ $group: { _id: '$_bucket', count: { $sum: 1 },
+    readyForPickup: { $sum: { $cond: [{ $and: [{ $in: ['$status', ['confirmed', 'processing', 'ready']] }, { $eq: ['$_progress', 'handed_over'] }] }, 1, 0] } },
     today: { $sum: { $cond: [{ $gte: ['$createdAt', { $dateTrunc: { date: '$$NOW', unit: 'day', timezone: timeZone } }] }, 1, 0] } } } }];
   let rows, summary, total;
   if (chosen === 'all') {
@@ -213,7 +218,7 @@ export async function sellerOrderList(request, { after = '', status = 'all', q =
     rows = facet.rows; summary = facet.summary; total = facet.total[0]?.value || 0;
   }
   const page = pageResult(rows, { limit: size, total });
-  const metrics = { today: summary.reduce((sum, row) => sum + row.today, 0), processing: 0, shipped: 0, delivered: 0, pendingPayment: 0, cancelled: 0 };
+  const metrics = { total: summary.reduce((sum, row) => sum + row.count, 0), readyForPickup: summary.reduce((sum, row) => sum + (row.readyForPickup || 0), 0), today: summary.reduce((sum, row) => sum + row.today, 0), processing: 0, shipped: 0, delivered: 0, pendingPayment: 0, cancelled: 0 };
   for (const row of summary) { const field = row._id === 'pending_payment' ? 'pendingPayment' : row._id; if (field in metrics) metrics[field] = row.count; }
   return { orders: await contexts(page.items, store), page: page.page, metrics,
     filters: { status: chosen, search, shipping: Boolean(shipping) }, mode: shipping ? 'shipping' : 'list' };

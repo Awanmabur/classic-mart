@@ -35,9 +35,21 @@ data or operations.
 ## Seller entry points
 
 `/seller/overview` is the Seller landing page. Store configuration remains at
-`/seller/store`; products, orders and shipping have their own protected routes.
-The overview reads actual store sales, orders, catalogue, review and team data.
-Unconnected Seller sections remain unavailable instead of showing preview data.
+`/seller/store`. All 17 approved Seller navigation destinations have canonical
+`/seller/...` routes and read store-scoped records. Catalogue, fulfilment,
+inventory, support, growth, finance and analytics each require their own current
+membership capability. Invited staff must meet the same verification and
+configured MFA requirements as store owners. Legacy `/dashboard/seller-*`
+links redirect to canonical pages while preserving their query parameters.
+
+Page services project safe view data into the approved EJS layout. Empty stores
+show empty records and real zero totals. Stock writes use transactions and
+version checks; warehouse archive races with receipts and task creation cannot
+leave stock or work assigned to an archived location. Payouts use the store's
+ledger balance and verified payout destination. Submission does not simulate
+provider settlement. Subscription changes remain approval requests until the
+existing independent approval and payment process completes. See the
+[Seller page contracts](seller/workspace-pages.md) for routes and operations.
 
 An account may also buy from the marketplace. Explicit shopping routes show
 that identity's own purchases within its authorized workspace layout; they do

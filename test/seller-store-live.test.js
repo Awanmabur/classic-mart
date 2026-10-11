@@ -156,7 +156,7 @@ test('seller store settings persist through authenticated forms, reject stale ed
         assert.equal(await browserPage.locator('.phone-country-display').textContent(), '+256');
         await phoneCountry.selectOption('KE');
         assert.equal(await browserPage.locator('.phone-country-display').textContent(), '+254');
-        assert.equal(await browserPage.locator('[name="supportPhone"]').inputValue(), '781977217');
+        assert.equal(await browserPage.locator('#sellerIdentity [name="supportPhone"]').inputValue(), '781977217');
         await phoneCountry.selectOption('UG');
         await browserPage.locator('#sellerIdentity button[type="submit"]').click();
         await browserPage.waitForURL('**/seller/store?section=identity');

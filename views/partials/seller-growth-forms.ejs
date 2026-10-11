@@ -1,0 +1,81 @@
+<%
+  const growth = typeof pageFlow !== 'undefined' ? pageFlow : liveSeller.pageFlow;
+  const growthDraft = growth.draftSection === 'create' ? (growth.draft || {}) : {};
+  const growthLabel = value => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, character => character.toUpperCase());
+  const couponPage = growth.domain === 'coupons';
+  const amountUnit = ['UGX','RWF','JPY','KRW'].includes(growth.currency) ? growth.currency : growth.currency + ' minor units';
+%>
+<% if (growth.domain !== 'subscription') { %>
+  <section class="panel role-form-section" id="sellerGrowthEditor">
+    <div class="role-panel-head compact"><div><span class="eyebrow">Create offer</span><h2><%= couponPage ? 'Create Coupon' : 'Create Promotion' %></h2></div><span class="role-required"><%= growth.country %> · <%= growth.currency %></span></div>
+    <p class="form-intro">Choose your store products and eligibility. New offers can stay in draft until you are ready to activate them.</p>
+    <form class="role-create-form" method="post" action="<%= growth.path %>">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <% if (couponPage) { %><input type="hidden" name="type" value="voucher"><% } %>
+      <div class="role-create-grid">
+        <label class="role-create-field wide">Offer name *<input name="name" required minlength="2" maxlength="140" value="<%= growthDraft.name || '' %>" placeholder="For example, Weekend savings"></label>
+        <% if (couponPage) { %><label class="role-create-field">Coupon code *<input name="code" required minlength="2" maxlength="40" pattern="[A-Za-z0-9][A-Za-z0-9_-]{1,39}" value="<%= growthDraft.code || '' %>" placeholder="WEEKEND10" autocapitalize="characters"></label><% } else { %>
+          <label class="role-create-field">Offer type *<select name="type" required><% for (const type of ['bundle','quantity_break','free_shipping','sponsored']) { %><option value="<%= type %>" <%= growthDraft.type === type ? 'selected' : '' %>><%= growthLabel(type) %></option><% } %></select></label>
+        <% } %>
+        <label class="role-create-field">Availability<select name="status"><option value="draft" <%= growthDraft.status !== 'active' ? 'selected' : '' %>>Save draft</option><option value="active" <%= growthDraft.status === 'active' ? 'selected' : '' %>>Activate</option></select></label>
+        <label class="role-create-field">Percentage discount (basis points)<input type="number" name="discountBps" min="0" max="9000" step="1" value="<%= growthDraft.discountBps ?? '0' %>" inputmode="numeric"></label>
+        <label class="role-create-field">Fixed discount (<%= amountUnit %>)<input type="number" name="fixedDiscountMinor" min="0" max="2000000000" step="1" value="<%= growthDraft.fixedDiscountMinor ?? '0' %>" inputmode="numeric"></label>
+        <label class="role-create-field">Minimum quantity<input type="number" name="minQuantity" min="1" max="9999" step="1" value="<%= growthDraft.minQuantity ?? (couponPage ? '1' : '2') %>" inputmode="numeric" required></label>
+        <label class="role-create-field">Minimum order (<%= amountUnit %>)<input type="number" name="minSubtotalMinor" min="0" max="2000000000" step="1" value="<%= growthDraft.minSubtotalMinor ?? '0' %>" inputmode="numeric"></label>
+        <label class="role-create-field">Starts at (UTC)<input type="datetime-local" name="startsAt" value="<%= growthDraft.startsAt || '' %>"></label>
+        <label class="role-create-field">Ends at (UTC)<input type="datetime-local" name="endsAt" value="<%= growthDraft.endsAt || '' %>"></label>
+        <label class="role-create-field wide">Product references<textarea name="productPublicIds" maxlength="20000" rows="3" placeholder="Product references separated by commas; leave blank for all eligible store products"><%= growthDraft.productPublicIds || '' %></textarea></label>
+        <% if (!couponPage) { %><label class="role-create-field wide">Sponsored disclosure<textarea name="disclosureText" rows="2" maxlength="300" placeholder="Required for sponsored placements"><%= growthDraft.disclosureText || '' %></textarea></label><% } %>
+      </div>
+      <p class="form-intro">100 basis points equals 1%. A bundle needs two products; a quantity offer needs at least two items. Delivery and sponsored offers use zero price discount. Dates use UTC; an empty start begins immediately.</p>
+      <% if (growth.products.length) { %><details class="faq-item"><summary>Choose from your approved products</summary><% for (const product of growth.products) { %><p class="form-intro"><strong><%= product.title %></strong> · <%= product.publicId %></p><% } %></details><% } else { %><p class="form-intro">You have no approved or published products for this market yet. <a href="/seller/products">Manage Products</a></p><% } %>
+      <div class="role-create-actions"><button class="primary-button" type="submit"><%= couponPage ? 'Create Coupon' : 'Create Promotion' %></button></div>
+    </form>
+  </section>
+  <section class="panel role-form-section" id="sellerGrowthStatuses">
+    <div class="role-panel-head compact"><div><span class="eyebrow">Availability</span><h2><%= couponPage ? 'Manage Coupons' : 'Manage Promotions' %></h2></div></div>
+    <% if (!growth.promotions.length) { %><p class="form-intro">No offers match this page. Create an offer above or change your filters.</p><% } %>
+    <% for (const promotion of growth.promotions) { %>
+      <div id="promotion-<%= promotion.publicId %>">
+        <h3><%= promotion.name %><% if (couponPage) { %> · <%= promotion.code %><% } %></h3>
+        <p class="form-intro"><%= promotion.effectiveStatus %> · <%= promotion.discountLabel %> · Minimum quantity <%= promotion.minQuantity %> · Minimum order <%= formatMoney(promotion.minSubtotalMinor, growth.currency) %></p>
+        <p class="form-intro"><%= promotion.productPublicIds.length ? 'Products: ' + promotion.productPublicIds.join(', ') : 'All eligible products in your store' %><% if (promotion.disclosureText) { %> · <%= promotion.disclosureText %><% } %></p>
+        <% if (promotion.status !== 'expired') { %>
+          <form class="role-create-form" method="post" action="<%= growth.path %>/<%= encodeURIComponent(promotion.publicId) %>/status">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= promotion.__v %>">
+            <div class="role-create-actions">
+              <% if (['draft','paused'].includes(promotion.status)) { %><button class="outline-button" type="submit" name="status" value="active">Activate <%= couponPage ? 'Coupon' : 'Promotion' %></button><% } %>
+              <% if (promotion.status === 'active') { %><button class="outline-button" type="submit" name="status" value="paused">Pause <%= couponPage ? 'Coupon' : 'Promotion' %></button><% } %>
+              <button class="outline-button" type="submit" name="status" value="expired">End <%= couponPage ? 'Coupon' : 'Promotion' %></button>
+            </div>
+          </form>
+        <% } %>
+      </div>
+    <% } %>
+  </section>
+<% } else { %>
+  <section class="panel role-form-section" id="sellerGrowthEditor">
+    <div class="role-panel-head compact"><div><span class="eyebrow">Available plans</span><h2>Compare Plans</h2></div><span class="role-required"><%= growth.country %> · <%= growth.currency %></span></div>
+    <p class="form-intro">Request a plan change for independent review. Activation follows approval and payment.</p>
+    <% if (!growth.plans.length) { %><p class="form-intro">No active seller plans are available for your store market.</p><% } %>
+    <% for (const plan of growth.plans) { %>
+      <h3><%= plan.name %> · <%= formatMoney(plan.priceMinor, growth.currency) %> / <%= growthLabel(plan.cadence) %></h3>
+      <% if (plan.description) { %><p class="form-intro"><%= plan.description %></p><% } %>
+      <% if (plan.features.length) { %><ul><% for (const feature of plan.features) { %><li><%= feature %></li><% } %></ul><% } %>
+    <% } %>
+    <% if (growth.pendingRequests) { %><p class="form-intro" role="status">A plan change is awaiting review. Follow its decision in your request history.</p><% } else if (growth.plans.length) { %>
+      <form class="role-create-form" method="post" action="/seller/subscription/requests">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="role-create-grid"><label class="role-create-field wide">Choose a plan *<select name="planPublicId" required><option value="">Choose…</option><% for (const plan of growth.plans) { %><option value="<%= plan.publicId %>" <%= growthDraft.planPublicId === plan.publicId ? 'selected' : '' %>><%= plan.name %> · <%= formatMoney(plan.priceMinor, growth.currency) %> / <%= growthLabel(plan.cadence) %></option><% } %></select></label><label class="role-create-field wide">Request note<textarea name="note" rows="3" maxlength="1000" placeholder="Optional context for your plan request"><%= growthDraft.note || '' %></textarea></label></div>
+        <div class="role-create-actions"><button class="primary-button" type="submit">Request Plan Change</button></div>
+      </form>
+    <% } %>
+  </section>
+  <section class="panel role-form-section" id="sellerSubscriptionHistory">
+    <div class="role-panel-head compact"><div><span class="eyebrow">History</span><h2>Enrollment and Request History</h2></div></div>
+    <% if (growth.enrollment) { %><h3><%= growth.enrollment.planName %></h3><p class="form-intro"><%= growthLabel(growth.enrollment.status) %> · <%= formatMoney(growth.enrollment.priceMinor, growth.currency) %><% if (growth.enrollment.currentPeriodEndsAt) { %> · Period ends <%= formatDate(growth.enrollment.currentPeriodEndsAt) %><% } %></p><% if (growth.enrollment.features.length) { %><ul><% for (const feature of growth.enrollment.features) { %><li><%= feature %></li><% } %></ul><% } %><% } else { %><p class="form-intro">No current seller enrollment is recorded for this store.</p><% } %>
+    <% for (const enrollment of growth.enrollmentHistory) { %><p class="form-intro"><%= enrollment.planName %> · <%= growthLabel(enrollment.status) %> · <%= formatMoney(enrollment.priceMinor, growth.currency) %> · Started <%= formatDate(enrollment.startsAt) %><% if (enrollment.cancelledAt) { %> · Cancelled <%= formatDate(enrollment.cancelledAt) %><% } %></p><% } %>
+    <% for (const change of growth.changeRequests) { %><div id="request-<%= change.publicId %>"><h3><%= change.planName %> · <%= growthLabel(change.status) %></h3><p class="form-intro"><%= formatMoney(change.requestedPriceMinor, growth.currency) %> / <%= growthLabel(change.requestedCadence) %> · Requested <%= formatDate(change.createdAt) %></p><% if (change.note) { %><p class="form-intro"><%= change.note %></p><% } %><% if (change.reviewReason) { %><p class="form-intro"><strong>Review decision:</strong> <%= change.reviewReason %><% if (change.reviewedAt) { %> · <%= formatDate(change.reviewedAt) %><% } %></p><% } %></div><% } %>
+    <% if (!growth.changeRequests.length) { %><p class="form-intro">No plan requests match this page.</p><% } %>
+  </section>
+<% } %>

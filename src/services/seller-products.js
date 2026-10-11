@@ -322,6 +322,9 @@ export async function adjustSellerProductStock(request) {
     const warehouse = await Warehouse.findOne({ publicId: input.warehousePublicId, storeId: store._id, country: store.country, active: true }).session(session);
     if (!variant) throw new AppError('An active variant belonging to this product is required.', 404, 'VARIANT_NOT_FOUND');
     if (!warehouse) throw new AppError('An active warehouse in your store country is required.', 404, 'WAREHOUSE_NOT_FOUND');
+    // Share the warehouse write boundary with inventory archive so a receipt
+    // cannot commit into a location that closed during this transaction.
+    warehouse.markModified('active'); warehouse.increment(); await warehouse.save({ session });
     let item = await StockItem.findOne({ storeId: store._id, variantId: variant._id, warehouseId: warehouse._id }).session(session);
     if (!item) [item] = await StockItem.create([{ publicId: publicId('stk'), storeId: store._id, variantId: variant._id, warehouseId: warehouse._id }], { session });
     const onHand = item.onHand + input.quantity;

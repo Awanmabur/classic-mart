@@ -26,9 +26,11 @@ the hidden disable endpoint. Alternate-case operational URLs receive the same
 MFA enforcement as their canonical routes.
 
 The overview uses actual scoped sales, refunds, orders, products, reviews and
-store team data. Connected Seller links lead to Seller operations. Unconnected
-sections remain unavailable. The approved base CSS, scripts and image assets
-remain unchanged; the new overview content uses a separate stylesheet.
+store team data. All 17 Seller navigation destinations are connected to
+canonical Seller operations, subject to current membership capabilities. The
+approved base CSS, scripts and image assets remain unchanged; live controls
+use separate, Seller-scoped stylesheets. See [the page contracts](workspace-pages.md)
+for the additional sections and their verification.
 
 ## Verification on 2026-10-11
 
@@ -62,5 +64,4 @@ The remaining strict Seller enrollment contrast assertion and its parent result
 still fail with the approved original palette. The assertion remains enabled,
 and this work does not claim a passing full release suite or WCAG compliance.
 See [the public accessibility findings](../public-accessibility.md). Provider
-verification and the remaining unconnected role features retain their own
-release requirements.
+verification and workspaces other than Seller retain their own release requirements.

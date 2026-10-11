@@ -7,7 +7,7 @@ import { currentTraceFields, runWithStoredTrace } from '../core/trace.js';
 import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import {
   BusinessInvoice, Chargeback, InventoryMovement, InventoryReservation, Order, PaymentIntent, ProviderEvent, PurchaseOrder, Refund, StockItem,
-  LedgerAccount, LedgerTransaction, PayoutAccount, Payout, ReconciliationRun, SellerOrder, Shipment, Store, User,
+  CountrySetting, LedgerAccount, LedgerTransaction, PayoutAccount, Payout, ReconciliationRun, SellerOrder, Shipment, Store, StoreMember, User,
 } from '../models/index.js';
 import { ensureLedgerAccount, postLedgerTransaction, accountBalanceMinor, sellerSettlementBreakdown, proportionalSettlementSlice } from './money.js';
 import { orderAccessQuery } from './order-access.js';
@@ -594,13 +594,18 @@ async function postRefundLedger(orderLike,refundLike,intentLike){
 }
 
 export async function payoutOwnerContext(request,{preferredStorePublicId='',strictPreferred=false}={}){
-  if(request.user?.role==='promoter')return{ownerType:'promoter',ownerUserId:request.user._id,ownerPublicId:String(request.user._id),ownerStoreId:null,ownerStorePublicId:'',country:request.user.country,currency:request.user.currency,availableStores:[]};
-  if(request.user?.role==='delivery')return{ownerType:'delivery',ownerUserId:request.user._id,ownerPublicId:String(request.user._id),ownerStoreId:null,ownerStorePublicId:'',country:request.user.country,currency:request.user.currency,availableStores:[]};
+  const storeContext=Boolean(request.store?._id);
+  if(!storeContext&&request.user?.role==='promoter')return{ownerType:'promoter',ownerUserId:request.user._id,ownerPublicId:String(request.user._id),ownerStoreId:null,ownerStorePublicId:'',country:request.user.country,currency:request.user.currency,availableStores:[]};
+  if(!storeContext&&request.user?.role==='delivery')return{ownerType:'delivery',ownerUserId:request.user._id,ownerPublicId:String(request.user._id),ownerStoreId:null,ownerStorePublicId:'',country:request.user.country,currency:request.user.currency,availableStores:[]};
   const accesses=(await sellerStoreAccesses(request.user)).filter(row=>['owner','admin','finance'].includes(row.role));
   if(!accesses.length)throw new AppError('Seller owner, admin or finance access is required.',403,'PAYOUT_OWNER_REQUIRED');
-  const requested=String(preferredStorePublicId||request.session?.activeStorePublicId||'').trim();
+  if(!env.auth.simpleLogin&&env.security.privilegedMfaRequired){
+    const actor=await User.findById(request.user._id).select('security.mfaEnabled').lean();
+    if(!actor?.security?.mfaEnabled)throw new AppError('Authenticator enrollment is required for store payouts.',403,'MFA_ENROLLMENT_REQUIRED');
+  }
+  const requested=String(preferredStorePublicId||request.store?.publicId||request.session?.activeStorePublicId||'').trim();
   let selected=requested?accesses.find(row=>row.store.publicId===requested):null;
-  if(requested&&!selected&&strictPreferred)throw new AppError('Selected seller finance workspace is unavailable.',403,'PAYOUT_WORKSPACE_FORBIDDEN');
+  if(requested&&!selected&&(strictPreferred||storeContext))throw new AppError('Selected seller finance workspace is unavailable.',403,'PAYOUT_WORKSPACE_FORBIDDEN');
   selected ||= accesses[0];
   if(request.session)request.session.activeStorePublicId=selected.store.publicId;
   const availableStores=accesses.map(row=>({publicId:row.store.publicId,name:row.store.name,country:row.store.country,currency:row.store.currency,status:row.store.status,role:row.role}));
@@ -710,7 +715,82 @@ export async function reconcilePayout(request,payoutPublicId,{reference,success=
 export async function savePayoutAccount(request,{method,label,destination}){const owner=await payoutOwnerContext(request);const docs=await PayoutAccount.create([{publicId:publicId('poa'),ownerUserId:owner.ownerUserId,ownerStoreId:owner.ownerStoreId||undefined,ownerStorePublicId:owner.ownerStorePublicId||'',ownerType:owner.ownerType==='store'?'seller':owner.ownerType,country:owner.country,currency:owner.currency,method,label,destinationEncrypted:encryptSensitive(JSON.stringify(destination)),status:'pending'}]);return docs[0];}
 export async function payoutAccountsForRequest(request){const owner=await payoutOwnerContext(request),query=owner.ownerType==='store'?{ownerStoreId:owner.ownerStoreId,ownerType:'seller'}:{ownerUserId:owner.ownerUserId,ownerType:owner.ownerType};return PayoutAccount.find(mongoose.trusted(query)).select('-destinationEncrypted').sort({createdAt:-1}).lean();}
 export async function payoutsForRequest(request,{cursor='',limit=50,withPage=false}={}){const owner=await payoutOwnerContext(request);let query;if(owner.ownerType==='store')query={ownerStoreId:owner.ownerStoreId};else{const accountIds=await PayoutAccount.find({ownerUserId:owner.ownerUserId,ownerType:owner.ownerType}).distinct('_id');query={payoutAccountId:{$in:accountIds}};}const size=Math.min(100,Math.max(10,Number(limit)||50));const [rows,total]=await Promise.all([Payout.find(mongoose.trusted(cursorScope(query,cursor))).sort(cursorSort()).limit(size+1).lean(),Payout.countDocuments(mongoose.trusted(query))]);const page=pageResult(rows,{limit:size,total});return withPage?page:page.items;}
-export async function requestPayout(request,{payoutAccountId,amountMinor,idempotencyKey}){const owner=await payoutOwnerContext(request),existing=await Payout.findOne({idempotencyKey,requestedByUserId:request.user._id});if(existing)return existing;const accountQuery=owner.ownerType==='store'?{publicId:payoutAccountId,status:'verified',ownerStoreId:owner.ownerStoreId,ownerType:'seller'}:{publicId:payoutAccountId,ownerUserId:owner.ownerUserId,ownerType:owner.ownerType,status:'verified'},account=await PayoutAccount.findOne(mongoose.trusted(accountQuery));if(!account)throw new AppError('Verified payout account required.',409,'PAYOUT_ACCOUNT_REQUIRED');const session=await mongoose.startSession();let payout;try{await session.withTransaction(async()=>{const ledger=await ensureLedgerAccount({code:payoutPayableCode(owner.ownerType),type:'liability',ownerType:owner.ownerType,ownerPublicId:owner.ownerPublicId,country:owner.country,currency:owner.currency},session);await LedgerAccount.findOneAndUpdate({_id:ledger._id},{$inc:{mutationVersion:1}},{session,returnDocument:'after'});const available=await accountBalanceMinor(ledger._id,session);if(amountMinor>available)throw new AppError('Payout amount exceeds available balance.',409,'PAYOUT_BALANCE');const docs=await Payout.create([{publicId:publicId('pyo'),idempotencyKey,ownerUserId:owner.ownerUserId,ownerStoreId:owner.ownerStoreId||undefined,ownerStorePublicId:owner.ownerStorePublicId||'',requestedByUserId:request.user._id,payoutAccountId:account._id,amountMinor,currency:owner.currency,status:'requested'}],{session});payout=docs[0];await postPayoutHold(payout,account,owner.ownerType,owner.ownerPublicId,session);});}finally{await session.endSession();}return payout;}
+export async function requestPayout(request, { payoutAccountId, amountMinor, idempotencyKey }) {
+  if (!Number.isSafeInteger(amountMinor) || amountMinor < 1) throw new AppError('Payout amount must be a positive supported whole number.', 422, 'PAYOUT_AMOUNT_INVALID');
+  if (typeof payoutAccountId !== 'string' || payoutAccountId.length < 4 || payoutAccountId.length > 100
+    || typeof idempotencyKey !== 'string' || idempotencyKey.length < 8 || idempotencyKey.length > 120) {
+    throw new AppError('Provide a valid payout destination and request key.', 422, 'PAYOUT_REQUEST_INVALID');
+  }
+  const owner = await payoutOwnerContext(request);
+  const session = await mongoose.startSession();
+  let payout;
+  try {
+    await session.withTransaction(async () => {
+      const actor = await User.findById(request.user._id)
+        .select('status role country currency security.tokenVersion security.mfaEnabled').session(session).lean();
+      if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion
+        || (request.session?.tokenVersion !== undefined && actor.security.tokenVersion !== request.session.tokenVersion)) {
+        throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
+      }
+      if (owner.ownerType === 'store') {
+        if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) {
+          throw new AppError('Authenticator enrollment is required for store payouts.', 403, 'MFA_ENROLLMENT_REQUIRED');
+        }
+        const store = await Store.findOne({ _id: owner.ownerStoreId, publicId: owner.ownerPublicId,
+          country: owner.country, currency: owner.currency, ownerUserId: owner.ownerUserId,
+          status: { $in: ['pending_verification', 'verified'] } }).session(session).lean();
+        const member = await StoreMember.findOne({ storeId: owner.ownerStoreId, userId: actor._id,
+          status: 'active', role: { $in: ['owner', 'admin', 'finance'] } }).session(session).lean();
+        if (!member) throw new AppError('Seller finance access is required.', 403, 'PAYOUT_OWNER_REQUIRED');
+        if (!store) throw new AppError('The selected store is unavailable or its market changed.', 409, 'PAYOUT_WORKSPACE_UNAVAILABLE');
+        const country = await CountrySetting.findOne({ code: store.country, currency: store.currency, active: true }).session(session).lean();
+        if (!country) throw new AppError('The store country and currency need configuration.', 409, 'SELLER_COUNTRY_UNAVAILABLE');
+        // These writes force concurrent suspension, membership revocation and
+        // store changes to retry authorization against a fresh snapshot.
+        await StoreMember.updateOne({ _id: member._id, status: 'active', role: member.role }, { $inc: { __v: 1 } }, { session });
+        await Store.updateOne({ _id: store._id, status: store.status, country: store.country, currency: store.currency }, { $inc: { __v: 1 } }, { session });
+      } else if (actor.role !== owner.ownerType || actor.country !== owner.country || actor.currency !== owner.currency) {
+        throw new AppError('Your payout account context changed. Refresh and retry.', 409, 'PAYOUT_OWNER_CHANGED');
+      }
+      await User.updateOne({ _id: actor._id, status: 'active', 'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
+      const accountQuery = owner.ownerType === 'store'
+        ? { publicId: payoutAccountId, status: 'verified', ownerStoreId: owner.ownerStoreId, ownerType: 'seller', country: owner.country, currency: owner.currency }
+        : { publicId: payoutAccountId, status: 'verified', ownerUserId: owner.ownerUserId, ownerType: owner.ownerType, country: owner.country, currency: owner.currency };
+      // Account verification and ownership participate in the reservation
+      // transaction, including its write boundary for destination revocation.
+      const account = await PayoutAccount.findOneAndUpdate(accountQuery, { $inc: { __v: 1 } }, { session, returnDocument: 'after' });
+      if (!account) throw new AppError('Verified payout account required.', 409, 'PAYOUT_ACCOUNT_REQUIRED');
+      const existing = await Payout.findOne({ idempotencyKey }).session(session);
+      if (existing) {
+        const sameOwner = owner.ownerType === 'store'
+          ? String(existing.ownerStoreId) === String(owner.ownerStoreId)
+          : !existing.ownerStoreId && String(existing.ownerUserId) === String(owner.ownerUserId);
+        if (!sameOwner || String(existing.requestedByUserId) !== String(actor._id)
+          || existing.amountMinor !== amountMinor || existing.currency !== owner.currency
+          || String(existing.payoutAccountId) !== String(account._id)) {
+          throw new AppError('This request key already belongs to a different payout.', 409, 'PAYOUT_IDEMPOTENCY_CONFLICT');
+        }
+        payout = existing;
+        return;
+      }
+      const ledger = await ensureLedgerAccount({ code: payoutPayableCode(owner.ownerType), type: 'liability',
+        ownerType: owner.ownerType, ownerPublicId: owner.ownerPublicId, country: owner.country, currency: owner.currency }, session);
+      await LedgerAccount.findOneAndUpdate({ _id: ledger._id }, { $inc: { mutationVersion: 1 } }, { session, returnDocument: 'after' });
+      const available = await accountBalanceMinor(ledger._id, session);
+      if (!Number.isSafeInteger(available) || amountMinor > available) throw new AppError('Payout amount exceeds available balance.', 409, 'PAYOUT_BALANCE');
+      [payout] = await Payout.create([{ publicId: publicId('pyo'), idempotencyKey, ownerUserId: owner.ownerUserId,
+        ownerStoreId: owner.ownerStoreId || undefined, ownerStorePublicId: owner.ownerStorePublicId || '',
+        requestedByUserId: actor._id, payoutAccountId: account._id, amountMinor, currency: owner.currency, status: 'requested' }], { session });
+      await postPayoutHold(payout, account, owner.ownerType, owner.ownerPublicId, session);
+    });
+  } catch (error) {
+    if (error?.code === 11000) throw new AppError('This request key already belongs to a payout. Refresh and retry.', 409, 'PAYOUT_IDEMPOTENCY_CONFLICT');
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+  return payout;
+}
 
 export async function reconcilePayments(request,{hours=24}={}){
   const scopes=userCountryScopes(request.user),countries=scopes.includes('*')?null:scopes,since=new Date(Date.now()-Math.min(Math.max(Number(hours)||24,1),168)*60*60*1000);

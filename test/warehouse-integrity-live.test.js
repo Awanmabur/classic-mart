@@ -158,7 +158,30 @@ test('warehouse primitives preserve atomic sessions, committed stock custody and
       const item=await stock(),f=await fixture();
       const make=(type,fields={})=>task(f,type,first,{stockItemId:item._id,variantId:item.variantId,...fields});
       await assert.rejects(execute(await make('receive',{quantity:2,variantId:objectId()})),{code:'STOCK_WAREHOUSE_MISMATCH'});
-      for(const destination of [first,foreign,inactive])await assert.rejects(execute(await make('transfer',{quantity:2,destinationWarehouseId:destination._id})),{code:'TRANSFER_SCOPE'});
+      await assert.rejects(execute(await make('transfer',{quantity:2,destinationWarehouseId:first._id})),{code:'TRANSFER_SCOPE'});
+      const otherOwner=await actor('seller');
+      const otherStore=await Store.create({publicId:id('str'),ownerUserId:otherOwner._id,name:'Other Integrity Store',slug:id('store'),country:'UG',currency:'UGX',status:'verified'});
+      const otherStoreWarehouse=await Warehouse.create({publicId:id('wh'),storeId:otherStore._id,ownerUserId:otherOwner._id,name:'Other Store Warehouse',country:'UG',city:'Kampala',address:'Other store test address',active:true});
+      for(const destination of [foreign,inactive,otherStoreWarehouse]){
+        const tasksBefore=await WarehouseTask.countDocuments(),movementsBefore=await InventoryMovement.countDocuments({stockItemId:item._id}),sourceBefore=await StockItem.findById(item._id).lean(),warehouseVersion=(await Warehouse.findById(first._id)).__v;
+        await assert.rejects(make('transfer',{quantity:2,destinationWarehouseId:destination._id}),{code:'WAREHOUSE_MISSING'});
+        assert.equal(await WarehouseTask.countDocuments(),tasksBefore,'invalid destinations create no warehouse work');
+        assert.equal((await Warehouse.findById(first._id)).__v,warehouseVersion,'failed task creation rolls its source warehouse write back');
+        assert.equal((await StockItem.findById(item._id)).onHand,sourceBefore.onHand);
+        assert.equal((await StockItem.findById(item._id)).__v,sourceBefore.__v);
+        assert.equal(await InventoryMovement.countDocuments({stockItemId:item._id}),movementsBefore);
+        assert.equal(await StockItem.countDocuments({warehouseId:destination._id,variantId:item.variantId}),0);
+        // Insert a corrupt historical task directly to retain the execution
+        // boundary test without bypassing the production creation guard.
+        const historical=await WarehouseTask.create({publicId:id('wtk'),warehouseId:first._id,storeId:store._id,orderId:f.order._id,shipmentId:f.shipment._id,parcelId:f.parcel._id,
+          type:'transfer',status:'in_progress',assignedUserId:operator._id,claimedAt:new Date(),stockItemId:item._id,variantId:item.variantId,quantity:2,destinationWarehouseId:destination._id});
+        await assert.rejects(execute(historical),{code:'TRANSFER_SCOPE'});
+        assert.equal((await WarehouseTask.findById(historical._id)).status,'in_progress');
+        assert.equal((await StockItem.findById(item._id)).onHand,sourceBefore.onHand);
+        assert.equal((await StockItem.findById(item._id)).__v,sourceBefore.__v);
+        assert.equal(await InventoryMovement.countDocuments({stockItemId:item._id}),movementsBefore);
+        assert.equal(await StockItem.countDocuments({warehouseId:destination._id,variantId:item.variantId}),0);
+      }
       const elsewhere=await stock(second);
       await assert.rejects(execute(await make('transfer',{quantity:2,stockItemId:elsewhere._id,variantId:elsewhere.variantId,destinationWarehouseId:second._id})),{code:'STOCK_WAREHOUSE_MISMATCH'});
       const receipt=await make('receive',{quantity:4}),outcomes=await Promise.allSettled(Array.from({length:4},()=>execute(receipt)));

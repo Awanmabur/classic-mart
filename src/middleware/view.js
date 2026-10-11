@@ -57,7 +57,7 @@ export function viewLocals(request, response, next) {
       if (!value) return 'Not available';
       dateFormatter ||= new Intl.DateTimeFormat(
         request.user?.locale || request.country?.locale || 'en-UG',
-        { dateStyle: 'medium', timeStyle: 'short' },
+        { dateStyle: 'medium', timeStyle: 'short', timeZone: request.country?.timeZone || 'Africa/Kampala' },
       );
       return dateFormatter.format(new Date(value));
     },

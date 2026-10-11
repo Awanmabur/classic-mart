@@ -145,7 +145,7 @@ function accountCenterDefaults() {
 function accountMfaRequired(request, view) {
   return mfaRequiredForUser(request.user, env.security.privilegedMfaRequired)
     || Boolean(!env.auth.simpleLogin && env.security.privilegedMfaRequired
-      && view.liveSeller?.navigation.some(item => item.ready && item.id === 'seller-orders'));
+      && view.liveSeller?.navigation.some(item => item.ready));
 }
 
 async function postedMfaContinuation(request) {

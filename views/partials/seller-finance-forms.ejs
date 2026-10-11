@@ -1,0 +1,37 @@
+<%
+  const financePage = liveSeller.pageFlow;
+  const verifiedAccounts = (financePage.payoutAccounts || []).filter(account => account.status === 'verified');
+%>
+<% if (financePage.pageId === 'seller-payouts') { %>
+<section class="panel role-form-section" id="seller-payout-request">
+  <div class="role-panel-head"><div><h2>Request a payout</h2><p>Choose a verified destination and an amount within your available balance.</p></div></div>
+  <% if (!verifiedAccounts.length) { %><p class="form-intro">Add a payout destination below. Finance must verify it before you can request a payout.</p><% } else { %>
+  <form method="post" action="/seller/payouts" class="role-form-grid">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="idempotencyKey" value="<%= financePage.idempotencyKey %>">
+    <label>Verified destination<select name="payoutAccountId" required><% for (const account of verifiedAccounts) { %><option value="<%= account.publicId %>"><%= account.label %> · <%= account.method.replaceAll('_', ' ') %></option><% } %></select></label>
+    <label>Amount (<%= financePage.currency %>)<input name="amount" type="text" inputmode="decimal" maxlength="30" autocomplete="off" required aria-describedby="sellerPayoutBalance"></label>
+    <p class="wide form-intro" id="sellerPayoutBalance">Available balance: <%= formatMoney(financePage.availableMinor, financePage.currency) %>. A request reserves funds while finance reviews it.</p>
+    <div class="wide"><button class="primary-button" type="submit">Request payout</button></div>
+  </form>
+  <% } %>
+</section>
+<section class="panel role-form-section" id="seller-payout-destination">
+  <div class="role-panel-head"><div><h2>Add a payout destination</h2><p>Bank and mobile-money destinations require finance verification.</p></div></div>
+  <form method="post" action="/seller/payouts/accounts" class="role-form-grid">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label>Method<select name="method" required><option value="mobile_money">Mobile money</option><option value="bank">Bank account</option></select></label>
+    <label>Destination label<input name="label" minlength="2" maxlength="100" required autocomplete="off" placeholder="Business account"></label>
+    <label class="wide">Beneficiary name<input name="beneficiary_name" minlength="2" maxlength="120" required autocomplete="off"></label>
+    <label>Mobile-money network<input name="network" maxlength="40" autocomplete="off"></label>
+    <label>Mobile-money phone<input name="phone" type="tel" maxlength="32" autocomplete="off"></label>
+    <label>Bank name or code<input name="account_bank" maxlength="40" autocomplete="off"></label>
+    <label>Bank account number<input name="account_number" maxlength="80" autocomplete="off"></label>
+    <div class="wide"><button class="primary-button" type="submit">Add destination for verification</button></div>
+  </form>
+  <% if (financePage.payoutAccounts.length) { %>
+  <div class="role-table-wrap"><table class="role-table"><thead><tr><th>Destination</th><th>Method</th><th>Status</th></tr></thead><tbody>
+    <% for (const account of financePage.payoutAccounts) { %><tr><td data-label="Destination"><%= account.label %></td><td data-label="Method"><%= account.method.replaceAll('_', ' ') %></td><td data-label="Status"><span class="role-status <%= account.status === 'verified' ? 'good' : 'warn' %>"><%= account.status %></span></td></tr><% } %>
+  </tbody></table></div>
+  <% } %>
+</section>
+<% } %>

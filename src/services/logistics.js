@@ -355,8 +355,17 @@ export async function createWarehouseTask(data, session = null) {
   const assignedUserId=data.assignedUserId||undefined,claimedAt=assignedUserId?new Date():undefined;
   const dueAt=data.dueAt||new Date(Date.now()+Number(warehouseTaskSlaHours[data.type]||24)*60*60*1000);
   const payload={publicId:publicId('wtk'),...data,dueAt,status:assignedUserId?'in_progress':'open',claimedAt,assignmentHistory:assignedUserId?[{userId:assignedUserId,action:'claimed',at:claimedAt}]:[]};
-  if(session){const [task]=await WarehouseTask.create([payload],{session});return task;}
-  return WarehouseTask.create(payload);
+  return withWarehouseTransaction(session,async transactionSession=>{
+    // Archive and new work must share a write boundary, including task creation
+    // from fulfilment and returns that already own a transaction.
+    const warehouse=await Warehouse.findOneAndUpdate({_id:data.warehouseId,storeId:data.storeId,active:true},{$inc:{__v:1}},{session:transactionSession,returnDocument:'after'});
+    if(!warehouse)throw new AppError('An active warehouse is required before creating warehouse work.',409,'WAREHOUSE_MISSING');
+    if(data.destinationWarehouseId&&String(data.destinationWarehouseId)!==String(data.warehouseId)){
+      const destination=await Warehouse.findOneAndUpdate({_id:data.destinationWarehouseId,storeId:data.storeId,country:warehouse.country,active:true},{$inc:{__v:1}},{session:transactionSession,returnDocument:'after'});
+      if(!destination)throw new AppError('An active destination warehouse in the same store country is required.',409,'WAREHOUSE_MISSING');
+    }
+    const [task]=await WarehouseTask.create([payload],{session:transactionSession});return task;
+  });
 }
 
 export async function claimWarehouseTask({taskPublicId,actorUserId,session=null}){

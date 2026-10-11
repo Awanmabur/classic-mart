@@ -1,0 +1,75 @@
+<%
+  const inventory = pageFlow;
+  const draftValue = (section, key, fallback = '', target = '') => inventory.section === section && (!target || inventory.draft.targetPublicId === target) && Object.hasOwn(inventory.draft, key) ? inventory.draft[key] : fallback;
+  const selectedStock = inventory.selectedStock;
+%>
+<div class="role-editor-main">
+<section class="panel role-form-section" id="stock-controls">
+  <div class="role-panel-head compact"><div><span class="role-section-number">1</span><h2>Record initial stock</h2></div></div>
+  <p class="form-intro">Receive the first stock for a product variant at a warehouse. Open an existing stock item in the inventory table to adjust its quantity.</p>
+  <% if (inventory.warehouses.length && inventory.variants.length) { %>
+  <form method="post" action="/seller/inventory/adjust">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="expectedVersion" value="new">
+    <div class="role-form-grid">
+      <label>Product variant<select name="variantPublicId" required><option value="">Choose a product variant</option><% for (const variant of inventory.variants) { %><option value="<%= variant.publicId %>" <%= draftValue('movement','variantPublicId')===variant.publicId?'selected':'' %>><%= variant.sku %> · <%= variant.productTitle %></option><% } %></select></label>
+      <label>Warehouse<select name="warehousePublicId" required><option value="">Choose a warehouse</option><% for (const warehouse of inventory.warehouses) { %><option value="<%= warehouse.publicId %>" <%= draftValue('movement','warehousePublicId')===warehouse.publicId?'selected':'' %>><%= warehouse.name %> · <%= warehouse.city %></option><% } %></select></label>
+      <label>Units received<input name="quantity" type="number" min="1" max="1000000" step="1" value="<%= draftValue('movement','quantity') %>" required></label>
+      <label>Reorder point<input name="reorderPoint" type="number" min="0" max="2000000000" step="1" value="<%= draftValue('movement','reorderPoint',0) %>" required></label>
+      <label class="wide">Movement reason<input name="reason" minlength="3" maxlength="300" value="<%= draftValue('movement','reason') %>" required></label>
+    </div><button class="primary-button" type="submit">Receive initial stock</button>
+  </form>
+  <% } else { %><p class="form-intro"><%= inventory.warehouses.length ? 'Create a product variant before recording stock.' : 'Create a warehouse below before recording stock.' %></p><% } %>
+</section>
+<% if (selectedStock) { %>
+<section class="panel role-form-section" id="stock-editor">
+  <div class="role-panel-head compact"><div><span class="role-section-number">2</span><h2><%= selectedStock.variant.sku %> · <%= selectedStock.warehouse.name %></h2></div></div>
+  <p class="form-intro"><%= selectedStock.variant.productTitle %> · On hand: <%= selectedStock.onHand %> · Available: <%= selectedStock.available %> · Reserved: <%= selectedStock.reserved %> · Damaged: <%= selectedStock.damaged %> · Quarantined: <%= selectedStock.quarantined %></p>
+  <form method="post" action="/seller/inventory/adjust">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="expectedVersion" value="<%= selectedStock.__v %>"><input type="hidden" name="stockPublicId" value="<%= selectedStock.publicId %>"><input type="hidden" name="variantPublicId" value="<%= selectedStock.variant.publicId %>"><input type="hidden" name="warehousePublicId" value="<%= selectedStock.warehouse.publicId %>">
+    <div class="role-form-grid"><label>Quantity change<input name="quantity" type="number" min="-1000000" max="1000000" step="1" value="<%= draftValue('movement','quantity') %>" required></label><label>Reorder point<input name="reorderPoint" type="number" min="0" max="2000000000" step="1" value="<%= draftValue('movement','reorderPoint',selectedStock.reorderPoint) %>" required></label><label class="wide">Movement reason<input name="reason" minlength="3" maxlength="300" value="<%= draftValue('movement','reason') %>" required></label></div>
+    <p class="form-intro">Use a positive number for incoming units and a negative number for a counted reduction. Reserved, damaged, quarantined, and tracked lot units remain protected.</p><button class="primary-button" type="submit">Record stock movement</button>
+  </form>
+</section>
+<section class="panel role-form-section" id="stock-condition">
+  <div class="role-panel-head compact"><div><h2>Stock condition and bin</h2></div></div>
+  <form method="post" action="/seller/inventory/condition"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="stockPublicId" value="<%= selectedStock.publicId %>"><input type="hidden" name="expectedVersion" value="<%= selectedStock.__v %>">
+    <div class="role-form-grid"><label>Damaged units<input type="number" name="damaged" min="0" max="2000000000" step="1" value="<%= draftValue('condition','damaged',selectedStock.damaged) %>" required></label><label>Quarantined units<input type="number" name="quarantined" min="0" max="2000000000" step="1" value="<%= draftValue('condition','quarantined',selectedStock.quarantined) %>" required></label><label>Bin code<input name="binCode" maxlength="80" value="<%= draftValue('condition','binCode',selectedStock.binCode) %>"></label><label>Condition reason<input name="reason" minlength="3" maxlength="300" value="<%= draftValue('condition','reason') %>" required></label></div><button class="primary-button" type="submit">Save stock condition</button>
+  </form>
+</section>
+<section class="panel role-form-section" id="inventory-lots">
+  <div class="role-panel-head compact"><div><h2>Batch, serial, and expiry records</h2></div></div>
+  <p class="form-intro">Trace units already held in this warehouse. Recording a lot does not add physical stock.</p>
+  <form method="post" action="/seller/inventory/lots"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="stockPublicId" value="<%= selectedStock.publicId %>"><input type="hidden" name="expectedVersion" value="<%= selectedStock.__v %>">
+    <div class="role-form-grid"><label>Lot quantity<input name="quantity" type="number" min="1" max="2000000000" step="1" value="<%= draftValue('lot','quantity') %>" required></label><label>Batch number<input name="batchNumber" maxlength="120" value="<%= draftValue('lot','batchNumber') %>"></label><label>Expiry date<input name="expiresAt" type="date" value="<%= draftValue('lot','expiresAt') %>"></label><label>Notes<input name="notes" maxlength="500" value="<%= draftValue('lot','notes') %>"></label><label class="wide">Serial numbers<textarea name="serialNumbers" maxlength="40000" rows="3"><%= draftValue('lot','serialNumbers') %></textarea></label></div>
+    <p class="form-intro">Provide a batch number, expiry date, or one unique serial per unit. Separate serials with commas or new lines.</p><button class="primary-button" type="submit">Record inventory lot</button>
+  </form>
+  <% if (!inventory.lots.length) { %><p class="form-intro">No lots recorded for this stock item.</p><% } %>
+  <% for (const lot of inventory.lots) { %>
+  <form method="post" action="/seller/inventory/lots/<%= lot.publicId %>/status"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="stockPublicId" value="<%= selectedStock.publicId %>"><input type="hidden" name="expectedVersion" value="<%= selectedStock.__v %>"><input type="hidden" name="expectedLotVersion" value="<%= lot.__v %>">
+    <div class="role-panel-head compact"><div><h3><%= lot.batchNumber || lot.publicId %></h3><p><%= lot.quantity %> units · <%= lot.serialNumbers.length %> serials · <%= lot.expiresAt ? new Date(lot.expiresAt).toISOString().slice(0,10) : 'No expiry date' %></p></div></div>
+    <div class="role-form-grid"><label>Lot status<select name="status"><% for (const status of ['active','quarantined','expired','depleted']) { %><option value="<%= status %>" <%= draftValue('lot-status','status',lot.status,lot.publicId)===status?'selected':'' %>><%= status.charAt(0).toUpperCase()+status.slice(1) %></option><% } %></select></label><label>Status change reason<input name="reason" minlength="3" maxlength="300" value="<%= draftValue('lot-status','reason','',lot.publicId) %>" required></label></div><button class="soft-button" type="submit">Update lot status</button>
+  </form>
+  <% } %>
+</section>
+<section class="panel role-form-section">
+  <div class="role-panel-head compact"><div><h2>Recent stock movements</h2></div><span class="role-required">Latest 20</span></div>
+  <div class="role-table-wrap"><table class="role-table"><thead><tr><th>Recorded</th><th>Type</th><th>Quantity</th><th>On hand</th><th>Reason</th></tr></thead><tbody><% if (!inventory.movements.length) { %><tr><td colspan="5">No movements recorded.</td></tr><% } %><% for (const movement of inventory.movements) { %><tr><td data-label="Recorded"><%= new Date(movement.createdAt).toISOString().slice(0,10) %></td><td data-label="Type"><%= movement.type %></td><td data-label="Quantity"><%= movement.quantity %></td><td data-label="On hand"><%= movement.onHandAfter %></td><td data-label="Reason"><%= movement.reason %></td></tr><% } %></tbody></table></div>
+</section>
+<% } %>
+<section class="panel role-form-section" id="warehouse-controls">
+  <div class="role-panel-head compact"><div><span class="role-section-number">3</span><h2>Create warehouse</h2></div></div>
+  <form method="post" action="/seller/warehouses"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="country" value="<%= inventory.store.country %>">
+    <div class="role-form-grid"><label>Warehouse name<input name="name" minlength="2" maxlength="120" value="<%= draftValue('warehouse-create','name') %>" required></label><label>City<input name="city" minlength="2" maxlength="100" value="<%= draftValue('warehouse-create','city') %>" required></label><label class="wide">Address<textarea name="address" minlength="5" maxlength="300" rows="3" required><%= draftValue('warehouse-create','address') %></textarea></label></div>
+    <p class="form-intro">This warehouse serves your store in <%= inventory.store.country %>.</p><button class="primary-button" type="submit">Create warehouse</button>
+  </form>
+</section>
+<% for (const warehouse of inventory.warehouses) { %>
+<section class="panel role-form-section" id="warehouse-<%= warehouse.publicId %>">
+  <div class="role-panel-head compact"><div><h2><%= warehouse.name %></h2></div><span class="role-required"><%= warehouse.country %></span></div>
+  <form method="post" action="/seller/warehouses/<%= warehouse.publicId %>"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="expectedVersion" value="<%= warehouse.__v %>"><input type="hidden" name="country" value="<%= warehouse.country %>">
+    <div class="role-form-grid"><label>Warehouse name<input name="name" minlength="2" maxlength="120" value="<%= draftValue('warehouse-edit','name',warehouse.name,warehouse.publicId) %>" required></label><label>City<input name="city" minlength="2" maxlength="100" value="<%= draftValue('warehouse-edit','city',warehouse.city,warehouse.publicId) %>" required></label><label class="wide">Address<textarea name="address" minlength="5" maxlength="300" rows="3" required><%= draftValue('warehouse-edit','address',warehouse.address,warehouse.publicId) %></textarea></label></div><button class="soft-button" type="submit">Save warehouse</button>
+  </form>
+  <form method="post" action="/seller/warehouses/<%= warehouse.publicId %>/archive"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="expectedVersion" value="<%= warehouse.__v %>"><p class="form-intro">Archive after physical stock, tracked lots, and unfinished warehouse work have been cleared.</p><button class="soft-button" type="submit">Archive warehouse</button></form>
+</section>
+<% } %>
+</div>

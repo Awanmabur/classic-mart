@@ -4,7 +4,7 @@ import { Store, StoreMember } from '../models/index.js';
 
 const capabilityMap = Object.freeze({
   owner: ['*'],
-  admin: ['catalogue','inventory','fulfilment','support','finance','growth','staff'],
+  admin: ['catalogue','inventory','fulfilment','support','finance','growth','staff','analytics'],
   catalogue: ['catalogue','inventory'],
   fulfilment: ['inventory','fulfilment'],
   finance: ['finance'],

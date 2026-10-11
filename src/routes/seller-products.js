@@ -81,6 +81,28 @@ const parseUpload = (request, response) => new Promise((resolve, reject) => uplo
 }));
 router.get('/seller/products', ...seller, asyncHandler((request, response) => sellerPage(request, response, 'list')));
 router.get('/seller/products/new', ...seller, asyncHandler((request, response) => sellerPage(request, response, 'create')));
+router.get('/seller/products/export.csv', ...seller, uploadLimit, asyncHandler(async (request, response) => {
+  const filters = { status: String(request.query.status || '').slice(0, 30), q: String(request.query.search || '').slice(0, 100) };
+  let result = await sellerProductList(request, filters);
+  const csvCell = value => { let text = String(value ?? ''); if (/^[\s\u0000-\u001f]*[=+@-]/u.test(text)) text = "'" + text; return '"' + text.replaceAll('"', '""') + '"'; };
+  response.type('text/csv').set('Content-Disposition', 'attachment; filename="classic-mart-products.csv"');
+  response.write('Product,Store,PriceMinor,Currency,AvailableStock,Status\r\n');
+  while (!response.destroyed) {
+    const output = result.items.map(product => {
+      return [product.title, request.store.name, product.priceMinor, product.currency, product.availableStock, product.status].map(csvCell).join(',') + '\r\n';
+    }).join('');
+    if (output && !response.write(output)) await new Promise((resolve, reject) => {
+      const cleanup = () => { response.off('drain', drained); response.off('close', closed); response.off('error', failed); };
+      const drained = () => { cleanup(); resolve(); };
+      const closed = () => { cleanup(); resolve(); };
+      const failed = error => { cleanup(); reject(error); };
+      response.once('drain', drained); response.once('close', closed); response.once('error', failed);
+    });
+    if (!result.page.hasMore) break;
+    result = await sellerProductList(request, { ...filters, after: result.page.next });
+  }
+  if (!response.destroyed) response.end();
+}));
 router.get('/seller/products/:publicId', ...seller, asyncHandler((request, response) => sellerPage(request, response)));
 for (const [id, href] of [['seller-products', '/seller/products'], ['seller-add-product', '/seller/products/new']]) {
   router.get('/dashboard/' + id, ...seller.slice(0, 6), (request, response) => response.redirect(308, href + new URL(request.originalUrl, 'http://localhost').search));
