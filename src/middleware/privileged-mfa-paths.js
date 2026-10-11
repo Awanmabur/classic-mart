@@ -15,7 +15,9 @@ export function requiresPrivilegedMfaForRequest(request) {
   const role = request?.user?.role;
   if (!PRIVILEGED_MFA_ROLES.has(role)) return false;
 
-  const path = String(request?.path || '/');
+  // Express matches these routes without regard to case. Classify the same
+  // route spelling before any protected handler can load or mutate data.
+  const path = String(request?.path || '/').toLowerCase();
   if (path === '/logout' || path === '/account/security' || path.startsWith('/account/mfa/')) return false;
 
   const operationalDashboard = /^\/dashboard\/(?:seller|admin|super|finance|support|warehouse|moderator)-/.test(path);

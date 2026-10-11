@@ -7,7 +7,7 @@ import { loadSellerStore, requireStoreCapability } from '../middleware/store.js'
 import { setFlash } from '../middleware/view.js';
 import { allowedWorkspacesFor } from '../dashboard/access.js';
 import { env } from '../config/env.js';
-import { liveAccountHeader } from '../dashboard/live-account-header.js';
+import { liveSellerAccountHeader as liveAccountHeader } from '../dashboard/live-account-header.js';
 import { sellerNavigation, SELLER_LIVE_ROUTES } from '../dashboard/seller-navigation.js';
 import { sellerOrderList, sellerOrderDetail, transitionSellerOrder } from '../services/seller-orders.js';
 import { writeAudit } from '../services/audit.js';

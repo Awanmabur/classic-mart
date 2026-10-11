@@ -1,0 +1,15 @@
+/* Bind real store values to the approved Seller overview without changing its cards. */
+.seller-overview-period { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.seller-overview-page .role-focus-list form { margin: 0; }
+.seller-overview-page .role-welcome-score strong { font-size: 20px; }
+.seller-overview-page .role-activity-feed a { color: inherit; text-decoration: none; }
+.seller-overview-page .role-activity-feed a:hover { text-decoration: underline; }
+.seller-overview-page .role-metric strong { white-space: normal; overflow-wrap: anywhere; }
+.seller-overview-page .role-chart > div > span[data-zero="true"] { min-height: 0; }
+.seller-overview-page .role-chart > div > span[data-negative="true"] { background: var(--muted); }
+.seller-overview-page .role-chart-legend strong { color: inherit; }
+@media (max-width: 620px) {
+  .seller-overview-page .role-panel-head { flex-wrap: wrap; }
+  .seller-overview-period { width: 100%; }
+  .seller-overview-page .role-welcome > div:first-child > div { flex-wrap: wrap; }
+}

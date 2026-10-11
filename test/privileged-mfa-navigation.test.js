@@ -25,6 +25,17 @@ test('warehouse pages and mutations require privileged MFA', () => {
   }
 });
 
+test('privileged MFA classification matches Express case-insensitive routing', () => {
+  for (const path of ['/Seller/store', '/SELLER/products', '/SeLlEr/overview', '/WAREHOUSE/inventory',
+    '/Moderation/verifications', '/FINANCE', '/ADMIN', '/Super-Admin', '/Operations/logistics',
+    '/DASHBOARD/SELLER-STORE', '/API/V1/SELLER/inventory', '/Api/v1/FINANCE/refunds', '/API/v1/PAYOUTS']) {
+    assert.equal(requiresPrivilegedMfaForRequest(req(path)), true, `${path} must enforce the same boundary as its canonical route`);
+  }
+  for (const path of ['/ACCOUNT/security', '/ACCOUNT/MFA/confirm', '/Logout', '/Products', '/sellerly', '/finance-reports']) {
+    assert.equal(requiresPrivilegedMfaForRequest(req(path)), false, `${path} must not become a privileged surface`);
+  }
+});
+
 test('non-privileged roles are never caught by the privileged MFA classifier', () => {
   for (const role of ['customer', 'promoter', 'business', 'delivery']) {
     assert.equal(requiresPrivilegedMfaForRequest(req('/api/v1/finance/refunds', { role })), false);

@@ -21,9 +21,11 @@
     }
     const target = event.target.closest('[data-page-target]');
     if (target) {
-      event.preventDefault();
       const destination = target.dataset.profileTab === 'security' ? '/account/security' : routes[target.dataset.pageTarget];
-      if (destination) location.assign(destination);
+      // A server-authorized anchor remains usable even when a workspace route
+      // is not duplicated in the navigation data. Disabled actions never fall
+      // back into another workspace.
+      if (destination) { event.preventDefault(); location.assign(destination); }
     }
     const filter = event.target.closest('[data-notification-filter]');
     if (filter) {
@@ -53,6 +55,12 @@
   search?.addEventListener('submit', event => {
     event.preventDefault();
     const value = document.getElementById('searchInput').value.trim();
-    if (value) location.assign('/search?q=' + encodeURIComponent(value));
+    if (value) {
+      if (!search.hasAttribute('data-dashboard-search-route')) return location.assign('/search?q=' + encodeURIComponent(value));
+      if (!search.dataset.dashboardSearchRoute) return;
+      const destination = new URL(search.dataset.dashboardSearchRoute, location.origin);
+      destination.searchParams.set(search.dataset.dashboardSearchKey || 'q', value);
+      location.assign(destination.pathname + destination.search);
+    }
   });
 })();

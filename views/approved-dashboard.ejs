@@ -1,4 +1,20 @@
-<% const liveCustomer = typeof liveHeader !== 'undefined'; const sellerLive = typeof liveSeller !== 'undefined'; const warehouseLive = typeof liveWarehouse !== 'undefined'; const memberName = String(user?.name || 'Member').trim().split(/\s+/)[0]; %>
+<%
+const liveCustomer = typeof liveHeader !== 'undefined';
+const sellerLive = typeof liveSeller !== 'undefined';
+const warehouseLive = typeof liveWarehouse !== 'undefined';
+const accountWorkspaceLive = typeof liveAccountWorkspace !== 'undefined';
+const operationalShell = liveCustomer && workspace !== 'customer';
+const memberName = String(user?.name || 'Member').trim().split(/\s+/)[0];
+const realSeller = sellerLive && workspace === 'seller';
+const operationalNavigation = warehouseLive ? liveWarehouse.navigation : sellerLive ? liveSeller.navigation : accountWorkspaceLive ? liveAccountWorkspace.navigation : [];
+const operationalHome = operationalNavigation.find(item => item.id === `${workspace}-overview` && item.ready) || operationalNavigation.find(item => item.ready);
+const sellerSettings = realSeller && liveSeller.navigation.find(item => item.id === 'seller-store' && item.ready);
+const sellerAddProduct = realSeller && liveSeller.navigation.find(item => item.id === 'seller-add-product' && item.ready);
+const sellerSearch = realSeller && (liveSeller.navigation.find(item => item.id === 'seller-products' && item.ready) || liveSeller.navigation.find(item => item.id === 'seller-orders' && item.ready));
+const operationalQuick = operationalNavigation.find(item => item.id === (accountWorkspaceLive ? liveAccountWorkspace.quickPage : workspace === 'warehouse' ? 'warehouse-dispatch' : workspace === 'moderator' ? 'moderator-products' : '') && item.ready);
+const operationalQuickLabel = accountWorkspaceLive ? liveAccountWorkspace.quickLabel : workspace === 'warehouse' ? 'Dispatch' : 'Review Queue';
+const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.search : workspace === 'warehouse' ? 'Search inventory, orders, shipments and returns...' : 'Search products, reviews, sellers and risk cases...';
+%>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,9 +29,10 @@
   <link rel="icon" type="image/png" href="/approved-dashboard/assets/classic-mart-icon.png" />
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/session.css') %>" />
   <% if (warehouseLive) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/warehouse-live.css') %>" /><% } %>
-  <% if (sellerLive && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow && !liveSeller.orderFlow) { %><link rel="stylesheet" href="<%= assetUrl('/phone-country.css') %>" /><% } %>
+  <% if (sellerLive && liveSeller.overviewFlow) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/seller-overview-live.css') %>" /><% } %>
+  <% if (sellerLive && !liveSeller.overviewFlow && !liveSeller.accountFlow && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow && !liveSeller.orderFlow) { %><link rel="stylesheet" href="<%= assetUrl('/phone-country.css') %>" /><% } %>
 </head>
-<body data-dashboard-live="<%= liveCustomer %>" data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= initialPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>">
+<body data-dashboard-live="<%= liveCustomer %>" data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= typeof accountPage === 'undefined' ? initialPage : accountPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>">
   <meta name="csrf-token" content="<%= csrfToken %>">
   <script src="<%= assetUrl('/approved-dashboard/session-entry.js') %>" <%= liveCustomer ? 'defer' : '' %>></script>
   <svg class="svg-sprite" aria-hidden="true">
@@ -65,25 +82,27 @@
     <header class="topbar">
       <div class="brand-area">
         <button class="round-icon mobile-menu" id="mobileMenuBtn" aria-label="Open navigation"><svg><use href="#i-menu"></use></svg></button>
-        <a href="/dashboard" class="brand dashboard-brand" data-page-target="dashboard" aria-label="Classic Mart dashboard">
+        <a href="<%= operationalShell ? operationalHome?.href || '/account/security' : '/dashboard' %>" class="brand dashboard-brand" data-page-target="<%= operationalShell ? operationalHome?.id || 'profile' : 'dashboard' %>" aria-label="Classic Mart dashboard">
           <img class="dashboard-brand-logo" src="/approved-dashboard/assets/classic-mart-logo.png" alt="Classic Mart" />
         </a>
       </div>
 
-      <form class="search" id="searchForm">
-        <input id="searchInput" type="search" placeholder="Search products, brands and orders..." />
-        <button type="submit" aria-label="Search"><svg><use href="#i-search"></use></svg></button>
+      <form class="search" id="searchForm" <% if (operationalShell) { %>data-dashboard-search-route="<%= sellerSearch?.href || '' %>" data-dashboard-search-key="search"<% } %>>
+        <input id="searchInput" type="search" placeholder="<%= operationalShell ? realSeller ? sellerSearch?.id === 'seller-orders' ? 'Search orders...' : 'Search products, orders and customers...' : operationalSearchLabel : 'Search products, brands and orders...' %>" <%= operationalShell && !sellerSearch ? 'disabled' : '' %> />
+        <button type="submit" aria-label="Search" <%= operationalShell && !sellerSearch ? 'disabled' : '' %>><svg><use href="#i-search"></use></svg></button>
       </form>
 
       <div class="top-actions">
         <button class="ai-button" id="classicAiBtn" type="button" aria-label="Open Classic AI" title="Classic AI"><svg class="ai-sparkle-icon"><use href="#i-sparkles"></use></svg><span>Classic AI</span></button>
-        <button class="categories-button" data-page-target="categories"><svg><use href="#i-grid"></use></svg><span>Categories</span></button>
+        <% if (realSeller) { %><button class="categories-button" data-page-target="seller-add-product" <%= sellerAddProduct ? '' : 'disabled' %>><svg><use href="#i-plus"></use></svg><span>Add Product</span></button><% } else if (operationalShell) { %><button class="categories-button" data-page-target="<%= operationalQuick?.id || '' %>" <%= operationalQuick ? '' : 'disabled' %>><svg><use href="#i-<%= workspace === 'warehouse' ? 'truck' : 'shield' %>"></use></svg><span><%= operationalQuickLabel %></span></button><% } else { %><button class="categories-button" data-page-target="categories"><svg><use href="#i-grid"></use></svg><span>Categories</span></button><% } %>
+        <% if (!operationalShell) { %>
         <button class="round-icon badge-button" data-page-target="wishlist" aria-label="Wishlist"><svg><use href="#i-heart"></use></svg><b id="wishlistBadge"><%= liveCustomer ? liveHeader.wishlistCount : 5 %></b></button>
         <button class="round-icon badge-button" data-page-target="cart" aria-label="Cart"><svg><use href="#i-cart"></use></svg><b id="cartBadge"><%= liveCustomer ? liveHeader.cartCount : 3 %></b></button>
+        <% } %>
         <button class="round-icon badge-button" data-page-target="notifications" aria-label="Notifications"><svg><use href="#i-bell"></use></svg><b class="red" id="notificationBadge"><%= liveCustomer ? liveHeader.unread : 4 %></b></button>
         <button class="profile-button" id="profileButton">
           <img src="/approved-dashboard/assets/avatar.svg" alt="<%= user?.name || 'Member' %>" />
-          <span><strong>Hi, <%= memberName %></strong><small><%= warehouseLive ? liveWarehouse.profileRole : sellerLive ? liveSeller.profileRole : roleLabel(user.role) %></small></span>
+          <span><strong>Hi, <%= memberName %></strong><small><%= warehouseLive ? liveWarehouse.profileRole : sellerLive ? liveSeller.profileRole : accountWorkspaceLive ? liveAccountWorkspace.profileRole : workspace === 'customer' ? 'Customer' : roleLabel(user.role) %></small></span>
           <svg><use href="#i-chevron-down"></use></svg>
         </button>
       </div>
@@ -91,7 +110,7 @@
 
     <aside class="sidebar" id="sidebar">
       <nav class="side-navigation">
-        <% if (warehouseLive || sellerLive) { for (const item of warehouseLive ? liveWarehouse.navigation : liveSeller.navigation) { %>
+        <% if (warehouseLive || sellerLive || accountWorkspaceLive) { for (const item of operationalNavigation) { %>
         <% if (item.ready) { %><a class="side-link <%= initialPage === item.id ? 'active' : '' %>" href="<%= item.href %>" data-page-target="<%= item.id %>"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></a><% } else { %><button class="side-link" type="button" disabled title="Not available yet"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></button><% } %>
         <% } } else { %>
         <a class="side-link active" href="/dashboard" data-page-target="dashboard"><svg><use href="#i-grid"></use></svg><span>Dashboard</span></a>
@@ -106,13 +125,20 @@
         <% } %>
       </nav>
 
-      <section class="sidebar-club-card">
+      <% if (realSeller) { %><section class="sidebar-club-card">
+        <span class="sidebar-crown"><svg><use href="#i-bag"></use></svg></span>
+        <h3>Store health</h3>
+        <p class="member-copy"><%= liveSeller.store?.name || user.roleProfile?.businessName || 'Your store' %></p>
+        <p><%= liveSeller.store ? liveSeller.store.status.replaceAll('_', ' ') : 'Complete your store setup' %></p>
+        <% if (sellerSettings) { %><button class="primary-button full-button" data-page-target="seller-store">Improve Store</button><% } %>
+      </section><% } else if (!operationalShell) { %><section class="sidebar-club-card">
         <span class="sidebar-crown"><svg><use href="#i-crown"></use></svg></span>
         <h3>Classic Club</h3>
         <p class="member-copy">You are a <%= liveCustomer ? liveHeader.tier : "Silver" %> Member</p>
         <p>Shop more to unlock<br />exclusive benefits!</p>
         <button class="primary-button full-button" data-page-target="club">View Benefits</button>
       </section>
+      <% } %>
 
       <button class="logout-button" data-action="logout"><svg><use href="#i-logout"></use></svg><span>Log Out</span></button>
     </aside>
@@ -121,7 +147,7 @@
     <main class="dashboard page-host" id="pageHost">
 <% if (!liveCustomer) { %><div class="panel dashboard-message" role="note">Development preview: this workspace is not connected to live operations yet.</div><% } %>
 <% if (flash?.message) { %><div class="panel dashboard-message <%= flash.type==='error'?'dashboard-message-error':'' %>" role="<%= flash.type==='error'?'alert':'status' %>"><%= flash.message %></div><% } %>
-<% if (warehouseLive) { %><%- include('partials/warehouse-live') %><% } else if (sellerLive && liveSeller.orderFlow) { %><%- include('partials/seller-orders-live') %><% } else if (sellerLive && liveSeller.productFlow) { %><%- include('partials/seller-products-live') %><% } else if (sellerLive && liveSeller.productReviewFlow) { %><%- include('partials/product-review-live') %><% } else if (sellerLive && liveSeller.reviewFlow) { %><%- include('partials/verification-review-live') %><% } else if (sellerLive && liveSeller.verificationFlow) { %><%- include('partials/seller-verification-live') %><% } else if (sellerLive) { %><%- include('partials/seller-store-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
+<% if (warehouseLive) { %><%- include('partials/warehouse-live') %><% } else if (sellerLive && liveSeller.overviewFlow) { %><%- include('partials/seller-overview-live') %><% } else if (sellerLive && liveSeller.orderFlow) { %><%- include('partials/seller-orders-live') %><% } else if (sellerLive && liveSeller.productFlow) { %><%- include('partials/seller-products-live') %><% } else if (sellerLive && liveSeller.productReviewFlow) { %><%- include('partials/product-review-live') %><% } else if (sellerLive && liveSeller.reviewFlow) { %><%- include('partials/verification-review-live') %><% } else if (sellerLive && liveSeller.verificationFlow) { %><%- include('partials/seller-verification-live') %><% } else if (sellerLive && !liveSeller.accountFlow) { %><%- include('partials/seller-store-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'shopping') { %><%- include('partials/customer-live-pages', { pageId: accountPage, pageData, walletIdempotencyKey }) %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'notifications') { %><%- include('partials/customer-live-pages', { pageId: 'notifications', pageData, walletIdempotencyKey: '' }) %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
 </main>
   </div>
 
@@ -148,7 +174,7 @@
   </aside>
 
   <div class="profile-menu" id="profileMenu">
-    <button data-page-target="profile"><svg><use href="#i-user"></use></svg>Profile</button>
+    <button data-page-target="<%= realSeller && sellerSettings ? 'seller-store' : 'profile' %>"><svg><use href="#i-user"></use></svg>Profile</button>
     <button data-page-target="profile" data-profile-tab="security"><svg><use href="#i-shield"></use></svg>Security</button>
     <button data-action="logout"><svg><use href="#i-logout"></use></svg>Log Out</button>
   </div>
@@ -159,6 +185,6 @@
   <script src="<%= assetUrl('/approved-dashboard/enhancements.js') %>"></script>
   <script src="<%= assetUrl('/approved-dashboard/session-controls.js') %>"></script><% } else { %><script defer src="<%= assetUrl('/approved-dashboard/customer-live.js') %>"></script><script defer src="<%= assetUrl('/approved-dashboard/customer-navigation.js') %>"></script><% } %>
   <% if (sellerLive) { %><script defer src="<%= assetUrl('/approved-dashboard/seller-store-live.js') %>"></script><% } %>
-  <% if (sellerLive && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow && !liveSeller.orderFlow) { %><script defer src="<%= assetUrl('/phone-country.js') %>"></script><% } %>
+  <% if (sellerLive && !liveSeller.overviewFlow && !liveSeller.accountFlow && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow && !liveSeller.orderFlow) { %><script defer src="<%= assetUrl('/phone-country.js') %>"></script><% } %>
 </body>
 </html>

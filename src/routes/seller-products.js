@@ -8,7 +8,7 @@ import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { setFlash } from '../middleware/view.js';
 import { canAccessWorkspace, allowedWorkspacesFor } from '../dashboard/access.js';
 import { DASHBOARD_PAGES, routeForPage } from '../dashboard/registry.js';
-import { liveAccountHeader } from '../dashboard/live-account-header.js';
+import { liveSellerAccountHeader as liveAccountHeader } from '../dashboard/live-account-header.js';
 import { sellerNavigation, SELLER_LIVE_ROUTES } from '../dashboard/seller-navigation.js';
 import { uploadProductImage } from '../services/media.js';
 import { sellerProductList, sellerProductOptions, sellerProductDetail, createSellerProduct, updateSellerProduct,

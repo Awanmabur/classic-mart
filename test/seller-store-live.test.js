@@ -12,21 +12,20 @@ process.env.REDIS_URL = '';
 const uri = process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI;
 const csrf = html => html.match(/(?:name="_csrf"[^>]*value|name="csrf-token" content)="([^"]+)"/)[1];
 
-test('seller store settings persist through authenticated forms, reject stale edits and isolate staff and stores', { skip: !uri }, async t => {
+test('seller store settings persist through authenticated forms, reject stale edits and isolate staff and stores', { skip: !uri, timeout: 180_000 }, async t => {
   assert.equal(new URL(uri).hostname, '127.0.0.1');
   assert.match(new URL(uri).pathname, /verification|test/i);
   const suffix = crypto.randomBytes(8).toString('hex');
   const isolatedDatabase = `classicmart_seller_store_test_${suffix}`;
   await mongoose.connect(uri, { dbName: isolatedDatabase });
   const { createApp } = await import('../src/app.js');
-  const { User, Store, StoreMember, AuditLog, Device } = await import('../src/models/index.js');
+  const { User, Store, StoreMember, AuditLog } = await import('../src/models/index.js');
   const { hashPassword } = await import('../src/core/crypto.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { saveSellerStoreSettings } = await import('../src/services/seller-store-settings.js');
   const { getOrCreateStore } = await import('../src/services/store.js');
-  await Promise.all([Store.init(), StoreMember.init()]);
   const password = `Store-${suffix}A1!`;
-  const users = [], storeIds = [];
+  const users = [];
   let server, browser;
   const app = createApp(null);
   async function actor(role = 'seller', onboarded = true) {
@@ -50,6 +49,11 @@ test('seller store settings persist through authenticated forms, reject stale ed
     assert.equal((await User.findById(user._id)).security.mfaEnabled, true);
   }
   try {
+    // Importing the application registers all models and automatically starts
+    // their collection/index initialization. Wait for that work before this
+    // isolated fixture can later drop its database; dropping during a queued
+    // index build can crash MongoDB itself rather than report a test failure.
+    await Promise.all(Object.values(mongoose.models).map(model => model.init()));
     await request(app).get('/seller/store').expect(302).expect('location', '/login?next=%2Fseller%2Fstore');
     const customer = await actor('customer');
     const customerProfile = await customer.agent.get('/profile').expect(200);
@@ -58,7 +62,7 @@ test('seller store settings persist through authenticated forms, reject stale ed
     const owner = await actor('customer', false);
     await owner.agent.get('/seller/store').expect(302).expect('location', '/onboarding');
     const onboarding = await owner.agent.get('/onboarding').expect(200);
-    await owner.agent.post('/onboarding').type('form').send({ role: 'seller', publicName: 'Seller Owner', businessName: `Live Store ${suffix}`, location: 'Kampala', _csrf: csrf(onboarding.text) }).expect(302).expect('location', '/seller/store');
+    await owner.agent.post('/onboarding').type('form').send({ role: 'seller', publicName: 'Seller Owner', businessName: `Live Store ${suffix}`, location: 'Kampala', _csrf: csrf(onboarding.text) }).expect(302).expect('location', '/seller/overview');
     owner.user = await User.findById(owner.user._id);
     assert.equal(owner.user.role, 'seller');
     await owner.agent.get('/seller/store').expect(302).expect('location', '/account/security?next=%2Fseller%2Fstore');
@@ -69,7 +73,6 @@ test('seller store settings persist through authenticated forms, reject stale ed
     assert.equal(await Store.countDocuments({ ownerUserId: owner.user._id }), 1);
     let page = await owner.agent.get('/seller/store').expect(200);
     const store = await Store.findOne({ ownerUserId: owner.user._id });
-    storeIds.push(store._id);
     assert.equal(store.status, 'pending_verification');
     assert.match(page.text, /Uganda \(\+256\)/);
     assert.match(page.text, /seller-store-live\.js/);
@@ -106,7 +109,6 @@ test('seller store settings persist through authenticated forms, reject stale ed
     const other = await actor(); await enroll(other.agent, other.user);
     const otherPage = await other.agent.get('/seller/store?storePublicId=' + store.publicId).expect(200);
     assert.doesNotMatch(otherPage.text, new RegExp(identity.name));
-    const otherStore = await Store.findOne({ ownerUserId: other.user._id }); storeIds.push(otherStore._id);
     await other.agent.post('/seller/store/identity').type('form').send({ ...identity, _csrf: csrf(otherPage.text), storeId: String(store._id) }).expect(302);
     assert.equal((await Store.findById(store._id)).__v, saved.__v);
     const staff = await actor(); await enroll(staff.agent, staff.user);
@@ -173,18 +175,14 @@ test('seller store settings persist through authenticated forms, reject stale ed
     }
   } finally {
     t.mock.restoreAll();
-    await browser?.close();
-    if (server) await new Promise(resolve => server.close(resolve));
-    const userIds = users.map(user => user._id), publicIds = users.map(user => user.publicId);
-    await StoreMember.deleteMany({ userId: { $in: userIds } });
-    await Store.deleteMany({ _id: { $in: storeIds } });
-    await Device.deleteMany({ userId: { $in: userIds } });
-    await AuditLog.collection.deleteMany({ actorId: { $in: userIds } });
-    await mongoose.connection.db.collection('securityevents').deleteMany({ actorUserId: { $in: userIds } });
-    await mongoose.connection.db.collection('ledgeraccounts').deleteMany({ ownerPublicId: { $in: publicIds } });
-    await User.deleteMany({ _id: { $in: userIds } });
-    assert.equal(mongoose.connection.name, isolatedDatabase);
-    await mongoose.connection.dropDatabase();
-    await mongoose.disconnect();
+    await Promise.allSettled([
+      browser?.close(),
+      server && new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }),
+    ]);
+    try {
+      await Promise.all(Object.values(mongoose.models).map(model => model.init()));
+      assert.equal(mongoose.connection.name, isolatedDatabase);
+      await mongoose.connection.dropDatabase();
+    } finally { await mongoose.disconnect(); }
   }
 });

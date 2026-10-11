@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import { requireAuth, requireVerified, requireOnboarding } from '../middleware/auth.js';
 import { noStore } from '../middleware/request.js';
-import { allowedWorkspacesFor, workspaceForPage } from '../dashboard/access.js';
+import { allowedWorkspacesFor, workspaceForPage, primaryWorkspaceFor } from '../dashboard/access.js';
 import { dashboardLanding } from '../dashboard/landing.js';
 import { pageWorkspace, routeForPage, defaultPageFor } from '../dashboard/registry.js';
 import { AppError, asyncHandler } from '../core/errors.js';
 import { env } from '../config/env.js';
 import { CUSTOMER_ROUTES, PUBLIC_CUSTOMER_PAGES } from '../dashboard/customer-routes.js';
 import { customerView } from '../dashboard/customer-view.js';
+import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
+import { loadCustomerDashboardPage } from '../dashboard/customer-data.js';
+import { publicId } from '../core/ids.js';
 
 const router = Router();
 const privateDashboard = (_request, response, next) => {
@@ -18,6 +21,15 @@ const gates = [noStore, privateDashboard, requireAuth, requireVerified, requireO
 async function renderPage(request, response, page) {
   const workspace = workspaceForPage(request.user, page);
   if (!workspace) throw new AppError('You do not have access to this dashboard.', 403, 'DASHBOARD_FORBIDDEN');
+  if (workspace === 'customer' && (primaryWorkspaceFor(request.user) !== 'customer' || request.session?.activeStorePublicId)) {
+    const account = await accountWorkspaceView(request, page === 'notifications' ? 'notifications' : 'shopping');
+    if (account.workspace !== 'customer') {
+      return response.render('approved-dashboard', {
+        ...account, accountPage: page, pageData: await loadCustomerDashboardPage(request, page),
+        walletIdempotencyKey: publicId('idem'),
+      });
+    }
+  }
   if (workspace !== 'customer' && (['seller', 'moderator'].includes(workspace) || env.isProduction)) throw new AppError('This dashboard is not connected to live operations yet.', 503, 'DASHBOARD_NOT_CONNECTED');
   return response.render('approved-dashboard', {
     workspace, initialPage: page, allowedWorkspaces: allowedWorkspacesFor(request.user),

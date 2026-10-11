@@ -27,7 +27,10 @@ test('warehouse primitives preserve atomic sessions, committed stock custody and
     finally{await session.endSession();}
   };
   try{
-    await Promise.all([User.init(),Store.init(),Warehouse.init(),StockItem.init(),InventoryReservation.init(),InventoryDiscrepancy.init(),Order.init(),SellerOrder.init(),Shipment.init(),Parcel.init(),SellerShipment.init(),WarehouseTask.init(),WarehouseWave.init(),ReturnRequest.init()]);
+    // The model registry also starts indexes for collections beyond this
+    // fixture's direct imports. Finish every registered model's initialization
+    // before transaction assertions begin, keeping all unique indexes active.
+    await Promise.all(Object.values(mongoose.models).map(model=>model.init()));
     async function actor(role){const publicId=id('usr'),email=publicId+'@example.com',phone='+2567'+crypto.randomInt(10000000,99999999);return User.create({publicId,name:'Warehouse Integrity Account',email,emailNormalized:email,phone,phoneNormalized:phone,passwordHash,role,country:'UG',currency:'UGX',emailVerifiedAt:new Date(),onboardingCompletedAt:new Date(),consents:{terms:true,privacy:true,recordedAt:new Date()}});}
     const owner=await actor('seller'),operator=await actor('warehouse'),reviewer=await actor('country_admin'),buyer=await actor('customer');
     await CountrySetting.create({code:'UG',name:'Uganda',currency:'UGX',locale:'en-UG',timeZone:'Africa/Kampala',phonePrefix:'+256',active:true});

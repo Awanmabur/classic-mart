@@ -3,6 +3,7 @@ import { storeCapabilities } from '../services/store.js';
 import { canAccessWorkspace } from './access.js';
 
 export const SELLER_LIVE_ROUTES = Object.freeze({
+  'seller-overview': '/seller/overview',
   'seller-store': '/seller/store',
   'seller-products': '/seller/products',
   'seller-add-product': '/seller/products/new',
@@ -16,7 +17,7 @@ export function sellerNavigation(request) {
   const catalogueWorkspace = canAccessWorkspace(request.user, 'seller');
   return DASHBOARD_PAGES.seller.map(([id, label, icon]) => ({
     id, label, icon, href: routeForPage(id),
-    ready: (id === 'seller-store' && catalogueWorkspace && can('staff')) || (['seller-products', 'seller-add-product'].includes(id) && catalogueWorkspace && can('catalogue'))
+    ready: (['seller-overview', 'seller-store'].includes(id) && catalogueWorkspace && can('staff')) || (['seller-products', 'seller-add-product'].includes(id) && catalogueWorkspace && can('catalogue'))
       || (['seller-orders', 'seller-shipping'].includes(id) && can('fulfilment')),
   }));
 }

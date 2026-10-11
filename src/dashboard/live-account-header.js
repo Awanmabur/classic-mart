@@ -1,6 +1,13 @@
 import { customerLoyalty, customerWallet, customerCatalogue, customerCartBadge, customerUnread } from './customer-reads.js';
 import { CUSTOMER_ROUTES } from './customer-routes.js';
 
+// The Seller shell has no buyer loyalty, wallet, wishlist or cart controls.
+// Keep its personal notification count without reading or provisioning those records.
+export async function liveSellerAccountHeader(request) {
+  return { customerRoutes: CUSTOMER_ROUTES,
+    liveHeader: { unread: await customerUnread(request), points: 0, balanceMinor: 0, tier: '', wishlistCount: 0, cartCount: 0 } };
+}
+
 export async function liveAccountHeader(request) {
   const [loyalty, wallet, catalogue, cart, unread] = await Promise.all([
     customerLoyalty(request), customerWallet(request), customerCatalogue(request), customerCartBadge(request), customerUnread(request),

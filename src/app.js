@@ -28,6 +28,7 @@ import sellerStoreSettingsRoutes from './routes/seller-store-settings.js';
 import sellerVerificationRoutes from './routes/seller-verification.js';
 import sellerProductRoutes from './routes/seller-products.js';
 import sellerOrderRoutes from './routes/seller-orders.js';
+import sellerOverviewRoutes from './routes/seller-overview.js';
 import mediaRoutes from './routes/media.js';
 import storefrontRoutes from './routes/storefront.js';
 import newsletterRoutes from './routes/newsletter.js';
@@ -182,6 +183,7 @@ export function createApp(redisClient) {
   app.use(sellerVerificationRoutes);
   app.use(sellerProductRoutes);
   app.use(sellerOrderRoutes);
+  app.use(sellerOverviewRoutes);
   app.use(warehouseRoutes);
   app.use(approvedDashboardRoutes);
   app.use(accountRoutes);

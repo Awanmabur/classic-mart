@@ -14,7 +14,7 @@ export const DASHBOARD_WORKSPACES = Object.freeze({
   },
   "seller": {
     "label": "Seller",
-    "defaultPage": "seller-store",
+    "defaultPage": "seller-overview",
     "search": "Search products, orders and customers...",
     "quickLabel": "Add Product",
     "quickPage": "seller-add-product",
@@ -1234,6 +1234,7 @@ export function defaultPageFor(workspace) {
 
 export function routeForPage(pageId) {
   if (WAREHOUSE_ROUTES[pageId]) return WAREHOUSE_ROUTES[pageId];
+  if (pageId === 'seller-overview') return '/seller/overview';
   if (pageId === 'seller-store') return '/seller/store';
   if (pageId === 'seller-products') return '/seller/products';
   if (pageId === 'seller-add-product') return '/seller/products/new';

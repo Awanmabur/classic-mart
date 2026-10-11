@@ -1,6 +1,6 @@
 import { getPhoneCountries } from '../services/phone-countries.js';
 import { Router } from 'express';
-import { customerView } from '../dashboard/customer-view.js';
+import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
 import { hasSellerSignupIntent, loginDestination, signupDestination } from '../dashboard/landing.js';
 import { publicAccountType } from '../core/registration.js';
 import { hydratePlatformAuthorization } from '../services/platform-grants.js';
@@ -43,7 +43,7 @@ router.use(noStore);
 
 router.get('/staff/invitations/:token',requireAuth,asyncHandler(async(request,response)=>{
   const invitation=await platformStaffInvitationPreview(request,request.params.token);
-  return response.render('approved-dashboard',{workspace:'customer',initialPage:'profile',allowedWorkspaces:['customer'],...await customerView(request,'profile'),accountSupplement:'invitation',invitation,token:request.params.token});
+  return response.render('approved-dashboard',{...await accountWorkspaceView(request,'invitation'),invitation,token:request.params.token});
 }));
 router.post('/staff/invitations/:token/accept',requireAuth,asyncHandler(async(request,response)=>{
   const result=await acceptPlatformStaffInvitation(request,request.params.token);
@@ -209,6 +209,7 @@ router.post('/mfa', authenticationLimit, asyncHandler(async (request, response) 
     const result = await verifyMfa(challenge.userId, request.body.code);
     const user = await User.findById(challenge.userId);
     if (!user || user.status !== 'active') throw new AppError('This account is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
+    await hydratePlatformAuthorization(user);
     const nextPath = safeNext(challenge.next);
     const remember = Boolean(challenge.remember);
     delete request.session.mfaChallenge;

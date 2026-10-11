@@ -19,7 +19,7 @@ const csrf = html => html.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
 test('generic account destinations select the assigned dashboard while explicit buyer pages stay accessible', () => {
   const seller = { role: 'seller', status: 'active' }, customer = { role: 'customer', status: 'active' };
   for (const next of ['/', '/dashboard', '/dashboard?from=account', '/account', '/account/profile', '/\\evil.example', '/\t/evil.example', '//evil.example']) {
-    assert.equal(loginDestination(seller, next), '/seller/store');
+    assert.equal(loginDestination(seller, next), '/seller/overview');
   }
   for (const path of ['/orders', '/cart', '/profile', '/account/security']) assert.equal(loginDestination(seller, path), path);
   assert.equal(dashboardLanding(customer), '/dashboard');
@@ -73,9 +73,9 @@ test('public account and seller links preserve the intended journey in the real 
       const home = await client.get('/').expect(200);
       assert.match(home.text, /class="header-action header-action-link" href="\/account\/profile"/);
       assert.match(home.text, /<a href="\/account\/profile">My Account<\/a>/);
-      await client.get('/dashboard').expect(302).expect('location', '/seller/store');
-      await client.get('/account/profile').expect(302).expect('location', '/seller/store');
-      await client.get('/profile').expect(302).expect('location', '/seller/store');
+      await client.get('/dashboard').expect(302).expect('location', '/seller/overview');
+      await client.get('/account/profile').expect(302).expect('location', '/seller/overview');
+      await client.get('/profile').expect(302).expect('location', '/seller/overview');
       await client.get('/dashboard/profile').expect(308).expect('location', '/profile');
       const store = await client.get('/seller/store').expect(200);
       assert.match(store.text, /data-dashboard-workspace="seller"/);
@@ -113,7 +113,7 @@ test('public account and seller links preserve the intended journey in the real 
       assert.equal(fresh.__v, original.__v);
       assert.equal(fresh.onboardingCompletedAt.getTime(), user.onboardingCompletedAt.getTime());
       await client.post('/onboarding/seller').type('form').send({ role: 'seller', confirmSeller: 'on', version: String(fresh.__v), publicName: 'Entry Account',
-        businessName: 'Enrolled Store', location: 'Kampala', _csrf: csrf(page.text) }).expect(302).expect('location', '/seller/store');
+        businessName: 'Enrolled Store', location: 'Kampala', _csrf: csrf(page.text) }).expect(302).expect('location', '/seller/overview');
       assert.equal((await User.findById(user._id)).role, 'seller');
     });
 
@@ -187,7 +187,7 @@ test('public account and seller links preserve the intended journey in the real 
       const page = await client.get('/onboarding/seller').expect(200), fresh = await User.findById(user._id);
       assert.equal(fresh.role, 'customer');
       await client.post('/onboarding/seller').type('form').send({ role: 'seller', confirmSeller: 'on', version: String(fresh.__v), publicName: 'MFA Seller',
-        businessName: 'MFA Verified Store', location: 'Kampala', _csrf: csrf(page.text) }).expect(302).expect('location', '/seller/store');
+        businessName: 'MFA Verified Store', location: 'Kampala', _csrf: csrf(page.text) }).expect(302).expect('location', '/seller/overview');
       const store = await client.get('/seller/store').expect(200);
       assert.match(store.text, /data-dashboard-workspace="seller"/);
       await client.post('/logout').type('form').send({ _csrf: csrf(store.text) }).expect(302).expect('location', '/login');
@@ -196,7 +196,7 @@ test('public account and seller links preserve the intended journey in the real 
         .expect(302).expect('location', '/mfa');
       const nextChallenge = await returning.get('/mfa').expect(200);
       await returning.post('/mfa').type('form').send({ code: enabled.codes[1], _csrf: csrf(nextChallenge.text) })
-        .expect(302).expect('location', '/seller/store');
+        .expect(302).expect('location', '/seller/overview');
       const returned = await returning.get('/seller/store').expect(200);
       assert.match(returned.text, /<small>Seller<\/small>/);
       assert.equal((await User.findById(user._id)).security.mfaEnabled, true);
@@ -228,14 +228,14 @@ test('public account and seller links preserve the intended journey in the real 
           await Promise.all([page.waitForURL(base + '/onboarding'), page.locator('form[action="/verify-email"] button[type="submit"]').click()]);
           assert.equal(await page.locator('input[name="role"][value="seller"]').isChecked(), true);
           await page.locator('input[name="businessName"]').fill(`Public Seller ${width}`);
-          await Promise.all([page.waitForURL(base + '/seller/store'), page.locator('form[action="/onboarding"] button[type="submit"]').click()]);
+          await Promise.all([page.waitForURL(base + '/seller/overview'), page.locator('form[action="/onboarding"] button[type="submit"]').click()]);
           assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'seller');
           await page.goto(base + '/');
           await page.locator('.header-action-link').click();
-          await page.waitForURL(base + '/seller/store');
+          await page.waitForURL(base + '/seller/overview');
           assert.match(await page.locator('#profileButton small').textContent(), /Seller/);
           await page.goto(base + '/profile');
-          await page.waitForURL(base + '/seller/store');
+          await page.waitForURL(base + '/seller/overview');
           const searchButton = await page.locator('.search button').boundingBox();
           assert.ok(searchButton.x >= 0 && searchButton.x + searchButton.width <= width, 'the approved search action stays inside the viewport');
           await page.screenshot({ path: `/tmp/classicmart-public-entry-seller-${width}.png`, fullPage: true, animations: 'disabled' });

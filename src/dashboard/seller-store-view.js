@@ -1,7 +1,7 @@
 import { getPhoneCountries } from '../services/phone-countries.js';
 import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 import { SellerVerification } from '../models/index.js';
-import { liveAccountHeader } from './live-account-header.js';
+import { liveSellerAccountHeader as liveAccountHeader } from './live-account-header.js';
 import { getCountries } from '../services/country.js';
 import { sellerNavigation, SELLER_LIVE_ROUTES } from './seller-navigation.js';
 import { allowedWorkspacesFor } from './access.js';

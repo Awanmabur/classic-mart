@@ -82,12 +82,12 @@ test('seller registration survives verification, onboarding and later login with
       await agent.get('/seller/store').expect(302).expect('location', '/onboarding');
       const onboarding = await agent.get('/onboarding').expect(200);
       assert.match(onboarding.text, /<input checked name="role" required type="radio" value="seller"/);
-      await agent.post('/onboarding').type('form').send({ role: 'seller', publicName: 'New Seller', businessName: 'Registration Store', location: 'Kampala', _csrf: csrf(onboarding.text) }).expect(302).expect('location', '/seller/store');
+      await agent.post('/onboarding').type('form').send({ role: 'seller', publicName: 'New Seller', businessName: 'Registration Store', location: 'Kampala', _csrf: csrf(onboarding.text) }).expect(302).expect('location', '/seller/overview');
       const dashboard = await agent.get('/seller/store').expect(200);
       assert.match(dashboard.text, /data-dashboard-page="seller-store"/);
       assert.match(dashboard.text, /Registration Store/);
       assert.equal(dashboard.headers['x-robots-tag'], 'noindex, nofollow, noarchive');
-      await agent.get('/dashboard').expect(302).expect('location', '/seller/store');
+      await agent.get('/dashboard').expect(302).expect('location', '/seller/overview');
       seller = await User.findById(seller._id);
       assert.ok(seller.emailVerifiedAt);
       assert.ok(seller.onboardingCompletedAt);
@@ -99,10 +99,10 @@ test('seller registration survives verification, onboarding and later login with
       await agent.get('/warehouse').set('accept', 'application/json').expect(403);
       await agent.get('/dashboard/super-overview').set('accept', 'application/json').expect(403);
       // Retrying an old onboarding form must not reset a completed seller to customer.
-      await agent.post('/onboarding').type('form').send({ role: 'customer', publicName: 'Tampered Retry', location: 'Kampala', _csrf: csrf(onboarding.text) }).expect(302).expect('location', '/seller/store');
+      await agent.post('/onboarding').type('form').send({ role: 'customer', publicName: 'Tampered Retry', location: 'Kampala', _csrf: csrf(onboarding.text) }).expect(302).expect('location', '/seller/overview');
       assert.equal((await User.findById(seller._id)).role, 'seller');
       const loginAgent = request.agent(app), login = await loginAgent.get('/login').expect(200);
-      await loginAgent.post('/login').type('form').send({ email: values.email, password, _csrf: csrf(login.text) }).expect(302).expect('location', '/seller/store');
+      await loginAgent.post('/login').type('form').send({ email: values.email, password, _csrf: csrf(login.text) }).expect(302).expect('location', '/seller/overview');
       await loginAgent.get('/seller/store').expect(200);
     });
 
@@ -167,9 +167,9 @@ test('seller registration survives verification, onboarding and later login with
       assert.equal((await User.findById(user._id)).role, 'customer', 'viewing the seller offer never mutates the account');
       await agent.post('/onboarding/seller').type('form').send({ ...body, _csrf: undefined }).expect(403);
       await agent.post('/onboarding/seller').type('form').send({ ...body, role: 'warehouse' }).expect(422);
-      await agent.post('/onboarding/seller').type('form').send(body).expect(302).expect('location', '/seller/store');
+      await agent.post('/onboarding/seller').type('form').send(body).expect(302).expect('location', '/seller/overview');
       await agent.get('/seller/store').expect(200);
-      await agent.post('/onboarding/seller').type('form').send({ ...body, businessName: 'Replayed Unwanted Store Rename' }).expect(302).expect('location', '/seller/store');
+      await agent.post('/onboarding/seller').type('form').send({ ...body, businessName: 'Replayed Unwanted Store Rename' }).expect(302).expect('location', '/seller/overview');
       const seller = await User.findById(user._id).select('+passwordHash +emailNormalized +phoneNormalized');
       for (const field of ['name', 'email', 'emailNormalized', 'phone', 'phoneNormalized', 'passwordHash', 'country', 'currency']) assert.equal(seller[field], user[field], field);
       assert.equal(seller.security.tokenVersion, user.security.tokenVersion);
@@ -193,14 +193,14 @@ test('seller registration survives verification, onboarding and later login with
       assert.equal(denied.body.error.code, 'STORE_NOT_VERIFIED');
       assert.equal((await Product.findById(product._id)).status, 'draft');
       const returning = request.agent(app), login = await returning.get('/login').expect(200);
-      await returning.post('/login').type('form').send({ email: values.email, password, _csrf: csrf(login.text) }).expect(302).expect('location', '/seller/store');
+      await returning.post('/login').type('form').send({ email: values.email, password, _csrf: csrf(login.text) }).expect(302).expect('location', '/seller/overview');
     });
 
     await t.test('concurrent confirmations produce one audited enrolment; changed profiles and failed audits preserve the customer', async () => {
       const concurrent = await completedCustomer();
       const results = await Promise.all([concurrent.agent.post('/onboarding/seller').type('form').send(concurrent.body), concurrent.agent.post('/onboarding/seller').type('form').send(concurrent.body)]);
       assert.deepEqual(results.map(result => result.status), [302, 302]);
-      assert.ok(results.every(result => result.headers.location === '/seller/store'));
+      assert.ok(results.every(result => result.headers.location === '/seller/overview'));
       assert.equal(await AuditLog.countDocuments({ action: 'identity.seller_enrolled', actorId: concurrent.user._id }), 1);
       const stale = await completedCustomer(), changed = await User.findById(stale.user._id);
       changed.name = 'A More Recent Customer Profile';
@@ -252,6 +252,7 @@ test('seller registration survives verification, onboarding and later login with
       assert.equal((await User.findById(revoked.user._id)).role, 'customer');
     });
 
+    const enrollmentAccessibility = [];
     await t.test('the browser submits the seller intent and lands in the approved seller UI at mobile and desktop sizes', async () => {
       // Distinct browser contexts represent distinct users behind a trusted
       // local test proxy, so one scenario cannot exhaust another user's quota.
@@ -281,8 +282,8 @@ test('seller registration survives verification, onboarding and later login with
         assert.ok(await page.locator('.server-onboarding-form').evaluate(form => parseFloat(getComputedStyle(form).paddingLeft) >= 16));
         assert.ok((await page.getByRole('button', { name: 'Complete Secure Setup' }).boundingBox()).height >= 48);
         await page.locator('input[name="businessName"]').fill(`Browser Seller ${width}`);
-        await Promise.all([page.waitForURL(base + '/seller/store'), page.locator('form[action="/onboarding"] button[type="submit"]').click()]);
-        assert.equal(await page.locator('body').getAttribute('data-dashboard-page'), 'seller-store');
+        await Promise.all([page.waitForURL(base + '/seller/overview'), page.locator('form[action="/onboarding"] button[type="submit"]').click()]);
+        assert.equal(await page.locator('body').getAttribute('data-dashboard-page'), 'seller-overview');
         assert.match(await page.locator('body').innerText(), new RegExp(`Browser Seller ${width}`));
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
         await context.close();
@@ -301,12 +302,15 @@ test('seller registration survives verification, onboarding and later login with
         assert.ok((await enrollment.getByRole('button', { name: 'Start My Seller Account' }).boundingBox()).height >= 48);
         await enrollment.screenshot({ path: `/tmp/classicmart-seller-enrollment-${width}.png`, fullPage: true, animations: 'disabled' });
         const accessibility = await new AxeBuilder({ page: enrollment }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
-        assert.deepEqual(accessibility.violations.map(row => ({ id: row.id, targets: row.nodes.map(node => node.target) })), [], 'the seller enrolment form meets the checked accessibility rules');
-        await Promise.all([enrollment.waitForURL(base + '/seller/store'), enrollment.getByRole('button', { name: 'Start My Seller Account' }).click()]);
-        assert.equal(await enrollment.locator('body').getAttribute('data-dashboard-page'), 'seller-store');
+        enrollmentAccessibility.push(...accessibility.violations.map(row => ({ width, id: row.id, targets: row.nodes.map(node => node.target) })));
+        await Promise.all([enrollment.waitForURL(base + '/seller/overview'), enrollment.getByRole('button', { name: 'Start My Seller Account' }).click()]);
+        assert.equal(await enrollment.locator('body').getAttribute('data-dashboard-page'), 'seller-overview');
         assert.equal(await enrollment.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
         await enrollmentContext.close();
       }
+    });
+    await t.test('seller enrolment meets the checked accessibility rules at both viewport sizes', () => {
+      assert.deepEqual(enrollmentAccessibility, [], 'the seller enrolment form meets the checked accessibility rules');
     });
   } finally {
     await browser?.close();

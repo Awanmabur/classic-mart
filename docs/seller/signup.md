@@ -3,7 +3,7 @@
 The existing Sell links open `/signup?role=seller`. Registration carries an
 allowlisted account type in a hidden field and persists the seller role before
 email verification. Profile setup preselects that role; successful setup and
-later sign-in land in the approved seller workspace at `/seller/store`.
+later sign-in land in the approved Seller Overview at `/seller/overview`.
 Local `SIMPLE_LOGIN` mode uses the same role-aware landing. There is no
 dashboard role switcher.
 
@@ -11,10 +11,23 @@ Public header, footer and mobile account entries retain `/account/profile`.
 This alias opens the customer's personal profile or the account's primary
 role workspace. `/dashboard` also opens the account's primary workspace. Existing
 sellers visiting bookmarked `/profile` or `/dashboard/profile` addresses
-continue to `/seller/store`; the generic `/account/profile` alias does the
+continue to `/seller/overview`; the generic `/account/profile` alias does the
 same. Customer `/account/profile` behaviour stays at its personal profile.
-Explicit buyer order pages remain available to sellers, and shared account
-security pages display the user's assigned role.
+Explicit buyer order pages remain available to sellers within the Seller
+layout, showing only that identity's purchases. Shared personal security,
+messages, notifications, privacy and connected-app pages
+use the Seller navigation for authorized sellers and currently selected active
+store staff, while retaining data scoped to the signed-in identity. Reading an
+account page does not provision a store or promote a customer's role. Store
+settings remain available separately at `/seller/store`.
+
+When privileged MFA is required, Seller operations first open the personal
+security page inside the Seller layout. The requested destination is validated
+against current workspace navigation and retained through setup and validation
+errors. Enrollment displays recovery codes once before an explicit Continue
+action returns to that destination. Routes check authorization again on entry;
+an old return address cannot restore a revoked store membership. Required MFA
+cannot be disabled by posting directly to an otherwise hidden endpoint.
 
 The legacy `/onboarding?role=seller` link keeps seller intent instead of
 opening a completed customer's dashboard. Guests are directed to seller

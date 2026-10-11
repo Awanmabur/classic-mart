@@ -15,7 +15,7 @@ const { loginDestination } = await import('../src/dashboard/landing.js');
 const { DASHBOARD_PAGES, routeForPage } = await import('../src/dashboard/registry.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cases = {
-  customer: 'dashboard', seller: 'seller-store', promoter: 'promoter-overview',
+  customer: 'dashboard', seller: 'seller-overview', promoter: 'promoter-overview',
   country_admin: 'admin-overview', super_admin: 'super-overview', finance: 'finance-overview',
   support: 'support-overview', warehouse: 'warehouse-overview', moderator: 'moderator-sellers',
   business: 'business-overview', delivery: 'dashboard',
@@ -30,10 +30,10 @@ test('approved stylesheet, scripts, and images match the supplied preview exactl
 test('landing respects assigned roles and rejects unsafe redirect destinations', () => {
   const user = { role: 'seller', status: 'active' };
   for (const next of [undefined, '/', '//evil.example', '/\\evil.example', '/\nevil']) {
-    assert.equal(loginDestination(user, next), '/seller/store');
+    assert.equal(loginDestination(user, next), '/seller/overview');
   }
   assert.equal(loginDestination(user, '/cart'), '/cart');
-  assert.equal(loginDestination({ ...user, preferences: { dashboard: { landingPage: 'dashboard' } } }, '/'), '/seller/store');
+  assert.equal(loginDestination({ ...user, preferences: { dashboard: { landingPage: 'dashboard' } } }, '/'), '/seller/overview');
 });
 
 test('real login/session routes land every role in the approved UI; unauthorized roles are denied', async t => {
@@ -69,10 +69,10 @@ test('real login/session routes land every role in the approved UI; unauthorized
       await agent.get('/dashboard/warehouse-overview').expect(403);
       await agent.get('/dashboard/unknown').expect(404);
     } else if (role === 'seller' || role === 'moderator' || role === 'warehouse') {
-      const landing = role === 'seller' ? '/seller/store' : role === 'warehouse' ? '/warehouse' : '/moderation/verifications';
+      const landing = role === 'seller' ? '/seller/overview' : role === 'warehouse' ? '/warehouse' : '/moderation/verifications';
       await agent.get('/dashboard').expect(302).expect('location', landing);
       await agent.get('/dashboard/' + page).expect(308).expect('location', landing);
-      if (role !== 'warehouse') await agent.get('/dashboard/' + role + '-overview').expect(503);
+      if (role === 'moderator') await agent.get('/dashboard/' + role + '-overview').expect(503);
     } else {
       const dashboard = await agent.get('/dashboard/' + page).expect(200);
       assert.match(dashboard.text, /\/approved-dashboard\/styles.css/);
@@ -83,7 +83,7 @@ test('real login/session routes land every role in the approved UI; unauthorized
     if (role === 'super_admin') {
       for (const [workspace, rows] of Object.entries(DASHBOARD_PAGES)) {
         if (workspace === 'customer') continue;
-        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(workspace === 'warehouse' || ['seller-store','seller-products','seller-add-product','seller-orders','seller-shipping','moderator-sellers','moderator-products'].includes(id) ? 308 : ['seller','moderator'].includes(workspace) ? 503 : 200);
+        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(workspace === 'warehouse' || ['seller-overview','seller-store','seller-products','seller-add-product','seller-orders','seller-shipping','moderator-sellers','moderator-products'].includes(id) ? 308 : ['seller','moderator'].includes(workspace) ? 503 : 200);
       }
     }
   }
@@ -148,7 +148,7 @@ test('seller registration retains its account intent when local simple login ski
   const token = signup.text.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
   await agent.post('/signup').type('form').send({ name: 'Local Seller', email: 'local-seller@example.com', phone: '+256700123456',
     accountType: 'seller', role: 'super_admin', password: 'Dashboard-test-password-2026!', confirmPassword: 'Dashboard-test-password-2026!',
-    acceptTerms: 'on', _csrf: token }).expect(302).expect('location', '/seller/store');
-  await agent.get('/dashboard').expect(302).expect('location', '/seller/store');
+    acceptTerms: 'on', _csrf: token }).expect(302).expect('location', '/seller/overview');
+  await agent.get('/dashboard').expect(302).expect('location', '/seller/overview');
   await agent.get('/dashboard/super-overview').expect(403);
 });

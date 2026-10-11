@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { customerView } from '../dashboard/customer-view.js';
+import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
+import { primaryWorkspaceFor } from '../dashboard/access.js';
 import mongoose from 'mongoose';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -79,7 +81,10 @@ router.get('/account/returns',requireAuth,requireVerified,async(req,res,next)=>{
   for(const order of orders){if(order.fulfillmentState!=='delivered')continue;for(const item of order.items||[]){const delivered=Number(item.deliveredQuantity||0),remaining=Math.max(0,delivered-Number(item.returnReservedQuantity||0)-Number(item.returnedQuantity||0));if(remaining>0)returnableLines.push({orderPublicId:order.publicId,orderLineId:item.linePublicId,productPublicId:item.productPublicId,title:item.title,variantTitle:item.variantTitle,sku:item.sku,remaining});if(delivered>0)reviewableLines.push({orderPublicId:order.publicId,productPublicId:item.productPublicId,title:item.title,variantTitle:item.variantTitle,sku:item.sku});}}
   const shipmentIds=returns.map(r=>r.returnShipmentPublicId).filter(Boolean),returnPickupCodes={};
   if(shipmentIds.length){const shipments=await Shipment.find({publicId:{$in:shipmentIds},kind:'return',status:{$in:['ready','offered','assigned']}}).select('+pickupCodeEncrypted publicId').lean();const byId=new Map(shipments.map(x=>[x.publicId,x]));for(const ret of returns){const shipment=byId.get(ret.returnShipmentPublicId);if(shipment?.pickupCodeEncrypted)returnPickupCodes[ret.publicId]={shipmentId:shipment.publicId,pickupCode:decryptSensitive(shipment.pickupCodeEncrypted)};}}
-  res.set('Cache-Control','private, no-store').render('approved-dashboard', { workspace: 'customer', initialPage: 'returns', allowedWorkspaces: ['customer'],...await customerView(req,'returns'),accountSupplement:'returns',orders,returns,disputes,tickets,cases,surveys,surveyByTicket,returnPickupCodes,returnableLines,reviewableLines,queuePages:{orders:orderPage.page,returns:returnPage.page,disputes:disputePage.page,tickets:ticketPage.page,cases:casePage.page}});
+  const shell = primaryWorkspaceFor(req.user) !== 'customer' || req.session?.activeStorePublicId
+    ? await accountWorkspaceView(req, 'returns')
+    : { workspace: 'customer', initialPage: 'returns', allowedWorkspaces: ['customer'], ...await customerView(req, 'returns'), accountSupplement: 'returns' };
+  res.set('Cache-Control','private, no-store').render('approved-dashboard', { ...shell,orders,returns,disputes,tickets,cases,surveys,surveyByTicket,returnPickupCodes,returnableLines,reviewableLines,queuePages:{orders:orderPage.page,returns:returnPage.page,disputes:disputePage.page,tickets:ticketPage.page,cases:casePage.page}});
 }catch(e){next(e);}});
 
 router.post('/api/v1/returns',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json(await createReturnRequest(req,returnSchema.parse(req.body)));}catch(e){next(e);}});

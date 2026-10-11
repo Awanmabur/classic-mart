@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 function walk(dir, out = []) {
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -17,6 +18,11 @@ if (!files.length) {
   process.exit(1);
 }
 const nodeArgs = ['--test', '--test-reporter=spec'];
+// Live fixtures create and drop isolated databases on the same MongoDB server.
+// Serialize those files so index construction and teardown cannot interfere.
+if (process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI) {
+  nodeArgs.push('--test-concurrency=1', '--import', fileURLToPath(new URL('./live-test-model-lifecycle.js', import.meta.url)));
+}
 if (process.argv.includes('--coverage')) nodeArgs.push('--experimental-test-coverage');
 const result = spawnSync(process.execPath, [...nodeArgs, ...files], {
   stdio: 'inherit',

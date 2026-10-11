@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { customerView } from '../dashboard/customer-view.js';
+import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
+import { mfaContinuation, mfaSecurityPath } from '../dashboard/mfa-continuation.js';
 import { dashboardLanding } from '../dashboard/landing.js';
 import { PUBLIC_ACCOUNT_TYPES, publicAccountType } from '../core/registration.js';
 import { z } from 'zod';
@@ -46,7 +47,7 @@ async function renderSellerEnrollment(request, response, pageError = '') {
   const actor = await sellerEnrollmentPreview(request);
   if (actor.role === 'seller') {
     delete request.session.accountSetupNext;
-    return response.redirect('/seller/store');
+    return response.redirect(dashboardLanding(actor));
   }
   const draft = {};
   if (pageError) for (const field of ['publicName', 'businessName', 'focus', 'location', 'bio', 'transport', 'teamSize']) {
@@ -67,7 +68,7 @@ router.post('/onboarding/seller', sellerEnrollmentLimit, asyncHandler(async (req
     request.user = actor;
     delete request.session.accountSetupNext;
     setFlash(request, 'success', 'Your seller account is ready. Complete store verification before publishing products.');
-    return response.redirect('/seller/store');
+    return response.redirect(dashboardLanding(actor));
   } catch (error) {
     const status = error.name === 'ZodError' ? 422 : error.status;
     if (![409, 422].includes(status) || request.accepts(['html', 'json']) === 'json') throw error;
@@ -141,6 +142,17 @@ function accountCenterDefaults() {
   };
 }
 
+function accountMfaRequired(request, view) {
+  return mfaRequiredForUser(request.user, env.security.privilegedMfaRequired)
+    || Boolean(!env.auth.simpleLogin && env.security.privilegedMfaRequired
+      && view.liveSeller?.navigation.some(item => item.ready && item.id === 'seller-orders'));
+}
+
+async function postedMfaContinuation(request) {
+  const view = await accountWorkspaceView(request, 'security');
+  return { view, continuation: mfaContinuation(request.body.next, request.user, view) };
+}
+
 async function renderAccountPage(request, response, requestedSection = 'profile') {
   const allowedSections = new Set(['profile', 'security', 'messages']);
   const section = allowedSections.has(requestedSection) ? requestedSection : 'profile';
@@ -185,13 +197,13 @@ async function renderAccountPage(request, response, requestedSection = 'profile'
     data.queuePages.promoterContacts = promoterPage.page;
   }
 
+  const view = await accountWorkspaceView(request, section);
   response.render('approved-dashboard', {
-    workspace: 'customer', initialPage: 'profile', allowedWorkspaces: ['customer'],
-    section, accountSupplement: section,
-    ...await customerView(request, 'profile'),
+    ...view, section,
     ...data,
     currentDeviceId: request.device.publicId,
-    mfaRequired: mfaRequiredForUser(request.user, env.security.privilegedMfaRequired),
+    mfaRequired: accountMfaRequired(request, view),
+    mfaContinuation: section === 'security' ? mfaContinuation(request.query.next, request.user, view) : null,
   });
 }
 
@@ -209,7 +221,7 @@ router.get(
 );
 router.get('/account/orders', (_request, response) => response.redirect('/orders'));
 
-router.get('/account/privacy',asyncHandler(async(request,response)=>{const size=50,base={userId:request.user._id};const [rows,total]=await Promise.all([PrivacyRequest.find(cursorScope(base,request.query.after)).sort(cursorSort()).limit(size+1).lean(),PrivacyRequest.countDocuments(base)]);const page=pageResult(rows,{limit:size,total});response.set('Cache-Control','private, no-store');response.render('approved-dashboard', { workspace: 'customer', initialPage: 'profile', allowedWorkspaces: ['customer'],...await customerView(request,'profile'),accountSupplement:'privacy',requests:page.items,queuePage:page.page});}));
+router.get('/account/privacy',asyncHandler(async(request,response)=>{const size=50,base={userId:request.user._id};const [rows,total]=await Promise.all([PrivacyRequest.find(cursorScope(base,request.query.after)).sort(cursorSort()).limit(size+1).lean(),PrivacyRequest.countDocuments(base)]);const page=pageResult(rows,{limit:size,total});response.set('Cache-Control','private, no-store');response.render('approved-dashboard', { ...await accountWorkspaceView(request,'privacy'),requests:page.items,queuePage:page.page});}));
 router.post('/account/privacy/request',asyncHandler(async(request,response)=>{const input=z.object({type:z.enum(['export','deletion','correction','restriction','consent_withdrawal']),password:z.string().min(1).max(200),details:z.string().trim().max(2000).optional().default('')}).parse(request.body);const doc=await createPrivacyRequest(request,input);await writeAudit(request,'privacy.request_created',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country,metadata:{type:doc.type}});setFlash(request,'success',doc.type==='export'?'Your verified export request is queued.':'Your privacy request was recorded.');response.redirect('/account/privacy');}));
 router.post('/account/privacy/:id/cancel',asyncHandler(async(request,response)=>{const doc=await PrivacyRequest.findOne({publicId:request.params.id,userId:request.user._id,status:{$in:['requested','blocked']}});if(!doc)throw new AppError('Cancelable privacy request not found.',404,'PRIVACY_REQUEST_NOT_FOUND');doc.status='cancelled';doc.completedAt=new Date();await doc.save();await writeAudit(request,'privacy.request_cancelled',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country});setFlash(request,'success','Privacy request cancelled.');response.redirect('/account/privacy');}));
 router.get('/account/privacy/:id/download',asyncHandler(async(request,response)=>{const doc=await PrivacyRequest.findOne({publicId:request.params.id,userId:request.user._id,type:'export',status:'ready'}).select('+storageKey');if(!doc)throw new AppError('Privacy export not found.',404,'PRIVACY_EXPORT_NOT_FOUND');const payload=await privacyExportPayload(doc);await writeAudit(request,'privacy.export_downloaded',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country});response.set('Cache-Control','private, no-store');response.set('Content-Disposition',`attachment; filename="classic-mart-data-${doc.publicId}.json"`);response.type('application/json').send(payload);}));
@@ -331,17 +343,21 @@ router.post(
 
 
 
-router.post('/account/mfa/begin', asyncHandler(async (request, response) => {
+const mfaMutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false,
+  keyGenerator: request => String(request.user._id) });
+router.post('/account/mfa/begin', mfaMutationLimit, asyncHandler(async (request, response) => {
+  const { continuation } = await postedMfaContinuation(request);
   try {
     await beginMfaEnrollment(request.user._id, request.body.currentPassword);
     await writeAudit(request, 'account.mfa_enrollment_started', { targetType: 'user', targetPublicId: request.user.publicId });
     await writeSecurityEvent(request, 'mfa.enrollment_started', { category: 'mfa', severity: 'low', result: 'success' });
     setFlash(request, 'success', 'Authenticator setup started. Add the secret to your authenticator and confirm a current code.');
   } catch (error) { setFlash(request, 'error', error.message); }
-  response.redirect('/account/security');
+  response.redirect(mfaSecurityPath(continuation));
 }));
 
-router.post('/account/mfa/confirm', asyncHandler(async (request, response) => {
+router.post('/account/mfa/confirm', mfaMutationLimit, asyncHandler(async (request, response) => {
+  const { continuation } = await postedMfaContinuation(request);
   try {
     const { user, codes } = await confirmMfaEnrollment(request.user._id, request.body.code, request.device.publicId);
     request.session.tokenVersion = user.security.tokenVersion;
@@ -352,10 +368,12 @@ router.post('/account/mfa/confirm', asyncHandler(async (request, response) => {
     await writeSecurityEvent(request, 'mfa.enabled', { category: 'mfa', severity: 'medium', result: 'success' });
     setFlash(request, 'success', 'Multi-factor authentication is now enabled. Store the recovery codes shown below offline.');
   } catch (error) { setFlash(request, 'error', error.message); }
-  response.redirect('/account/security');
+  // Render the one-time recovery codes before offering the intended workspace.
+  response.redirect(mfaSecurityPath(continuation));
 }));
 
-router.post('/account/mfa/recovery-codes', asyncHandler(async (request, response) => {
+router.post('/account/mfa/recovery-codes', mfaMutationLimit, asyncHandler(async (request, response) => {
+  const { continuation } = await postedMfaContinuation(request);
   try {
     const codes = await regenerateRecoveryCodes(request.user._id, request.body.currentPassword, request.body.code);
     request.session.mfaRecoveryCodes = codes;
@@ -363,10 +381,12 @@ router.post('/account/mfa/recovery-codes', asyncHandler(async (request, response
     await writeSecurityEvent(request, 'mfa.recovery_codes_regenerated', { category: 'mfa', severity: 'medium', result: 'success' });
     setFlash(request, 'success', 'New recovery codes were generated. Previous recovery codes no longer work.');
   } catch (error) { setFlash(request, 'error', error.message); }
-  response.redirect('/account/security');
+  response.redirect(mfaSecurityPath(continuation));
 }));
 
-router.post('/account/mfa/disable', asyncHandler(async (request, response) => {
+router.post('/account/mfa/disable', mfaMutationLimit, asyncHandler(async (request, response) => {
+  const { view, continuation } = await postedMfaContinuation(request);
+  if (accountMfaRequired(request, view)) throw new AppError('Multi-factor authentication is required for your operational access.', 403, 'MFA_REQUIRED');
   try {
     const user = await disableMfa(request.user._id, request.body.currentPassword, request.body.code, 'mfa_disabled', request.device.publicId);
     request.session.tokenVersion = user.security.tokenVersion;
@@ -375,7 +395,7 @@ router.post('/account/mfa/disable', asyncHandler(async (request, response) => {
     await writeSecurityEvent(request, 'mfa.disabled', { category: 'mfa', severity: 'high', result: 'success' });
     setFlash(request, 'success', 'Multi-factor authentication was disabled and other sessions were revoked.');
   } catch (error) { setFlash(request, 'error', error.message); }
-  response.redirect('/account/security');
+  response.redirect(mfaSecurityPath(continuation));
 }));
 
 router.post(
