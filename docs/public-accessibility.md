@@ -143,6 +143,46 @@ those scanned states. The existing strict WCAG tests intentionally still fail
 these findings; no audit rules or assertions were suppressed. This correction
 does not claim AA compliance or a passing complete release gate.
 
+The clean Customer release on 2026-10-11 removes the appended navy outlines
+instead of replacing them with extra coloured outlines. Home and catalogue
+search, newsletter and sorting controls return to their original input resets.
+Authentication, contact, catalogue price filters and review inputs retain their
+approved wrapper border and soft focus shadow. Original panel, card and pill
+borders remain. The country selector inside signup no longer draws two
+additional outlines inside the phone field; the existing full phone pill handles
+focus. Its country divider, native list of 245 country names/calling codes and
+calling-code-only closed display remain functional.
+
+A fresh clean-release comparison captured 72 desktop/mobile pointer, keyboard
+and product-dialog states across previous, corrected and uploaded-source CSS.
+All measured corrected control border, outline, shadow, padding, font and colour
+values match the source. Ten separate country-selector states verify pointer
+and keyboard focus, native country selection, the closed calling code and
+forced-colours focus visibility.
+The authentication focus assertion reads the pill that actually draws the
+indicator, rather than requiring another outline inside it. All strict Axe
+rules and catalogue focus assertions remain enabled: the original sorting
+control reset has no visible keyboard indicator, so that assertion remains a
+known original-design limitation rather than a passing compliance claim.
+
+Original homepage behaviour is restored too: the hero advances every 5.6
+seconds and promotional-card effects repeat. Both pause while used, when the
+page is hidden or when reduced motion is selected, and resume when permitted.
+Eight desktop/mobile browser checks verify timing, keyboard/hover behaviour,
+reduced-motion changes and page-cache suspension without adding visual controls.
+
+The clean-release identity and Customer workflows passed 34 tests with no
+failures or skips, including real MongoDB data isolation and desktop/mobile
+Chromium signup, navigation, address submission and logout. Import, project,
+static security, frontend and functionality checks passed. Provider delivery
+uses development sinks in these checks; no Gmail, eSMS or Pesapal calls occur.
+Thirty-five existing storefront tests and 13 critical browser flows also passed;
+three critical cases skip deliberately because they run in the other viewport.
+The selected strict keyboard/WCAG run completed with four passing and eight
+failed results. Those failures expose the original sorting focus reset,
+approved-palette contrast and original hero-dot target sizes. They are retained
+in the audit, not filtered or marked compliant.
+
 The broader run recorded 429 passing tests and six failed results: the
 enrolment contrast assertion and its parent result, three stale source
 contracts, and a warehouse test interrupted by a fatal restart of the isolated

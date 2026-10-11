@@ -11,5 +11,3 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
 }
-
-.info-form :is(input, select, textarea):focus-visible { outline: 3px solid var(--navy); outline-offset: -3px; }

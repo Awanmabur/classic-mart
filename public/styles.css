@@ -1545,7 +1545,7 @@ body { font-size: 15px; line-height: 1.55; }
 .hero-mixer { right: -1%; top: 6%; width: 45%; transform: rotate(8deg); }
 .hero-lamp { left: 27%; bottom: -13%; width: 31%; transform: rotate(13deg); }
 
-/* Keep promotional text readable throughout decorative slide and zoom motions. */
+/* Approved promotional motions pause while a card is being used. */
 .promo-card { transform-origin: center; }
 .promo-card[class*="promo-motion-"] { will-change: transform; }
 .promo-card.promo-motion-slide-left { animation: promoSlideLeft 1.05s cubic-bezier(.22,.61,.36,1); }
@@ -1557,37 +1557,37 @@ body { font-size: 15px; line-height: 1.55; }
 .promo-card.promo-motion-fade { animation: promoFade 1.05s ease-in-out; }
 @keyframes promoSlideLeft {
   0%, 100% { opacity: 1; transform: translateX(0) scale(1); }
-  44% { opacity: 1; transform: translateX(-30px) scale(.96); }
-  55% { opacity: 1; transform: translateX(30px) scale(1.03); }
+  44% { opacity: 0; transform: translateX(-30px) scale(.96); }
+  55% { opacity: 0; transform: translateX(30px) scale(1.03); }
 }
 @keyframes promoSlideRight {
   0%, 100% { opacity: 1; transform: translateX(0) scale(1); }
-  44% { opacity: 1; transform: translateX(30px) scale(.96); }
-  55% { opacity: 1; transform: translateX(-30px) scale(1.03); }
+  44% { opacity: 0; transform: translateX(30px) scale(.96); }
+  55% { opacity: 0; transform: translateX(-30px) scale(1.03); }
 }
 @keyframes promoSlideUp {
   0%, 100% { opacity: 1; transform: translateY(0) scale(1); }
-  44% { opacity: 1; transform: translateY(-24px) scale(.96); }
-  55% { opacity: 1; transform: translateY(24px) scale(1.03); }
+  44% { opacity: 0; transform: translateY(-24px) scale(.96); }
+  55% { opacity: 0; transform: translateY(24px) scale(1.03); }
 }
 @keyframes promoSlideDown {
   0%, 100% { opacity: 1; transform: translateY(0) scale(1); }
-  44% { opacity: 1; transform: translateY(24px) scale(.96); }
-  55% { opacity: 1; transform: translateY(-24px) scale(1.03); }
+  44% { opacity: 0; transform: translateY(24px) scale(.96); }
+  55% { opacity: 0; transform: translateY(-24px) scale(1.03); }
 }
 @keyframes promoZoomIn {
   0%, 100% { opacity: 1; transform: scale(1); }
-  48% { opacity: 1; transform: scale(1.18); }
-  56% { opacity: 1; transform: scale(.9); }
+  48% { opacity: 0; transform: scale(1.18); }
+  56% { opacity: 0; transform: scale(.9); }
 }
 @keyframes promoZoomOut {
   0%, 100% { opacity: 1; transform: scale(1); }
-  48% { opacity: 1; transform: scale(.78); }
-  56% { opacity: 1; transform: scale(1.12); }
+  48% { opacity: 0; transform: scale(.78); }
+  56% { opacity: 0; transform: scale(1.12); }
 }
 @keyframes promoFade {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 1; transform: scale(.98); }
+  50% { opacity: 0; transform: scale(.98); }
 }
 
 /* Keep section scroll arrows at the vertical middle of the section's right edge. */
@@ -3880,22 +3880,4 @@ body { font-size: 15px; line-height: 1.55; }
 @media (max-width: 360px) {
   .deal-intro { grid-template-columns: minmax(0, 1fr); }
   .deal-intro .countdown { grid-column: 1; grid-row: auto; margin-top: 6px; }
-}
-
-/* Keyboard indicators must survive the component's input/reset rules. */
-:is(button, a, input, select, textarea, summary):focus-visible {
-  outline: 3px solid var(--navy);
-  outline-offset: 3px;
-}
-.search-bar :is(input, select):focus-visible,
-.newsletter input:focus-visible {
-  outline: 3px solid var(--navy);
-  outline-offset: -3px;
-}
-.category-panel :is(button, a):focus-visible,
-.country-switch-option:focus-visible,
-.stack-form :is(input, select, textarea):focus-visible,
-.preview-review-form input[type="text"]:focus-visible {
-  outline: 3px solid var(--navy);
-  outline-offset: -3px;
 }

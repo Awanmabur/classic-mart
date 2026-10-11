@@ -69,6 +69,7 @@
     filteredProducts: products.slice(0, 12),
     csrfToken: '',
     heroIndex: 0,
+    heroTimer: null,
     lastFocused: null,
     deepLinkOpened: false,
     recentRecorded: new Set(),
@@ -80,6 +81,12 @@
     previewOperation: 0,
   };
   const previewState = { productId: '', variantId: '', quantity: 1 };
+  const reducedMarketingMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function marketingMotionAllowed(element) {
+    return !document.hidden && !reducedMarketingMotion.matches &&
+      !element.matches(':hover') && !element.contains(document.activeElement);
+  }
 
   async function hydrateOnlineCatalog() {
     try {
@@ -1282,6 +1289,21 @@
     if (focusMovesWithSlide) slides[state.heroIndex].querySelector('button, a[href]')?.focus();
   }
 
+  function stopHero() {
+    window.clearInterval(state.heroTimer);
+    state.heroTimer = null;
+  }
+
+  function startHero() {
+    stopHero();
+    const hero = qs('#heroSlider');
+    if (!hero || qsa('.hero-slide').length < 2 || !marketingMotionAllowed(hero)) return;
+    state.heroTimer = window.setInterval(() => {
+      if (!marketingMotionAllowed(hero)) return stopHero();
+      goToHero(state.heroIndex + 1);
+    }, 5600);
+  }
+
   function openContent(title, html) {
     qs('#contentModalBody').innerHTML = `<h2 id="contentModalTitle">${escapeHtml(title)}</h2>${html}`;
     openModal('contentModal');
@@ -1626,21 +1648,56 @@
 
   function startPromoAnimations() {
     const cards = qsa('.promo-card');
-    if (!cards.length || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
     const motions = ['slide-left', 'slide-right', 'slide-up', 'slide-down', 'zoom-in', 'zoom-out', 'fade'];
     const motionClasses = motions.map(motion => `promo-motion-${motion}`);
+    const controllers = [{ refresh: startHero, stop: stopHero }];
+
+    const watchInteraction = (element, refresh) => {
+      element.addEventListener('mouseenter', refresh);
+      element.addEventListener('mouseleave', refresh);
+      element.addEventListener('focusin', refresh);
+      element.addEventListener('focusout', event => {
+        if (!element.contains(event.relatedTarget)) refresh();
+      });
+    };
+    const hero = qs('#heroSlider');
+    if (hero) watchInteraction(hero, startHero);
 
     cards.forEach((card, index) => {
+      let timer = null;
+      const stop = () => {
+        window.clearTimeout(timer);
+        timer = null;
+        card.classList.remove(...motionClasses);
+      };
       const run = () => {
+        timer = null;
+        if (!marketingMotionAllowed(card)) return stop();
         card.classList.remove(...motionClasses);
         void card.offsetWidth;
         const motion = motions[Math.floor(Math.random() * motions.length)];
         card.classList.add(`promo-motion-${motion}`);
-        card.addEventListener('animationend', () => card.classList.remove(`promo-motion-${motion}`), { once: true });
+        timer = window.setTimeout(run, 3000 + Math.random() * 3200 + index * 320);
       };
-      window.setTimeout(run, 1200 + index * 850 + Math.random() * 900);
+      const refresh = () => {
+        if (!marketingMotionAllowed(card)) return stop();
+        if (timer === null) timer = window.setTimeout(run, 1200 + index * 850 + Math.random() * 900);
+      };
+      card.addEventListener('animationend', event => {
+        if (event.target === card) card.classList.remove(...motionClasses);
+      });
+      watchInteraction(card, refresh);
+      controllers.push({ refresh, stop });
     });
+
+    const refreshAll = () => controllers.forEach(controller => controller.refresh());
+    document.addEventListener('visibilitychange', refreshAll);
+    reducedMarketingMotion.addEventListener('change', refreshAll);
+    window.addEventListener('pageshow', refreshAll);
+    window.addEventListener('pagehide', () => {
+      controllers.forEach(controller => controller.stop());
+    });
+    refreshAll();
   }
 
   function ensureMobileBottomNav() {
@@ -1769,9 +1826,9 @@
       });
     });
 
-    qs('#heroPrev')?.addEventListener('click', () => goToHero(state.heroIndex - 1));
-    qs('#heroNext')?.addEventListener('click', () => goToHero(state.heroIndex + 1));
-    qsa('#heroDots button').forEach(button => button.addEventListener('click', () => goToHero(Number(button.dataset.slide))));
+    qs('#heroPrev')?.addEventListener('click', () => { goToHero(state.heroIndex - 1); startHero(); });
+    qs('#heroNext')?.addEventListener('click', () => { goToHero(state.heroIndex + 1); startHero(); });
+    qsa('#heroDots button').forEach(button => button.addEventListener('click', () => { goToHero(Number(button.dataset.slide)); startHero(); }));
 
     let touchStart = 0;
     qs('#heroSlider')?.addEventListener('touchstart', event => { touchStart = event.touches[0].clientX; }, { passive: true });
@@ -1779,6 +1836,7 @@
       const delta = event.changedTouches[0].clientX - touchStart;
       if (Math.abs(delta) > 45) {
         goToHero(state.heroIndex + (delta < 0 ? 1 : -1));
+        startHero();
       }
     }, { passive: true });
 

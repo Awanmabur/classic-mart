@@ -140,8 +140,6 @@ body.storefront-page {
 .auth-input-wrap > img { width: 16px; margin-left: 18px; opacity: .55; }
 .auth-input-wrap input { width: 100%; min-width: 0; min-height: 44px; border: 0; outline: 0; padding: 0 13px; background: transparent; font-size: 13px; }
 .auth-input-wrap input::placeholder { color: #a0a7b1; }
-.auth-main :is(a, button, input, select, textarea):focus-visible { outline: 3px solid var(--navy); outline-offset: 3px; }
-.auth-input-wrap input:focus-visible { border-radius: 999px; outline-offset: -3px; }
 .password-toggle { width: 42px; height: 42px; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; cursor: pointer; }
 .password-toggle:hover { background: #f3f4f6; }
 .password-toggle img { width: 16px; opacity: .62; }

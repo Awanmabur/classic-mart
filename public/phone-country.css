@@ -60,6 +60,9 @@ body .phone-country-enhanced select.phone-country-select { color: transparent; }
   line-height: 1.4;
 }
 .phone-country-control:focus-within { outline: 2px solid #ff6500; outline-offset: 2px; }
+/* The combined phone field already shows focus around the full pill. */
+.auth-phone-wrap .phone-country-control:focus-within,
+.auth-phone-wrap select.phone-country-select:focus-visible { outline: 0; }
 .phone-country-control select:disabled { cursor: not-allowed; }
 .phone-country-control:has(select:disabled) .phone-country-display,
 .phone-country-control:has(select:disabled)::after { opacity: .55; }
@@ -85,6 +88,7 @@ body .phone-country-enhanced select.phone-country-select { color: transparent; }
 .auth-phone-wrap:has(.phone-country-control:not(.phone-country-enhanced)) input { min-height: 48px; }
 @media (forced-colors: active) {
   body .phone-country-enhanced select.phone-country-select { color: CanvasText; appearance: auto; background: Canvas; }
+  .auth-phone-wrap select.phone-country-select:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
   .phone-country-enhanced .phone-country-display { display: none; }
   .auth-phone-wrap .phone-country-enhanced { flex-basis: 52%; }
   .phone-country-control::after { display: none; }

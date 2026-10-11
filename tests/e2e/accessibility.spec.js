@@ -161,7 +161,10 @@ async function assertVisibleFocus(page) {
   const focusEvidence = await page.evaluate(() => {
     const active = document.activeElement;
     if (!active || active === document.body) return null;
-    const style = getComputedStyle(active);
+    // Approved auth fields draw their focus border and shadow on the pill
+    // wrapper. Reading only the reset input would require a second inner ring.
+    const indicator = active.closest('.auth-input-wrap:focus-within') || active;
+    const style = getComputedStyle(indicator);
     return {
       tag: active.tagName,
       outlineWidth: Number.parseFloat(style.outlineWidth) || 0,
@@ -290,7 +293,8 @@ test('product filters keep keyboard focus in the open dialog and return it to th
   await expect(opener).toBeFocused();
 });
 
-test('hero slides stay readable until manual navigation and inactive controls cannot receive focus', async ({ page }) => {
+test('reduced-motion hero slides stay readable until manual navigation and inactive controls cannot receive focus', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.clock.install();
   await page.goto('/', { waitUntil: 'networkidle' });
   const slides = page.locator('.hero-slide');
