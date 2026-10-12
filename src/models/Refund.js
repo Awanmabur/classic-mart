@@ -6,6 +6,8 @@ const refundSchema=new Schema({
   idempotencyKey:{type:String,required:true,unique:true,immutable:true,maxlength:120},
   orderId:{type:Schema.Types.ObjectId,ref:'Order',required:true,index:true},
   paymentIntentId:{type:Schema.Types.ObjectId,ref:'PaymentIntent',required:true,index:true},
+  returnRequestId:{type:Schema.Types.ObjectId,ref:'ReturnRequest',immutable:true},
+  returnPublicId:{type:String,maxlength:100,immutable:true},
   amountMinor:{type:Number,required:true,min:1},
   currency:{type:String,required:true,uppercase:true},
   reason:{type:String,required:true,maxlength:300},
@@ -22,4 +24,5 @@ const refundSchema=new Schema({
 },{timestamps:true,optimisticConcurrency:true});
 refundSchema.index({paymentIntentId:1,provider:1,status:1});
 refundSchema.index({orderId:1,createdAt:-1});
+refundSchema.index({returnRequestId:1},{unique:true,partialFilterExpression:{returnRequestId:{$type:'objectId'}}});
 export const Refund=mongoose.model('Refund',refundSchema);

@@ -5,6 +5,9 @@ import { customerLoyalty, customerWallet, customerCatalogue, customerUnread } fr
 import { getCountries } from '../services/country.js';
 import { getStorefront, publicIdsForMongoIds, publishedProductsByPublicIds } from '../services/storefront.js';
 import { cartView, getOrCreateCart } from '../services/checkout.js';
+import { supportTicketCustomerDto } from '../services/support-ticket-pages.js';
+import { customerReturnDto, customerRefundDto } from '../services/customer-case-projections.js';
+import { customerDisputeDto } from '../services/customer-dispute-pages.js';
 
 function safeHref(value) { const href=String(value||'').trim(); return href.startsWith('/') && !href.startsWith('//') && !/[\\\x00-\x1f\x7f]/.test(href) ? href : ''; }
 function activeOrderQuery(userId){return {userId,paymentState:{$in:['paid','credit_due']}};}
@@ -37,9 +40,9 @@ async function loadReturns(request){
   for (const shipment of shipments) if (shipment.deliveredAt && !deliveredAt.has(String(shipment.orderId))) deliveredAt.set(String(shipment.orderId), shipment.deliveredAt);
   const now=Date.now(),returnableLines=[];
   for(const order of orders){const deliveryDate = deliveredAt.get(String(order._id));if(!deliveryDate)continue;const eligibleUntil=new Date(deliveryDate).getTime()+Number(order.policySnapshot?.returnWindowDays??30)*86400000;if(eligibleUntil<now)continue;for(const item of order.items||[]){const remaining=Math.max(0,Number(item.deliveredQuantity||0)-Number(item.returnReservedQuantity||0)-Number(item.returnedQuantity||0));if(remaining>0)returnableLines.push({orderPublicId:order.publicId,orderLineId:item.linePublicId,title:item.title,variantTitle:item.variantTitle,remaining});}}
-  return {returns,refunds,returnableLines,disputes,cases};
+  return {returns:returns.map(customerReturnDto),refunds:refunds.map(customerRefundDto),returnableLines,disputes:disputes.map(customerDisputeDto),cases};
 }
-async function loadSupport(request){const [tickets,knowledge,orders]=await Promise.all([SupportTicket.find({userId:request.user._id}).select('publicId orderPublicId category subject status priority notes createdAt resolvedAt').sort({createdAt:-1}).limit(40).lean(),SupportKnowledge.find({country:request.user.country,status:'published'}).select('publicId title slug body category').sort({publishedAt:-1}).limit(12).lean(),Order.find({userId:request.user._id}).select('publicId createdAt').sort({createdAt:-1}).limit(30).lean()]);return {tickets,knowledge,orders};}
+async function loadSupport(request){const [tickets,knowledge,orders]=await Promise.all([SupportTicket.find({userId:request.user._id}).select('publicId userId country orderPublicId category subject status priority notes createdAt updatedAt resolvedAt reopenedAt __v').sort({createdAt:-1}).limit(40).lean(),SupportKnowledge.find({country:request.user.country,status:'published'}).select('publicId title slug body category').sort({publishedAt:-1}).limit(12).lean(),Order.find({userId:request.user._id}).select('publicId createdAt').sort({createdAt:-1}).limit(30).lean()]);return {tickets:tickets.map(supportTicketCustomerDto),knowledge,orders};}
 async function loadProfile(request){return {countries:await getCountries()};}
 async function loadCategories(request){const storefront=await getStorefront(request.country);return {categories:storefront.categories,featuredProducts:storefront.products.slice(0,12)};}
 async function loadCart(request){const [cart,wallet]=await Promise.all([cartData(request),customerWallet(request)]);return {cart,wallet};}

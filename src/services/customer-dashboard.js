@@ -1,3 +1,4 @@
+import { customerReturnDto } from './customer-case-projections.js';
 import {
   Cart,
   Category,
@@ -18,6 +19,7 @@ import {
 import { accountBalanceMinor } from './money.js';
 import { publicProductImageUrl } from './product-media-url.js';
 import { getCountries } from './country.js';
+import { supportTicketCustomerDto } from './support-ticket-pages.js';
 
 const MAX_ROWS = 50;
 const ZERO_DECIMAL = new Set(['UGX', 'RWF', 'JPY', 'KRW']);
@@ -125,7 +127,7 @@ export async function loadCustomerDashboard(request) {
     LoyaltyEntry.find({ userId }).sort({ createdAt: -1 }).limit(MAX_ROWS).lean(),
     customerWallet(user, locale),
     ReturnRequest.find({ userId }).sort({ createdAt: -1 }).limit(MAX_ROWS).lean(),
-    SupportTicket.find({ userId }).sort({ createdAt: -1 }).limit(MAX_ROWS).lean(),
+    SupportTicket.find({ userId }).select('publicId userId country category subject status priority orderPublicId createdAt updatedAt resolvedAt reopenedAt __v notes.message notes.internal notes.actorUserId notes.at').sort({ createdAt: -1 }).limit(MAX_ROWS).lean(),
     Category.find({ active: true, $or: [{ countries: { $size: 0 } }, { countries: user.shoppingCountry || user.country }] }).sort({ name: 1 }).limit(MAX_ROWS).lean(),
     Cart.findOne({ userId }).populate('items.productId', 'publicId title status').populate('items.variantId', 'publicId title sku priceMinor currency active').lean(),
     Notification.find({ userId, $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }] }).sort({ createdAt: -1 }).limit(MAX_ROWS).lean(),
@@ -221,8 +223,8 @@ export async function loadCustomerDashboard(request) {
       entries: loyaltyEntries,
     },
     wallet,
-    returns: returns.map((row) => ({ ...row, statusLabel: humanStatus(row.status), createdAt: safeDate(row.createdAt) })),
-    tickets: tickets.map((row) => ({ ...row, statusLabel: humanStatus(row.status), createdAt: safeDate(row.createdAt) })),
+    returns: returns.map((row) => ({ ...customerReturnDto(row), statusLabel: humanStatus(row.status), createdAt: safeDate(row.createdAt) })),
+    tickets: tickets.map((row) => ({ ...supportTicketCustomerDto(row), statusLabel: humanStatus(row.status), createdAt: safeDate(row.createdAt) })),
     categories,
     cart: {
       publicId: cart?.publicId || '',

@@ -8,7 +8,7 @@ import { hashToken } from '../core/crypto.js';
 import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import {
   BusinessInvoice, Chargeback, InventoryMovement, InventoryReservation, Order, PaymentIntent, ProviderEvent, PurchaseOrder, Refund, StockItem,
-  CountrySetting, Device, LedgerAccount, LedgerTransaction, PayoutAccount, Payout, PromoterVerification, ReconciliationRun, SellerOrder, Shipment, Store, StoreMember, User,
+  CountrySetting, Device, LedgerAccount, LedgerTransaction, Notification, PayoutAccount, Payout, PromoterVerification, ReconciliationRun, ReturnRequest, SellerOrder, SellerReturnCase, Shipment, Store, StoreMember, User,
 } from '../models/index.js';
 import { ensureLedgerAccount, postLedgerTransaction, accountBalanceMinor, sellerSettlementBreakdown, proportionalSettlementSlice } from './money.js';
 import { orderAccessQuery } from './order-access.js';
@@ -478,6 +478,7 @@ async function failRefundAndReleaseReservation(refundId,{providerStatus='REJECTE
 async function refundActorAccess(request,order,session,{write=false,financeRequired=false}={}){
   const actor=request.user?._id?await User.findById(request.user._id).select('+operationalCountries').session(session):null;
   if(actor&&(!['active'].includes(actor.status)||actor.security.tokenVersion!==request.user.security?.tokenVersion||(request.session?.tokenVersion!==undefined&&actor.security.tokenVersion!==request.session.tokenVersion)))throw new AppError('Your account or session is unavailable.',403,'ACCOUNT_UNAVAILABLE');
+  if(actor)await hydratePlatformAuthorization(actor);
   const financial=financeRequired||['finance','country_admin','super_admin'].includes(request.user?.role)||['finance','country_admin','super_admin'].includes(actor?.role);
   if(financial)return {...await financeAccess(request,{session,write,workspace:false,country:order.country}),finance:true};
   const ownedByUser=Boolean(actor&&order.userId&&String(order.userId)===String(actor._id));
@@ -488,21 +489,45 @@ async function refundActorAccess(request,order,session,{write=false,financeRequi
   return {actor,finance:false};
 }
 
-async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,allocations=[],version}){
+const refundAllocationSnapshot=rows=>rows.map(row=>({storePublicId:String(row.storePublicId||''),productPublicId:String(row.productPublicId||''),orderLineId:String(row.orderLineId||''),grossMinor:Number(row.grossMinor)})).sort((a,b)=>(a.storePublicId+':'+a.orderLineId).localeCompare(b.storePublicId+':'+b.orderLineId));
+async function inspectedReturnSnapshot(returnRequest,order,session,statuses){
+  const {returnFinancialAllocations}=await import('./support-case-pages.js');
+  return returnFinancialAllocations({returnRequest,order,session,statuses});
+}
+
+async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,allocations=[],version,returnPublicId,returnVersion}){
   if(typeof orderId!=='string'||orderId.length<4||orderId.length>100||typeof idempotencyKey!=='string'||idempotencyKey.length<12||idempotencyKey.length>120||typeof reason!=='string'||reason.trim().length<3||reason.trim().length>300)throw new AppError('Provide a valid order, reason and request key.',422,'REFUND_INPUT_INVALID');
   if(amountMinor!==undefined&&(!Number.isSafeInteger(amountMinor)||amountMinor<=0))throw new AppError('Enter a positive refund amount in minor units.',422,'REFUND_AMOUNT_INVALID');
   if(version!==undefined&&(!Number.isSafeInteger(version)||version<0))throw new AppError('Provide the current payment version.',422,'REFUND_VERSION_INVALID');
   if(!Array.isArray(allocations)||allocations.length>100)throw new AppError('Provide supported order-line allocations.',422,'REFUND_ALLOCATION_INVALID');
+  if(returnPublicId!==undefined&&(typeof returnPublicId!=='string'||!/^ret_[a-zA-Z0-9_-]{1,95}$/.test(returnPublicId)))throw new AppError('Provide a valid inspected return.',422,'RETURN_REFUND_INPUT_INVALID');
+  if(returnPublicId!==undefined&&(!Number.isSafeInteger(returnVersion)||returnVersion<0))throw new AppError('Provide the current return version.',422,'RETURN_REFUND_VERSION_INVALID');
+  if((returnPublicId!==undefined&&idempotencyKey!==`return-refund:${returnPublicId}`)||(returnPublicId===undefined&&idempotencyKey.startsWith('return-refund:')))throw new AppError('The return refund request key must identify its inspected return.',422,'RETURN_REFUND_KEY_INVALID');
   const session=await mongoose.startSession();let result;
   try{await session.withTransaction(async()=>{
     const order=await Order.findOne({publicId:orderId}).session(session);if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
-    const access=await refundActorAccess(request,order,session,{write:true});
+    const access=await refundActorAccess(request,order,session,{write:true,financeRequired:Boolean(returnPublicId)});
     if(!access.finance&&idempotencyKey!==`cancel:${order.publicId}`)throw new AppError('Customer refund keys must match the authorized cancellation.',403,'REFUND_CANCELLATION_REQUIRED');
     const existing=await Refund.findOne({idempotencyKey}).session(session);
+    let returned=null,returnSnapshot=null;
+    if(returnPublicId){
+      returned=await ReturnRequest.findOne({publicId:returnPublicId,orderId:order._id,orderPublicId:order.publicId,country:order.country,userId:order.userId}).session(session);
+      if(!returned)throw new AppError('Return not found for this scoped order.',404,'RETURN_NOT_FOUND');
+      if(existing){
+        if(String(existing.returnRequestId||'')!==String(returned._id)||existing.returnPublicId!==returnPublicId||returned.refundPublicId!==existing.publicId||!['refund_processing','refunded'].includes(returned.status)||(returned.status==='refunded')!==(existing.status==='completed'))throw new AppError('The saved refund does not match this return.',409,'RETURN_REFUND_BINDING_CONFLICT');
+        returnSnapshot=await inspectedReturnSnapshot(returned,order,session,['refund_processing','refunded']);
+      }else{
+        if(Number(returned.__v||0)!==returnVersion)throw new AppError('The return changed. Reload before recording its refund.',409,'RETURN_REFUND_VERSION_CONFLICT');
+        if(returned.refundPublicId)throw new AppError('This return already has a reserved refund.',409,'RETURN_REFUND_BINDING_CONFLICT');
+        returnSnapshot=await inspectedReturnSnapshot(returned,order,session,['refund_pending']);
+      }
+      if((amountMinor!==undefined&&amountMinor!==returnSnapshot.amountMinor)||(allocations.length&&JSON.stringify(refundAllocationSnapshot(allocations))!==JSON.stringify(refundAllocationSnapshot(returnSnapshot.allocations))))throw new AppError('Return refunds must match the exact inspected amount and order lines.',409,'RETURN_REFUND_ALLOCATION_MISMATCH');
+      amountMinor=returnSnapshot.amountMinor;allocations=returnSnapshot.allocations;
+    }
     if(existing){
       const requestedAllocations=allocations.map(row=>({storePublicId:row.storePublicId,orderLineId:row.orderLineId,grossMinor:row.grossMinor})).sort((a,b)=>(a.storePublicId+':'+a.orderLineId).localeCompare(b.storePublicId+':'+b.orderLineId));
       const savedAllocations=(existing.allocations||[]).map(row=>({storePublicId:row.storePublicId,orderLineId:row.orderLineId,grossMinor:row.grossMinor})).sort((a,b)=>(a.storePublicId+':'+a.orderLineId).localeCompare(b.storePublicId+':'+b.orderLineId));
-      if(String(existing.orderId)!==String(order._id)||String(existing.requestedByUserId||'')!==String(access.actor?._id||'')||existing.reason!==reason.trim()||(amountMinor!==undefined&&existing.amountMinor!==amountMinor)||JSON.stringify(requestedAllocations)!==JSON.stringify(savedAllocations))throw new AppError('This request key already identifies another refund.',409,'REFUND_IDEMPOTENCY_CONFLICT');
+      if(String(existing.orderId)!==String(order._id)||String(existing.requestedByUserId||'')!==String(access.actor?._id||'')||existing.reason!==reason.trim()||(amountMinor!==undefined&&existing.amountMinor!==amountMinor)||JSON.stringify(requestedAllocations)!==JSON.stringify(savedAllocations)||Boolean(existing.returnRequestId)!==Boolean(returnPublicId))throw new AppError('This request key already identifies another refund.',409,'REFUND_IDEMPOTENCY_CONFLICT');
       result={refund:existing,order,intent:await PaymentIntent.findById(existing.paymentIntentId).session(session),existing:true};return;
     }
     if(!['paid','partially_refunded','refunded'].includes(order.paymentState))throw new AppError('Only a verified paid order can be refunded.',409,'REFUND_ORDER_STATE');
@@ -552,7 +577,8 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
     }
     const reservedIntent=await PaymentIntent.findOneAndUpdate({_id:intent._id,refundReservedMinor:reservedRefundMinor,refundedMinor,$expr:{$lte:[{$add:[{$ifNull:['$refundReservedMinor',0]},{$ifNull:['$refundedMinor',0]},amount]},'$amountMinor']}},{$inc:{refundReservedMinor:amount,__v:1}},{session,returnDocument:'after'});
     if(!reservedIntent)throw new AppError('Another refund changed the remaining refundable balance. Reload and retry with the current balance.',409,'REFUND_RESERVATION_CONFLICT');
-    const docs=await Refund.create([{publicId:publicId('rfd'),idempotencyKey,orderId:order._id,paymentIntentId:intent._id,amountMinor:amount,currency:order.totals.currency,reason:reason.trim(),allocations:cleanAllocations,provider,requestedByUserId:request.user?._id,status:provider===PAYMENT_PROVIDER?'pending':'processing'}],{session});
+    const docs=await Refund.create([{publicId:publicId('rfd'),idempotencyKey,orderId:order._id,paymentIntentId:intent._id,...(returned?{returnRequestId:returned._id,returnPublicId:returned.publicId}:{}),amountMinor:amount,currency:order.totals.currency,reason:reason.trim(),allocations:cleanAllocations,provider,requestedByUserId:request.user?._id,status:provider===PAYMENT_PROVIDER?'pending':'processing'}],{session});
+    if(returned){returned.refundPublicId=docs[0].publicId;returned.status='refund_processing';returned.timeline.push({type:'return.refund_reserved',message:`Refund ${docs[0].publicId} reserved after the inspected return review. Disbursement is awaiting confirmation.`,actorUserId:access.actor._id});await returned.save({session});}
     await writeAudit(request,'finance.refund_reserved',{actor:access.actor,targetType:'refund',targetPublicId:docs[0].publicId,country:order.country,metadata:{amountMinor:amount,currency:order.totals.currency,provider},session});
     await queueFinanceAlert({country:order.country,kind:'priority',href:'/finance/refunds?record='+encodeURIComponent(docs[0].publicId)},session);
     order.refundState=provider===PAYMENT_PROVIDER?'pending':'processing';
@@ -607,10 +633,22 @@ async function postRefundLedger(orderLike,refundLike,intentLike,{request,manual=
     const access=await refundActorAccess(request,order,session,{write:true,financeRequired:manual});
     if(String(refund.paymentIntentId)!==String(loadedIntent._id)||String(loadedIntent.orderId)!==String(order._id)||loadedIntent.orderPublicId!==order.publicId||loadedIntent.country!==order.country||loadedIntent.currency!==order.totals.currency||refund.currency!==order.totals.currency)throw new AppError('Refund accounting references do not match.',409,'REFUND_ACCOUNTING_MISMATCH');
     if(manual&&String(refund.requestedByUserId)===String(access.actor._id))throw new AppError('A different finance operator must confirm refund disbursement.',403,'FOUR_EYES_REQUIRED');
+    let returnRequest=null;
+    if(refund.returnRequestId||refund.returnPublicId){
+      if(!refund.returnRequestId||!refund.returnPublicId)throw new AppError('The return refund binding is incomplete.',409,'RETURN_REFUND_BINDING_CONFLICT');
+      returnRequest=await ReturnRequest.findOne({_id:refund.returnRequestId,publicId:refund.returnPublicId,orderId:order._id,orderPublicId:order.publicId,country:order.country,userId:order.userId,refundPublicId:refund.publicId}).session(session);
+      if(!returnRequest)throw new AppError('The refund is no longer bound to its inspected return.',409,'RETURN_REFUND_BINDING_CONFLICT');
+      const snapshot=await inspectedReturnSnapshot(returnRequest,order,session,['refund_processing','refunded']);
+      if(snapshot.amountMinor!==refund.amountMinor||JSON.stringify(refundAllocationSnapshot(snapshot.allocations))!==JSON.stringify(refundAllocationSnapshot(refund.allocations)))throw new AppError('The reserved refund no longer matches its inspected returned goods.',409,'RETURN_REFUND_ALLOCATION_MISMATCH');
+    }else if(await ReturnRequest.exists({refundPublicId:refund.publicId}).session(session))throw new AppError('This historical return refund needs an authoritative immutable return binding before completion.',409,'RETURN_REFUND_BINDING_REQUIRED');
     if(await LedgerTransaction.exists({idempotencyKey:`refund:${refundLike.publicId}`}).session(session)){
+      if(refund.status!=='completed')throw new AppError('Refund outcome and recorded accounting do not match. Reconcile this case before continuing.',409,'REFUND_ACCOUNTING_MISMATCH');
       if(manual&&(refund.manualReference!==refundLike.manualReference||String(refund.completedByUserId)!==String(access.actor._id)))throw new AppError('This refund was completed with different evidence.',409,'REFUND_COMPLETION_CONFLICT');
+      if(returnRequest&&returnRequest.status!=='refunded')throw new AppError('Recorded return and refund accounting are inconsistent. Reconcile this case before continuing.',409,'RETURN_REFUND_BINDING_CONFLICT');
       return;
     }
+    if(refundLike.status!=='completed')throw new AppError('A verified completed refund outcome is required before accounting.',409,'REFUND_OUTCOME_REQUIRED');
+    if(returnRequest&&returnRequest.status!=='refund_processing')throw new AppError('The return is no longer awaiting this reserved refund.',409,'RETURN_REFUND_BINDING_CONFLICT');
     if(!['pending','processing'].includes(refund.status)||(manual&&refund.status!=='processing'))throw new AppError('This refund is no longer available for completion.',409,'REFUND_STATE_CONFLICT');
     if(version!==undefined&&Number(refund.__v||0)!==version)throw new AppError('The refund changed. Reload before completion.',409,'REFUND_VERSION_CONFLICT');
     await assertRefundCounterConsistency(loadedIntent,session);
@@ -659,7 +697,13 @@ async function postRefundLedger(orderLike,refundLike,intentLike,{request,manual=
     const previous=await Refund.aggregate([{$match:{orderId:order._id,status:'completed',_id:{$ne:refund._id}}},{$group:{_id:null,total:{$sum:'$amountMinor'}}}]).session(session);const completedMinor=Number(previous[0]?.total||0)+refund.amountMinor,fully=completedMinor>=order.totals.totalMinor;
     intent.status=fully?'refunded':'partially_refunded';order.paymentState=fully?'refunded':'partially_refunded';order.refundState=fully?'complete':'partial';if(order.fulfillmentState==='cancelled'&&order.cancellation?.requestedAt)order.cancellationState='cancelled';syncLegacyOrderStatus(order);await intent.save({session});order.timeline.push({type:'refund.completed',message:`Refund ${refund.publicId} completed.`});
     if(fully||!allocations.length)await SellerOrder.updateMany({orderId:order._id},{$set:{status:fully?'refunded':'partially_refunded'},$push:{timeline:{type:'refund.completed',message:`Refund ${refund.publicId} applied to marketplace order.`}}},{session});else if(affectedStores.size)await SellerOrder.updateMany({orderId:order._id,storePublicId:{$in:[...affectedStores]}},{$set:{status:'partially_refunded'},$push:{timeline:{type:'refund.completed',message:`Item refund ${refund.publicId} applied to this seller order.`}}},{session});
-    const { ReturnRequest }=await import('../models/ReturnRequest.js');const returnRequest=await ReturnRequest.findOne({refundPublicId:refund.publicId}).session(session);if(returnRequest&&returnRequest.status!=='refunded'){for(const returned of returnRequest.items||[]){const line=order.items.find(item=>String(item.linePublicId)===String(returned.orderLineId));if(!line)throw new AppError('Refunded return references a missing order line.',409,'REFUND_ORDER_LINE_MISSING');const next=Number(line.refundedQuantity||0)+Number(returned.quantity||0);if(next>Number(line.returnedQuantity||0))throw new AppError('Refunded quantity exceeds physically returned quantity.',409,'REFUND_QUANTITY_CONFLICT');line.refundedQuantity=next;}returnRequest.status='refunded';returnRequest.timeline.push({type:'return.refunded',message:`Refund ${refund.publicId} completed and returned quantities were financially settled.`});await returnRequest.save({session});const { SellerReturnCase }=await import('../models/SellerReturnCase.js');await SellerReturnCase.updateMany({returnRequestId:returnRequest._id,status:{$ne:'resolved'}},{$set:{status:'resolved'},$push:{timeline:{type:'seller_return.resolved',message:`Refund ${refund.publicId} completed.`}}},{session});}
+    if(returnRequest){
+      for(const returned of returnRequest.items||[]){const line=order.items.find(item=>String(item.linePublicId)===String(returned.orderLineId));if(!line)throw new AppError('Refunded return references a missing order line.',409,'REFUND_ORDER_LINE_MISSING');const next=Number(line.refundedQuantity||0)+Number(returned.quantity||0);if(next>Number(line.returnedQuantity||0))throw new AppError('Refunded quantity exceeds physically returned quantity.',409,'REFUND_QUANTITY_CONFLICT');line.refundedQuantity=next;}
+      returnRequest.status='refunded';returnRequest.timeline.push({type:'return.refunded',message:`Refund ${refund.publicId} completed and returned quantities were financially settled.`,actorUserId:access.actor?._id});await returnRequest.save({session});
+      await SellerReturnCase.updateMany({returnRequestId:returnRequest._id,returnPublicId:returnRequest.publicId,orderPublicId:order.publicId,country:order.country,status:{$ne:'resolved'}},{$set:{status:'resolved'},$push:{timeline:{type:'seller_return.resolved',message:`Refund ${refund.publicId} completed.`}}},{session});
+      await Notification.create([{publicId:publicId('ntf'),userId:returnRequest.userId,country:order.country,type:'return_update',title:'Return refund completed',body:`${returnRequest.publicId}: Refund ${refund.publicId} is confirmed and your returned goods have been financially settled.`,href:'/returns'}],{session});
+      await writeAudit(request,'finance.return_refund_completed',{actor:access.actor,targetType:'return',targetPublicId:returnRequest.publicId,country:order.country,metadata:{refundPublicId:refund.publicId,amountMinor:refund.amountMinor,currency:refund.currency},session});
+    }
     const { reverseOrderCommissions }=await import('./promoters.js');await reverseOrderCommissions(order,refund,session);
     const { issueRefundCreditNote }=await import('./financial-documents.js');await issueRefundCreditNote(order,refund,intent,session);
     await refund.save({session});await order.save({session});await refreshOrderLifecycle(order._id,{session});

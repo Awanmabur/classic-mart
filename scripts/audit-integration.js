@@ -205,6 +205,21 @@ const promoter = await makeUser('promoter', 'affiliate');
 const delivery = await makeUser('delivery', 'driver');
 await models.DeliveryProfile.create({ publicId: publicId('dlp'), userId: delivery._id, country: 'UG', transport: 'motorcycle', verificationStatus: 'approved', approvedAt: new Date(), available: true, codEnabled: true });
 const support = await makeUser('support', 'support');
+const receivingOperator = await makeUser('warehouse', 'return-receipt');
+const supportCases = await import('../src/services/support-case-pages.js');
+async function receiveAuditReturn(doc) {
+  const sharp = (await import('sharp')).default;
+  const buffer = await sharp({ create: { width: 400, height: 400, channels: 3, background: '#345678' } }).png().toBuffer();
+  for (const line of doc.items) {
+    const current = await models.ReturnRequest.findById(doc._id);
+    const receiving = await models.Warehouse.findOne({ storeId: line.storeId, country: doc.country, active: true });
+    assert.ok(receiving, 'A physical return requires its actual receiving store warehouse');
+    const body = { version: current.__v, orderLineId: line.orderLineId, warehousePublicId: receiving.publicId };
+    const uploaded = await supportCases.uploadWarehouseReturnIntakeEvidence(await serviceRequest(receivingOperator), doc.publicId, body, { buffer, mimetype: 'image/png', originalname: 'audit-return-receipt.png', size: buffer.length });
+    await supportCases.recordWarehouseReturnIntake(await serviceRequest(receivingOperator), doc.publicId, { ...body, version: uploaded.version, evidencePublicId: uploaded.evidencePublicId });
+  }
+  return models.ReturnRequest.findById(doc._id);
+}
 const financeOne = await makeUser('finance', 'finance1');
 const financeTwo = await makeUser('finance', 'finance2');
 
@@ -316,19 +331,21 @@ assert.ok(await models.LedgerTransaction.exists({ idempotencyKey: `payout-releas
 const returnResult = await trust.createReturnRequest(await serviceRequest(customer), { orderId: paidOrder.publicId, reason: 'damaged', details: 'Audit return verifies the real post-purchase workflow.', resolution: 'refund', returnMethod: 'dropoff', dropoffPointId: '', items: [{ orderLineId: paidOrder.items.find(item=>item.productPublicId===product.publicId).linePublicId, quantity: 1 }] });
 let returnDoc = returnResult.returnRequest;
 returnDoc = await trust.decideReturn(await serviceRequest(support), returnDoc.publicId, { decision: 'approve', note: 'Audit eligible return' });
-returnDoc = await trust.markReturnReceived(await serviceRequest(support), returnDoc.publicId, 'Audit return received');
+returnDoc = await receiveAuditReturn(returnDoc);
 for(const line of returnDoc.items) {
   const task=await logistics.claimWarehouseTask({taskPublicId:line.warehouseTaskPublicId,actorUserId:admin._id});
   await logistics.executeWarehouseTask({task,actorUserId:admin._id,disposition:'damaged'});
 }
 returnDoc = await trust.inspectReturn(await serviceRequest(support), returnDoc.publicId, { condition: 'damaged', notes: 'Audit inspection' });
 assert.equal(returnDoc.status, 'refund_pending', 'Stage 8: inspected refund return must wait for finance');
+await supportCases.referSupportReturnToFinance(await serviceRequest(support), returnDoc.publicId, { version: returnDoc.__v, note: 'Independent Finance review of inspected audit return.' });
+returnDoc = await models.ReturnRequest.findById(returnDoc._id);
 const refundAllocations = returnDoc.items.map((item) => ({ storePublicId: item.storePublicId, productPublicId: item.productPublicId, orderLineId: item.orderLineId, grossMinor: item.requestedRefundMinor }));
-const refund = await payments.createRefund(await serviceRequest(financeOne), { orderId: paidOrder.publicId, amountMinor: returnResult.requestedRefundMinor, reason: `Approved return ${returnDoc.publicId}`, idempotencyKey: `audit-refund-${Date.now()}`, allocations: refundAllocations });
+const refund = await payments.createRefund(await serviceRequest(financeOne), { orderId: paidOrder.publicId, amountMinor: returnResult.requestedRefundMinor, reason: `Approved return ${returnDoc.publicId}`, idempotencyKey: `return-refund:${returnDoc.publicId}`, allocations: refundAllocations, returnPublicId: returnDoc.publicId, returnVersion: returnDoc.__v });
 assert.equal(refund.provider, 'cod_manual', 'Stage 5/8: COD refund must not pretend to be a provider refund');
 assert.equal(refund.status, 'processing', 'Stage 5/8: COD refund must wait for separate disbursement confirmation');
 assert.equal(refund.allocations.reduce((sum,row)=>sum+row.grossMinor,0), refund.amountMinor, 'Stage 5/8: item refund allocations must equal the refund amount');
-returnDoc.refundPublicId = refund.publicId; await returnDoc.save();
+
 await payments.completeManualRefund(await serviceRequest(financeTwo), refund.publicId, { reference: `AUDIT-COD-${Date.now()}`, version: refund.__v });
 assert.equal((await models.Refund.findById(refund._id)).status, 'completed', 'Stage 5/8: second finance actor must complete COD refund');
 assert.ok(await models.LedgerTransaction.exists({ referenceType: 'refund', referencePublicId: refund.publicId }), 'Stage 5/8: completed refund must reverse ledger entries');
@@ -345,7 +362,7 @@ auditCheckpoint('Stage 8: returns, refunds, exchanges, support and trust');
 const exchangeResult = await trust.createReturnRequest(await serviceRequest(customer), { orderId: paidOrder.publicId, reason: 'wrong_item', details: 'Audit exchange verifies replacement stock, seller order and shipment creation.', resolution: 'exchange', returnMethod: 'dropoff', dropoffPointId: '', items: [{ orderLineId: paidOrder.items.find(item=>item.productPublicId===secondProduct.publicId).linePublicId, quantity: 1 }] });
 let exchangeDoc = exchangeResult.returnRequest;
 exchangeDoc = await trust.decideReturn(await serviceRequest(support), exchangeDoc.publicId, { decision: 'approve', note: 'Audit exchange approved' });
-exchangeDoc = await trust.markReturnReceived(await serviceRequest(support), exchangeDoc.publicId, 'Audit exchange received');
+exchangeDoc = await receiveAuditReturn(exchangeDoc);
 for(const line of exchangeDoc.items) {
   const task=await logistics.claimWarehouseTask({taskPublicId:line.warehouseTaskPublicId,actorUserId:admin._id});
   await logistics.executeWarehouseTask({task,actorUserId:admin._id,disposition:'good'});

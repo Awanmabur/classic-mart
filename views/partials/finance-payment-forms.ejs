@@ -9,6 +9,7 @@
     <div><span>Market</span><strong><%= selectedFinanceRecord.country %> · <%= selectedFinanceRecord.currency %></strong></div>
     <div><span>Provider</span><strong><%= selectedFinanceRecord.provider.replaceAll('_', ' ') %></strong></div>
     <% if (selectedFinanceRecord.reason) { %><div><span>Reason</span><strong><%= selectedFinanceRecord.reason %></strong></div><% } %>
+    <% if (selectedFinanceRecord.returnPublicId) { %><div><span>Inspected return</span><a class="text-link" href="/finance/refunds?return=<%= encodeURIComponent(selectedFinanceRecord.returnPublicId) %>"><%= selectedFinanceRecord.returnPublicId %></a></div><% } %>
   </div>
   <% if (paymentFlow.pageId === 'finance-payments') { %>
     <% if (selectedFinanceRecord.canVerify) { %>
@@ -32,7 +33,24 @@
   <% } %>
 </section>
 <% } %>
-<% if (paymentFlow.pageId === 'finance-refunds') { const refundOrder = paymentFlow.refundOrder; %>
+<% for (const referredCase of paymentFlow.referredDisputes || []) { %>
+<section class="panel role-form-section" aria-labelledby="finance-case-<%= referredCase.publicId %>">
+  <div class="role-panel-head"><h2 id="finance-case-<%= referredCase.publicId %>">Referred order case</h2><span class="role-status"><%= referredCase.status.replaceAll('_', ' ') %></span></div>
+  <div class="role-form-grid"><div><span>Case</span><strong><%= referredCase.publicId %></strong></div><div><span>Topic</span><strong><%= referredCase.category.replaceAll('_', ' ') %></strong></div><div class="wide"><span>Customer subject</span><strong><%= referredCase.subject %></strong></div><p class="wide form-intro"><%= referredCase.description %></p></div>
+  <% for (const update of referredCase.updates) { %><p class="form-intro"><%= formatDate(update.at) %> · <%= update.message %></p><% } %>
+  <p class="form-intro">Review the original payment and confirmed financial records before taking action.</p>
+</section>
+<% } %>
+<% if (paymentFlow.returnContext) { const returnContext = paymentFlow.returnContext; %>
+<section class="panel role-form-section" aria-labelledby="finance-return-heading">
+  <div class="role-panel-head"><h2 id="finance-return-heading">Inspected return referral</h2><span class="role-status"><%= returnContext.status.replaceAll('_', ' ') %></span></div>
+  <div class="role-form-grid"><div><span>Return</span><strong><%= returnContext.publicId %></strong></div><div><span>Order</span><strong><%= returnContext.orderPublicId %></strong></div><div><span>Inspected refund</span><strong><%= formatMoney(returnContext.amountMinor, returnContext.currency) %></strong></div><div><span>Referred on</span><strong><%= formatDate(returnContext.referredAt) %></strong></div>
+    <% for (const item of returnContext.items) { %><div><span><%= item.title %> · <%= item.quantity %> returned</span><strong><%= formatMoney(item.grossMinor, returnContext.currency) %></strong></div><% } %>
+  </div>
+  <% if (returnContext.status === 'refunded') { %><p class="form-intro">The linked refund is confirmed and posted to the ledger.</p><% } else if (selectedFinanceRecord && ['failed','cancelled'].includes(selectedFinanceRecord.status)) { %><p class="form-intro">The linked refund did not complete. Review its recorded provider outcome and reconcile this case before taking further financial action.</p><a class="soft-button" href="/finance/reconciliation">Review reconciliation</a><% } else if (returnContext.status === 'refund_processing') { %><p class="form-intro">The linked refund has been recorded. Confirm the actual disbursement before completing it.</p><% } else { %><p class="form-intro">The amount and order lines come from the received goods and completed Warehouse inspection.</p><% } %>
+</section>
+<% } %>
+<% if (paymentFlow.pageId === 'finance-refunds' && (!paymentFlow.returnContext || paymentFlow.refundOrder)) { const refundOrder = paymentFlow.refundOrder; %>
 <section class="panel role-form-section" id="finance-refund-request" aria-labelledby="finance-refund-heading">
   <div class="role-panel-head"><h2 id="finance-refund-heading">Record refund</h2></div>
   <% if (!refundOrder) { %>
@@ -45,14 +63,15 @@
     <form method="post" action="/finance/refunds" class="role-form-grid">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="idempotencyKey" value="<%= paymentFlow.idempotencyKey %>">
       <input type="hidden" name="orderId" value="<%= refundOrder.publicId %>"><input type="hidden" name="version" value="<%= refundOrder.payment.version %>">
+      <% if (refundOrder.returnPublicId) { %><input type="hidden" name="returnPublicId" value="<%= refundOrder.returnPublicId %>"><input type="hidden" name="returnVersion" value="<%= refundOrder.returnVersion %>"><% } %>
       <div ><span>Order</span><strong><%= refundOrder.publicId %> · <%= refundOrder.country %> · <%= refundOrder.currency %></strong></div>
       <div ><span>Remaining refundable balance</span><strong><%= formatMoney(refundOrder.payment.remainingRefundMinor, refundOrder.currency) %></strong></div>
-      <label ><span>Amount in minor units (<%= refundOrder.currency %>)</span><input name="amountMinor" type="number" min="1" max="<%= refundOrder.payment.remainingRefundMinor %>" step="1" placeholder="Leave blank for the remaining balance"></label>
+      <% if (refundOrder.returnPublicId) { %><div><span>Inspected refund amount</span><strong><%= formatMoney(refundOrder.returnAmountMinor, refundOrder.currency) %></strong><input type="hidden" name="amountMinor" value="<%= refundOrder.returnAmountMinor %>"></div><% } else { %><label ><span>Amount in minor units (<%= refundOrder.currency %>)</span><input name="amountMinor" type="number" min="1" max="<%= refundOrder.payment.remainingRefundMinor %>" step="1" placeholder="Leave blank for the remaining balance"></label><% } %>
       <label class="wide"><span>Refund reason</span><textarea name="reason" minlength="3" maxlength="300" required rows="3"></textarea></label>
       <% for (const item of refundOrder.items) { %>
-        <label ><span><%= item.title %> · line amount in minor units</span><input name="line:<%= item.orderLineId %>" type="number" min="0" max="<%= item.lineTotalMinor %>" step="1" value="0"></label>
+        <% if (refundOrder.returnPublicId) { %><div><span><%= item.title %> · inspected line amount</span><strong><%= formatMoney(item.refundMinor, refundOrder.currency) %></strong><input type="hidden" name="line:<%= item.orderLineId %>" value="<%= item.refundMinor %>"></div><% } else { %><label ><span><%= item.title %> · line amount in minor units</span><input name="line:<%= item.orderLineId %>" type="number" min="0" max="<%= item.lineTotalMinor %>" step="1" value="0"></label><% } %>
       <% } %>
-      <p class="wide form-intro">For partial or follow-up refunds, assign the refund amount to the purchased lines. Line amounts must total the refund amount. A full untouched payment can be refunded without line amounts.</p>
+      <% if (refundOrder.returnPublicId) { %><p class="wide form-intro">This refund is bound to the inspected return. Its amount and order lines must match the authoritative goods receipt.</p><% } else { %><p class="wide form-intro">For partial or follow-up refunds, assign the refund amount to the purchased lines. Line amounts must total the refund amount. A full untouched payment can be refunded without line amounts.</p><% } %>
       <div class="wide"><button class="primary-button" type="submit">Record refund</button></div>
     </form>
   <% } %>

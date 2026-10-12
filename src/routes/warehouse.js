@@ -5,6 +5,7 @@ import { AppError, asyncHandler } from '../core/errors.js';
 import { hasPermission } from '../core/roles.js';
 import { env } from '../config/env.js';
 import { requireAuth, requireVerified, requireOnboarding } from '../middleware/auth.js';
+import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { noStore } from '../middleware/request.js';
 import { setFlash } from '../middleware/view.js';
 import { allowedWorkspacesFor } from '../dashboard/access.js';
@@ -14,6 +15,8 @@ import { liveAccountHeader } from '../dashboard/live-account-header.js';
 import { mutateWarehouse } from '../services/warehouse-operations.js';
 import { loadWarehousePage, warehouseReportRows, warehouseParcelLabel } from '../services/warehouse-dashboard.js';
 import { code39Geometry } from '../dashboard/parcel-barcode.js';
+import { uploadVerificationImage } from '../services/media.js';
+import { loadWarehouseReturnIntakes, uploadWarehouseReturnIntakeEvidence, recordWarehouseReturnIntake } from '../services/support-case-pages.js';
 
 const router = Router();
 const privatePage = (_request, response, next) => { response.set('X-Robots-Tag', 'noindex, nofollow, noarchive'); next(); };
@@ -27,12 +30,13 @@ const operationalAccess = (request, response, next) => {
 };
 const access = [noStore, privatePage, requireAuth, requireVerified, requireOnboarding, operationalAccess];
 const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+const intakeUploadLimit = rateLimit({ windowMs: 15 * 60_000, limit: 15, standardHeaders: 'draft-8', legacyHeaders: false });
 const exportLimit = rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
 const navigation = DASHBOARD_PAGES.warehouse.map(([id, label, icon]) => ({ id, label, icon, href: WAREHOUSE_ROUTES[id], ready: true }));
 
 async function renderPage(request, response, mode, error = '') {
   let pageRequest = request;
-  if (error && typeof request.body.warehousePublicId === 'string' && /^[a-z][a-z0-9_-]{4,99}$/.test(request.body.warehousePublicId)) {
+  if (error && mode !== 'returns' && typeof request.body.warehousePublicId === 'string' && /^[a-z][a-z0-9_-]{4,99}$/.test(request.body.warehousePublicId)) {
     pageRequest = Object.create(request);
     Object.defineProperty(pageRequest, 'query', { value: { ...request.query, warehousePublicId: request.body.warehousePublicId } });
   }
@@ -43,13 +47,26 @@ async function renderPage(request, response, mode, error = '') {
   }
   const draft = error ? Object.fromEntries(['type', 'stockPublicId', 'quantity', 'binCode', 'reference', 'notes'].map(key => [key,
     ['string', 'number'].includes(typeof request.body[key]) ? String(request.body[key]).slice(0, key === 'notes' ? 500 : key === 'reference' ? 120 : 100) : ''])) : {};
-  if (request.accepts(['html', 'json']) === 'json') return response.json(flow);
-  const header = await liveAccountHeader(request);
+  const intakeDraft = error && mode === 'returns' ? {
+    returnPublicId: String(request.params.publicId || ''),
+    ...Object.fromEntries(['orderLineId', 'warehousePublicId', 'evidencePublicId', 'note'].map(key => [key,
+      typeof request.body[key] === 'string' ? request.body[key].slice(0, key === 'note' ? 300 : 100) : ''])),
+  } : {};
+  const wantsJson = request.accepts(['html', 'json']) === 'json';
+  const header = wantsJson ? null : await liveAccountHeader(request);
+  if (mode === 'returns') {
+    flow.returnIntakes = { ...await loadWarehouseReturnIntakes(pageRequest), after: pageRequest.query.intakesAfter || '' };
+    const warehouseCoverage = rows => rows.map(row => row.country + ':' + row.publicId).sort().join(',');
+    if (warehouseCoverage(flow.returnIntakes.warehouses) !== warehouseCoverage(flow.warehouses)) {
+      throw new AppError('Your receiving locations changed. Reload this workspace.', 403, 'WAREHOUSE_SCOPE_CHANGED');
+    }
+  }
+  if (wantsJson) return response.json(flow);
   return response.render('approved-dashboard', {
     ...header, workspace: 'warehouse', initialPage: 'warehouse-' + mode,
     allowedWorkspaces: [...new Set([...allowedWorkspacesFor(request.user), 'warehouse'])],
     customerRoutes: { ...header.customerRoutes, ...WAREHOUSE_ROUTES },
-    liveWarehouse: { profileRole: 'Warehouse', navigation, flow: { ...flow, mode, error, draft, actionKey: randomUUID() } },
+    liveWarehouse: { profileRole: 'Warehouse', navigation, flow: { ...flow, mode, error, draft, intakeDraft, actionKey: randomUUID() } },
   });
 }
 
@@ -61,6 +78,50 @@ router.get('/operations/logistics', ...access, (request, response) => response.r
 // Retired preference toggles had no operational effect. Warehouse settings expose
 // authoritative locations and access; personal security remains on the account page.
 router.post('/operations/logistics/dashboard/settings', ...access, (_request, response) => response.redirect(303, '/warehouse/settings'));
+
+function intakeReturnPath(request) {
+  const query = new URLSearchParams();
+  for (const key of ['warehousePublicId', 'taskStatus', 'scanCode', 'mine', 'after', 'intakesAfter']) {
+    const value = request.query[key];
+    if (typeof value === 'string' && value.length <= 512) query.set(key, value);
+  }
+  return '/warehouse/returns' + (query.size ? '?' + query.toString() : '');
+}
+
+function parseIntakeImage(request, response, next) {
+  uploadVerificationImage(request, response, error => {
+    // Multipart data must be parsed before checking its form token. No image or
+    // return workflow is persisted until this check succeeds.
+    try { verifyDeferredCsrf(request); } catch (csrfError) { return next(csrfError); }
+    if (error) request.warehouseIntakeUploadError = error.name === 'MulterError'
+      ? new AppError(error.code === 'LIMIT_FILE_SIZE' ? 'Choose a receipt image up to 8 MB.' : 'Choose one receipt image in the Document field.', 422, 'RETURN_INTAKE_UPLOAD_INVALID')
+      : error;
+    return next();
+  });
+}
+
+for (const [action, operation, message] of [
+  ['intake-evidence', uploadWarehouseReturnIntakeEvidence, 'Receipt image saved. Confirm the goods received against this exact order line.'],
+  ['intake', recordWarehouseReturnIntake, 'Physical return receipt recorded. Received goods proceed to their warehouse inspection tasks.'],
+]) {
+  router.post('/warehouse/returns/:publicId/' + action, ...access,
+    ...(action === 'intake-evidence' ? [intakeUploadLimit, parseIntakeImage] : [mutationLimit]),
+    asyncHandler(async (request, response) => {
+      try {
+        verifyDeferredCsrf(request);
+        if (request.warehouseIntakeUploadError) throw request.warehouseIntakeUploadError;
+        const result = await operation(request, request.params.publicId, request.body || {}, request.file);
+        if (request.accepts(['html', 'json']) === 'json') return response.status(action === 'intake-evidence' ? 201 : 200).json(result);
+        setFlash(request, 'success', message);
+        return response.redirect(303, intakeReturnPath(request));
+      } catch (error) {
+        const status = error.name === 'ZodError' ? 422 : error.status;
+        if (![409, 422].includes(status) || request.accepts(['html', 'json']) === 'json') throw error;
+        response.status(status);
+        return renderPage(request, response, 'returns', error.name === 'ZodError' ? error.issues[0].message : error.message);
+      }
+    }));
+}
 
 function csvCell(value) {
   let text = String(value ?? '');

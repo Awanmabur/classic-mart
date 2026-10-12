@@ -142,3 +142,4 @@ export { SubscriptionChangeRequest } from './SubscriptionChangeRequest.js';
 
 export { WalletTopUp } from './WalletTopUp.js';
 export { FinanceDigest } from './FinanceDigest.js';
+export { SupportDigest } from './SupportDigest.js';

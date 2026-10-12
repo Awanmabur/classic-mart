@@ -4,6 +4,8 @@ import { MarketingCampaign, OutboxEvent, StoreBroadcast } from '../models/index.
 import { sendNotificationEmail } from './mail.js';
 import { clearStorefrontCache } from './storefront.js';
 import { prepareFinanceDigestDelivery, finishFinanceDigestDelivery } from './finance-weekly-reports.js';
+import { prepareSupportDigestDelivery, finishSupportDigestDelivery } from './support-weekly-reports.js';
+import { prepareSupportTicketDelivery, finishSupportTicketDelivery } from './support-ticket-pages.js';
 
 export async function addOutboxEvent(
   { type, aggregateType, aggregatePublicId, payload },
@@ -32,17 +34,22 @@ export async function processNotificationOutbox({ limit = 50, workerId=`notifica
   for(let i=0;i<Math.min(Math.max(Number(limit)||50,1),100);i++){
     const now=new Date();
     const event=await OutboxEvent.findOneAndUpdate(
-      {type:{$in:['marketing.campaign_message','store.broadcast','guest.order_access_code','platform.staff_invitation','seller.verification_notification','catalogue.product_notification','seller.order_notification','finance.weekly_report']},availableAt:{$lte:now},$or:[{status:{$in:['pending','failed']}},{status:'processing',lockedUntil:{$lte:now}}]},
+      {type:{$in:['marketing.campaign_message','store.broadcast','guest.order_access_code','platform.staff_invitation','seller.verification_notification','catalogue.product_notification','seller.order_notification','finance.weekly_report','support.weekly_report','support.ticket_reply']},availableAt:{$lte:now},$or:[{status:{$in:['pending','failed']}},{status:'processing',lockedUntil:{$lte:now}}]},
       {$set:{status:'processing',lockedBy:workerId,lockedUntil:new Date(now.getTime()+leaseMs)},$inc:{attempts:1}},
       {sort:{createdAt:1},returnDocument:'after'},
     );
     if(!event)break;checked+=1;
     try{
-      const financeDigest=event.type==='finance.weekly_report';
-      const message=financeDigest?await prepareFinanceDigestDelivery(event):{email:event.payload?.email,subject:event.payload?.subject,text:event.payload?.body};
+      const financeDigest=event.type==='finance.weekly_report',supportDigest=event.type==='support.weekly_report',supportReply=event.type==='support.ticket_reply';
+      const message=financeDigest?await prepareFinanceDigestDelivery(event):supportDigest?await prepareSupportDigestDelivery(event):supportReply?await prepareSupportTicketDelivery(event):{email:event.payload?.email,subject:event.payload?.subject,text:event.payload?.body};
       const result=message?await runWithStoredTrace({traceId:event.traceId,spanId:event.traceSpanId},()=>sendEmail(message)):null;
       if(financeDigest&&message)await finishFinanceDigestDelivery(event,result);
-      event.status='processed';event.processedAt=new Date();event.lastError=!message?'Finance report cancelled: current delivery authorization is unavailable.':result.developmentSink?'Development mail sink: no external email was sent.':'';processed+=1;if(['marketing.campaign_message','store.broadcast'].includes(event.type))completedAggregates.add(event.aggregatePublicId);
+      if(supportDigest&&message)await finishSupportDigestDelivery(event,result);
+      if(supportReply){
+        if(message)await finishSupportTicketDelivery(event,result);
+        else{event.payload={...event.payload,deliveryStatus:'cancelled',deliveryProcessedAt:new Date().toISOString()};event.markModified('payload');}
+      }
+      event.status='processed';event.processedAt=new Date();event.lastError=!message?(financeDigest?'Finance report':supportDigest?'Support report':'Support reply')+' cancelled: current delivery authorization is unavailable.':result?.developmentSink?'Development mail sink: no external email was sent.':'';processed+=1;if(['marketing.campaign_message','store.broadcast'].includes(event.type))completedAggregates.add(event.aggregatePublicId);
     }catch(error){
       event.status=event.attempts>=10?'dead':'failed';event.lastError=String(error.message||error).slice(0,1000);event.availableAt=new Date(Date.now()+Math.min(60,2**Math.min(8,event.attempts))*60_000);failed+=1;
     }

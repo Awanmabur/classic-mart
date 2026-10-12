@@ -35,6 +35,7 @@ export async function renderFinancePage(request, response, pageId, financeFlow) 
   financeFlow.context = financePublicContext(context);
   if (request.accepts(['html', 'json']) === 'json') return response.json(financeFlow);
   const [header, sidebar] = await Promise.all([liveSellerAccountHeader(request), financeFlow.sidebar || loadFinanceSidebar(context)]);
+  await assertFinanceExportAccess(request, context);
   return response.render('approved-dashboard', {
     ...header, workspace: 'finance', initialPage: pageId, allowedWorkspaces: ['finance'],
     customerRoutes: { ...header.customerRoutes, ...FINANCE_LIVE_ROUTES, dashboard: '/finance/overview', profile: '/finance/settings' },

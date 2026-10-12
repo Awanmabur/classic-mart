@@ -8,13 +8,21 @@ import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { decryptSensitive } from '../core/sensitive.js';
 import { hasPermission } from '../core/roles.js';
+import { env } from '../config/env.js';
+import { hydratePlatformAuthorization } from '../services/platform-grants.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import {
-  Dispute, EvidenceDocument, Order, PaymentIntent, Product, Refund, ReturnRequest, Review, RiskSignal, SatisfactionSurvey, SellerOrder, SellerReturnCase, Shipment, Store, StoreMember,
+  CountrySetting, Dispute, EvidenceDocument, Order, PaymentIntent, Product, Refund, ReturnRequest, Review, RiskSignal, SatisfactionSurvey, SellerOrder, SellerReturnCase, Shipment, Store, StoreMember,
   SupportKnowledge, SupportMacro, SupportTicket, SupportTicketPresence, TrustCase, User,
 } from '../models/index.js';
 import { createRefund } from '../services/payments.js';
+import { customerReturnDto } from '../services/customer-case-projections.js';
+import { supportTicketCustomerDto, customerReplySupportTicket, customerReopenSupportTicket } from '../services/support-ticket-pages.js';
+import { replyToOwnedDispute, supportEvidenceRecord, warehouseReturnReceiptEvidenceRecord, returnFinancialAllocations } from '../services/support-case-pages.js';
+import { financeAccess } from '../services/finance-workspace-access.js';
+import { supportAccess } from '../services/support-workspace-access.js';
+import { customerDisputeDto, customerSatisfactionDto, appealOwnedDispute } from '../services/customer-dispute-pages.js';
 import { sanitizeAndStoreEvidenceImage, uploadVerificationImage } from '../services/media.js';
 import { sendStoredMedia } from '../services/media-delivery.js';
 import {
@@ -29,9 +37,11 @@ import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 import { writeAudit } from '../services/audit.js';
 
 const router=Router();
+router.use(['/api/v1/returns','/api/v1/disputes','/api/v1/support/tickets','/api/v1/finance/returns','/account/returns','/account/support','/account/disputes','/evidence'],(_req,res,next)=>{res.set({'Cache-Control':'private, no-store','X-Robots-Tag':'noindex, nofollow, noarchive'});next();});
+const customerReplyLimit=rateLimit({windowMs:15*60_000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
 function customerTrustReturn(request){const value=String(request.body?.returnTo||'');if (['/returns','/support'].includes(value)) return value;return {'/dashboard/returns':'/returns','/dashboard/support':'/support'}[value] || '/account/returns';}
 const publicSupportLimit=rateLimit({windowMs:15*60_000,limit:8,standardHeaders:'draft-8',legacyHeaders:false});
-const publicTicketSchema=z.object({context:z.enum(['help','contact']).default('help'),name:z.string().trim().min(2).max(120),email:z.string().trim().email().max(254),topic:z.string().trim().min(2).max(100),orderId:z.string().trim().max(100).optional().default(''),message:z.string().trim().min(10).max(3000)});
+const publicTicketSchema=z.object({context:z.enum(['help','contact']).default('help'),name:z.string().trim().min(2).max(120),email:z.string().trim().email().max(254),topic:z.string().trim().min(2).max(100),orderId:z.string().trim().max(100).optional().default(''),message:z.string().trim().min(10).max(2000)});
 function publicCategory(topic){const v=String(topic||'').toLowerCase();if(v.includes('order'))return 'order';if(v.includes('return'))return 'return';if(v.includes('payment'))return 'payment';if(v.includes('seller'))return 'seller';if(v.includes('privacy')||v.includes('account'))return 'account';return 'other';}
 function publicPriority(topic){const v=String(topic||'').toLowerCase();return v.includes('payment')||v.includes('return')?'high':'normal';}
 const returnSchema=z.object({orderId:z.string().min(4).max(100),reason:z.enum(['damaged','wrong_item','not_as_described','counterfeit_suspected','missing_parts','changed_mind','other']),details:z.string().trim().min(10).max(2000),resolution:z.enum(['refund','exchange']),returnMethod:z.enum(['dropoff','pickup']).default('dropoff'),dropoffPointId:z.string().trim().max(100).optional().default(''),items:z.array(z.object({orderLineId:z.string().min(4).max(100),quantity:z.coerce.number().int().min(1).max(99)})).min(1).max(20)});
@@ -74,7 +84,7 @@ router.get('/account/returns',requireAuth,requireVerified,async(req,res,next)=>{
     fetchPage(SupportTicket,req.query.ticketsAfter,{populate:[['evidenceDocumentIds','publicId description']]}),
     (async()=>{const caseBase={reporterUserId:req.user._id};let q=TrustCase.find(cursorScope(caseBase,req.query.casesAfter)).populate('evidenceDocumentIds','publicId description').sort(cursorSort()).limit(pageSize+1);const [rows,total]=await Promise.all([q.lean(),TrustCase.countDocuments(caseBase)]);return pageResult(rows,{limit:pageSize,total});})(),
   ]);
-  const orders=orderPage.items,returns=returnPage.items,disputes=disputePage.items,tickets=ticketPage.items,cases=casePage.items;
+  const orders=orderPage.items,returns=returnPage.items.map(customerReturnDto),disputes=disputePage.items.map(customerDisputeDto),tickets=ticketPage.items.map(row=>({...supportTicketCustomerDto(row),evidenceDocumentIds:row.evidenceDocumentIds})),cases=casePage.items;
   const surveys=tickets.length?await SatisfactionSurvey.find({userId:req.user._id,ticketPublicId:{$in:tickets.map(t=>t.publicId)}}).lean():[];
   const surveyByTicket=Object.fromEntries(surveys.map(row=>[row.ticketPublicId,row]));
   const returnableLines=[],reviewableLines=[];
@@ -87,7 +97,7 @@ router.get('/account/returns',requireAuth,requireVerified,async(req,res,next)=>{
   res.set('Cache-Control','private, no-store').render('approved-dashboard', { ...shell,orders,returns,disputes,tickets,cases,surveys,surveyByTicket,returnPickupCodes,returnableLines,reviewableLines,queuePages:{orders:orderPage.page,returns:returnPage.page,disputes:disputePage.page,tickets:ticketPage.page,cases:casePage.page}});
 }catch(e){next(e);}});
 
-router.post('/api/v1/returns',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json(await createReturnRequest(req,returnSchema.parse(req.body)));}catch(e){next(e);}});
+router.post('/api/v1/returns',requireAuth,requireVerified,async(req,res,next)=>{try{const result=await createReturnRequest(req,returnSchema.parse(req.body));res.status(201).json({...result,returnRequest:customerReturnDto(result.returnRequest)});}catch(e){next(e);}});
 
 router.post('/account/returns',requireAuth,requireVerified,async(req,res,next)=>{try{const [orderId,orderLineId]=String(req.body.returnLine||'').split('::');const input=returnSchema.parse({orderId,reason:req.body.reason,details:req.body.details,resolution:req.body.resolution,returnMethod:req.body.returnMethod,dropoffPointId:req.body.dropoffPointId,items:[{orderLineId,quantity:req.body.quantity}]});await createReturnRequest(req,input);res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
 
@@ -100,13 +110,20 @@ router.get('/api/v1/returns/:id/pickup-code',requireAuth,requireVerified,async(r
 
 router.post('/account/disputes',requireAuth,requireVerified,async(req,res,next)=>{try{await createDispute(req,disputeSchema.parse(req.body));res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
 
-router.post('/account/disputes/:id/appeal',requireAuth,requireVerified,async(req,res,next)=>{try{const message=z.string().trim().min(10).max(1500).parse(req.body.message);const d=await Dispute.findOne({publicId:req.params.id,userId:req.user._id,status:{$in:['resolved','rejected','closed']}});if(!d)throw new AppError('Eligible dispute not found.',404,'DISPUTE_NOT_FOUND');d.status='appealed';d.resolvedAt=undefined;d.events.push({type:'dispute.appealed',message,actorUserId:req.user._id});await d.save();res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
+router.post('/account/disputes/:id/appeal',requireAuth,requireVerified,customerReplyLimit,async(req,res,next)=>{try{verifyDeferredCsrf(req);await appealOwnedDispute(req,req.params.id,req.body);res.redirect(303,customerTrustReturn(req));}catch(e){next(e);}});
 
 router.post('/account/support',requireAuth,requireVerified,async(req,res,next)=>{try{await createTicket(req,ticketSchema.parse(req.body));res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
 
+for(const [path,operation,key] of [['support','customer','ticket'],['disputes','dispute','dispute']]){
+  const reply=operation==='customer'?customerReplySupportTicket:replyToOwnedDispute;
+  router.post('/account/'+path+'/:id/reply',requireAuth,requireVerified,customerReplyLimit,async(req,res,next)=>{try{verifyDeferredCsrf(req);await reply(req,req.params.id,req.body);setFlash(req,'success','Your reply has been saved.');res.redirect(303,customerTrustReturn(req));}catch(e){next(e);}});
+  router.post('/api/v1/'+(path==='support'?'support/tickets':path)+'/:id/reply',requireAuth,requireVerified,customerReplyLimit,async(req,res,next)=>{try{verifyDeferredCsrf(req);res.set('Cache-Control','private, no-store').json({[key]:await reply(req,req.params.id,req.body)});}catch(e){next(e);}});
+}
+router.post('/api/v1/support/tickets/:id/reopen',requireAuth,requireVerified,customerReplyLimit,async(req,res,next)=>{try{verifyDeferredCsrf(req);res.set('Cache-Control','private, no-store').json({ticket:await customerReopenSupportTicket(req,req.params.id,req.body)});}catch(e){next(e);}});
+
 router.post('/account/support/:id/csat',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({rating:z.coerce.number().int().min(1).max(5),comment:z.string().trim().max(1000).default('')}).parse(req.body);await submitSatisfaction(req,req.params.id,input);res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
 
-router.post('/account/support/:id/reopen',requireAuth,requireVerified,async(req,res,next)=>{try{const message=z.string().trim().min(3).max(2000).parse(req.body.message||'Customer requested more help.');const t=await SupportTicket.findOne({publicId:req.params.id,userId:req.user._id,status:{$in:['resolved','closed']}});if(!t)throw new AppError('Resolved support ticket not found.',404,'TICKET_NOT_FOUND');if(t.resolvedAt&&Date.now()-t.resolvedAt.getTime()>30*24*60*60*1000)throw new AppError('This ticket has been closed for more than 30 days. Open a new support request instead.',409,'TICKET_REOPEN_WINDOW');const from=t.status;t.status='open';t.resolvedAt=undefined;t.reopenedAt=new Date();t.assignedUserId=undefined;t.assignedAt=undefined;t.slaDueAt=new Date(Date.now()+supportSlaHours(t.priority)*60*60*1000);t.notes.push({message,actorUserId:req.user._id,internal:false});t.workflowHistory.push({action:'reopened',actorUserId:req.user._id,fromStatus:from,toStatus:'open',note:'Customer reopened ticket.'});await t.save();setFlash(req,'success',`Support ticket ${t.publicId} reopened.`);res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
+router.post('/account/support/:id/reopen',requireAuth,requireVerified,async(req,res,next)=>{try{verifyDeferredCsrf(req);await customerReopenSupportTicket(req,req.params.id,{...req.body,message:req.body.message||'Customer requested more help.'});setFlash(req,'success','Support ticket reopened.');res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
 
 router.post('/account/reviews',requireAuth,requireVerified,async(req,res,next)=>{try{const [orderId,productId]=String(req.body.reviewLine||'').split('::');await createVerifiedReview(req,reviewSchema.parse({orderId,productId,rating:req.body.rating,title:req.body.title,body:req.body.body}));res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
 
@@ -114,24 +131,74 @@ router.post('/account/trust-report',requireAuth,requireVerified,async(req,res,ne
 
 router.post('/account/trust-cases/:id/appeal',requireAuth,requireVerified,async(req,res,next)=>{try{const message=z.string().trim().min(10).max(1500).parse(req.body.message);const c=await TrustCase.findOne({publicId:req.params.id,reporterUserId:req.user._id,status:{$in:['actioned','dismissed','closed']}});if(!c)throw new AppError('Eligible trust case not found.',404,'TRUST_CASE_NOT_FOUND');c.status='appealed';c.decision=`Appeal: ${message}`;c.resolvedAt=undefined;await c.save();res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
 
-router.post('/api/v1/disputes',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({dispute:await createDispute(req,disputeSchema.parse(req.body))});}catch(e){next(e);}});
+router.post('/api/v1/disputes',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({dispute:customerDisputeDto(await createDispute(req,disputeSchema.parse(req.body)))});}catch(e){next(e);}});
 
-router.post('/api/v1/support/tickets',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({ticket:await createTicket(req,ticketSchema.parse(req.body))});}catch(e){next(e);}});
+router.post('/api/v1/support/tickets',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({ticket:supportTicketCustomerDto(await createTicket(req,ticketSchema.parse(req.body)))});}catch(e){next(e);}});
 
-router.post('/api/v1/support/tickets/:id/csat',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({rating:z.coerce.number().int().min(1).max(5),comment:z.string().trim().max(1000).default('')}).parse(req.body);res.status(201).json({survey:await submitSatisfaction(req,req.params.id,input)});}catch(e){next(e);}});
+router.post('/api/v1/support/tickets/:id/csat',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({rating:z.coerce.number().int().min(1).max(5),comment:z.string().trim().max(1000).default('')}).parse(req.body);res.status(201).json({survey:customerSatisfactionDto(await submitSatisfaction(req,req.params.id,input))});}catch(e){next(e);}});
 
 router.post('/api/v1/reviews',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({review:await createVerifiedReview(req,reviewSchema.parse(req.body))});}catch(e){next(e);}});
 
 router.post('/api/v1/trust/reports',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({case:await reportTrustIssue(req,trustSchema.parse(req.body))});}catch(e){next(e);}});
 
 
-router.get('/evidence/:id',requireAuth,requireVerified,async(req,res,next)=>{try{const evidence=await EvidenceDocument.findOne({publicId:req.params.id,status:'ready'}).select('+storageKey');if(!evidence)throw new AppError('Evidence not found.',404,'EVIDENCE_NOT_FOUND');const deliveryOperator=['delivery_verification','delivery_job'].includes(evidence.contextType)&&['country_admin','super_admin','support','finance'].includes(req.user.role);const supportOperator=['return','seller_return','dispute','support'].includes(evidence.contextType)&&canSupportOperations(req.user);const trustOperator=evidence.contextType==='trust_case'&&canTrustOperations(req.user);let sellerOperator=false;if(evidence.contextType==='seller_return'){const sellerCase=await SellerReturnCase.findOne({publicId:evidence.contextPublicId}).select('storeId').lean();if(sellerCase){const store=await Store.findById(sellerCase.storeId).select('ownerUserId').lean();sellerOperator=String(store?.ownerUserId||'')===String(req.user._id)||Boolean(await StoreMember.exists({storeId:sellerCase.storeId,userId:req.user._id,status:'active',role:{$in:['owner','admin','support']}}));}}const canOperate=deliveryOperator||supportOperator||trustOperator||sellerOperator;if(deliveryOperator||supportOperator||trustOperator)assertOperationalCountry(req.user,evidence.country);if(!evidence.ownerUserId.equals(req.user._id)&&!canOperate)throw new AppError('Evidence access denied.',403,'FORBIDDEN');await sendStoredMedia(res,evidence.storageKey,{cacheControl:'private, no-store',contentType:'image/webp',contentDisposition:'inline'});}catch(e){next(e);}});
+router.get('/evidence/:id',requireAuth,requireVerified,async(req,res,next)=>{try{
+  const actor=await User.findById(req.user._id).select('+operationalCountries');
+  if(!actor||actor.status!=='active'||actor.security.tokenVersion!==req.user.security.tokenVersion||actor.security.tokenVersion!==req.session.tokenVersion)throw new AppError('Your account or session is unavailable.',403,'ACCOUNT_UNAVAILABLE');
+  await hydratePlatformAuthorization(actor);
+  const currentRequest={...req,user:actor,session:req.session,query:{}};
+  if(primaryWorkspaceFor(actor)==='support'){
+    const evidence=await supportEvidenceRecord(currentRequest,req.params.id);
+    return sendStoredMedia(res,evidence.storageKey,{cacheControl:'private, no-store',contentType:'image/webp',contentDisposition:'inline'});
+  }
+  const evidence=await EvidenceDocument.findOne({publicId:req.params.id,status:'ready'}).select('+storageKey');
+  if(!evidence)throw new AppError('Evidence not found.',404,'EVIDENCE_NOT_FOUND');
+  const customerReceipt=evidence.documentType==='return_receipt'&&evidence.contextType==='return'&&await ReturnRequest.exists({publicId:evidence.contextPublicId,userId:actor._id,country:evidence.country,evidenceDocumentIds:evidence._id,'items.orderLineId':evidence.contextLinePublicId});
+  if(evidence.documentType==='return_receipt'&&!customerReceipt&&String(evidence.ownerUserId)===String(actor._id)){
+    const receipt=await warehouseReturnReceiptEvidenceRecord(currentRequest,evidence.publicId);
+    return sendStoredMedia(res,receipt.storageKey,{cacheControl:'private, no-store',contentType:'image/webp',contentDisposition:'inline'});
+  }
+  let permitted=evidence.documentType==='return_receipt'?Boolean(customerReceipt):String(evidence.ownerUserId)===String(actor._id),staff=false;
+  if(!permitted&&evidence.contextType==='return')permitted=Boolean(await ReturnRequest.exists({publicId:evidence.contextPublicId,userId:actor._id,country:evidence.country,evidenceDocumentIds:evidence._id,...(evidence.contextLinePublicId?{'items.orderLineId':evidence.contextLinePublicId}:{})}));
+  if(!permitted&&['return','seller_return','dispute','support'].includes(evidence.contextType)&&canSupportOperations(actor)){
+    await supportAccess(currentRequest,{workspace:false,country:evidence.country});
+    const Model={return:ReturnRequest,seller_return:SellerReturnCase,dispute:Dispute,support:SupportTicket}[evidence.contextType];
+    permitted=Boolean(await Model.exists({publicId:evidence.contextPublicId,country:evidence.country,evidenceDocumentIds:evidence._id}));staff=true;
+  }
+  if(!permitted&&['return','dispute'].includes(evidence.contextType)&&primaryWorkspaceFor(actor)==='finance'){
+    await financeAccess(currentRequest,{country:evidence.country});
+    const Model=evidence.contextType==='return'?ReturnRequest:Dispute;
+    permitted=Boolean(await Model.exists({publicId:evidence.contextPublicId,country:evidence.country,evidenceDocumentIds:evidence._id}));staff=true;
+  }
+  if(!permitted&&evidence.contextType==='seller_return'){
+    const sellerCase=await SellerReturnCase.findOne({publicId:evidence.contextPublicId,country:evidence.country,evidenceDocumentIds:evidence._id}).select('storeId').lean();
+    if(sellerCase){const store=await Store.findById(sellerCase.storeId).select('ownerUserId').lean();permitted=String(store?.ownerUserId||'')===String(actor._id)||Boolean(await StoreMember.exists({storeId:sellerCase.storeId,userId:actor._id,status:'active',role:mongoose.trusted({$in:['owner','admin','support']})}));staff=permitted;}
+  }
+  if(!permitted&&((['delivery_verification','delivery_job'].includes(evidence.contextType)&&['country_admin','super_admin','finance'].includes(actor.role))||(evidence.contextType==='trust_case'&&canTrustOperations(actor)))){
+    assertOperationalCountry(actor,evidence.country);
+    permitted=Boolean(await CountrySetting.exists({code:evidence.country,active:true}));staff=permitted;
+  }
+  if(staff&&!env.auth.simpleLogin&&env.security.privilegedMfaRequired&&!actor.security.mfaEnabled)throw new AppError('Authenticator enrollment is required for private operational evidence.',403,'MFA_ENROLLMENT_REQUIRED');
+  if(!permitted)throw new AppError('Evidence access denied.',403,'FORBIDDEN');
+  const fresh=await User.findById(actor._id).select('status security.tokenVersion security.mfaEnabled').lean();
+  if(fresh?.status!=='active'||fresh.security.tokenVersion!==actor.security.tokenVersion||staff&&!env.auth.simpleLogin&&env.security.privilegedMfaRequired&&!fresh.security.mfaEnabled)throw new AppError('Evidence access changed. Reload before continuing.',403,'ACCOUNT_UNAVAILABLE');
+  await sendStoredMedia(res,evidence.storageKey,{cacheControl:'private, no-store',contentType:'image/webp',contentDisposition:'inline'});
+}catch(e){next(e);}});
 
-router.post('/api/v1/finance/returns/:id/refund',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const ret=await ReturnRequest.findOne({publicId:req.params.id,...supportScope(req.user)});if(!ret)throw new AppError('Return not found.',404,'RETURN_NOT_FOUND');if(ret.status!=='refund_pending')throw new AppError('Return is not approved and inspected for refund.',409,'RETURN_STATE');const amount=ret.items.reduce((sum,item)=>sum+item.requestedRefundMinor,0);const order=await Order.findById(ret.orderId).lean();const allocations=ret.items.map(item=>{const original=order?.items?.find(row=>String(row.linePublicId||row._id)===String(item.orderLineId));const storePublicId=item.storePublicId||original?.storePublicId;if(!storePublicId)throw new AppError('Return item seller snapshot is unavailable.',409,'RETURN_SELLER_SNAPSHOT_MISSING');return {storePublicId,productPublicId:item.productPublicId,orderLineId:item.orderLineId,grossMinor:item.requestedRefundMinor};});const refund=await createRefund(req,{orderId:ret.orderPublicId,amountMinor:amount,reason:`Approved return ${ret.publicId}`,idempotencyKey:`return-refund:${ret.publicId}`,allocations});ret.refundPublicId=refund.publicId;ret.status=refund.status==='completed'?'refunded':'refund_processing';ret.timeline.push({type:'return.refund_started',message:`Refund ${refund.publicId} started by finance.`,actorUserId:req.user._id});await ret.save();res.status(201).json({refund,returnRequest:ret});}catch(e){next(e);}});
+router.post('/api/v1/finance/returns/:id/refund',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{
+  verifyDeferredCsrf(req);
+  const context=await financeAccess(req,{workspace:false,country:''}),ret=await ReturnRequest.findOne({publicId:req.params.id,...context.countryScope});
+  if(!ret)throw new AppError('Return not found.',404,'RETURN_NOT_FOUND');
+  const version=z.coerce.number().int().nonnegative().parse(req.body.version),order=await Order.findById(ret.orderId);
+  const snapshot=await returnFinancialAllocations({returnRequest:ret,order,statuses:['refund_pending','refund_processing','refunded']});
+  const refund=await createRefund(req,{orderId:ret.orderPublicId,amountMinor:snapshot.amountMinor,reason:'Approved return '+ret.publicId,idempotencyKey:'return-refund:'+ret.publicId,allocations:snapshot.allocations,returnPublicId:ret.publicId,returnVersion:version});
+  const fresh=await ReturnRequest.findById(ret._id).select('publicId status refundPublicId __v').lean();
+  res.set('Cache-Control','private, no-store').status(201).json({refund:{publicId:refund.publicId,status:refund.status,amountMinor:refund.amountMinor,currency:refund.currency,returnPublicId:refund.returnPublicId},returnRequest:{publicId:fresh.publicId,status:fresh.status,refundPublicId:fresh.refundPublicId,version:fresh.__v}});
+}catch(e){next(e);}});
 
 router.post('/api/v1/seller/reviews/:id/dispute',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(10).max(1000)}).parse(req.body);res.json({review:await disputeReview(req,req.params.id,input.reason)});}catch(e){next(e);}});
 
-router.post('/api/v1/disputes/:id/appeal',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({message:z.string().trim().min(10).max(1500)}).parse(req.body);const d=await Dispute.findOne({publicId:req.params.id,userId:req.user._id,status:{$in:['resolved','rejected','closed']}});if(!d)throw new AppError('Eligible dispute not found.',404,'DISPUTE_NOT_FOUND');d.status='appealed';d.resolvedAt=undefined;d.events.push({type:'dispute.appealed',message:input.message,actorUserId:req.user._id});await d.save();res.json({dispute:d});}catch(e){next(e);}});
+router.post('/api/v1/disputes/:id/appeal',requireAuth,requireVerified,customerReplyLimit,async(req,res,next)=>{try{verifyDeferredCsrf(req);res.set('Cache-Control','private, no-store').json({dispute:await appealOwnedDispute(req,req.params.id,req.body)});}catch(e){next(e);}});
 
 router.get('/api/v1/support/knowledge',async(req,res,next)=>{try{const limit=Math.max(1,Math.min(100,Number(req.query.limit)||50)),base={country:req.country.code,status:'published'};const [rows,total]=await Promise.all([SupportKnowledge.find(cursorScope(base,req.query.after,{field:'publishedAt'})).select('publicId title slug body category publishedAt').sort(cursorSort('publishedAt')).limit(limit+1).lean(),SupportKnowledge.countDocuments(base)]);const page=pageResult(rows,{field:'publishedAt',limit,total});res.json({articles:page.items,page:page.page});}catch(e){next(e);}});
 

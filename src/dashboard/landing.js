@@ -1,10 +1,12 @@
 import { primaryWorkspaceFor } from './access.js';
 import { routeForPage, defaultPageFor } from './registry.js';
 import { FINANCE_LIVE_ROUTES } from './finance-routes.js';
+import { SUPPORT_LIVE_ROUTES } from './support-routes.js';
 
 export function dashboardLanding(user) {
   const workspace = primaryWorkspaceFor(user);
   if (workspace === 'finance' && FINANCE_LIVE_ROUTES[user.preferences?.financeLandingPage]) return FINANCE_LIVE_ROUTES[user.preferences.financeLandingPage];
+  if (workspace === 'support' && SUPPORT_LIVE_ROUTES[user.preferences?.supportLandingPage]) return SUPPORT_LIVE_ROUTES[user.preferences.supportLandingPage];
   return routeForPage(defaultPageFor(workspace));
 }
 

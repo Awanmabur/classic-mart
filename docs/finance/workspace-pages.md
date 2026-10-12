@@ -25,6 +25,13 @@ private `no-store` and `noindex, nofollow, noarchive` headers.
 
 ## Authorization and money
 
+Inspected Support returns now enter `/finance/refunds?return=<public ID>`.
+Reservation binds the exact return and its inspected paid line allocations in
+the same transaction as the Refund. Independent completion posts accounting,
+updates quantities and closes buyer/seller return cases together. See the
+[Support contracts](../support/workspace-pages.md) for the physical receipt flow
+and historical binding preflight required before production rollout.
+
 The server reloads account status, token version, verification, onboarding,
 authenticator enrollment, primary workspace and current authoritative platform
 grant. A managed Finance grant works even when the stored identity role is

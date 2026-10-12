@@ -21,5 +21,6 @@ export function requiresPrivilegedMfaForRequest(request) {
   if (path === '/logout' || path === '/account/security' || path.startsWith('/account/mfa/')) return false;
 
   const operationalDashboard = /^\/dashboard\/(?:seller|admin|super|finance|support|warehouse|moderator)-/.test(path);
-  return operationalDashboard || PRIVILEGED_WEB_PREFIX.test(path) || PRIVILEGED_API_PREFIX.test(path);
+  const supportWorkspace = /^\/support\/(?:overview|queue|customers|orders|returns|escalations|reviews|reports|settings|evidence)(?:\/|$)/.test(path);
+  return operationalDashboard || supportWorkspace || PRIVILEGED_WEB_PREFIX.test(path) || PRIVILEGED_API_PREFIX.test(path);
 }

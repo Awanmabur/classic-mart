@@ -1,3 +1,5 @@
+import { dashboardLanding } from '../dashboard/landing.js';
+import { primaryWorkspaceFor } from '../dashboard/access.js';
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import rateLimit from 'express-rate-limit';
@@ -113,9 +115,8 @@ router.post('/moderation/dashboard/settings', asyncHandler(async (request, respo
 router.post('/moderation/reviews/:publicId/decision', decisionLimiter, asyncHandler(async (request, response) => {
   const input=z.object({decision:z.enum(['publish','reject']),reason:z.string().trim().min(3).max(500)}).parse(request.body);
   const review=await publishReview(request,request.params.publicId,input);
-  await writeAudit(request,'review.moderated',{targetType:'review',targetPublicId:review.publicId,country:review.country,metadata:{decision:input.decision,reason:input.reason}});
   setFlash(request,'success',input.decision==='publish'?'Review published.':'Review rejected with a recorded reason.');
-  return response.redirect(routeForPage('moderator-reviews'));
+  return response.redirect(primaryWorkspaceFor(request.user) === 'moderator' ? routeForPage('moderator-reviews') : dashboardLanding(request.user));
 }));
 
 router.post('/moderation/risk-cases/:publicId/status', decisionLimiter, asyncHandler(async (request, response) => {
@@ -125,9 +126,8 @@ router.post('/moderation/risk-cases/:publicId/status', decisionLimiter, asyncHan
   const appealReview=caseDoc.status==='appealed';
   if(caseDoc.status==='appealed'&&caseDoc.assignedUserId&&String(caseDoc.assignedUserId)===String(request.user._id))throw new AppError('An appealed trust case requires a different reviewer.',409,'TRUST_APPEAL_FOUR_EYES');
   await reviewTrustCase(request,caseDoc,input);
-  await writeAudit(request,'trust.case_reviewed',{targetType:'trust_case',targetPublicId:caseDoc.publicId,country:caseDoc.country,metadata:{status:input.status,enforcement:input.enforcement,appealReview}});
   setFlash(request,'success','Trust case decision recorded.');
-  return response.redirect(routeForPage('moderator-disputes'));
+  return response.redirect(primaryWorkspaceFor(request.user) === 'moderator' ? routeForPage('moderator-disputes') : dashboardLanding(request.user));
 }));
 
 router.post('/moderation/risk-signals/:publicId/review', decisionLimiter, asyncHandler(async (request, response) => {
@@ -135,9 +135,8 @@ router.post('/moderation/risk-signals/:publicId/review', decisionLimiter, asyncH
   const risk=await RiskSignal.findOne({publicId:request.params.publicId,...operationalCountryScope(request.user,'country')});
   if(!risk)throw new AppError('Risk signal not found.',404,'RISK_NOT_FOUND');
   await reviewRiskSignal(request,risk,input);
-  await writeAudit(request,'trust.risk_signal_reviewed',{targetType:'risk_signal',targetPublicId:risk.publicId,country:risk.country,metadata:{status:input.status}});
   setFlash(request,'success','Risk signal review recorded.');
-  return response.redirect(routeForPage('moderator-disputes'));
+  return response.redirect(primaryWorkspaceFor(request.user) === 'moderator' ? routeForPage('moderator-disputes') : dashboardLanding(request.user));
 }));
 
 router.get(

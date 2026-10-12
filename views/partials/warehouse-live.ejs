@@ -12,6 +12,8 @@
   const waves = flow.waves || [];
   const movements = flow.movements || [];
   const readyParcels = flow.readyParcels || [];
+  const returnIntakes = flow.returnIntakes || { items: [], page: {} };
+  const intakeDraft = flow.intakeDraft || {};
   const draft = flow.draft || {};
   const path = mode === 'overview' ? '/warehouse' : '/warehouse/' + mode;
   const selectedWarehouse = warehouses.find(item => item.publicId === filters.warehousePublicId) || (warehouses.length === 1 ? warehouses[0] : null);
@@ -23,7 +25,7 @@
   let actionKeyIndex = 0;
   const actionKey = () => String(flow.actionKey || '') + ':' + (++actionKeyIndex);
   const pageHref = (changes = {}) => {
-    const values = { warehousePublicId: filters.warehousePublicId, taskStatus: filters.taskStatus, scanCode: mode === 'reports' ? '' : filters.scanCode, mine: filters.mine ? '1' : '', after: filters.after, readyAfter: filters.readyAfter || '', reviewAfter: filters.reviewAfter || '', from: filters.from, to: filters.to, ...changes };
+    const values = { warehousePublicId: filters.warehousePublicId, taskStatus: filters.taskStatus, scanCode: mode === 'reports' ? '' : filters.scanCode, mine: filters.mine ? '1' : '', after: filters.after, readyAfter: filters.readyAfter || '', reviewAfter: filters.reviewAfter || '', intakesAfter: mode === 'returns' ? returnIntakes.after || '' : '', from: filters.from, to: filters.to, ...changes };
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(values)) if (value && value !== 'all') query.set(key, String(value));
     return path + (query.size ? '?' + query.toString() : '');
@@ -65,6 +67,46 @@
       <div class="wide warehouse-live-actions"><button class="outline-button" type="submit"><svg aria-hidden="true"><use href="#i-search"></use></svg>Find Records</button><% if (filters.warehousePublicId || filters.scanCode || filters.taskStatus || filters.mine || filters.from || filters.to) { %><a class="plain-link" href="<%= path %>">Clear Filters</a><% } %></div>
     </form>
     <% if ((flow.scanResults || []).length) { %><div class="warehouse-live-scan-results" role="status"><strong>Scan matches</strong><ul><% for (const match of flow.scanResults) { %><li><span><%= match.title || match.sku || match.publicId || match.parcelPublicId %></span><small><%= [match.type,match.warehouseName,match.barcode || match.parcelBarcode].filter(Boolean).join(' · ') %></small></li><% } %></ul></div><% } %>
+  </section>
+  <% } %>
+
+  <% if (mode === 'returns') { %>
+  <section class="panel role-table-panel warehouse-live-section" aria-labelledby="warehouse-return-intake-heading">
+    <div class="role-panel-head"><div><h2 id="warehouse-return-intake-heading">Returned Goods Awaiting Receipt</h2><p><%= number(returnIntakes.page?.total) %> drop-off returns across your accessible receiving locations. Location, scan and status filters apply to inspection tasks.</p></div></div>
+    <div class="role-table-wrap"><table class="role-table"><caption class="sr-only">Physical return receipt queue</caption><thead><tr><th scope="col">Return / Order</th><th scope="col">Item</th><th scope="col">Quantity</th><th scope="col">Receipt</th><th scope="col">Action</th></tr></thead><tbody>
+      <% for (const returned of returnIntakes.items || []) { for (const line of returned.lines || []) { const intakeLineDraft = intakeDraft.returnPublicId === returned.publicId && intakeDraft.orderLineId === line.orderLineId ? intakeDraft : {}; %>
+      <tr>
+        <td data-label="Return / Order"><strong><%= returned.publicId %></strong><small class="warehouse-live-cell-note"><%= returned.orderPublicId %> · <%= returned.country %></small></td>
+        <td data-label="Item"><strong><%= line.title %></strong><small class="warehouse-live-cell-note"><%= line.orderLineId %></small></td>
+        <td data-label="Quantity"><%= number(line.quantity) %></td>
+        <td data-label="Receipt"><span class="role-status <%= line.intakeReceivedAt ? 'good' : 'warn' %>"><%= line.intakeReceivedAt ? 'Received' : 'Awaiting receipt' %></span><% if (line.intakeReceivedAt) { %><small class="warehouse-live-cell-note"><%= formatDate(line.intakeReceivedAt) %> · <%= line.intakeWarehousePublicId %></small><% } else { %><small class="warehouse-live-cell-note"><%= number((line.receipts || []).length) %> ready receipt images</small><% } %></td>
+        <td data-label="Action"><% if (line.intakeReceivedAt) { %><span>Receipt recorded</span><% } else { %><span>Record the physical receipt below</span><% } %></td>
+      </tr>
+      <% if (!line.intakeReceivedAt) { const warehouseChoices = line.warehouses || []; const receiptChoices = line.receipts || []; const preferredWarehouse = warehouseChoices.some(warehouse => warehouse.publicId === intakeLineDraft.warehousePublicId) ? intakeLineDraft.warehousePublicId : warehouseChoices.length === 1 ? warehouseChoices[0].publicId : ''; const preferredReceipt = receiptChoices.some(receipt => receipt.publicId === intakeLineDraft.evidencePublicId) ? intakeLineDraft.evidencePublicId : receiptChoices.length === 1 ? receiptChoices[0].publicId : ''; const postQuery = pageHref().slice(path.length); %>
+      <tr class="warehouse-live-detail-row"><td colspan="5" class="warehouse-live-details-cell"><details class="warehouse-live-details" <%= intakeLineDraft.orderLineId || receiptChoices.length ? 'open' : '' %>><summary class="outline-button">Record Return Receipt<span class="sr-only"> for <%= returned.publicId %>, <%= line.orderLineId %></span></summary>
+        <div class="warehouse-live-form-pair warehouse-live-task-form">
+          <form class="role-form-grid warehouse-live-create-form" method="post" enctype="multipart/form-data" action="/warehouse/returns/<%= encodeURIComponent(returned.publicId) %>/intake-evidence<%= postQuery %>">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= returned.version %>"><input type="hidden" name="orderLineId" value="<%= line.orderLineId %>">
+            <h3 class="wide">Upload Receiving Receipt</h3><p class="form-intro wide">Save a private image of the actual receiving receipt for this item. Uploading a receipt does not record receipt of the goods.</p>
+            <label>Receiving warehouse<select name="warehousePublicId" required><option value="">Choose receiving location</option><% for (const warehouse of warehouseChoices) { %><option value="<%= warehouse.publicId %>" <%= preferredWarehouse === warehouse.publicId ? 'selected' : '' %>><%= warehouse.name %></option><% } %></select></label>
+            <label>Receipt image<input type="file" name="document" accept="image/jpeg,image/png,image/webp,image/avif" required><small>JPEG, PNG, WebP or AVIF · up to 8 MB</small></label>
+            <div class="wide warehouse-live-actions"><button class="outline-button" type="submit">Upload Receipt</button></div>
+          </form>
+          <% if (receiptChoices.length) { %>
+          <form class="role-form-grid warehouse-live-create-form" method="post" action="/warehouse/returns/<%= encodeURIComponent(returned.publicId) %>/intake<%= postQuery %>">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= returned.version %>"><input type="hidden" name="orderLineId" value="<%= line.orderLineId %>">
+            <h3 class="wide">Confirm Physical Receipt</h3><p class="form-intro wide">Check that all <%= number(line.quantity) %> units of this exact order item have arrived at the selected location. Once every return item is received, its inspection tasks become available.</p>
+            <label>Receiving warehouse<select name="warehousePublicId" required><option value="">Choose receiving location</option><% for (const warehouse of warehouseChoices) { %><option value="<%= warehouse.publicId %>" <%= preferredWarehouse === warehouse.publicId ? 'selected' : '' %>><%= warehouse.name %></option><% } %></select></label>
+            <label>Ready receiving receipt<select name="evidencePublicId" required><option value="">Choose this item's receipt</option><% for (const receipt of receiptChoices) { %><option value="<%= receipt.publicId %>" <%= preferredReceipt === receipt.publicId ? 'selected' : '' %>><%= receipt.publicId %> · <%= formatDate(receipt.createdAt) %></option><% } %></select></label>
+            <div class="wide warehouse-live-actions"><% for (const receipt of receiptChoices) { %><a class="outline-button" href="/evidence/<%= encodeURIComponent(receipt.publicId) %>" target="_blank" rel="noopener">View Receipt<span class="sr-only"> <%= receipt.publicId %></span></a><% } %><button class="primary-button" type="submit">Confirm Goods Received</button></div>
+          </form>
+          <% } else { %><div><h3>Confirm Physical Receipt</h3><p class="form-intro">Upload the receiving receipt for this item before confirming its physical arrival.</p></div><% } %>
+        </div>
+      </details></td></tr>
+      <% } } } %>
+      <% if (!(returnIntakes.items || []).length) { %><tr><td class="warehouse-live-empty" colspan="5">No drop-off returns are awaiting physical receipt in your accessible receiving locations.</td></tr><% } %>
+    </tbody></table></div>
+    <div class="role-table-footer"><span>Showing <%= number((returnIntakes.items || []).length) %> returns</span><% if (returnIntakes.page?.hasMore) { %><a class="outline-button" href="<%= pageHref({intakesAfter:returnIntakes.page.next || returnIntakes.page.nextCursor}) %>">Next Returns Awaiting Receipt</a><% } %></div>
   </section>
   <% } %>
 

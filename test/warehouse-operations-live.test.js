@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import http from 'node:http';
 import mongoose from 'mongoose';
 import request from 'supertest';
+import sharp from 'sharp';
 import { chromium } from '@playwright/test';
 
 const suffix = crypto.randomBytes(8).toString('hex');
@@ -13,6 +15,8 @@ process.env.PRIVILEGED_MFA_REQUIRED = 'true';
 process.env.MAIL_MODE = 'log';
 process.env.SMS_MODE = 'log';
 process.env.REDIS_URL = '';
+process.env.UPLOAD_DIR = `/tmp/classicmart-warehouse-receipt-media-${suffix}`;
+process.env.MEDIA_STORAGE_DRIVER = 'filesystem';
 const uri = process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI;
 const csrf = html => {
   const token = html.match(/(?:name="_csrf"[^>]*value|name="csrf-token" content)="([^"]+)"/);
@@ -29,12 +33,12 @@ test('managed warehouse operators complete audited inventory and paid-order fulf
   const models = await import('../src/models/index.js');
   const { User, Store, Category, Product, ProductVariant, Warehouse, StockItem, WarehouseTask, WarehouseWave,
     PlatformGrant, InventoryMovement, InventoryDiscrepancy, InventoryReservation, OperationAction, Order,
-    SellerOrder, SellerShipment, Shipment, Parcel, CountrySetting, ShippingZone, AuditLog, DeliveryProfile, ReturnRequest } = models;
+    SellerOrder, SellerShipment, Shipment, Parcel, CountrySetting, ShippingZone, AuditLog, DeliveryProfile, ReturnRequest, EvidenceDocument } = models;
   const { hashPassword } = await import('../src/core/crypto.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { hydratePlatformAuthorization } = await import('../src/services/platform-grants.js');
   const { offerShipment, acceptDeliveryOffer, transitionShipment } = await import('../src/services/logistics.js');
-  const { createReturnRequest, decideReturn, markReturnReceived } = await import('../src/services/trust.js');
+  const { createReturnRequest, decideReturn } = await import('../src/services/trust.js');
   const { decryptSensitive } = await import('../src/core/sensitive.js');
   const operations = await import('../src/services/warehouse-operations.js');
   const password = `Warehouse-${suffix}A1!`, app = createApp(null), transports = [];
@@ -460,7 +464,26 @@ test('managed warehouse operators complete audited inventory and paid-order fulf
           items: [{ orderLineId: fixture.order.items[0].linePublicId, quantity: 1 }], reason: 'other', details: 'Goods returned after verified delivery',
           resolution: 'refund', returnMethod: 'dropoff' });
         await decideReturn(await serviceRequest(supervisor), requested.returnRequest.publicId, { decision: 'approve', note: 'Approved item return for warehouse verification' });
-        const received = await markReturnReceived(await serviceRequest(supervisor), requested.returnRequest.publicId, 'Goods physically received for stock inspection');
+        // A Support/admin statement cannot establish physical warehouse receipt.
+        // The current, authenticated receiving operator uploads its real image
+        // and confirms the exact immutable line through the approved page.
+        await go('returns');
+        const receiptUpload = page.locator(`form[action="/warehouse/returns/${requested.returnRequest.publicId}/intake-evidence"]`);
+        await receiptUpload.locator('xpath=ancestor::details').locator('summary').click();
+        await receiptUpload.locator('[name="warehousePublicId"]').selectOption(warehouse.publicId);
+        const receiptImage = await sharp({ create: { width: 360, height: 360, channels: 3, background: '#ffffff' } }).png().toBuffer();
+        await receiptUpload.locator('[name="document"]').setInputFiles({ name: `receipt-${width}.png`, mimeType: 'image/png', buffer: receiptImage });
+        await submit(receiptUpload, 'Upload Receipt');
+        const receipt = await EvidenceDocument.findOne({ ownerUserId: operator.user._id, contextType: 'return', contextPublicId: requested.returnRequest.publicId,
+          contextLinePublicId: fixture.order.items[0].linePublicId, documentType: 'return_receipt', status: 'ready' });
+        assert.ok(receipt); assert.equal(receipt.mimeType, 'image/webp');
+        const confirmReceipt = page.locator(`form[action="/warehouse/returns/${requested.returnRequest.publicId}/intake"]`);
+        await confirmReceipt.locator('[name="warehousePublicId"]').selectOption(warehouse.publicId);
+        await confirmReceipt.locator('[name="evidencePublicId"]').selectOption(receipt.publicId);
+        await submit(confirmReceipt, 'Confirm Goods Received');
+        const received = await ReturnRequest.findById(requested.returnRequest._id);
+        assert.equal(received.status, 'received'); assert.equal(received.items[0].intakeEvidencePublicId, receipt.publicId);
+        assert.equal(received.items[0].intakeWarehousePublicId, warehouse.publicId);
         const returnTask = await WarehouseTask.findOne({ returnRequestId: received._id, type: 'return_inspection' });
         assert.ok(returnTask); const beforeReturn = await stockSnapshot(item.stock);
         await go('returns');
@@ -540,6 +563,6 @@ test('managed warehouse operators complete audited inventory and paid-order fulf
     try {
       assert.equal(mongoose.connection.name, database);
       if (mongoose.connection.readyState === 1) await mongoose.connection.dropDatabase();
-    } finally { await mongoose.disconnect(); }
+    } finally { await mongoose.disconnect(); await fs.rm(process.env.UPLOAD_DIR, { recursive: true, force: true }); }
   }
 });

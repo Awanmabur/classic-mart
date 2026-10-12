@@ -60,8 +60,8 @@
   .warehouse-live-page .role-table td { padding-inline: 0; }
   .warehouse-live-page .role-table .warehouse-live-detail-row { padding-top: 0; border-top: 0; margin-top: -9px; border-radius: 0 0 12px 12px; }
   .warehouse-live-page .role-table tr:has(+ .warehouse-live-detail-row) { border-bottom: 0; border-radius: 12px 12px 0 0; }
-  .warehouse-live-page .role-table .warehouse-live-details-cell { display: block; }
-  .warehouse-live-page .role-table .warehouse-live-details-cell::before, .warehouse-live-page .role-table .warehouse-live-empty::before { display: none; }
+  .warehouse-live-page .role-table .warehouse-live-detail-row > td.warehouse-live-details-cell { display: block; }
+  .warehouse-live-page .role-table .warehouse-live-detail-row > td.warehouse-live-details-cell::before, .warehouse-live-page .role-table .warehouse-live-empty::before { display: none; }
   .warehouse-live-page .role-table .warehouse-live-empty { display: block; }
   .warehouse-live-form-pair, .warehouse-live-record-grid { grid-template-columns: minmax(0, 1fr); }
 }

@@ -98,6 +98,28 @@ maintenance/outbox job with idempotent scheduling and fresh delivery checks.
 See the [Finance page contracts](finance/workspace-pages.md) for the nine pages,
 operator boundaries, migration precautions and validation limits.
 
+## Support entry points
+
+`/support/overview` is the primary Support landing page; `/support` retains the
+customer's shopping help page. All nine canonical staff destinations preserve
+the approved role layout. A current Support grant determines the workspace even
+when the stored identity role is Customer. Other primary staff roles cannot
+render Support pages through aliases or query parameters.
+
+Ticket, case, commerce context, report and settings services provide explicit
+scoped projections. Customer projections exclude private notes and staff/payment
+metadata. Contact disclosure requires an assigned active case and rechecks the
+recipient, order, scope and case version after page loading. Customer appeals
+retain the original public decision and require an independent reviewer.
+
+Warehouse receipts and actual inspection tasks establish physical goods custody.
+Support refers inspected immutable amounts to Finance; refund reservation and
+completion bind and close the exact return within the accounting transaction.
+Saved notification preferences drive scoped alerts and the real weekly report
+maintenance/outbox job. Long CSV exports recheck authorization and honor stream
+backpressure. See the [Support contracts](support/workspace-pages.md) for actual
+routes, rollout precautions, responsive verification and remaining limits.
+
 ## Verification
 
 Role landing tests exercise real login, session regeneration and route access.

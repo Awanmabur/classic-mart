@@ -6,7 +6,7 @@ import { Notification, PlatformGrant, User } from '../models/index.js';
 /** Ordinary Finance work alerts contain no beneficiary details or payment credentials. */
 export async function queueFinanceAlert({ country, kind = 'priority', href }, session) {
   if (!session?.inTransaction()) throw new AppError('Finance alerts must accompany their recorded transition.', 500, 'FINANCE_TRANSACTION_REQUIRED');
-  if (!/^[A-Z]{2}$/.test(country || '') || !['priority', 'escalation'].includes(kind) || !/^\/finance\/(?:payouts|refunds|reconciliation|disputes)(?:\?[A-Za-z0-9_=.%&-]*)?$/.test(href || '')) throw new AppError('Finance alert context is invalid.', 500, 'FINANCE_ALERT_INVALID');
+  if (!/^[A-Z]{2}$/.test(country || '') || !['priority', 'escalation'].includes(kind) || !/^\/finance\/(?:payments|payouts|refunds|reconciliation|disputes)(?:\?[A-Za-z0-9_=.%&-]*)?$/.test(href || '')) throw new AppError('Finance alert context is invalid.', 500, 'FINANCE_ALERT_INVALID');
   const now = new Date(), preference = kind === 'priority' ? 'preferences.financePriorityAlerts' : 'preferences.financeEscalationAlerts';
   const recipients = await User.aggregate([
     { $match: { status: 'active', emailVerifiedAt: { $type: 'date' }, onboardingCompletedAt: { $type: 'date' }, [preference]: { $ne: false },
