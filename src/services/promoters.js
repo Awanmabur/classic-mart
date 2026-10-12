@@ -63,15 +63,8 @@ export async function ensureMarketplacePromoterCampaign(country) {
 }
 
 export async function submitPromoterVerification(request, input) {
-  let row = await PromoterVerification.findOne({ userId: request.user._id });
-  if (!row) row = new PromoterVerification({ publicId: publicId('prv'), userId: request.user._id, country: request.user.country });
-  row.channels = input.channels;
-  row.niches = input.niches;
-  row.disclosureAcceptedAt = new Date();
-  row.submittedAt = new Date();
-  row.status = 'submitted';
-  await row.save();
-  return row;
+  const { secureSubmitPromoterVerification } = await import('./promoter-campaign-pages.js');
+  return secureSubmitPromoterVerification(request, input);
 }
 
 export async function reviewPromoterVerification(request, verificationId, { decision, reason = '' }) {
@@ -124,23 +117,8 @@ export async function reviewCampaign(request, campaignPublicId, { decision, reas
 }
 
 export async function applyToCampaign(request, campaignPublicId, note = '') {
-  const verification = await PromoterVerification.findOne({ userId: request.user._id, status: 'verified' });
-  if (!verification) throw new AppError('Verified promoter account required.', 403, 'PROMOTER_VERIFICATION_REQUIRED');
-  const campaign = await Campaign.findOne({ publicId: campaignPublicId, country: request.user.country, status: 'active' });
-  if (!campaign || !campaignIsLive(campaign)) throw new AppError('Active campaign not found.', 404, 'CAMPAIGN_NOT_FOUND');
-  if (campaign.scope !== 'marketplace' && ((campaign.ownerUserId && campaign.ownerUserId.equals(request.user._id)) || (campaign.storeId && await StoreMember.exists({ storeId: campaign.storeId, userId: request.user._id, status: 'active' })))) throw new AppError('You cannot promote a campaign belonging to a store you operate.', 409, 'SELF_REFERRAL');
-  if (campaign.visibility === 'public') {
-    return CampaignApplication.findOneAndUpdate(
-      { campaignId: campaign._id, promoterUserId: request.user._id },
-      { $setOnInsert: { publicId: publicId('cap'), campaignPublicId: campaign.publicId, country: campaign.country, note, status: 'approved', reviewedAt: new Date() } },
-      { upsert: true, returnDocument: 'after' },
-    );
-  }
-  return CampaignApplication.findOneAndUpdate(
-    { campaignId: campaign._id, promoterUserId: request.user._id },
-    { $setOnInsert: { publicId: publicId('cap'), campaignPublicId: campaign.publicId, country: campaign.country, note, status: 'pending' } },
-    { upsert: true, returnDocument: 'after' },
-  );
+  const { secureApplyToCampaign } = await import('./promoter-campaign-pages.js');
+  return secureApplyToCampaign(request, campaignPublicId, note);
 }
 
 export async function reviewCampaignApplication(request, applicationPublicId, { decision, reason = '' }) {
@@ -155,233 +133,343 @@ export async function reviewCampaignApplication(request, applicationPublicId, { 
 }
 
 export async function createPromoterLink(request, input) {
-  const verification = await PromoterVerification.findOne({ userId: request.user._id, status: 'verified' });
-  if (!verification) throw new AppError('Verified promoter account required.', 403, 'PROMOTER_VERIFICATION_REQUIRED');
-  let campaign = await Campaign.findOne({ publicId: input.campaignId, status: 'active' });
-  if (campaign?.scope === 'marketplace') campaign = await ensureMarketplacePromoterCampaign(campaign.country);
-  if (!campaign || !campaignIsLive(campaign)) throw new AppError('Active campaign not found.', 404, 'CAMPAIGN_NOT_FOUND');
-  if (campaign.scope !== 'marketplace' && ((campaign.ownerUserId && campaign.ownerUserId.equals(request.user._id)) || (campaign.storeId && await StoreMember.exists({ storeId: campaign.storeId, userId: request.user._id, status: 'active' })))) throw new AppError('You cannot create a tracked link for a store you operate.', 409, 'SELF_REFERRAL');
-  const application = await CampaignApplication.findOne({ campaignId: campaign._id, promoterUserId: request.user._id, status: 'approved' });
-  if (!application) throw new AppError('Campaign approval is required before creating a tracked link.', 403, 'CAMPAIGN_APPROVAL_REQUIRED');
-  if (input.channel && campaign.allowedChannels.length && !campaign.allowedChannels.includes(input.channel)) throw new AppError('That channel is not allowed for this campaign.', 422, 'CAMPAIGN_CHANNEL_NOT_ALLOWED');
-  const couponCode = String(input.couponCode || '').trim().toUpperCase();
-  if (couponCode && await PromoterLink.exists({ couponCode })) throw new AppError('That promoter code is already in use.', 409, 'COUPON_CODE_EXISTS');
-  const token = crypto.randomBytes(18).toString('base64url');
-  return PromoterLink.create({
-    publicId: publicId('plk'), campaignId: campaign._id, promoterUserId: request.user._id, token, destination: input.destination,
-    couponCode, subId: input.subId || '', channel: input.channel || '', utmSource: input.utmSource || 'classicmart-promoter',
-    utmMedium: input.utmMedium || 'affiliate', utmCampaign: input.utmCampaign || campaign.publicId, utmContent: input.utmContent || '',
+  const { secureCreatePromoterLink } = await import('./promoter-campaign-pages.js');
+  return secureCreatePromoterLink(request, input);
+}
+
+async function attributionTransaction(session, operation) {
+  if (session) {
+    if (!session.inTransaction()) throw new AppError('Promoter changes require a transaction.', 500, 'PROMOTER_TRANSACTION_REQUIRED');
+    return operation(session);
+  }
+  const owned = await mongoose.startSession();
+  try { return await owned.withTransaction(() => operation(owned)); }
+  finally { await owned.endSession(); }
+}
+
+function buyerSessionKey(request) {
+  if (!request.session) throw new AppError('A shopping session is required.', 403, 'ATTRIBUTION_SESSION_REQUIRED');
+  if (request.user?._id) {
+    const accountKey = `account:${request.user._id}:${request.country.code}`;
+    if (request.session.cartKey && request.session.cartKey !== accountKey && !request.session.cartKey.startsWith('account:')) request.session.cartMergeKey = request.session.cartKey;
+    request.session.cartKey = accountKey;
+  }
+  request.session.cartKey ||= crypto.randomUUID();
+  return request.session.cartKey;
+}
+
+async function fenceAttribution(Model, document, session, conditions = {}) {
+  const result = await Model.updateOne({ _id: document._id, __v: document.__v || 0, ...conditions }, { $inc: { __v: 1 } }, { session });
+  if (result.modifiedCount !== 1) throw new AppError('Promotion eligibility changed. Refresh and try again.', 409, 'PROMOTER_ACCESS_CHANGED');
+}
+
+async function eligibleTrackingLink(linkId, country, session) {
+  const link = await PromoterLink.findOne({ _id: linkId, active: true }).session(session);
+  if (!link) throw new AppError('Promotion link not found.', 404, 'PROMO_LINK_NOT_FOUND');
+  const campaign = await Campaign.findById(link.campaignId).session(session);
+  if (!campaignIsLive(campaign)) throw new AppError('Campaign is not active.', 410, 'CAMPAIGN_INACTIVE');
+  if (campaign.country !== country) throw new AppError('Campaign is unavailable in this country.', 403, 'COUNTRY_SCOPE');
+  if (!Number.isSafeInteger(campaign.commissionBps) || campaign.commissionBps < 0 || campaign.commissionBps > 5000 || (campaign.allowedChannels.length && !campaign.allowedChannels.includes(link.channel))) throw new AppError('Campaign promotion policy is unavailable.', 410, 'CAMPAIGN_POLICY_CHANGED');
+  const { assertPromoterLinkDestination } = await import('./promoter-campaign-pages.js');
+  await assertPromoterLinkDestination({ country: { code: country } }, link, campaign, { session });
+  const actor = await User.findOne({ _id: link.promoterUserId, role: 'promoter', status: 'active' }).session(session);
+  const verification = await PromoterVerification.findOne({ userId: link.promoterUserId, country, status: 'verified' }).session(session);
+  const application = await CampaignApplication.findOne({ campaignId: campaign._id, promoterUserId: link.promoterUserId, country, status: 'approved' }).session(session);
+  const setting = await CountrySetting.findOne({ code: country, active: true }).session(session);
+  if (!actor?.emailVerifiedAt || !actor.onboardingCompletedAt || !verification || !application || !setting) throw new AppError('Promoter programme access is unavailable.', 410, 'PROMOTER_PROGRAMME_UNAVAILABLE');
+  const { hydratePlatformAuthorization } = await import('./platform-grants.js');
+  const { primaryWorkspaceFor } = await import('../dashboard/access.js');
+  await hydratePlatformAuthorization(actor);
+  if (actor.role !== 'promoter' || primaryWorkspaceFor(actor) !== 'promoter') throw new AppError('Promoter programme access is unavailable.', 410, 'PROMOTER_PROGRAMME_UNAVAILABLE');
+  await fenceAttribution(User, actor, session, { role: 'promoter', status: 'active', 'security.tokenVersion': actor.security.tokenVersion });
+  await fenceAttribution(PromoterVerification, verification, session, { country, status: 'verified' });
+  await fenceAttribution(PromoterLink, link, session, { active: true });
+  await fenceAttribution(Campaign, campaign, session, { status: 'active', country });
+  await fenceAttribution(CampaignApplication, application, session, { status: 'approved', country });
+  await fenceAttribution(CountrySetting, setting, session, { active: true, currency: setting.currency });
+  // Approval changes conflict with this transaction, including a product or
+  // merchant becoming unavailable after destination validation.
+  const productIds = campaign.scope !== 'marketplace' ? campaign.productPublicIds : link.destination.startsWith('/products/') ? [link.destination.slice('/products/'.length)] : [];
+  if (productIds.length) {
+    const { Category, Brand, ProductVariant } = await import('../models/index.js');
+    const products = await Product.find({ publicId: mongoose.trusted({ $in: productIds }), status: 'published', countries: country }).session(session);
+    if (products.length !== new Set(productIds).size) throw new AppError('The campaign products are unavailable.', 410, 'CAMPAIGN_PRODUCT_SCOPE');
+    const stores = new Map(), categories = new Map(), brands = new Map();
+    for (const product of products) {
+      await fenceAttribution(Product, product, session, { status: 'published', countries: country });
+      const storeKey = String(product.storeId), categoryKey = String(product.categoryId);
+      if (!stores.has(storeKey)) stores.set(storeKey, await Store.findOne({ _id: product.storeId, status: 'verified', country, currency: setting.currency }).session(session));
+      if (!categories.has(categoryKey)) categories.set(categoryKey, await Category.findOne({ _id: product.categoryId, active: true }).session(session));
+      const store = stores.get(storeKey), category = categories.get(categoryKey);
+      if (!store || !category) throw new AppError('The campaign products are unavailable.', 410, 'CAMPAIGN_PRODUCT_SCOPE');
+      const variant = await ProductVariant.findOne({ productId: product._id, storeId: product.storeId, active: true, currency: setting.currency, priceMinor: mongoose.trusted({ $gt: 0 }) }).session(session);
+      if (!variant) throw new AppError('The product offer is unavailable.', 410, 'CAMPAIGN_PRODUCT_SCOPE');
+      await fenceAttribution(ProductVariant, variant, session, { active: true, currency: setting.currency });
+      if (product.brandId && !brands.has(String(product.brandId))) brands.set(String(product.brandId), await Brand.findOne({ _id: product.brandId, status: 'approved' }).session(session));
+      if (product.brandId && !brands.get(String(product.brandId))) throw new AppError('The product brand is unavailable.', 410, 'CAMPAIGN_PRODUCT_SCOPE');
+    }
+    for (const store of stores.values()) await fenceAttribution(Store, store, session, { status: 'verified', country });
+    for (const category of categories.values()) await fenceAttribution(Category, category, session, { active: true });
+    for (const brand of brands.values()) await fenceAttribution(Brand, brand, session, { status: 'approved' });
+  }
+  return { link, campaign, actor, setting };
+}
+
+async function trackingAudit(request, action, document, session, metadata = {}) {
+  const { writeAudit } = await import('./audit.js');
+  await writeAudit(request, action, { session, targetType: 'attribution_touch', targetPublicId: document.publicId, country: document.country, metadata });
+}
+
+export async function recordTouchForLink(request, candidate, session = null) {
+  if (!candidate) throw new AppError('Promotion link not found.', 404, 'PROMO_LINK_NOT_FOUND');
+  const sessionKey = buyerSessionKey(request);
+  const result = await attributionTransaction(session, async transactionSession => {
+    const { link, campaign } = await eligibleTrackingLink(candidate._id, request.country?.code, transactionSession);
+    const ipHash = hash(request.ip), userAgentHash = hash(request.get('user-agent')), referrerHash = hash(request.get('referer'));
+    const duplicate = await AttributionTouch.findOne({ sessionKey, linkId: link._id, status: 'valid', expiresAt: { $gt: new Date() }, landedAt: { $gte: new Date(Date.now() - 60_000) } }).session(transactionSession);
+    if (duplicate) return { link, touch: duplicate };
+    const recentIpCount = await AttributionTouch.countDocuments({ promoterUserId: link.promoterUserId, ipHash, landedAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) } }).session(transactionSession);
+    const fraudFlags = []; let fraudScore = 0;
+    if (recentIpCount >= 20) { fraudFlags.push('ip_velocity'); fraudScore += 60; }
+    if (!request.get('user-agent')) { fraudFlags.push('missing_user_agent'); fraudScore += 20; }
+    const selfReferral = request.user?._id && String(request.user._id) === String(link.promoterUserId);
+    const blocked = selfReferral || fraudScore >= 60;
+    const [touch] = await AttributionTouch.create([{ publicId: publicId('tch'), linkId: link._id, campaignId: campaign._id, promoterUserId: link.promoterUserId, sessionKey, country: request.country.code,
+      ipHash, userAgentHash, referrerHash, expiresAt: new Date(Date.now() + campaign.attributionDays * DAY_MS), commissionBps: campaign.commissionBps, policyVersion: campaign.policyVersion, fraudScore, fraudFlags,
+      status: blocked ? 'blocked' : 'valid', blockReason: selfReferral ? 'self_referral' : blocked ? 'automated_fraud_rule' : '' }], { session: transactionSession });
+    await trackingAudit(request, 'promoter.touch_recorded', touch, transactionSession, { linkPublicId: link.publicId, status: touch.status });
+    return { link, touch };
+  });
+  if (result.touch.status === 'valid') {
+    request.session.promoterTouchId = result.touch.publicId;
+    request.session.promoterTouchSessionKey = result.touch.sessionKey;
+  }
+  return result;
+}
+
+export async function recordTouch(request, token, session = null) {
+  if (typeof token !== 'string' || token.length > 100) throw new AppError('Promotion link not found.', 404, 'PROMO_LINK_NOT_FOUND');
+  const link = await PromoterLink.findOne({ token, active: true }).session(session);
+  return recordTouchForLink(request, link, session);
+}
+
+export async function redeemPromoterCoupon(request, code, session = null) {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (!normalized || normalized.length > 32) throw new AppError('Enter a valid promoter code.', 422, 'PROMO_CODE_REQUIRED');
+  const links = await PromoterLink.find({ couponCode: normalized, active: true }).sort({ createdAt: -1 }).limit(2).session(session);
+  if (!links.length) throw new AppError('Promoter code is invalid or inactive.', 404, 'PROMO_CODE_INVALID');
+  if (links.length > 1) throw new AppError('Promoter code is ambiguous. Ask the promoter for a current code.', 409, 'PROMO_CODE_AMBIGUOUS');
+  return recordTouchForLink(request, links[0], session);
+}
+
+export async function attributeOrder(request, orderPublicId, session = null) {
+  const touchId = request.session?.promoterTouchId;
+  if (!touchId) return;
+  const sessionKey = buyerSessionKey(request);
+  return attributionTransaction(session, async transactionSession => {
+    const touch = await AttributionTouch.findOne({ publicId: touchId, status: 'valid', expiresAt: { $gt: new Date() } }).session(transactionSession);
+    const order = await Order.findOne({ publicId: orderPublicId, sessionKey, country: request.country.code }).session(transactionSession);
+    if (!touch || !order || touch.country !== order.country || !['pending_payment', 'confirmed', 'paid', 'partially_refunded'].includes(order.status) || (order.userId && String(order.userId) !== String(request.user?._id))) return;
+    // Identity login preserves this browser's guest cart continuity. Migrate
+    // only that server-owned key, never a touch copied from another session.
+    if (touch.sessionKey !== sessionKey) {
+      if (!request.user?._id || request.session.promoterTouchSessionKey !== touch.sessionKey || String(order.userId) !== String(request.user._id)) return;
+      touch.sessionKey = sessionKey;
+    }
+    let access;
+    try { access = await eligibleTrackingLink(touch.linkId, order.country, transactionSession); }
+    catch (error) { if (error instanceof AppError && [403,404,409,410,422].includes(error.status)) return; throw error; }
+    const { link, campaign, setting } = access;
+    if (String(link.promoterUserId) !== String(touch.promoterUserId) || String(campaign._id) !== String(touch.campaignId) || order.totals.currency !== setting.currency) return;
+    if (String(order.userId || '') === String(touch.promoterUserId)) { touch.status = 'blocked'; touch.blockReason = 'self_referral'; await touch.save({ session: transactionSession }); return; }
+    await fenceAttribution(Order, order, transactionSession, { sessionKey, country: order.country });
+    const ownedStoreIds = await Store.find({ ownerUserId: touch.promoterUserId }).distinct('_id').session(transactionSession);
+    const memberStoreIds = await StoreMember.find({ userId: touch.promoterUserId, status: 'active' }).distinct('storeId').session(transactionSession);
+    const promoterStoreIds = new Set([...ownedStoreIds, ...memberStoreIds].map(String));
+    const grouped = new Map();
+    for (const item of order.items) {
+      if (promoterStoreIds.has(String(item.storeId)) || item.currency !== setting.currency || !Number.isSafeInteger(item.lineTotalMinor) || item.lineTotalMinor <= 0) continue;
+      if (campaign.scope !== 'marketplace' && (String(item.storeId) !== String(campaign.storeId) || !campaign.productPublicIds.includes(item.productPublicId))) continue;
+      const entry = grouped.get(item.productPublicId) || { item, total: 0 };
+      entry.total += item.lineTotalMinor; grouped.set(item.productPublicId, entry);
+    }
+    const commissionBps = Math.max(0, Math.min(5000, Number(touch.commissionBps ?? campaign.commissionBps) || 0)), policyVersion = String(touch.policyVersion || campaign.policyVersion || '');
+    if (!Number.isSafeInteger(commissionBps)) return;
+    let eligible = 0;
+    for (const { item, total } of grouped.values()) {
+      if (!Number.isSafeInteger(total)) continue;
+      const amount = Number(BigInt(total) * BigInt(commissionBps) / 10000n);
+      if (amount <= 0) continue;
+      const row = await CommissionEntry.findOneAndUpdate({ orderId: order._id, promoterUserId: touch.promoterUserId, productPublicId: item.productPublicId },
+        { $setOnInsert: { publicId: publicId('com'), orderPublicId: order.publicId, campaignId: campaign._id, touchId: touch._id, storePublicId: item.storePublicId, amountMinor: amount, currency: item.currency, commissionBps, policyVersion, status: 'pending' } },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true, session: transactionSession });
+      if (String(row.touchId) === String(touch._id) && String(row.campaignId) === String(campaign._id)) eligible += 1;
+    }
+    if (!eligible) return;
+    touch.status = 'converted'; await touch.save({ session: transactionSession });
+    await trackingAudit(request, 'promoter.order_attributed', touch, transactionSession, { orderPublicId: order.publicId, commissionRows: eligible });
+    return { orderPublicId: order.publicId, commissionRows: eligible };
   });
 }
 
-async function recordTouchForLink(request, link) {
-  if (!link) throw new AppError('Promotion link not found.', 404, 'PROMO_LINK_NOT_FOUND');
-  let campaign = await Campaign.findById(link.campaignId);
-  if (campaign?.scope === 'marketplace') campaign = await ensureMarketplacePromoterCampaign(campaign.country);
-  if (!campaignIsLive(campaign)) throw new AppError('Campaign is not active.', 410, 'CAMPAIGN_INACTIVE');
-  if (campaign.country !== request.country.code) throw new AppError('Campaign is unavailable in this country.', 403, 'COUNTRY_SCOPE');
-  const sessionKey = request.session.cartKey || request.sessionID;
-  const ipHash = hash(request.ip); const userAgentHash = hash(request.get('user-agent')); const referrerHash = hash(request.get('referer'));
-  const duplicate = await AttributionTouch.findOne({ sessionKey, linkId: link._id, status: 'valid', landedAt: { $gte: new Date(Date.now() - 60_000) } });
-  if (duplicate) { request.session.promoterTouchId = duplicate.publicId; return { link, touch: duplicate }; }
-  const recentIpCount = await AttributionTouch.countDocuments({ promoterUserId: link.promoterUserId, ipHash, landedAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) } });
-  const fraudFlags = []; let fraudScore = 0;
-  if (recentIpCount >= 20) { fraudFlags.push('ip_velocity'); fraudScore += 60; }
-  if (!request.get('user-agent')) { fraudFlags.push('missing_user_agent'); fraudScore += 20; }
-  const blocked = fraudScore >= 60;
-  const touch = await AttributionTouch.create({ publicId: publicId('tch'), linkId: link._id, campaignId: campaign._id, promoterUserId: link.promoterUserId, sessionKey, country: request.country.code, ipHash, userAgentHash, referrerHash, expiresAt: new Date(Date.now() + campaign.attributionDays * DAY_MS), commissionBps: campaign.commissionBps, policyVersion: campaign.policyVersion, fraudScore, fraudFlags, status: blocked ? 'blocked' : 'valid', blockReason: blocked ? 'automated_fraud_rule' : '' });
-  if (!blocked) request.session.promoterTouchId = touch.publicId;
-  return { link, touch };
-}
-
-export async function recordTouch(request, token) {
-  const link = await PromoterLink.findOne({ token, active: true });
-  return recordTouchForLink(request, link);
-}
-
-export async function redeemPromoterCoupon(request, code) {
-  const normalized = String(code || '').trim().toUpperCase();
-  if (!normalized) throw new AppError('Enter a promoter code.', 422, 'PROMO_CODE_REQUIRED');
-  const links = await PromoterLink.find({ couponCode: normalized, active: true }).sort({ createdAt: -1 }).limit(2);
-  if (!links.length) throw new AppError('Promoter code is invalid or inactive.', 404, 'PROMO_CODE_INVALID');
-  if (links.length > 1) throw new AppError('Promoter code is ambiguous. Ask the promoter for a current code.', 409, 'PROMO_CODE_AMBIGUOUS');
-  return recordTouchForLink(request, links[0]);
-}
-
-export async function attributeOrder(request, orderPublicId) {
-  const touchId = request.session.promoterTouchId; if (!touchId) return;
-  const touch = await AttributionTouch.findOne({ publicId: touchId, status: 'valid', expiresAt: { $gt: new Date() } }); if (!touch) return;
-  const order = await Order.findOne({ publicId: orderPublicId }); const campaign = await Campaign.findById(touch.campaignId);
-  if (!order || !campaignIsLive(campaign) || campaign.country !== order.country) return;
-  if (order.userId && order.userId.equals(touch.promoterUserId)) { touch.status = 'blocked'; touch.blockReason = 'self_referral'; await touch.save(); return; }
-  let promoterStoreIds = new Set();
-  if (campaign.scope === 'marketplace') {
-    const [ownedStoreIds, memberStoreIds] = await Promise.all([
-      Store.find({ ownerUserId: touch.promoterUserId }).distinct('_id'),
-      StoreMember.find({ userId: touch.promoterUserId, status: 'active' }).distinct('storeId'),
-    ]);
-    promoterStoreIds = new Set([...ownedStoreIds, ...memberStoreIds].map((value) => String(value)));
-  }
-  for (const item of order.items) {
-    if (campaign.scope === 'marketplace' && promoterStoreIds.has(String(item.storeId))) continue;
-    if (campaign.scope !== 'marketplace' && (!campaign.storeId || !item.storeId.equals(campaign.storeId))) continue;
-    if (campaign.scope !== 'marketplace' && campaign.productPublicIds.length && !campaign.productPublicIds.includes(item.productPublicId)) continue;
-    const commissionBps = Math.max(0, Math.min(5000, Number(touch.commissionBps ?? campaign.commissionBps) || 0));
-    const policyVersion = String(touch.policyVersion || campaign.policyVersion || '');
-    const amount = Math.floor(item.lineTotalMinor * commissionBps / 10000); if (amount <= 0) continue;
-    await CommissionEntry.findOneAndUpdate(
-      { orderId: order._id, promoterUserId: touch.promoterUserId, productPublicId: item.productPublicId },
-      { $setOnInsert: { publicId: publicId('com'), orderPublicId: order.publicId, campaignId: campaign._id, touchId: touch._id, storePublicId: item.storePublicId, amountMinor: amount, currency: item.currency, commissionBps, policyVersion, status: 'pending' } },
-      { upsert: true, returnDocument: 'after' },
-    );
-  }
-  touch.status = 'converted'; await touch.save();
-}
-
 export async function makeOrderCommissionsPayable(order, session = null) {
-  const commissions = await CommissionEntry.find({ orderId: order._id, status: 'pending' }).session(session);
-  for (const commission of commissions) {
-    const payable = await ensureLedgerAccount({ code: 'promoter_payable', type: 'liability', ownerType: 'promoter', ownerId: commission.promoterUserId, ownerPublicId: String(commission.promoterUserId), country: order.country, currency: commission.currency }, session);
-    const expense = await ensureLedgerAccount({ code: 'promoter_commission_expense', type: 'expense', ownerType: 'platform', ownerPublicId: 'classic-mart', country: order.country, currency: commission.currency }, session);
-    await postLedgerTransaction({ idempotencyKey: `commission:${commission.publicId}`, referenceType: 'commission', referencePublicId: commission.publicId, currency: commission.currency, country: order.country, description: `Promoter commission ${commission.publicId}`, entries: [{ account: expense, debitMinor: commission.amountMinor, creditMinor: 0, memo: 'Promoter acquisition cost' }, { account: payable, debitMinor: 0, creditMinor: commission.amountMinor, memo: 'Promoter payable' }] }, session);
-    commission.status = 'payable'; commission.payableAt = new Date(); await commission.save({ session });
-  }
+  if (!order?._id || !['paid', 'partially_refunded'].includes(order.paymentState)) return;
+  return attributionTransaction(session, async transactionSession => {
+    const commissions = await CommissionEntry.find({ orderId: order._id, orderPublicId: order.publicId, currency: order.totals.currency,
+      status: mongoose.trusted({ $in: ['pending', 'partially_reversed'] }), payableAt: null }).session(transactionSession);
+    for (const commission of commissions) {
+      const campaign = await Campaign.findOne({ _id: commission.campaignId, country: order.country }).session(transactionSession);
+      if (!campaign) continue;
+      const gross = Number(commission.amountMinor), reversed = Number(commission.reversedAmountMinor || 0);
+      if (!Number.isSafeInteger(gross) || !Number.isSafeInteger(reversed) || reversed < 0 || reversed > gross) throw new AppError('Commission amounts are invalid.', 409, 'COMMISSION_AMOUNT_INVALID');
+      const net = gross - reversed;
+      if (!net) { commission.status = 'reversed'; await commission.save({ session: transactionSession }); continue; }
+      const payable = await ensureLedgerAccount({ code: 'promoter_payable', type: 'liability', ownerType: 'promoter', ownerId: commission.promoterUserId, ownerPublicId: String(commission.promoterUserId), country: order.country, currency: commission.currency }, transactionSession);
+      const expense = await ensureLedgerAccount({ code: 'promoter_commission_expense', type: 'expense', ownerType: 'platform', ownerPublicId: 'classic-mart', country: order.country, currency: commission.currency }, transactionSession);
+      await postLedgerTransaction({ idempotencyKey: `commission:${commission.publicId}`, referenceType: 'commission', referencePublicId: commission.publicId, currency: commission.currency, country: order.country, description: `Promoter commission ${commission.publicId}`, entries: [{ account: expense, debitMinor: net, creditMinor: 0, memo: 'Promoter acquisition cost after refunds' }, { account: payable, debitMinor: 0, creditMinor: net, memo: 'Promoter payable' }] }, transactionSession);
+      commission.status = reversed ? 'partially_reversed' : 'payable'; commission.payableAt = new Date(); await commission.save({ session: transactionSession });
+    }
+  });
 }
 
 export async function reverseOrderCommissions(order, refund, session = null) {
-  const commissions = await CommissionEntry.find({ orderId: order._id, status: { $in: ['pending', 'payable', 'partially_reversed', 'paid'] } }).session(session);
-  const allocations = Array.isArray(refund.allocations) ? refund.allocations.filter(row => Number(row.grossMinor) > 0) : [];
-  let priorAllocatedRefunds = [];
-  if (allocations.length) {
-    priorAllocatedRefunds = await Refund.find({ orderId: order._id, status: 'completed', _id: { $ne: refund._id }, 'allocations.0': { $exists: true } }).select('allocations').session(session).lean();
-  }
-  for (const commission of commissions) {
-    const remaining = commission.amountMinor - (commission.reversedAmountMinor || 0);
-    if (remaining <= 0) continue;
-    let targetReversed;
-    if (allocations.length) {
-      const originalGross = order.items.filter(item => item.productPublicId === commission.productPublicId && item.storePublicId === commission.storePublicId).reduce((sum, item) => sum + item.lineTotalMinor, 0);
-      if (!originalGross) continue;
-      const currentGross = allocations.filter(row => row.productPublicId === commission.productPublicId && row.storePublicId === commission.storePublicId).reduce((sum, row) => sum + Number(row.grossMinor || 0), 0);
-      if (!currentGross) continue;
-      const priorGross = priorAllocatedRefunds.reduce((sum, prior) => sum + (prior.allocations || []).filter(row => row.productPublicId === commission.productPublicId && row.storePublicId === commission.storePublicId).reduce((inner, row) => inner + Number(row.grossMinor || 0), 0), 0);
-      const cumulativeGross = Math.min(originalGross, priorGross + currentGross);
-      targetReversed = Math.floor(commission.amountMinor * cumulativeGross / Math.max(1, originalGross));
-    } else {
-      const ratio = Math.min(1, refund.amountMinor / Math.max(1, order.totals.totalMinor));
-      targetReversed = (commission.reversedAmountMinor || 0) + Math.max(0, Math.floor(commission.amountMinor * ratio));
+  if (!order?._id || String(refund?.orderId) !== String(order._id) || refund.currency !== order.totals.currency || refund.status !== 'completed') throw new AppError('Completed refund does not match this order.', 409, 'COMMISSION_REFUND_SCOPE');
+  return attributionTransaction(session, async transactionSession => {
+    const commissions = await CommissionEntry.find({ orderId: order._id, orderPublicId: order.publicId, currency: order.totals.currency,
+      status: mongoose.trusted({ $in: ['pending', 'payable', 'partially_reversed', 'paid'] }) }).session(transactionSession);
+    const priorRefunds = await Refund.find({ orderId: order._id, status: 'completed', currency: order.totals.currency,
+      _id: mongoose.trusted({ $ne: refund._id }) }).select('amountMinor allocations').session(transactionSession).lean();
+    const refunds = [...priorRefunds, refund];
+    for (const commission of commissions) {
+      const gross = Number(commission.amountMinor), alreadyReversed = Number(commission.reversedAmountMinor || 0), storedRefundBaseline = Number(commission.refundedCommissionMinor || 0);
+      if (![gross, alreadyReversed, storedRefundBaseline].every(Number.isSafeInteger) || alreadyReversed < 0 || alreadyReversed > gross || storedRefundBaseline < 0 || storedRefundBaseline > gross) throw new AppError('Commission amounts are invalid.', 409, 'COMMISSION_AMOUNT_INVALID');
+      const remaining = gross - alreadyReversed;
+      if (!remaining) continue;
+      const originalGross = order.items.filter(item => item.productPublicId === commission.productPublicId && item.storePublicId === commission.storePublicId).reduce((sum, item) => sum + Number(item.lineTotalMinor), 0);
+      if (!Number.isSafeInteger(originalGross) || originalGross <= 0) continue;
+      let allocatedGross = 0, unallocatedMinor = 0;
+      for (const completed of refunds) {
+        const allocations = Array.isArray(completed.allocations) ? completed.allocations : [];
+        if (allocations.length) allocatedGross += allocations.filter(row => row.productPublicId === commission.productPublicId && row.storePublicId === commission.storePublicId).reduce((sum, row) => sum + Number(row.grossMinor || 0), 0);
+        else unallocatedMinor += Number(completed.amountMinor || 0);
+      }
+      if (![allocatedGross, unallocatedMinor, order.totals.totalMinor].every(Number.isSafeInteger) || allocatedGross < 0 || unallocatedMinor < 0 || order.totals.totalMinor <= 0) throw new AppError('Refund commission allocation is invalid.', 409, 'COMMISSION_REFUND_SCOPE');
+      const allocatedTarget = BigInt(gross) * BigInt(Math.min(originalGross, allocatedGross)) / BigInt(originalGross);
+      const unallocatedTarget = BigInt(gross) * BigInt(Math.min(order.totals.totalMinor, unallocatedMinor)) / BigInt(order.totals.totalMinor);
+      const target = Math.min(gross, Number(allocatedTarget + unallocatedTarget));
+      const previousTarget = Math.max(storedRefundBaseline, alreadyReversed);
+      const reversal = Math.min(remaining, Math.max(0, target - previousTarget));
+      commission.refundedCommissionMinor = Math.max(previousTarget, target);
+      if (!reversal) {
+        if (commission.refundedCommissionMinor !== storedRefundBaseline) await commission.save({ session: transactionSession });
+        continue;
+      }
+      // An estimate can be partially reversed before any money was posted.
+      // Only a posted payable may create a reversing ledger transaction.
+      if (commission.payableAt) {
+        const payable = await ensureLedgerAccount({ code: 'promoter_payable', type: 'liability', ownerType: 'promoter', ownerId: commission.promoterUserId, ownerPublicId: String(commission.promoterUserId), country: order.country, currency: commission.currency }, transactionSession);
+        const expense = await ensureLedgerAccount({ code: 'promoter_commission_expense', type: 'expense', ownerType: 'platform', ownerPublicId: 'classic-mart', country: order.country, currency: commission.currency }, transactionSession);
+        await postLedgerTransaction({ idempotencyKey: `commission-reversal:${refund.publicId}:${commission.publicId}`, referenceType: 'commission_reversal', referencePublicId: commission.publicId, currency: commission.currency, country: order.country, description: `Commission reversal for refund ${refund.publicId}`, entries: [{ account: payable, debitMinor: reversal, creditMinor: 0, memo: 'Reverse promoter payable' }, { account: expense, debitMinor: 0, creditMinor: reversal, memo: 'Reverse acquisition expense' }] }, transactionSession);
+      }
+      commission.reversedAmountMinor = alreadyReversed + reversal;
+      commission.reversalRefundPublicId = refund.publicId; commission.reversalReason = `Refund ${refund.publicId}`; commission.reversedAt = new Date();
+      commission.status = commission.reversedAmountMinor >= gross ? 'reversed' : 'partially_reversed'; await commission.save({ session: transactionSession });
     }
-    const reversal = Math.min(remaining, Math.max(0, targetReversed - (commission.reversedAmountMinor || 0)));
-    if (!reversal) continue;
-    if (commission.status !== 'pending') {
-      const payable = await ensureLedgerAccount({ code: 'promoter_payable', type: 'liability', ownerType: 'promoter', ownerId: commission.promoterUserId, ownerPublicId: String(commission.promoterUserId), country: order.country, currency: commission.currency }, session);
-      const expense = await ensureLedgerAccount({ code: 'promoter_commission_expense', type: 'expense', ownerType: 'platform', ownerPublicId: 'classic-mart', country: order.country, currency: commission.currency }, session);
-      await postLedgerTransaction({ idempotencyKey: `commission-reversal:${refund.publicId}:${commission.publicId}`, referenceType: 'commission_reversal', referencePublicId: commission.publicId, currency: commission.currency, country: order.country, description: `Commission reversal for refund ${refund.publicId}`, entries: [{ account: payable, debitMinor: reversal, creditMinor: 0, memo: 'Reverse promoter payable' }, { account: expense, debitMinor: 0, creditMinor: reversal, memo: 'Reverse acquisition expense' }] }, session);
-    }
-    commission.reversedAmountMinor = (commission.reversedAmountMinor || 0) + reversal;
-    commission.reversalRefundPublicId = refund.publicId; commission.reversalReason = `Refund ${refund.publicId}`; commission.reversedAt = new Date();
-    commission.status = commission.reversedAmountMinor >= commission.amountMinor ? 'reversed' : 'partially_reversed'; await commission.save({ session });
-  }
+  });
 }
 
-export async function settlePromoterCommissions(userId, amountMinor, session = null) {
-  let remaining = Math.max(0, Number(amountMinor || 0));
-  const commissions = await CommissionEntry.find({ promoterUserId: userId, status: { $in: ['payable', 'partially_reversed'] } }).sort({ payableAt: 1, createdAt: 1 }).session(session);
-  for (const commission of commissions) {
-    if (remaining <= 0) break;
-    const net = Math.max(0, commission.amountMinor - (commission.reversedAmountMinor || 0));
-    const unpaid = Math.max(0, net - (commission.paidAmountMinor || 0));
-    if (!unpaid) continue;
-    const applied = Math.min(unpaid, remaining);
-    commission.paidAmountMinor = (commission.paidAmountMinor || 0) + applied;
-    remaining -= applied;
-    if (commission.paidAmountMinor >= net) { commission.status = 'paid'; commission.paidAt = new Date(); }
-    await commission.save({ session });
-  }
-  return { appliedMinor: Math.max(0, Number(amountMinor || 0)) - remaining, unappliedMinor: remaining };
+export async function settlePromoterCommissions(userId, amountMinor, session = null, context = {}) {
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw new AppError('Payout amount must be a positive whole amount.', 422, 'COMMISSION_AMOUNT_INVALID');
+  return attributionTransaction(session, async transactionSession => {
+    let country = context.country, currency = context.currency;
+    if ((context.country !== undefined || context.currency !== undefined) && (!country || !currency)) throw new AppError('Payout market requires both country and currency.', 409, 'COMMISSION_MARKET_REQUIRED');
+    if (!country || !currency) {
+      const [user, verification] = await Promise.all([User.findById(userId).select('country').session(transactionSession).lean(), PromoterVerification.findOne({ userId }).select('country').session(transactionSession).lean()]);
+      country = verification?.country || user?.country;
+      const setting = country && await CountrySetting.findOne({ code: country, active: true }).select('currency').session(transactionSession).lean();
+      currency = setting?.currency;
+    }
+    if (!/^[A-Z]{2}$/.test(country || '') || !/^[A-Z]{3}$/.test(currency || '')) throw new AppError('Payout market is unavailable.', 409, 'COMMISSION_MARKET_REQUIRED');
+    let remaining = amountMinor;
+    const commissions = await CommissionEntry.find({ promoterUserId: userId, currency, payableAt: mongoose.trusted({ $ne: null }),
+      status: mongoose.trusted({ $in: ['payable', 'partially_reversed'] }) }).sort({ payableAt: 1, createdAt: 1, _id: 1 }).session(transactionSession);
+    for (const commission of commissions) {
+      if (remaining <= 0) break;
+      const order = await Order.findOne({ _id: commission.orderId, publicId: commission.orderPublicId, country, 'totals.currency': currency }).select('_id').session(transactionSession).lean();
+      const campaign = order && await Campaign.findOne({ _id: commission.campaignId, country }).select('_id').session(transactionSession).lean();
+      if (!order || !campaign) continue;
+      const gross = Number(commission.amountMinor), reversed = Number(commission.reversedAmountMinor || 0), paid = Number(commission.paidAmountMinor || 0);
+      if (![gross, reversed, paid].every(Number.isSafeInteger) || gross < 0 || reversed < 0 || reversed > gross || paid < 0) throw new AppError('Commission amounts are invalid.', 409, 'COMMISSION_AMOUNT_INVALID');
+      const net = gross - reversed, unpaid = Math.max(0, net - paid);
+      if (!unpaid) continue;
+      const applied = Math.min(unpaid, remaining);
+      commission.paidAmountMinor = paid + applied;
+      remaining -= applied;
+      if (commission.paidAmountMinor >= net) { commission.status = 'paid'; commission.paidAt = new Date(); }
+      await commission.save({ session: transactionSession });
+    }
+    return { appliedMinor: amountMinor - remaining, unappliedMinor: remaining };
+  });
 }
 
 
 export async function buildCampaignContentKit(request, input) {
-  const verification = await PromoterVerification.findOne({ userId: request.user._id, status: 'verified' });
-  if (!verification) throw new AppError('Verified promoter account is required.', 403, 'PROMOTER_NOT_VERIFIED');
-  const campaign = await Campaign.findOne({ publicId: input.campaignId, status: 'active' });
-  if (!campaign || !campaignIsLive(campaign)) throw new AppError('Active campaign not found.', 404, 'CAMPAIGN_NOT_FOUND');
-  const application = await CampaignApplication.findOne({ campaignId: campaign._id, promoterUserId: request.user._id, status: 'approved' });
-  if (!application) throw new AppError('Campaign approval is required.', 403, 'CAMPAIGN_APPROVAL_REQUIRED');
-  const channel = String(input.channel || '').trim();
-  if (channel && campaign.allowedChannels.length && !campaign.allowedChannels.includes(channel)) throw new AppError('That channel is not allowed for this campaign.', 422, 'CAMPAIGN_CHANNEL_NOT_ALLOWED');
-  const couponCode = String(input.couponCode || '').trim().toUpperCase();
-  const link = await createPromoterLink(request, { campaignId: campaign.publicId, destination: input.destination, couponCode, subId: input.subId || '', channel, utmSource: 'classicmart-promoter', utmMedium: 'affiliate', utmCampaign: campaign.publicId, utmContent: input.utmContent || 'content-studio' });
-  const facts = campaign.facts.slice(0, 4);
-  const factSentence = facts.length ? facts.join(' • ') : 'See the approved Classic Mart listing for current product details.';
-  const disclosure = campaign.disclosureText || 'Sponsored/affiliate promotion for Classic Mart.';
-  const linkPath = `/r/${link.token}`;
-  const campaignTag = campaign.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean).slice(0, 3).map(x => `#${x.replace(/[^a-z0-9]/g, '')}`).join(' ');
-  const channelTag = channel ? `#${channel.toLowerCase().replace(/[^a-z0-9]/g, '')}` : '';
-  return {
-    campaignId: campaign.publicId, campaignName: campaign.name, channel, trackedUrl: linkPath, couponCode: link.couponCode || '', disclosure,
-    caption: `${campaign.name}: ${factSentence} ${disclosure} Shop: ${linkPath}`,
-    whatsapp: `Classic Mart — ${campaign.name}\n${factSentence}\n${link.couponCode ? `Code: ${link.couponCode}\n` : ''}${disclosure}\n${linkPath}`,
-    posterText: `${campaign.name}\n${facts[0] || 'Shop the approved offer on Classic Mart'}\n${link.couponCode ? `Use code ${link.couponCode}\n` : ''}${disclosure}`,
-    hashtags: [campaignTag, channelTag, '#ClassicMart', '#Sponsored'].filter(Boolean).join(' '),
-    postingTimeSuggestion: ['whatsapp','facebook'].includes(channel.toLowerCase()) ? '18:00–20:00 local time; test against your own audience analytics.' : '12:00–14:00 or 18:00–20:00 local time; test against your own audience analytics.',
-    approvedFacts: facts,
-  };
+  const { secureBuildCampaignContentKit } = await import('./promoter-campaign-pages.js');
+  return secureBuildCampaignContentKit(request, input);
 }
 
 export async function appealCommissionReversal(request, commissionPublicId, message) {
-  const commission = await CommissionEntry.findOne({ publicId: commissionPublicId, promoterUserId: request.user._id, status: { $in: ['reversed', 'partially_reversed'] } });
-  if (!commission) throw new AppError('Reversed commission not found.', 404, 'COMMISSION_NOT_FOUND');
-  if (commission.appeal?.status === 'pending') throw new AppError('This commission appeal is already pending.', 409, 'COMMISSION_APPEAL_PENDING');
-  commission.appeal = { status: 'pending', message, decision: '', submittedAt: new Date() };
-  await commission.save(); return commission;
+  const { appealPromoterCommission } = await import('./promoter-finance-pages.js');
+  return appealPromoterCommission(request, commissionPublicId, { message });
 }
 
 export async function reviewCommissionAppeal(request, commissionPublicId, { decision, reason }) {
-  const commission = await CommissionEntry.findOne({ publicId: commissionPublicId, 'appeal.status': 'pending' });
-  if (!commission) throw new AppError('Pending commission appeal not found.', 404, 'COMMISSION_APPEAL_NOT_FOUND');
-  const campaign = await Campaign.findById(commission.campaignId).lean();
-  if (!campaign) throw new AppError('Commission is outside your country scope.',403,'COUNTRY_SCOPE'); if (request.user.role !== 'super_admin') assertOperationalCountry(request.user,campaign.country,'Commission is outside your country scope.');
-  if (decision === 'accept' && commission.reversedAmountMinor > 0) {
-    const session = await mongoose.startSession();
-    try { await session.withTransaction(async () => {
-      const current = await CommissionEntry.findById(commission._id).session(session);
-      if (!current || current.appeal?.status !== 'pending') throw new AppError('Commission appeal changed.', 409, 'COMMISSION_APPEAL_STATE');
-      const restore = current.reversedAmountMinor;
-      const payable = await ensureLedgerAccount({ code: 'promoter_payable', type: 'liability', ownerType: 'promoter', ownerId: current.promoterUserId, ownerPublicId: String(current.promoterUserId), country: campaign.country, currency: current.currency }, session);
-      const expense = await ensureLedgerAccount({ code: 'promoter_commission_expense', type: 'expense', ownerType: 'platform', ownerPublicId: 'classic-mart', country: campaign.country, currency: current.currency }, session);
-      await postLedgerTransaction({ idempotencyKey: `commission-appeal:${current.publicId}:${current.appeal.submittedAt?.getTime?.() || Date.now()}`, referenceType: 'commission_appeal', referencePublicId: current.publicId, currency: current.currency, country: campaign.country, description: `Accepted commission reversal appeal ${current.publicId}`, entries: [{ account: expense, debitMinor: restore, creditMinor: 0, memo: 'Restore commission expense after accepted appeal' }, { account: payable, debitMinor: 0, creditMinor: restore, memo: 'Restore promoter payable after accepted appeal' }] }, session);
+  if (!['accept', 'reject'].includes(decision) || typeof reason !== 'string' || reason.trim().length < 3 || reason.trim().length > 1200) throw new AppError('Provide an appeal decision and reason.', 422, 'COMMISSION_APPEAL_DECISION_INVALID');
+  const [{ env }, { hasPermission }, { hydratePlatformAuthorization }, { writeAudit }] = await Promise.all([import('../config/env.js'), import('../core/roles.js'), import('./platform-grants.js'), import('./audit.js')]);
+  const session = await mongoose.startSession(); let result;
+  try { await session.withTransaction(async () => {
+    const actor = await User.findById(request.user?._id).session(session);
+    if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user?.security?.tokenVersion || (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) throw new AppError('Your finance account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
+    await hydratePlatformAuthorization(actor);
+    if (!hasPermission(actor, 'finance:manage') && !hasPermission(actor, 'finance:country')) throw new AppError('Finance permission is required for commission appeals.', 403, 'FORBIDDEN');
+    if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt || (env.security.privilegedMfaRequired && !actor.security.mfaEnabled))) throw new AppError('Complete privileged account verification first.', 403, 'ACCOUNT_UNAVAILABLE');
+    const current = await CommissionEntry.findOne({ publicId: commissionPublicId, 'appeal.status': 'pending', status: { $in: ['reversed', 'partially_reversed'] } }).session(session);
+    if (!current) throw new AppError('Pending commission appeal not found.', 404, 'COMMISSION_APPEAL_NOT_FOUND');
+    if (String(current.promoterUserId) === String(actor._id)) throw new AppError('You cannot review your own commission appeal.', 403, 'FOUR_EYES_REQUIRED');
+    const campaign = await Campaign.findById(current.campaignId).select('country').session(session).lean();
+    const order = campaign ? await Order.findOne({ _id: current.orderId, publicId: current.orderPublicId, country: campaign.country, 'totals.currency': current.currency }).select('_id').session(session).lean() : null;
+    if (!campaign || !order) throw new AppError('Commission market references are inconsistent.', 409, 'COMMISSION_MARKET_INVALID');
+    assertOperationalCountry(actor, campaign.country, 'Commission is outside your country scope.');
+    await User.updateOne({ _id: actor._id, status: 'active', 'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
+    let restoredPostedMinor = 0;
+    if (decision === 'accept') {
+      const restore = Number(current.reversedAmountMinor || 0);
+      if (!Number.isSafeInteger(restore) || restore < 0 || !Number.isSafeInteger(current.amountMinor) || restore > current.amountMinor) throw new AppError('Commission amounts are invalid.', 409, 'COMMISSION_AMOUNT_INVALID');
+      current.refundedCommissionMinor = Math.max(Number(current.refundedCommissionMinor || 0), restore);
+      // A pending estimate has never entered the ledger. Accepting its appeal
+      // restores the estimate without turning it into withdrawable funds.
+      if (current.payableAt && restore > 0) {
+        const payable = await ensureLedgerAccount({ code: 'promoter_payable', type: 'liability', ownerType: 'promoter', ownerId: current.promoterUserId, ownerPublicId: String(current.promoterUserId), country: campaign.country, currency: current.currency }, session);
+        const expense = await ensureLedgerAccount({ code: 'promoter_commission_expense', type: 'expense', ownerType: 'platform', ownerPublicId: 'classic-mart', country: campaign.country, currency: current.currency }, session);
+        await postLedgerTransaction({ idempotencyKey: `commission-appeal:${current.publicId}:${current.appeal.submittedAt?.getTime() ?? current.__v}`, referenceType: 'commission_appeal', referencePublicId: current.publicId, currency: current.currency, country: campaign.country, description: `Accepted commission reversal appeal ${current.publicId}`, entries: [{ account: expense, debitMinor: restore, creditMinor: 0, memo: 'Restore posted commission expense after accepted appeal' }, { account: payable, debitMinor: 0, creditMinor: restore, memo: 'Restore promoter payable after accepted appeal' }] }, session);
+        restoredPostedMinor = restore;
+      }
       current.reversedAmountMinor = 0; current.reversalReason = ''; current.reversalRefundPublicId = ''; current.reversedAt = undefined;
-      const netPaid = Number(current.paidAmountMinor || 0); current.status = netPaid >= current.amountMinor ? 'paid' : 'payable';
-      current.appeal.status = 'accepted'; current.appeal.decision = reason; current.appeal.reviewedAt = new Date(); current.appeal.reviewedByUserId = request.user._id;
-      await current.save({ session });
-    }); } finally { await session.endSession(); }
-  } else {
-    commission.appeal.status = 'rejected'; commission.appeal.decision = reason; commission.appeal.reviewedAt = new Date(); commission.appeal.reviewedByUserId = request.user._id; await commission.save();
-  }
-  return CommissionEntry.findById(commission._id).lean();
+      current.status = current.payableAt ? (Number(current.paidAmountMinor || 0) >= current.amountMinor ? 'paid' : 'payable') : 'pending';
+    }
+    current.appeal.status = decision === 'accept' ? 'accepted' : 'rejected'; current.appeal.decision = reason.trim(); current.appeal.reviewedAt = new Date(); current.appeal.reviewedByUserId = actor._id;
+    await current.save({ session });
+    await writeAudit(request, 'finance.commission_appeal_reviewed', { actor, targetType: 'commission', targetPublicId: current.publicId, country: campaign.country, metadata: { decision, restoredPostedMinor }, session });
+    result = current.toObject();
+  }); } finally { await session.endSession(); }
+  return result;
 }
 
 
-function promoterCommissionStage(status){
-  if(status==='pending')return 'estimated';
-  if(status==='payable'||status==='partially_reversed')return 'payable';
-  if(status==='paid')return 'paid';
-  return 'adjusted';
-}
-function safeCsvValue(value){const text=String(value??'');return /^[=+@-]/.test(text)?`'${text}`:text;}
-function csvField(value){const text=safeCsvValue(value).replaceAll('"','""');return `"${text}"`;}
 export async function streamPromoterCommissionCsv(response,user){
-  response.status(200);response.type('text/csv; charset=utf-8');response.set('Content-Disposition','attachment; filename="classic-mart-promoter-commissions.csv"');response.set('Cache-Control','private, no-store');
-  response.write('commission_id,order_id,campaign_id,store,product,stage,gross_commission,reversed,net,paid,outstanding,currency,reversal_reason,appeal_status,created_at,payable_at,paid_at\n');
-  let count=0;
-  for await(const row of CommissionEntry.find({promoterUserId:user._id}).sort({_id:1}).lean().cursor()){
-    const gross=Number(row.amountMinor||0),reversed=Math.min(gross,Number(row.reversedAmountMinor||0)),net=Math.max(0,gross-reversed),paid=Math.min(net,Number(row.paidAmountMinor||0)),outstanding=Math.max(0,net-paid);
-    const values=[row.publicId,row.orderPublicId,String(row.campaignId||''),row.storePublicId,row.productPublicId,promoterCommissionStage(row.status),gross,reversed,net,paid,outstanding,row.currency,row.reversalReason||'',row.appeal?.status||'none',row.createdAt?.toISOString?.()||'',row.payableAt?.toISOString?.()||'',row.paidAt?.toISOString?.()||''];
-    response.write(values.map(csvField).join(',')+'\n');count+=1;
-  }
-  response.end();return count;
+  const { streamPromoterFinanceCsv } = await import('./promoter-finance-pages.js');
+  response.status(200).set('Cache-Control', 'private, no-store');
+  return streamPromoterFinanceCsv({ user, query: {} }, response, 'promoter-commissions');
 }
 
 export async function promoterSummary(user, paging = {}) {

@@ -6,7 +6,7 @@ const relationshipKind = relationshipFlow.relationshipKind;
 const relationshipStatus = value => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, value => value.toUpperCase());
 %>
 <% if (relationshipKind === 'messages') { %>
-  <div class="seller-verification-actions"><a class="outline-button" href="/seller/messages">Customer Conversations</a><a class="outline-button" href="/seller/messages?tab=questions">Product Questions</a></div>
+  <div class="seller-verification-actions"><a class="outline-button" href="/seller/messages">Customer Conversations</a><a class="outline-button" href="/seller/messages?tab=questions">Product Questions</a><% if (user.role === 'seller' && liveSeller.store?.status === 'verified' && String(liveSeller.store.ownerUserId) === String(user._id)) { %><a class="outline-button" href="/seller/promoter-messages">Promoter Conversations</a><% } %></div>
 <% } %>
 <% if (!relationshipFlow.editable) { %><p class="form-intro">Complete store verification before sending messages or updating support records.</p><% } %>
 <% if (relationshipRecord) { %>

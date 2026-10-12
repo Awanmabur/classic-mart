@@ -96,11 +96,13 @@ async function beginMfaChallenge(request, user, remember, nextPath) {
     cartKey: typeof request.session.cartKey === 'string' ? request.session.cartKey : '',
     catalogueKey: typeof request.session.catalogueKey === 'string' ? request.session.catalogueKey : '',
     promoterTouchId: typeof request.session.promoterTouchId === 'string' ? request.session.promoterTouchId : '',
+    promoterTouchSessionKey: typeof request.session.promoterTouchSessionKey === 'string' && request.session.promoterTouchSessionKey.length <= 512 ? request.session.promoterTouchSessionKey : '',
   };
   await regenerate(request);
   if (continuity.cartKey) request.session.cartKey = continuity.cartKey;
   if (continuity.catalogueKey) request.session.catalogueKey = continuity.catalogueKey;
   if (continuity.promoterTouchId) request.session.promoterTouchId = continuity.promoterTouchId;
+  if (continuity.promoterTouchSessionKey) request.session.promoterTouchSessionKey = continuity.promoterTouchSessionKey;
   request.session.mfaChallenge = { userId: user._id.toString(), remember: Boolean(remember), next: safeNext(nextPath), issuedAt: Date.now() };
   request.session.cookie.maxAge = 10 * 60_000;
   await saveSession(request);
@@ -113,6 +115,7 @@ async function establishSession(request, user, remember) {
     cartKey: typeof request.session.cartKey === 'string' ? request.session.cartKey : '',
     catalogueKey: typeof request.session.catalogueKey === 'string' ? request.session.catalogueKey : '',
     promoterTouchId: typeof request.session.promoterTouchId === 'string' ? request.session.promoterTouchId : '',
+    promoterTouchSessionKey: typeof request.session.promoterTouchSessionKey === 'string' && request.session.promoterTouchSessionKey.length <= 512 ? request.session.promoterTouchSessionKey : '',
   };
   await regenerate(request);
   request.session.userId = user._id.toString();
@@ -120,6 +123,7 @@ async function establishSession(request, user, remember) {
   if (continuity.cartKey) request.session.cartKey = continuity.cartKey;
   if (continuity.catalogueKey) request.session.catalogueKey = continuity.catalogueKey;
   if (continuity.promoterTouchId) request.session.promoterTouchId = continuity.promoterTouchId;
+  if (continuity.promoterTouchSessionKey) request.session.promoterTouchSessionKey = continuity.promoterTouchSessionKey;
   request.session.cookie.maxAge = remember
     ? 30 * 24 * 60 * 60_000
     : 8 * 60 * 60_000;

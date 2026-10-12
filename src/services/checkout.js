@@ -506,13 +506,14 @@ export async function placeOrder(request, input) {
       }
       order.sellerOrderPublicIds = sellerOrderPublicIds;
       await order.save({ session });
+      const { attributeOrder } = await import('./promoters.js');
+      await attributeOrder(request, order.publicId, session);
       freshCart.items = [];
       freshCart.promotionCodes = [];
       await freshCart.save({ session });
       created = order.toObject();
     });
     delete request.session.checkoutReview;
-    try { const { attributeOrder } = await import('./promoters.js'); await attributeOrder(request, created.publicId); } catch (error) { request.log?.warn?.({ error: error.message, orderId: created.publicId }, 'Promoter attribution deferred'); }
     return orderView(created);
   } finally { await session.endSession(); }
 }

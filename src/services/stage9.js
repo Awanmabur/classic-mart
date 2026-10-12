@@ -9,7 +9,7 @@ import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import {
   AiModelRegistry, ApprovalRequest, AuditLog, CmsContent, CountrySetting, DataExport, FeatureFlag,
   BusinessOrganization, GiftCard, Incident, LedgerTransaction, LoyaltyAccount, LoyaltyEntry, MarketingCampaign, Order,
-  PaymentIntent, Payout, PayoutAccount, PromoterVerification, Referral, Refund, SearchEvent, Store, SupportTicket, User, Warehouse,
+  PaymentIntent, Payout, PayoutAccount, PromoterVerification, Referral, ReferralInvite, Refund, SearchEvent, Store, SupportTicket, User, Warehouse,
 } from '../models/index.js';
 import { addOutboxEvent } from './outbox.js';
 import { assertOperationalCountry, operationalCountriesFor, operationalCountryScope } from './authorization.js';
@@ -201,16 +201,46 @@ export async function addLoyaltyPoints({userId,country,points,idempotencyKey,typ
   const account=await ensureLoyalty(userId,country,session);const next=account.points+points;if(next<0)throw new AppError('Loyalty balance is insufficient.',409,'LOYALTY_BALANCE');account.points=next;if(points>0)account.lifetimeEarned+=points;else account.lifetimeRedeemed+=Math.abs(points);account.tier=account.lifetimeEarned>=5000?'gold':account.lifetimeEarned>=1000?'silver':'classic';await account.save({session});
   const docs=await LoyaltyEntry.create([{publicId:publicId('loe'),idempotencyKey,userId,country,type,pointsDelta:points,balanceAfter:account.points,referenceType,referencePublicId,reason,actorUserId}],session?{session}:undefined);return docs[0];
 }
-export async function ensureReferralCode(user){
-  let referral=await Referral.findOne({referrerUserId:user._id,referredUserId:null});if(referral)return referral;const code=`CM${crypto.randomBytes(4).toString('hex').toUpperCase()}`;return Referral.create({publicId:publicId('ref'),code,referrerUserId:user._id,country:user.country,status:'available'});
+export async function ensureReferralCode(user,{session=null,country=user.country}={}){
+  const scope={referrerUserId:user._id,country};
+  const existing=await ReferralInvite.findOne(scope).session(session);if(existing)return existing;
+  // Preserve previously shared signup URLs, including codes already used once.
+  const legacy=await Referral.findOne(scope).sort({createdAt:1,_id:1}).session(session).lean();
+  const document={publicId:publicId('rinvite'),code:legacy?.code||`CM${crypto.randomBytes(6).toString('hex').toUpperCase()}`,...scope};
+  try{const [created]=await ReferralInvite.create([document],session?{session}:undefined);return created;}
+  catch(error){if(error.code===11000&&!session){const winner=await ReferralInvite.findOne(scope);if(winner)return winner;}throw error;}
 }
 export async function acceptReferralCode(code,user){
-  if(!code)return null;const referral=await Referral.findOne({code:String(code).trim().toUpperCase(),status:'available'});if(!referral)return null;if(referral.referrerUserId.equals(user._id))throw new AppError('You cannot use your own referral code.',422,'REFERRAL_SELF');if(referral.country!==user.country)throw new AppError('Referral code is not valid in your country.',422,'REFERRAL_COUNTRY');if(await Referral.exists({referredUserId:user._id}))return null;referral.referredUserId=user._id;referral.status='pending';referral.acceptedAt=new Date();await referral.save();return referral;
+  if(!code)return null;const submitted=String(code).trim().toUpperCase();
+  let invite=await ReferralInvite.findOne({code:submitted});
+  if(!invite){const legacy=await Referral.findOne({code:submitted}).lean();if(!legacy)return null;invite=await ensureReferralCode({_id:legacy.referrerUserId,country:legacy.country});}
+  if(invite.referrerUserId.equals(user._id))throw new AppError('You cannot use your own referral code.',422,'REFERRAL_SELF');
+  if(invite.country!==user.country)throw new AppError('Referral code is not valid in your country.',422,'REFERRAL_COUNTRY');
+  if(!(await User.exists({_id:invite.referrerUserId,status:'active',country:invite.country})))return null;
+  if(await Referral.exists({referredUserId:user._id}))return null;
+  try{return await Referral.create({publicId:publicId('ref'),code:`RH${crypto.randomBytes(10).toString('hex').toUpperCase()}`,referrerUserId:invite.referrerUserId,
+    referredUserId:user._id,referralInviteId:invite._id,invitationCode:submitted,country:invite.country,status:'pending',acceptedAt:new Date()});}
+  catch(error){if(error.code===11000&&await Referral.exists({referredUserId:user._id}))return null;throw error;}
 }
 export async function applyGrowthForPaidOrder(order,session){
-  if(!order.userId)return;const setting=await CountrySetting.findOne({code:order.country}).session(session).lean();if(!setting)return;
+  // Payment handlers call this only after settlement. Keep the same boundary in
+  // the service so an unpaid checkout or another market cannot qualify a signup.
+  if(!order.userId||order.paymentState!=='paid')return;const setting=await CountrySetting.findOne({code:order.country,active:true}).session(session).lean();if(!setting)return;
   if(setting.growth?.loyaltyEnabled){const rate=Number(setting.growth.loyaltyPointsPer1000Minor||0);const points=Math.floor(Number(order.totals.subtotalMinor||0)/1000)*rate;if(points>0)await addLoyaltyPoints({userId:order.userId,country:order.country,points,idempotencyKey:`order:${order.publicId}:loyalty`,type:'order_earn',referenceType:'order',referencePublicId:order.publicId,reason:'Verified order reward'},session);}
-  if(setting.growth?.referralEnabled){const referral=await Referral.findOne({referredUserId:order.userId,status:'pending'}).session(session);if(referral){const previous=await Order.countDocuments({userId:order.userId,status:{$in:['paid','confirmed','fulfilled','partially_refunded','refunded']},_id:{$ne:order._id}}).session(session);if(previous===0){const reward=Number(setting.growth.referralRewardPoints||100);referral.status='rewarded';referral.qualifiedOrderPublicId=order.publicId;referral.qualifiedAt=new Date();referral.rewardedAt=new Date();referral.referrerRewardPoints=reward;referral.referredRewardPoints=reward;await referral.save({session});await addLoyaltyPoints({userId:referral.referrerUserId,country:order.country,points:reward,idempotencyKey:`referral:${referral.publicId}:referrer`,type:'referral_earn',referenceType:'referral',referencePublicId:referral.publicId,reason:'Qualified referral reward'},session);await addLoyaltyPoints({userId:order.userId,country:order.country,points:reward,idempotencyKey:`referral:${referral.publicId}:referred`,type:'referral_earn',referenceType:'referral',referencePublicId:referral.publicId,reason:'Welcome referral reward'},session);}}}
+  if(setting.growth?.referralEnabled){
+    const referral=await Referral.findOne({referredUserId:order.userId,country:order.country,status:'pending'}).session(session);
+    if(referral&&!referral.referrerUserId.equals(order.userId)){
+      const eligibleUsers=await User.countDocuments({_id:{$in:[referral.referrerUserId,order.userId]},status:'active',country:order.country}).session(session);
+      const previous=await Order.countDocuments({userId:order.userId,paymentState:'paid',_id:{$ne:order._id}}).session(session);
+      if(eligibleUsers===2&&previous===0){
+        const reward=Number(setting.growth.referralRewardPoints??100);
+        referral.status='rewarded';referral.qualifiedOrderPublicId=order.publicId;referral.qualifiedAt=new Date();referral.rewardedAt=new Date();
+        referral.referrerRewardPoints=reward;referral.referredRewardPoints=reward;await referral.save({session});
+        await addLoyaltyPoints({userId:referral.referrerUserId,country:order.country,points:reward,idempotencyKey:`referral:${referral.publicId}:referrer`,type:'referral_earn',referenceType:'referral',referencePublicId:referral.publicId,reason:'Qualified referral reward'},session);
+        await addLoyaltyPoints({userId:order.userId,country:order.country,points:reward,idempotencyKey:`referral:${referral.publicId}:referred`,type:'referral_earn',referenceType:'referral',referencePublicId:referral.publicId,reason:'Welcome referral reward'},session);
+      }
+    }
+  }
 }
 export async function redeemGiftCard({user,code}){
   const session = await mongoose.startSession();

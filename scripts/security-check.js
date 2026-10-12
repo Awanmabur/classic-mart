@@ -24,6 +24,9 @@ for(const file of files){
         if (expression === "include('partials/seller-store-live')" && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
         if (expression === "include('partials/seller-overview-live')" && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
         if (expression === "include('partials/seller-standard-live')" && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
+        if (["include('partials/promoter-overview-live')", "include('partials/promoter-profile-live')", "include('partials/promoter-standard-live')"].includes(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
+        if (["include('promoter-campaign-forms')", "include('promoter-finance-forms')", "include('promoter-relationship-forms')"].includes(expression) && file === path.join('views','partials','promoter-standard-live.ejs')) allowed.add(expression);
+        if (expression === "include('seller-promoter-conversation')" && file === path.join('views','partials','seller-standard-live.ejs')) allowed.add(expression);
         if (["include('seller-inventory-forms')", "include('seller-relationship-forms')", "include('seller-finance-forms')", "include('seller-growth-forms')"].includes(expression) && file === path.join('views','partials','seller-standard-live.ejs')) allowed.add(expression);
         if (["include('partials/seller-verification-live')", "include('partials/verification-review-live')"].includes(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
         if (["include('partials/seller-products-live')", "include('partials/product-review-live')"].includes(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);

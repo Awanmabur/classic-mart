@@ -56,6 +56,28 @@ that identity's own purchases within its authorized workspace layout; they do
 not change its primary workspace. Seller navigation points to Seller operational
 routes, while personal purchases remain separate from store fulfilment.
 
+## Promoter entry points
+
+`/promoter/overview` is the Promoter landing page. All 15 approved destinations
+use canonical `/promoter/...` routes and live services. The account's current
+literal Promoter role and primary workspace must both authorize access; a
+different role or platform grant cannot silently become a Promoter. Personal
+security and messages retain Promoter navigation. See the
+[Promoter page contracts](promoter/workspace-pages.md).
+
+Programme country comes from the persisted verification record, falling back
+to the registration country, and currency/time zone come from its active country
+configuration. Shopping preferences do not select programme funds. Public links
+and checkout recheck current campaign, merchant, product and programme access.
+Checkout attribution participates in the order transaction. Pending commission
+estimates become ledger funds only through verified payment; payout reservations
+and commission settlement retain country and currency scope.
+
+Reusable referral invitations have separate signup receipts, preserving the
+legacy receipt indexes. Campaign messages allow the accepted Promoter and the
+current Seller owner to reply to the same persisted conversation. Ordinary
+conversation alerts honor the Promoter's communication preference.
+
 ## Verification
 
 Role landing tests exercise real login, session regeneration and route access.

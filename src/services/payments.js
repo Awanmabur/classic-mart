@@ -4,10 +4,11 @@ import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import { currentTraceFields, runWithStoredTrace } from '../core/trace.js';
+import { hashToken } from '../core/crypto.js';
 import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import {
   BusinessInvoice, Chargeback, InventoryMovement, InventoryReservation, Order, PaymentIntent, ProviderEvent, PurchaseOrder, Refund, StockItem,
-  CountrySetting, LedgerAccount, LedgerTransaction, PayoutAccount, Payout, ReconciliationRun, SellerOrder, Shipment, Store, StoreMember, User,
+  CountrySetting, Device, LedgerAccount, LedgerTransaction, PayoutAccount, Payout, PromoterVerification, ReconciliationRun, SellerOrder, Shipment, Store, StoreMember, User,
 } from '../models/index.js';
 import { ensureLedgerAccount, postLedgerTransaction, accountBalanceMinor, sellerSettlementBreakdown, proportionalSettlementSlice } from './money.js';
 import { orderAccessQuery } from './order-access.js';
@@ -15,6 +16,8 @@ import { refreshOrderLifecycle, syncLegacyOrderStatus } from './order-state.js';
 import { getPesapalTransactionStatus, requestPesapalRefund, submitPesapalOrder } from './pesapal.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
 import { sellerStoreAccesses } from './store.js';
+import { hydratePlatformAuthorization } from './platform-grants.js';
+import { primaryWorkspaceFor } from '../dashboard/access.js';
 
 export const PAYMENT_PROVIDER = 'pesapal';
 const factors = { UGX: 1, RWF: 1, JPY: 1, KRW: 1 };
@@ -223,6 +226,8 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
       intent.status='succeeded';intent.paidAt=intent.paidAt||new Date();intent.activeKey=undefined;intent.providerTrackingId=providerTrackingId||intent.providerTrackingId;intent.providerTransactionId=intent.providerTrackingId||intent.providerTransactionId;intent.providerConfirmationCode=providerConfirmationCode||intent.providerConfirmationCode;intent.providerPaymentMethod=wallet?'Classic Wallet':(providerPaymentMethod||intent.providerPaymentMethod);if(wallet)intent.providerStatus='COMPLETED';
       invoice.status='paid';invoice.paidMinor=invoice.totalMinor;invoice.paidAt=intent.paidAt;invoice.paymentIntentPublicId=intent.publicId;invoice.timeline.push({type:'paid',message:'Business credit invoice paid through verified Pesapal transaction.'});
       order.paymentState='paid';syncLegacyOrderStatus(order);order.timeline.push({type:'business_invoice.paid',message:`Business invoice ${invoice.invoiceNumber} paid through Pesapal.`});
+      const { makeOrderCommissionsPayable }=await import('./promoters.js');await makeOrderCommissionsPayable(order,session);
+      const { applyGrowthForPaidOrder }=await import('./stage9.js');await applyGrowthForPaidOrder(order,session);
       const { issuePaymentReceipt }=await import('./financial-documents.js');await issuePaymentReceipt(order,intent,session);
       await invoice.save({session});await order.save({session});await intent.save({session});
       await ensureAuthorizedShipmentInSession(order,intent,session);return;
@@ -593,9 +598,47 @@ async function postRefundLedger(orderLike,refundLike,intentLike){
   });}finally{await session.endSession();}
 }
 
+/** Personal Promoter funds follow the programme market, independently of shopping preferences. */
+export async function pinnedPromoterMarket(user, { session = null, write = false } = {}) {
+  const verification = await PromoterVerification.findOne({ userId: user._id }).select('country status').session(session).lean();
+  const countryCode = String(verification?.country || user.country || '').toUpperCase();
+  const country = await CountrySetting.findOne({ code: countryCode, active: true }).select('code currency timeZone').session(session).lean();
+  if (!country) throw new AppError('Your promoter programme market is unavailable.', 409, 'PROMOTER_COUNTRY_UNAVAILABLE');
+  if (write) {
+    if (verification) await PromoterVerification.updateOne({ _id: verification._id, country: verification.country }, { $inc: { __v: 1 } }, { session });
+    await CountrySetting.updateOne({ _id: country._id, active: true, currency: country.currency }, { $inc: { __v: 1 } }, { session });
+  }
+  return { country: country.code, currency: country.currency, timeZone: country.timeZone };
+}
+
+async function promoterPayoutActor(request, session = null) {
+  const actor = await User.findById(request.user?._id).select('status role country currency security.tokenVersion emailVerifiedAt onboardingCompletedAt platformAccessManagedAt').session(session);
+  if (actor) await hydratePlatformAuthorization(actor);
+  if (!actor || actor.status !== 'active' || actor.role !== 'promoter' || actor.security.tokenVersion !== request.user?.security?.tokenVersion
+    || primaryWorkspaceFor(actor) !== 'promoter'
+    || (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) {
+    throw new AppError('Your promoter account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
+  }
+  if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) throw new AppError('Complete account verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');
+  if (request.sessionID) {
+    const device = await Device.findOne({ userId: actor._id, sessionHash: hashToken(request.sessionID), revokedAt: null }).select('_id').session(session).lean();
+    if (!device) throw new AppError('Your account session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
+    if (session?.inTransaction()) await Device.updateOne({ _id: device._id, revokedAt: null }, { $inc: { __v: 1 } }, { session });
+  }
+  return actor;
+}
+
+export function publicPayoutAccount(account) {
+  return { publicId: account.publicId, ownerType: account.ownerType, country: account.country, currency: account.currency, method: account.method,
+    label: account.label, status: account.status, verifiedAt: account.verifiedAt, createdAt: account.createdAt };
+}
+
 export async function payoutOwnerContext(request,{preferredStorePublicId='',strictPreferred=false}={}){
   const storeContext=Boolean(request.store?._id);
-  if(!storeContext&&request.user?.role==='promoter')return{ownerType:'promoter',ownerUserId:request.user._id,ownerPublicId:String(request.user._id),ownerStoreId:null,ownerStorePublicId:'',country:request.user.country,currency:request.user.currency,availableStores:[]};
+  if(!storeContext&&request.user?.role==='promoter'){
+    const actor=await promoterPayoutActor(request),market=await pinnedPromoterMarket(actor);
+    return{ownerType:'promoter',ownerUserId:actor._id,ownerPublicId:String(actor._id),ownerStoreId:null,ownerStorePublicId:'',...market,availableStores:[]};
+  }
   if(!storeContext&&request.user?.role==='delivery')return{ownerType:'delivery',ownerUserId:request.user._id,ownerPublicId:String(request.user._id),ownerStoreId:null,ownerStorePublicId:'',country:request.user.country,currency:request.user.currency,availableStores:[]};
   const accesses=(await sellerStoreAccesses(request.user)).filter(row=>['owner','admin','finance'].includes(row.role));
   if(!accesses.length)throw new AppError('Seller owner, admin or finance access is required.',403,'PAYOUT_OWNER_REQUIRED');
@@ -700,7 +743,7 @@ export async function reconcilePayout(request,payoutPublicId,{reference,success=
         const bank=await ensureLedgerAccount({code:'external_disbursement_clearing',type:'asset',ownerType:'provider',ownerPublicId:'external',country:account.country,currency:payout.currency},session);
         await postLedgerTransaction({idempotencyKey:`payout-paid:${payout.publicId}`,referenceType:'payout',referencePublicId:payout.publicId,currency:payout.currency,country:account.country,description:`Payout completed ${payout.publicId}`,entries:[{account:clearing,debitMinor:payout.amountMinor,creditMinor:0,memo:'Clear payout liability'},{account:bank,debitMinor:0,creditMinor:payout.amountMinor,memo:`External disbursement ${ref}`}]},session);
         payout.status='paid';payout.failureMessage='';
-        if(ownerType==='promoter'){const {settlePromoterCommissions}=await import('./promoters.js');await settlePromoterCommissions(payout.ownerUserId,payout.amountMinor,session);}
+        if(ownerType==='promoter'){const {settlePromoterCommissions}=await import('./promoters.js');await settlePromoterCommissions(payout.ownerUserId,payout.amountMinor,session,{country:account.country,currency:payout.currency});}
       }else{
         const payable=await ensureLedgerAccount({code:payoutPayableCode(ownerType),type:'liability',ownerType,ownerPublicId,country:account.country,currency:payout.currency},session);
         await postLedgerTransaction({idempotencyKey:`payout-reverse:${payout.publicId}`,referenceType:'payout',referencePublicId:payout.publicId,currency:payout.currency,country:account.country,description:`Failed payout reversal ${payout.publicId}`,entries:[{account:clearing,debitMinor:payout.amountMinor,creditMinor:0,memo:'Release payout clearing'},{account:payable,debitMinor:0,creditMinor:payout.amountMinor,memo:'Restore payable balance'}]},session);
@@ -712,9 +755,21 @@ export async function reconcilePayout(request,payoutPublicId,{reference,success=
   return completed;
 }
 
-export async function savePayoutAccount(request,{method,label,destination}){const owner=await payoutOwnerContext(request);const docs=await PayoutAccount.create([{publicId:publicId('poa'),ownerUserId:owner.ownerUserId,ownerStoreId:owner.ownerStoreId||undefined,ownerStorePublicId:owner.ownerStorePublicId||'',ownerType:owner.ownerType==='store'?'seller':owner.ownerType,country:owner.country,currency:owner.currency,method,label,destinationEncrypted:encryptSensitive(JSON.stringify(destination)),status:'pending'}]);return docs[0];}
-export async function payoutAccountsForRequest(request){const owner=await payoutOwnerContext(request),query=owner.ownerType==='store'?{ownerStoreId:owner.ownerStoreId,ownerType:'seller'}:{ownerUserId:owner.ownerUserId,ownerType:owner.ownerType};return PayoutAccount.find(mongoose.trusted(query)).select('-destinationEncrypted').sort({createdAt:-1}).lean();}
-export async function payoutsForRequest(request,{cursor='',limit=50,withPage=false}={}){const owner=await payoutOwnerContext(request);let query;if(owner.ownerType==='store')query={ownerStoreId:owner.ownerStoreId};else{const accountIds=await PayoutAccount.find({ownerUserId:owner.ownerUserId,ownerType:owner.ownerType}).distinct('_id');query={payoutAccountId:{$in:accountIds}};}const size=Math.min(100,Math.max(10,Number(limit)||50));const [rows,total]=await Promise.all([Payout.find(mongoose.trusted(cursorScope(query,cursor))).sort(cursorSort()).limit(size+1).lean(),Payout.countDocuments(mongoose.trusted(query))]);const page=pageResult(rows,{limit:size,total});return withPage?page:page.items;}
+export async function savePayoutAccount(request,{method,label,destination}){
+  const owner=await payoutOwnerContext(request);
+  const document=market=>({publicId:publicId('poa'),ownerUserId:owner.ownerUserId,ownerStoreId:owner.ownerStoreId||undefined,ownerStorePublicId:owner.ownerStorePublicId||'',ownerType:owner.ownerType==='store'?'seller':owner.ownerType,country:market.country,currency:market.currency,method,label,destinationEncrypted:encryptSensitive(JSON.stringify(destination)),status:'pending'});
+  if(owner.ownerType!=='promoter'){const [account]=await PayoutAccount.create([document(owner)]);return publicPayoutAccount(account);}
+  const session=await mongoose.startSession();let account;
+  try{await session.withTransaction(async()=>{
+    const actor=await promoterPayoutActor(request,session),market=await pinnedPromoterMarket(actor,{session,write:true});
+    if(market.country!==owner.country||market.currency!==owner.currency)throw new AppError('Your programme market changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');
+    await User.updateOne({_id:actor._id,status:'active',role:'promoter','security.tokenVersion':actor.security.tokenVersion},{$inc:{__v:1}},{session});
+    [account]=await PayoutAccount.create([document(market)],{session});
+  });}finally{await session.endSession();}
+  return publicPayoutAccount(account);
+}
+export async function payoutAccountsForRequest(request){const owner=await payoutOwnerContext(request),query=owner.ownerType==='store'?{ownerStoreId:owner.ownerStoreId,ownerType:'seller'}:{ownerUserId:owner.ownerUserId,ownerType:owner.ownerType,country:owner.country,currency:owner.currency};const accounts=await PayoutAccount.find(mongoose.trusted(query)).select('publicId ownerType country currency method label status verifiedAt createdAt').sort({createdAt:-1}).lean();return accounts.map(publicPayoutAccount);}
+export async function payoutsForRequest(request,{cursor='',limit=50,withPage=false}={}){const owner=await payoutOwnerContext(request);let query;if(owner.ownerType==='store')query={ownerStoreId:owner.ownerStoreId};else{const accountScope={ownerUserId:owner.ownerUserId,ownerType:owner.ownerType};if(owner.ownerType==='promoter')Object.assign(accountScope,{country:owner.country,currency:owner.currency});const accountIds=await PayoutAccount.find(accountScope).distinct('_id');query={payoutAccountId:{$in:accountIds}};if(owner.ownerType==='promoter')Object.assign(query,{ownerUserId:owner.ownerUserId,ownerStoreId:{$exists:false},currency:owner.currency});}const size=Math.min(100,Math.max(10,Number(limit)||50));const [rows,total]=await Promise.all([Payout.find(mongoose.trusted(cursorScope(query,cursor))).sort(cursorSort()).limit(size+1).lean(),Payout.countDocuments(mongoose.trusted(query))]);const page=pageResult(rows,{limit:size,total});return withPage?page:page.items;}
 export async function requestPayout(request, { payoutAccountId, amountMinor, idempotencyKey }) {
   if (!Number.isSafeInteger(amountMinor) || amountMinor < 1) throw new AppError('Payout amount must be a positive supported whole number.', 422, 'PAYOUT_AMOUNT_INVALID');
   if (typeof payoutAccountId !== 'string' || payoutAccountId.length < 4 || payoutAccountId.length > 100
@@ -749,6 +804,9 @@ export async function requestPayout(request, { payoutAccountId, amountMinor, ide
         // store changes to retry authorization against a fresh snapshot.
         await StoreMember.updateOne({ _id: member._id, status: 'active', role: member.role }, { $inc: { __v: 1 } }, { session });
         await Store.updateOne({ _id: store._id, status: store.status, country: store.country, currency: store.currency }, { $inc: { __v: 1 } }, { session });
+      } else if (owner.ownerType === 'promoter') {
+        const promoter=await promoterPayoutActor(request,session),market=await pinnedPromoterMarket(promoter,{session,write:true});
+        if(market.country!==owner.country||market.currency!==owner.currency)throw new AppError('Your programme market changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');
       } else if (actor.role !== owner.ownerType || actor.country !== owner.country || actor.currency !== owner.currency) {
         throw new AppError('Your payout account context changed. Refresh and retry.', 409, 'PAYOUT_OWNER_CHANGED');
       }

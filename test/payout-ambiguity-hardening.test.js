@@ -43,10 +43,11 @@ test('payout reconciliation is transaction-bound and preserves four-eyes settlem
   assert.match(payments, /session\.withTransaction/);
   assert.match(payments, /postLedgerTransaction\([\s\S]*?payout-paid:[\s\S]*?\},session\)/);
   assert.match(payments, /postLedgerTransaction\([\s\S]*?payout-reverse:[\s\S]*?\},session\)/);
-  assert.match(payments, /settlePromoterCommissions\(payout\.ownerUserId,payout\.amountMinor,session\)/);
-  assert.match(promoters, /settlePromoterCommissions\(userId, amountMinor, session = null\)/);
+  assert.match(payments, /settlePromoterCommissions\(payout\.ownerUserId,payout\.amountMinor,session,\{country:account\.country,currency:payout\.currency\}\)/);
+  assert.match(promoters, /settlePromoterCommissions\(userId, amountMinor, session = null, context = \{\}\)/);
   assert.match(promoters, /\.session\(session\)/);
-  assert.match(promoters, /commission\.save\(\{ session \}\)/);
+  assert.match(promoters, /return attributionTransaction\(session, async transactionSession =>/);
+  assert.match(promoters, /commission\.save\(\{ session: transactionSession \}\)/);
 });
 
 test('payout ambiguity is covered by concurrency, privacy and invariant controls', () => {

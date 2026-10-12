@@ -4,6 +4,8 @@ const referralSchema=new mongoose.Schema({
   code:{type:String,required:true,unique:true,uppercase:true,trim:true,maxlength:24,index:true},
   referrerUserId:{type:mongoose.Schema.Types.ObjectId,ref:'User',required:true,index:true},
   referredUserId:{type:mongoose.Schema.Types.ObjectId,ref:'User',unique:true,sparse:true,index:true},
+  referralInviteId:{type:mongoose.Schema.Types.ObjectId,ref:'ReferralInvite',index:true},
+  invitationCode:{type:String,uppercase:true,trim:true,maxlength:24,default:''},
   country:{type:String,uppercase:true,maxlength:2,required:true,index:true},
   status:{type:String,enum:['available','pending','qualified','rewarded','rejected'],default:'available',index:true},
   qualifiedOrderPublicId:{type:String,maxlength:120,default:''},

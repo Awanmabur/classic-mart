@@ -105,6 +105,7 @@ const userSchema = new Schema(
     roleProfile: { type: roleProfileSchema, default: () => ({}) },
     preferences: {
       lowData: { type: Boolean, default: false },
+      promoterMessages: { type: Boolean, default: true },
       notifications: {
         orders: { type: Boolean, default: true },
         wishlist: { type: Boolean, default: true },

@@ -1,0 +1,58 @@
+/* Live Promoter destinations retain the approved workspace geometry. */
+body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-table-panel > .role-panel-head { flex-wrap: wrap; }
+body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-table-tools { max-width: 100%; flex-wrap: wrap; }
+body[data-dashboard-workspace="promoter"] .promoter-compact-filter,
+body[data-dashboard-workspace="promoter"] .promoter-period-filter { margin: 0; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+body[data-dashboard-workspace="promoter"] .promoter-compact-filter .role-mini-search { flex: none; min-width: 160px; width: 170px; height: 36px; }
+body[data-dashboard-workspace="promoter"] .promoter-record-tabs { flex-wrap: nowrap; overflow-x: auto; }
+body[data-dashboard-workspace="promoter"] .promoter-record-tabs a { min-height: 31px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-pill, 999px); color: #526078; background: #fff; font-size: 11.5px; font-weight: 600; line-height: 1.35; text-decoration: none; white-space: nowrap; }
+body[data-dashboard-workspace="promoter"] .promoter-record-tabs a.active { color: #fff; border-color: var(--blue); background: var(--blue); }
+body[data-dashboard-workspace="promoter"] .promoter-record-action { padding: 1px 6px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-button, 12px); text-decoration: none; }
+body[data-dashboard-workspace="promoter"] .promoter-page-control { min-width: 27px; min-height: 27px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-button, 12px); color: #56647b; background: #fff; font-size: 11px; }
+body[data-dashboard-workspace="promoter"] .promoter-page-control.active { color: #fff; border-color: var(--blue); background: var(--blue); }
+body[data-dashboard-workspace="promoter"] .promoter-page-control[aria-disabled="true"] { opacity: .6; }
+body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-workflow-grid a { grid-column: 2; justify-self: start; min-height: 29px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: var(--radius-button, 12px); color: var(--blue); background: #fff8f3; font-size: 11.5px; font-weight: 600; text-decoration: none; }
+body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-metric strong { white-space: normal; overflow-wrap: anywhere; }
+body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-chart > div > span[data-zero="true"] { min-height: 0; }
+body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-chart > div > span[data-negative="true"] { background: var(--muted); }
+body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-chart > div { min-width: 0; }
+body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-chart-legend strong { color: inherit; }
+body[data-dashboard-workspace="promoter"] .promoter-empty-chart { align-items: center; justify-content: center; }
+body[data-dashboard-workspace="promoter"] .promoter-performance-records { margin-bottom: 14px; }
+body[data-dashboard-workspace="promoter"] .promoter-overview-live .role-focus-list :is(a, .promoter-priority-note) { width: 100%; min-height: 51px; padding: 8px 10px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 14px; align-items: center; gap: 8px; border: 1px solid #e5e8eb; border-radius: 12px; background: #fbfcfd; color: #17213b; text-align: left; text-decoration: none; }
+body[data-dashboard-workspace="promoter"] .promoter-overview-live .role-focus-list a:hover { border-color: #f5b287; background: #fff8f4; }
+body[data-dashboard-workspace="promoter"] .promoter-overview-live .role-focus-list :is(a, .promoter-priority-note) > span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: #d95700; background: var(--orange-soft); font-size: 11px; font-weight: 700; }
+body[data-dashboard-workspace="promoter"] .promoter-overview-live .role-activity-feed a { color: inherit; text-decoration: none; }
+body[data-dashboard-workspace="promoter"] .promoter-overview-live .role-activity-feed a:hover { text-decoration: underline; }
+body[data-dashboard-workspace="promoter"] .promoter-overview-live .role-welcome-score strong { font-size: 20px; line-height: 1.2; white-space: nowrap; }
+body[data-dashboard-workspace="promoter"] .role-settings-nav a { min-height: 39px; padding: 0 11px; display: flex; align-items: center; border-radius: 12px; color: #56647b; background: transparent; font: inherit; font-size: 12px; font-weight: 600; text-align: left; text-decoration: none; }
+body[data-dashboard-workspace="promoter"] .role-settings-nav a:hover { color: var(--blue); background: #fff4eb; }
+body[data-dashboard-workspace="promoter"] .role-settings-nav a.active { color: #fff; background: var(--blue); }
+body[data-dashboard-workspace="promoter"] .promoter-standard-live .form-panel > form.role-form-section { margin-top: 18px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+@media (max-width: 840px) {
+  body[data-dashboard-workspace="promoter"] .promoter-fidelity-page details.faq-item { display: block; min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="promoter"] .promoter-fidelity-page details.faq-item > summary { min-width: 0; padding-block: 12px; white-space: normal; overflow-wrap: anywhere; }
+  body[data-dashboard-workspace="promoter"] .promoter-fidelity-page details.faq-item > :is(form, div, p) { min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="promoter"] .role-table { width: 100%; min-width: 0; }
+  body[data-dashboard-workspace="promoter"] .role-table :is(tbody, tr) { min-width: 0; width: 100%; }
+  body[data-dashboard-workspace="promoter"] .role-table tr { grid-template-columns: minmax(0, 1fr); }
+  body[data-dashboard-workspace="promoter"] .role-table td { min-width: 0; white-space: normal; }
+  body[data-dashboard-workspace="promoter"] .role-table td:last-child { grid-column: auto; display: grid; justify-content: normal; }
+  body[data-dashboard-workspace="promoter"] .role-table td:last-child::before { display: block; }
+  body[data-dashboard-workspace="promoter"] .role-table td[colspan] { display: block; }
+  body[data-dashboard-workspace="promoter"] .role-table td[colspan]::before { display: none; }
+  body[data-dashboard-workspace="promoter"] :is(.promoter-fidelity-page, .role-settings-content) :is(h1, h2, h3, p, td, a, span, small, label) { overflow-wrap: anywhere; }
+  body[data-dashboard-workspace="promoter"] :is(.form-panel, .role-form-section, .role-form-grid, .role-form-grid label, .role-panel-head > div) { min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="promoter"] .role-form-grid :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-panel-head { flex-wrap: wrap; }
+  body[data-dashboard-workspace="promoter"] .promoter-period-filter { width: 100%; }
+  body[data-dashboard-workspace="promoter"] .role-table-footer { flex-wrap: wrap; }
+}
+@media (max-width: 700px) {
+  body[data-dashboard-workspace="promoter"] .promoter-overview-live .role-welcome-score strong { font-size: 14px; }
+  body[data-dashboard-workspace="promoter"] .promoter-overview-live .role-welcome-score small { font-size: 9px; }
+  body[data-dashboard-workspace="promoter"] .promoter-fidelity-page .role-table-tools { width: 100%; }
+  body[data-dashboard-workspace="promoter"] .promoter-compact-filter { flex: 1 1 100%; }
+  body[data-dashboard-workspace="promoter"] .promoter-compact-filter .role-mini-search { flex: 1; width: auto; min-width: 140px; }
+  body[data-dashboard-workspace="promoter"] .promoter-overview-live .role-welcome > div:first-child > div { flex-wrap: wrap; }
+}

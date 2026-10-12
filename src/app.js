@@ -34,6 +34,12 @@ import sellerRelationshipPageRoutes from './routes/seller-relationship-pages.js'
 import sellerFinancePageRoutes from './routes/seller-finance-pages.js';
 import sellerGrowthPageRoutes from './routes/seller-growth-pages.js';
 import sellerPageAliasRoutes from './routes/seller-page-aliases.js';
+import promoterPageAliasRoutes from './routes/promoter-page-aliases.js';
+import promoterOverviewRoutes from './routes/promoter-overview.js';
+import promoterCampaignPageRoutes from './routes/promoter-campaign-pages.js';
+import promoterFinancePageRoutes from './routes/promoter-finance-pages.js';
+import promoterRelationshipPageRoutes from './routes/promoter-relationship-pages.js';
+import sellerPromoterConversationRoutes from './routes/seller-promoter-conversations.js';
 import mediaRoutes from './routes/media.js';
 import storefrontRoutes from './routes/storefront.js';
 import newsletterRoutes from './routes/newsletter.js';
@@ -194,6 +200,12 @@ export function createApp(redisClient) {
   app.use(sellerRelationshipPageRoutes);
   app.use(sellerFinancePageRoutes);
   app.use(sellerGrowthPageRoutes);
+  app.use(sellerPromoterConversationRoutes);
+  app.use(promoterPageAliasRoutes);
+  app.use(promoterOverviewRoutes);
+  app.use(promoterCampaignPageRoutes);
+  app.use(promoterFinancePageRoutes);
+  app.use(promoterRelationshipPageRoutes);
   app.use(warehouseRoutes);
   app.use(approvedDashboardRoutes);
   app.use(accountRoutes);

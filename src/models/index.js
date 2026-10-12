@@ -76,6 +76,8 @@ export { ApprovalRequest } from './ApprovalRequest.js';
 export { LoyaltyAccount } from './LoyaltyAccount.js';
 export { LoyaltyEntry } from './LoyaltyEntry.js';
 export { Referral } from './Referral.js';
+export { ReferralInvite } from './ReferralInvite.js';
+export { PromoterBrandFollow } from './PromoterBrandFollow.js';
 export { GiftCard } from './GiftCard.js';
 export { MarketingCampaign } from './MarketingCampaign.js';
 export { DataExport } from './DataExport.js';

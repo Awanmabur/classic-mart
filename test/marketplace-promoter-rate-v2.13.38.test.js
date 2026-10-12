@@ -50,9 +50,13 @@ test('dynamic commission policy is snapshotted at attribution and drives actual 
   assert.match(touch, /policyVersion:\{type:String,maxlength:40/);
   assert.match(promoters, /commissionBps:\s*campaign\.commissionBps,\s*policyVersion:\s*campaign\.policyVersion/);
   assert.match(promoters, /touch\.commissionBps \?\? campaign\.commissionBps/);
-  assert.match(promoters, /Math\.floor\(item\.lineTotalMinor \* commissionBps \/ 10000\)/);
+  // Grouped item totals use integer arithmetic before rounding, so repeat
+  // product lines do not overwrite a smaller, first-line-only commission.
+  assert.match(promoters, /entry\.total \+= item\.lineTotalMinor/);
+  assert.match(promoters, /BigInt\(total\) \* BigInt\(commissionBps\) \/ 10000n/);
   assert.match(promoters, /commissionBps, policyVersion, status: 'pending'/);
-  assert.match(promoters, /campaign\.scope === 'marketplace'[\s\S]*promoterStoreIds\.has/);
+  assert.match(promoters, /promoterStoreIds\.has\(String\(item\.storeId\)\)/);
+  assert.match(promoters, /campaign\.scope !== 'marketplace'[\s\S]*campaign\.productPublicIds\.includes\(item\.productPublicId\)/);
 });
 
 test('old strike-through price stays out of cards and Top Brands wraps the full live directory', () => {
