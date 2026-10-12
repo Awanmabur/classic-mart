@@ -1,23 +1,22 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
 import { AppError } from '../core/errors.js';
-import { publicId } from '../core/ids.js';
 import { hasPermission } from '../core/roles.js';
-import { requireAuth, requireVerified } from '../middleware/auth.js';
-import { PaymentIntent, LedgerTransaction, LedgerAccount, Order, Refund, PayoutAccount, Payout, ReconciliationRun, Store, Chargeback, ProviderEvent, Shipment, WalletTopUp } from '../models/index.js';
-import { initiatePayment, getPaymentIntentForOrder, verifyAndApplyPayment, processPesapalNotification, requeueProviderEvent, createRefund, completeManualRefund, savePayoutAccount, requestPayout, submitPayout, confirmPayoutSubmission, markPayoutUnknown, reconcilePayout, reconcilePayments, rejectPayout, payoutOwnerContext, payoutAccountsForRequest, payoutsForRequest } from '../services/payments.js';
-import { moneySummary } from '../services/money.js';
+import { requireAuth, requireVerified, requireOnboarding } from '../middleware/auth.js';
+import { noStore } from '../middleware/request.js';
+import { verifyDeferredCsrf } from '../middleware/csrf.js';
+import { financeAccess } from '../services/finance-workspace-access.js';
+import { PaymentIntent, WalletTopUp } from '../models/index.js';
+import { initiatePayment, getPaymentIntentForOrder, verifyAndApplyPayment, processPesapalNotification, requeueProviderEvent, createRefund, completeManualRefund, savePayoutAccount, requestPayout, submitPayout, confirmPayoutSubmission, markPayoutUnknown, reconcilePayout, reconcilePayments, rejectPayout, payoutAccountsForRequest, reviewPayoutAccount, approvePayout } from '../services/payments.js';
 import { processWalletPesapalNotification } from '../services/customer-wallet.js';
-import { assertOperationalCountry, operationalCountriesFor } from '../services/authorization.js';
 import { reviewChargeback, resolveChargeback } from '../services/chargebacks.js';
-import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
-import { writeAudit } from '../services/audit.js';
-import { reconcileCod } from '../services/logistics.js';
-import { getCountries } from '../services/country.js';
-import { sellerFinanceStatement, streamSellerLedgerCsv } from '../services/seller-finance.js';
-import { setFlash } from '../middleware/view.js';
 
 const router=Router();
+const financeMutationLimit=rateLimit({windowMs:15*60_000,limit:60,standardHeaders:'draft-8',legacyHeaders:false});
+router.use('/api/v1/finance',noStore,requireAuth,requireVerified,requireOnboarding,async(req,res,next)=>{
+  try{res.set('X-Robots-Tag','noindex, nofollow, noarchive');await financeAccess(req,{workspace:false});verifyDeferredCsrf(req);return req.method==='POST'?financeMutationLimit(req,res,next):next();}catch(error){next(error);}
+});
 const idem=z.string().trim().min(12).max(120);
 router.post('/api/v1/orders/:orderId/payment-intents',async(req,res,next)=>{try{res.status(201).json({payment:await initiatePayment(req,{orderId:req.params.orderId,idempotencyKey:idem.parse(req.body.idempotencyKey)})});}catch(e){next(e);}});
 
@@ -47,12 +46,12 @@ router.get('/webhooks/pesapal',pesapalNotification);
 
 router.post('/webhooks/pesapal',pesapalNotification);
 function financeOnly(req,_res,next){if(hasPermission(req.user,'finance:manage')||hasPermission(req.user,'finance:country')||req.user?.role==='super_admin')return next();return next(new AppError('Finance permission required.',403,'FORBIDDEN'));}
-function financeCountryScope(user){const scopes=operationalCountriesFor(user);return scopes.includes('*')?{}:{country:{$in:scopes}};}
-function csvCell(value){let text=String(value??'');if(/^[=+@-]/.test(text))text=`'${text}`;return `"${text.replaceAll('\"','\"\"')}"`;}
+function publicRefund(row){return {publicId:row.publicId,status:row.status,amountMinor:row.amountMinor,currency:row.currency,provider:row.provider,reason:row.reason,createdAt:row.createdAt,completedAt:row.completedAt||null,version:row.__v||0};}
+function publicChargeback(row){return {publicId:row.publicId,orderPublicId:row.orderPublicId,paymentIntentPublicId:row.paymentIntentPublicId,country:row.country,currency:row.currency,amountMinor:row.amountMinor,status:row.status,openedAt:row.openedAt,reviewedAt:row.reviewedAt||null,resolvedAt:row.resolvedAt||null,reviewNote:row.reviewNote||'',resolutionNote:row.resolutionNote||''};}
 
-router.post('/api/v1/finance/refunds',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({orderId:z.string().min(4).max(100),amountMinor:z.coerce.number().int().positive().optional(),reason:z.string().trim().min(3).max(300),idempotencyKey:idem}).parse(req.body);res.status(201).json({refund:await createRefund(req,input)});}catch(e){next(e);}});
+router.post('/api/v1/finance/refunds',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({orderId:z.string().min(4).max(100),amountMinor:z.coerce.number().int().positive().optional(),reason:z.string().trim().min(3).max(300),idempotencyKey:idem,version:z.coerce.number().int().nonnegative().optional(),allocations:z.array(z.object({storePublicId:z.string().trim().min(4).max(100),orderLineId:z.string().trim().min(4).max(100),productPublicId:z.string().trim().max(100).optional(),grossMinor:z.coerce.number().int().positive()})).max(100).optional()}).parse(req.body);res.status(201).json({refund:publicRefund(await createRefund(req,input))});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/refunds/:id/manual-complete',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reference:z.string().trim().min(4).max(180)}).parse(req.body);res.json({refund:await completeManualRefund(req,req.params.id,input)});}catch(e){next(e);}});
+router.post('/api/v1/finance/refunds/:id/manual-complete',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reference:z.string().trim().min(4).max(180),version:z.coerce.number().int().nonnegative().optional()}).parse(req.body);res.json({refund:publicRefund(await completeManualRefund(req,req.params.id,input))});}catch(e){next(e);}});
 
 
 router.post('/api/v1/payout-accounts',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({method:z.enum(['mobile_money','bank']),label:z.string().trim().min(2).max(100),destination:z.object({account_bank:z.string().trim().min(2).max(40).optional(),network:z.string().trim().min(2).max(40).optional(),account_number:z.string().trim().min(4).max(80).optional(),phone:z.string().trim().min(7).max(32).optional(),beneficiary_name:z.string().trim().min(2).max(120)}).refine(v=>(v.account_bank||v.network)&&(v.account_number||v.phone),{message:'Bank/network and account/phone are required.'})}).parse(req.body);res.status(201).json({account:await savePayoutAccount(req,input)});}catch(e){next(e);}});
@@ -61,28 +60,28 @@ router.get('/api/v1/payout-accounts',requireAuth,requireVerified,async(req,res,n
 
 router.post('/api/v1/payouts',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({payoutAccountId:z.string().min(4).max(100),amountMinor:z.coerce.number().int().positive(),idempotencyKey:idem}).parse(req.body);res.status(201).json({payout:await requestPayout(req,input)});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/payout-accounts/:id/verify',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const account=await PayoutAccount.findOne({publicId:req.params.id});if(account)assertOperationalCountry(req.user,account.country,'Payout account is outside your country scope.');if(!account)throw new AppError('Payout account not found.',404,'PAYOUT_ACCOUNT_NOT_FOUND');account.status='verified';account.verifiedAt=new Date();await account.save();await writeAudit(req,'finance.payout_account_verified',{targetType:'payout_account',targetPublicId:account.publicId,country:account.country,metadata:{status:account.status}});res.json({ok:true});}catch(e){next(e);}});
+router.post('/api/v1/finance/payout-accounts/:id/verify',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(5).max(300).default('Verified after independent destination review.'),version:z.coerce.number().int().nonnegative().optional()}).parse(req.body||{});await reviewPayoutAccount(req,req.params.id,{...input,decision:'verify'});res.json({ok:true});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/payouts/:id/approve',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const payout=await Payout.findOne({publicId:req.params.id,status:'requested'});const payoutAccount=payout?await PayoutAccount.findById(payout.payoutAccountId).lean():null;if(payoutAccount&&req.user.role!=='super_admin')assertOperationalCountry(req.user,payoutAccount.country,'Payout is outside your country scope.');if(!payout)throw new AppError('Requested payout not found.',404,'PAYOUT_NOT_FOUND');if((payout.requestedByUserId||payout.ownerUserId).equals(req.user._id))throw new AppError('You cannot approve a payout you requested.',403,'FOUR_EYES_REQUIRED');payout.status='approved';payout.approvedByUserId=req.user._id;payout.approvedAt=new Date();await payout.save();await writeAudit(req,'finance.payout_approved',{targetType:'payout',targetPublicId:payout.publicId,country:payoutAccount?.country||undefined,metadata:{amountMinor:payout.amountMinor,currency:payout.currency}});res.json({ok:true,payout});}catch(e){next(e);}});
+router.post('/api/v1/finance/payouts/:id/approve',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(5).max(300).default('Approved after independent payout review.'),version:z.coerce.number().int().nonnegative().optional()}).parse(req.body||{});const payout=await approvePayout(req,req.params.id,input);res.json({ok:true,payout});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/payouts/:id/reject',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(3).max(300)}).parse(req.body);const payout=await rejectPayout(req,req.params.id,input);await writeAudit(req,'finance.payout_rejected',{targetType:'payout',targetPublicId:payout.publicId,metadata:{reason:input.reason}});res.json({payout});}catch(e){next(e);}});
+router.post('/api/v1/finance/payouts/:id/reject',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(3).max(300),version:z.coerce.number().int().nonnegative().optional()}).parse(req.body);const payout=await rejectPayout(req,req.params.id,input);res.json({payout});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/reconciliation',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({hours:z.coerce.number().int().min(1).max(168).default(24)}).parse(req.body||{});res.status(201).json({run:await reconcilePayments(req,input)});}catch(e){next(e);}});
+router.post('/api/v1/finance/reconciliation',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({hours:z.coerce.number().int().min(1).max(168).default(24),country:z.string().regex(/^[A-Z]{2}$/).optional()}).parse(req.body||{});res.status(201).json({run:await reconcilePayments(req,input)});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/provider-events/:id/replay',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(5).max(300)}).parse(req.body||{});const event=await requeueProviderEvent(req,req.params.id,input);await writeAudit(req,'finance.provider_event_requeued',{targetType:'provider_event',targetPublicId:event.publicId,metadata:{reason:input.reason,replayCount:event.manualReplayCount}});res.json({event:{id:event.publicId,status:event.status,nextAttemptAt:event.nextAttemptAt,manualReplayCount:event.manualReplayCount}});}catch(e){next(e);}});
+router.post('/api/v1/finance/provider-events/:id/replay',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(5).max(300)}).parse(req.body||{});const event=await requeueProviderEvent(req,req.params.id,input);res.json({event:{id:event.publicId,status:event.status,nextAttemptAt:event.nextAttemptAt,manualReplayCount:event.manualReplayCount}});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/payouts/:id/submit',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const payout=await submitPayout(req,req.params.id);await writeAudit(req,'finance.payout_submission_started',{targetType:'payout',targetPublicId:payout.publicId,metadata:{submissionAttemptId:payout.submissionAttemptId}});res.json({payout});}catch(e){next(e);}});
+router.post('/api/v1/finance/payouts/:id/submit',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({version:z.coerce.number().int().nonnegative().optional()}).parse(req.body||{});const payout=await submitPayout(req,req.params.id,input);res.json({payout});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/payouts/:id/submission-confirm',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reference:z.string().trim().min(4).max(180)}).parse(req.body);const payout=await confirmPayoutSubmission(req,req.params.id,input);await writeAudit(req,'finance.payout_submission_confirmed',{targetType:'payout',targetPublicId:payout.publicId,metadata:{submissionAttemptId:payout.submissionAttemptId}});res.json({payout});}catch(e){next(e);}});
+router.post('/api/v1/finance/payouts/:id/submission-confirm',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reference:z.string().trim().min(4).max(180),version:z.coerce.number().int().nonnegative().optional(),submissionAttemptId:z.string().uuid().optional()}).parse(req.body);const payout=await confirmPayoutSubmission(req,req.params.id,input);res.json({payout});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/payouts/:id/unknown',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(8).max(400)}).parse(req.body);const payout=await markPayoutUnknown(req,req.params.id,input);await writeAudit(req,'finance.payout_marked_unknown',{targetType:'payout',targetPublicId:payout.publicId,metadata:{reason:input.reason}});res.json({payout});}catch(e){next(e);}});
+router.post('/api/v1/finance/payouts/:id/unknown',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(8).max(400),version:z.coerce.number().int().nonnegative().optional(),submissionAttemptId:z.string().uuid().optional()}).parse(req.body);const payout=await markPayoutUnknown(req,req.params.id,input);res.json({payout});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/payouts/:id/reconcile',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reference:z.string().trim().min(4).max(180),outcome:z.enum(['paid','failed']),message:z.string().trim().max(400).optional().default('')}).parse(req.body);const payout=await reconcilePayout(req,req.params.id,{reference:input.reference,success:input.outcome==='paid',message:input.message});await writeAudit(req,'finance.payout_reconciled',{targetType:'payout',targetPublicId:payout.publicId,metadata:{outcome:input.outcome}});res.json({payout});}catch(e){next(e);}});
+router.post('/api/v1/finance/payouts/:id/reconcile',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({reference:z.string().trim().min(4).max(180),outcome:z.enum(['paid','failed']),message:z.string().trim().max(400).optional().default(''),version:z.coerce.number().int().nonnegative().optional(),submissionAttemptId:z.string().uuid().optional()}).parse(req.body);const payout=await reconcilePayout(req,req.params.id,{reference:input.reference,success:input.outcome==='paid',message:input.message,version:input.version,submissionAttemptId:input.submissionAttemptId});res.json({payout});}catch(e){next(e);}});
 
 
 
-router.post('/api/v1/finance/chargebacks/:id/review',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({note:z.string().trim().max(500).optional().default('')}).parse(req.body||{});res.json({chargeback:await reviewChargeback(req,req.params.id,input.note)});}catch(e){next(e);}});
+router.post('/api/v1/finance/chargebacks/:id/review',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({note:z.string().trim().max(500).optional().default('')}).parse(req.body||{});res.json({chargeback:publicChargeback(await reviewChargeback(req,req.params.id,input.note))});}catch(e){next(e);}});
 
-router.post('/api/v1/finance/chargebacks/:id/resolve',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({outcome:z.enum(['won','lost']),note:z.string().trim().max(500).optional().default('')}).parse(req.body||{});res.json({chargeback:await resolveChargeback(req,req.params.id,input)});}catch(e){next(e);}});
+router.post('/api/v1/finance/chargebacks/:id/resolve',requireAuth,requireVerified,financeOnly,async(req,res,next)=>{try{const input=z.object({outcome:z.enum(['won','lost']),note:z.string().trim().max(500).optional().default('')}).parse(req.body||{});res.json({chargeback:publicChargeback(await resolveChargeback(req,req.params.id,input))});}catch(e){next(e);}});
 
 export default router;

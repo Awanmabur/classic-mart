@@ -32,5 +32,6 @@ const paymentIntentSchema = new Schema({
 paymentIntentSchema.index({orderId:1,idempotencyKey:1},{unique:true});
 paymentIntentSchema.index({activeKey:1},{unique:true,sparse:true});
 paymentIntentSchema.index({country:1,status:1,createdAt:-1});
+paymentIntentSchema.index({country:1,paidAt:-1});
 paymentIntentSchema.index({provider:1,providerTrackingId:1},{unique:true,partialFilterExpression:{provider:'pesapal',providerTrackingId:{$type:'string'}}});
 export const PaymentIntent=mongoose.model('PaymentIntent',paymentIntentSchema);

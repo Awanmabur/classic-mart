@@ -11,6 +11,9 @@ import {
 import { ensureLedgerAccount, postLedgerTransaction, sellerSettlementBreakdown } from './money.js';
 import { refreshOrderLifecycle, syncLegacyOrderStatus } from './order-state.js';
 import { assertWarehouseScope, operationalCountryScope, warehouseScopesFor } from './authorization.js';
+import { financeAccess } from './finance-workspace-access.js';
+import { writeAudit } from './audit.js';
+import { completeReconciliationHistory } from './reconciliation-history.js';
 
 const allowedTransitions = Object.freeze({
   ready: ['offered'], offered: ['assigned', 'ready'], assigned: ['picked_up', 'failed'], picked_up: ['in_transit', 'failed'],
@@ -651,27 +654,33 @@ export async function resolveDeliveryException({exceptionPublicId,actorUserId,de
   });return resolved;}finally{await session.endSession();}
 }
 
-export async function reconcileCod({ shipment, actorUserId }) {
+export async function reconcileCod({ shipment, actorUserId, request }) {
   if (!shipment?._id) throw new AppError('COD shipment is missing.', 404, 'COD_SHIPMENT_MISSING');
+  if(!request)throw new AppError('An authenticated finance session is required for COD reconciliation.',401,'FINANCE_SESSION_REQUIRED');
   const session = await mongoose.startSession();
   try {
     let reconciledShipment;
     await session.withTransaction(async () => {
       const currentShipment = await Shipment.findById(shipment._id).session(session);
       if (!currentShipment) throw new AppError('COD shipment is missing.', 404, 'COD_SHIPMENT_MISSING');
+      const access=await financeAccess(request,{session,write:true,workspace:false,country:currentShipment.country});actorUserId=access.actor._id;
+      if(currentShipment.cod.handoverByUserId?.equals(actorUserId)||currentShipment.deliveryUserId?.equals(actorUserId))throw new AppError('A different finance operator must reconcile the delivery partner cash handover.',403,'FOUR_EYES_REQUIRED');
       if (!currentShipment.cod.required || currentShipment.status !== 'delivered') throw new AppError('Only delivered COD shipments can be reconciled.', 409, 'COD_NOT_READY');
       if (currentShipment.cod.reconciledAt) { reconciledShipment = currentShipment; return; }
       if (!currentShipment.cod.handoverAt || !currentShipment.cod.handoverEvidenceDocumentId) throw new AppError('Delivery partner COD handover receipt is required before finance reconciliation.', 409, 'COD_HANDOVER_REQUIRED');
+      const evidence=await EvidenceDocument.findOne({_id:currentShipment.cod.handoverEvidenceDocumentId,contextType:'delivery_job',contextPublicId:currentShipment.publicId,documentType:'cod_handover',ownerUserId:currentShipment.cod.handoverByUserId,status:'ready'}).session(session).lean();
+      if(!evidence)throw new AppError('A ready handover receipt for this shipment is required.',409,'COD_HANDOVER_REQUIRED');
       if (currentShipment.cod.mismatchExceptionPublicId) throw new AppError('Resolve the open COD handover mismatch before reconciliation.', 409, 'COD_MISMATCH_OPEN');
       if (Number(currentShipment.cod.handoverDeclaredMinor||0) !== Number(currentShipment.cod.collectedMinor||0)) throw new AppError('COD handover amount does not match the collected amount.', 409, 'COD_HANDOVER_MISMATCH');
       if (currentShipment.cod.collectedMinor !== currentShipment.cod.amountMinor) throw new AppError('Collected COD amount does not match the order.', 409, 'COD_MISMATCH');
 
       const order = await Order.findById(currentShipment.orderId).session(session);
       if (!order) throw new AppError('COD order record is missing.', 409, 'COD_ORDER_MISSING');
+      if(order.country!==currentShipment.country||order.publicId!==currentShipment.orderPublicId||order.totals.currency!==currentShipment.cod.currency||currentShipment.cod.currency!==access.market.currency)throw new AppError('COD shipment and order market no longer match.',409,'COD_PAYMENT_MISMATCH');
       if (!['confirmed', 'paid'].includes(order.status)) throw new AppError('COD order is not ready for reconciliation.', 409, 'COD_ORDER_NOT_READY');
       const intent = await PaymentIntent.findOne({ orderId: order._id, provider: 'cod', status: 'pending_collection' }).session(session);
       if (!intent) throw new AppError('COD payment record is missing.', 409, 'COD_PAYMENT_MISSING');
-      if (intent.amountMinor !== order.totals.totalMinor || intent.currency !== order.totals.currency) throw new AppError('COD payment amount or currency no longer matches the order.', 409, 'COD_PAYMENT_MISMATCH');
+      if (intent.country!==order.country||intent.orderPublicId!==order.publicId||intent.amountMinor !== order.totals.totalMinor || intent.currency !== order.totals.currency) throw new AppError('COD payment amount or currency no longer matches the order.', 409, 'COD_PAYMENT_MISMATCH');
 
       const clearing = await ensureLedgerAccount({ code: 'cod_clearing', type: 'asset', ownerType: 'platform', ownerPublicId: 'classic-mart', country: order.country, currency: order.totals.currency }, session);
       const entries = [{ account: clearing, debitMinor: order.totals.totalMinor, creditMinor: 0, memo: 'Reconciled COD collection' }];
@@ -704,6 +713,7 @@ export async function reconcileCod({ shipment, actorUserId }) {
       await intent.save({ session }); await order.save({ session });
       const { makeOrderCommissionsPayable } = await import('./promoters.js'); await makeOrderCommissionsPayable(order, session);
       const { applyGrowthForPaidOrder } = await import('./stage9.js'); await applyGrowthForPaidOrder(order, session);
+      await writeAudit(request,'finance.cod_reconciled',{actor:access.actor,targetType:'shipment',targetPublicId:currentShipment.publicId,country:order.country,metadata:{orderPublicId:order.publicId,amountMinor:intent.amountMinor,currency:intent.currency},session});
       reconciledShipment = currentShipment;
     });
     return reconciledShipment;
@@ -711,20 +721,26 @@ export async function reconcileCod({ shipment, actorUserId }) {
 }
 
 
-export async function reconcileCodBatch({ country, deliveryUserId, businessDate, currency, declaredAmountMinor, actorUserId }) {
+export async function reconcileCodBatch({ country, deliveryUserId, businessDate, currency, declaredAmountMinor, actorUserId, request }) {
+  if(!request)throw new AppError('An authenticated finance session is required for COD reconciliation.',401,'FINANCE_SESSION_REQUIRED');
   const cleanCountry=String(country||'').toUpperCase(); const cleanCurrency=String(currency||'').toUpperCase();
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(businessDate||'')))throw new AppError('Choose a valid business date.',422,'COD_DATE_INVALID');
   if(!Number.isSafeInteger(declaredAmountMinor)||declaredAmountMinor<0)throw new AppError('Declared COD amount must be a non-negative whole minor-unit amount.',422,'COD_DECLARED_INVALID');
+  const access=await financeAccess(request,{workspace:false,country:cleanCountry});actorUserId=access.actor._id;
+  if(access.market.currency!==cleanCurrency)throw new AppError('Choose the configured country currency.',422,'COD_CURRENCY_INVALID');
   const setting=await CountrySetting.findOne({code:cleanCountry,active:true}).lean();if(!setting)throw new AppError('Country settings are unavailable.',409,'COUNTRY_SETTINGS_MISSING');
-  const shipments=await Shipment.find({country:cleanCountry,deliveryUserId,status:'delivered','cod.required':true,'cod.reconciledAt':null,'cod.handoverAt':{$ne:null},'cod.mismatchExceptionPublicId':'','cod.currency':cleanCurrency,$expr:{$eq:[{$dateToString:{date:'$deliveredAt',format:'%Y-%m-%d',timezone:setting.timeZone}},businessDate]}}).sort({deliveredAt:1});
+  const partner=await DeliveryProfile.findOne({country:cleanCountry,userId:deliveryUserId,verificationStatus:'approved'}).select('_id').lean();if(!partner)throw new AppError('Approved delivery partner not found in this country.',404,'DELIVERY_NOT_FOUND');
+  const shipments=await Shipment.find({country:cleanCountry,deliveryUserId,status:'delivered','cod.required':true,'cod.reconciledAt':null,'cod.handoverAt':{$ne:null},'cod.mismatchExceptionPublicId':'','cod.currency':cleanCurrency,$expr:{$eq:[{$dateToString:{date:'$deliveredAt',format:'%Y-%m-%d',timezone:setting.timeZone}},businessDate]}}).sort({deliveredAt:1}).limit(501);
+  if(shipments.length>500)throw new AppError('Reconcile this driver/day in smaller shipment batches.',422,'COD_BATCH_TOO_LARGE');
   if(!shipments.length)throw new AppError('No unreconciled delivered COD shipments match this partner and date.',404,'COD_BATCH_EMPTY');
   const expectedAmountMinor=shipments.reduce((sum,shipment)=>sum+Number(shipment.cod.amountMinor||0),0);const collectedAmountMinor=shipments.reduce((sum,shipment)=>sum+Number(shipment.cod.collectedMinor||0),0);
   if(expectedAmountMinor!==collectedAmountMinor)throw new AppError('Driver COD collection does not match the shipment total.',409,'COD_BATCH_MISMATCH');
   if(declaredAmountMinor!==collectedAmountMinor)throw new AppError('Declared handover amount does not match the driver/day COD total.',409,'COD_DECLARED_MISMATCH');
-  const run=await ReconciliationRun.create({publicId:publicId('rec'),country:cleanCountry,provider:'cod',startedByUserId:actorUserId,deliveryUserId,businessDate,currency:cleanCurrency,expectedAmountMinor,declaredAmountMinor,shipmentPublicIds:shipments.map(shipment=>shipment.publicId),status:'running',checked:shipments.length,matched:shipments.length,updated:0,failed:0});
+  const session=await mongoose.startSession();let run;
+  try{await session.withTransaction(async()=>{const current=await financeAccess(request,{session,write:true,workspace:false,country:cleanCountry});[run]=await ReconciliationRun.create([{publicId:publicId('rec'),country:cleanCountry,provider:'cod',startedByUserId:current.actor._id,deliveryUserId,businessDate,currency:cleanCurrency,expectedAmountMinor,declaredAmountMinor,shipmentPublicIds:shipments.map(shipment=>shipment.publicId),status:'running',checked:shipments.length,matched:shipments.length,updated:0,failed:0}],{session});await writeAudit(request,'finance.cod_batch_started',{actor:current.actor,targetType:'reconciliation_run',targetPublicId:run.publicId,country:cleanCountry,metadata:{businessDate,checked:shipments.length,expectedAmountMinor,declaredAmountMinor,currency:cleanCurrency},session});});}finally{await session.endSession();}
   const errors=[];let updated=0;
-  for(const shipment of shipments){try{await reconcileCod({shipment,actorUserId});updated+=1;}catch(error){const code=String(error?.code||'COD_RECONCILIATION_ERROR').slice(0,80);const message=error?.expose===false?'Internal COD reconciliation error.':String(error?.message||'COD reconciliation failed').slice(0,180);errors.push(`${shipment.publicId}: ${code}: ${message}`);}}
-  run.updated=updated;run.failed=errors.length;run.errorMessages=errors;run.status=errors.length?'failed':'completed';run.completedAt=new Date();await run.save();
+  for(const shipment of shipments){try{await reconcileCod({shipment,actorUserId,request});updated+=1;}catch(error){const code=String(error?.code||'COD_RECONCILIATION_ERROR').slice(0,80);errors.push(`${shipment.publicId}: ${code}`);}}
+  run=await completeReconciliationHistory(request,run,{checked:shipments.length,matched:shipments.length,updated,failed:errors.length,errorMessages:errors});
   if(errors.length){const firstCode=errors[0]?.split(': ')[1]||'COD_RECONCILIATION_ERROR';throw new AppError(`COD batch reconciled ${updated}/${shipments.length} shipments (${firstCode}). Review reconciliation run ${run.publicId} before retrying.`,409,'COD_BATCH_PARTIAL',{reconciliationRunId:run.publicId,failureCode:firstCode});}
   return run;
 }

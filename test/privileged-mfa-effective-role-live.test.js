@@ -43,7 +43,7 @@ test('personal layouts and MFA policy follow real active platform grants instead
     const client = request.agent(createApp(null)).use(req => req.agent(transport));
     const login = await client.get('/login').expect(200);
     await client.post('/login').type('form').send({ email, password, _csrf: csrf(login.text) })
-      .expect(302).expect('location', '/dashboard/finance-overview');
+      .expect(302).expect('location', '/finance/overview');
     let recoveryCodes;
 
     await t.test('active Finance grant supplies the Finance shell and privileged MFA boundary with a customer mirror', async () => {
@@ -79,7 +79,7 @@ test('personal layouts and MFA policy follow real active platform grants instead
         .expect(302).expect('location', '/mfa');
       const challenge = await client.get('/mfa').expect(200);
       await client.post('/mfa').type('form').send({ code: recoveryCodes[1], _csrf: csrf(challenge.text) })
-        .expect(302).expect('location', '/dashboard/finance-overview');
+        .expect(302).expect('location', '/finance/overview');
       const resumed = await client.get('/account/security').expect(200);
       assert.match(resumed.text, /data-dashboard-workspace="finance"/);
     });

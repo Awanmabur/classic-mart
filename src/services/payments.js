@@ -18,6 +18,10 @@ import { cursorScope, cursorSort, pageResult } from './pagination.js';
 import { sellerStoreAccesses } from './store.js';
 import { hydratePlatformAuthorization } from './platform-grants.js';
 import { primaryWorkspaceFor } from '../dashboard/access.js';
+import { financeAccess } from './finance-workspace-access.js';
+import { queueFinanceAlert } from './finance-notifications.js';
+import { writeAudit } from './audit.js';
+import { completeReconciliationHistory } from './reconciliation-history.js';
 
 export const PAYMENT_PROVIDER = 'pesapal';
 const factors = { UGX: 1, RWF: 1, JPY: 1, KRW: 1 };
@@ -210,12 +214,15 @@ async function reconcileAuthorizedShipment(orderLike,intentLike){
   });}finally{await session.endSession();}
 }
 
-async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wallet=false,providerTrackingId='',providerConfirmationCode='',providerPaymentMethod=''}={}){
+async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wallet=false,providerTrackingId='',providerConfirmationCode='',providerPaymentMethod='',financeRequest=null,financeCountry=''}={}){
   const session=await mongoose.startSession();
   try{await session.withTransaction(async()=>{
     const order=await Order.findById(orderLike._id).session(session);
     const intent=await PaymentIntent.findById(intentLike._id).session(session);
     if(!order||!intent)return;
+    if(financeRequest)await financeAccess(financeRequest,{session,write:true,workspace:false,country:financeCountry||order.country});
+    if(String(intent.orderId)!==String(order._id)||intent.orderPublicId!==order.publicId||intent.country!==order.country||intent.currency!==order.totals.currency)throw new AppError('Payment order references do not match.',409,'PAYMENT_ORDER_MISMATCH');
+    if(!cod&&!wallet&&await Chargeback.exists({paymentIntentId:intent._id,status:{$in:['open','reviewing','lost']}}).session(session))throw new AppError('This reversed payment requires independent chargeback review before recovery.',409,'CHARGEBACK_REVIEW_REQUIRED');
     if(!['none','rejected'].includes(order.cancellationState)||['cancelled','expired','cancellation_pending','refunded'].includes(order.status))throw new AppError('This order is no longer available for payment.',409,'ORDER_PAYMENT_STATE');
     if(intent.purpose==='business_invoice'&&order.paymentMethod==='credit_terms'&&order.paymentState==='credit_due'){
       const invoice=order.businessInvoiceId?await BusinessInvoice.findById(order.businessInvoiceId).session(session):null;
@@ -301,13 +308,15 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
 }
 
 function normalizePesapalStatus(payload){return String(payload?.payment_status_description||payload?.status_description||'').trim().toUpperCase();}
-export async function verifyAndApplyPayment(intentPublicId,orderTrackingId){
+export async function verifyAndApplyPayment(intentPublicId,orderTrackingId,{request=null,country=''}={}){
   const intent=await PaymentIntent.findOne({publicId:intentPublicId});
   if(!intent)throw new AppError('Payment intent not found.',404,'PAYMENT_NOT_FOUND');
+  if(request)await financeAccess(request,{workspace:false,country:country||intent.country});
   if(intent.provider!==PAYMENT_PROVIDER)return paymentView(intent);
   return runWithStoredTrace({traceId:intent.traceId,spanId:intent.traceSpanId},async()=>{
   const tracking=String(orderTrackingId||intent.providerTrackingId||'').trim();
   if(!tracking)throw new AppError('Pesapal tracking ID is missing.',409,'PESAPAL_TRACKING_ID_REQUIRED');
+  if(intent.providerTrackingId&&intent.providerTrackingId!==tracking)throw new AppError('Pesapal tracking reference does not match this payment.',409,'PESAPAL_REFERENCE_MISMATCH');
   const data=await getPesapalTransactionStatus(tracking);
   const status=normalizePesapalStatus(data);intent.lastVerifiedAt=new Date();intent.providerStatus=status;intent.providerTrackingId=tracking;intent.providerTransactionId=tracking;
   if(data?.confirmation_code)intent.providerConfirmationCode=String(data.confirmation_code);
@@ -315,27 +324,45 @@ export async function verifyAndApplyPayment(intentPublicId,orderTrackingId){
   const amountMatches=minor(data?.amount,intent.currency)===intent.amountMinor;
   const currencyMatches=String(data?.currency||'').toUpperCase()===intent.currency;
   const referenceMatches=String(data?.merchant_reference||'')===intent.providerReference;
+  const amountSupplied=data?.amount!==undefined&&data?.amount!==null&&String(data.amount).trim()!=='';
+  const currencySupplied=data?.currency!==undefined&&data?.currency!==null&&String(data.currency).trim()!=='';
+  if(status==='REVERSED'&&(!amountMatches||!currencyMatches||!referenceMatches))throw new AppError('Pesapal reversal evidence does not match the original payment.',409,'PESAPAL_REVERSAL_MISMATCH');
+  if(status!=='COMPLETED'&&(!referenceMatches||(amountSupplied&&!amountMatches)||(currencySupplied&&!currencyMatches)))throw new AppError('Pesapal status evidence does not match the original payment.',409,'PESAPAL_VERIFICATION_MISMATCH');
   const order=await Order.findById(intent.orderId);
   if(!order)throw new AppError('Payment order not found.',404,'ORDER_NOT_FOUND');
-
+  if(intent.orderPublicId!==order.publicId||intent.country!==order.country||intent.currency!==order.totals.currency)throw new AppError('Payment order references do not match.',409,'PAYMENT_ORDER_MISMATCH');
+  // Finance actor/grant/session and market revocations are checked again after
+  // the provider responds. Provider evidence and local outcomes share a transaction.
+  async function persistProviderOutcome(saveOrder=false){
+    const session=await mongoose.startSession();
+    try{await session.withTransaction(async()=>{
+      if(request)await financeAccess(request,{session,write:true,workspace:false,country:country||order.country});
+      await intent.save({session});if(saveOrder)await order.save({session});
+      if(request)await writeAudit(request,'finance.payment_provider_verified',{targetType:'payment',targetPublicId:intent.publicId,country:order.country,metadata:{providerStatus:status,status:intent.status},session});
+    });}finally{await session.endSession();}
+  }
   if(status==='COMPLETED'){
-    if(!amountMatches||!currencyMatches||!referenceMatches){intent.status='failed';intent.activeKey=undefined;intent.failureCode='VERIFICATION_MISMATCH';intent.failureMessage='Pesapal amount, currency or merchant reference did not match the payment intent.';await intent.save();if(['unpaid','pending'].includes(order.paymentState)){order.paymentState='failed';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.failed',message:'Pesapal verification did not match the order.'});await order.save();}return paymentView(intent);}
-    await intent.save();
-    await commitOrderInventoryAndMoney(order,intent,{providerTrackingId:tracking,providerConfirmationCode:data.confirmation_code||'',providerPaymentMethod:data.payment_method||''});
+    if(await Chargeback.exists({paymentIntentId:intent._id,status:{$in:['open','reviewing','lost']}}))throw new AppError('This reversed payment requires independent chargeback review before recovery.',409,'CHARGEBACK_REVIEW_REQUIRED');
+    if((!amountMatches||!currencyMatches||!referenceMatches)&&['succeeded','partially_refunded','refunded','reversed'].includes(intent.status))throw new AppError('Pesapal evidence cannot overwrite a recorded financial outcome.',409,'PESAPAL_VERIFICATION_MISMATCH');
+    if(!amountMatches||!currencyMatches||!referenceMatches){intent.status='failed';intent.activeKey=undefined;intent.failureCode='VERIFICATION_MISMATCH';intent.failureMessage='Pesapal amount, currency or merchant reference did not match the payment intent.';let saveOrder=false;if(['unpaid','pending'].includes(order.paymentState)){order.paymentState='failed';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.failed',message:'Pesapal verification did not match the order.'});saveOrder=true;}await persistProviderOutcome(saveOrder);return paymentView(intent);}
+    if(Number(intent.refundedMinor||0)>0||['partially_refunded','refunded'].includes(intent.status)){await persistProviderOutcome();return paymentView(intent);}
+    await persistProviderOutcome();
+    await commitOrderInventoryAndMoney(order,intent,{providerTrackingId:tracking,providerConfirmationCode:data.confirmation_code||'',providerPaymentMethod:data.payment_method||'',financeRequest:request,financeCountry:country||order.country});
     return paymentView(await PaymentIntent.findById(intent._id));
   }
   if(status==='FAILED'||status==='INVALID'){
-    intent.status='failed';intent.activeKey=undefined;intent.failureCode=`PESAPAL_${status}`;intent.failureMessage=String(data?.description||data?.message||`Pesapal reported ${status}.`).slice(0,400);await intent.save();
-    if(['unpaid','pending'].includes(order.paymentState)){order.paymentState='failed';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.failed',message:`Pesapal reported ${status.toLowerCase()}.`});await order.save();}
-    return paymentView(intent);
+    if(['succeeded','partially_refunded','refunded','reversed'].includes(intent.status)||Number(intent.refundedMinor||0)>0)throw new AppError('A failure status cannot overwrite an already captured or reversed payment. Review its financial evidence.',409,'PESAPAL_TERMINAL_STATUS_CONFLICT');
+    intent.status='failed';intent.activeKey=undefined;intent.failureCode=`PESAPAL_${status}`;intent.failureMessage=String(data?.description||data?.message||`Pesapal reported ${status}.`).slice(0,400);
+    let saveOrder=false;if(['unpaid','pending'].includes(order.paymentState)){order.paymentState='failed';syncLegacyOrderStatus(order);order.timeline.push({type:'payment.failed',message:`Pesapal reported ${status.toLowerCase()}.`});saveOrder=true;}
+    await persistProviderOutcome(saveOrder);return paymentView(intent);
   }
   if(status==='REVERSED'){
-    intent.status='reversed';intent.activeKey=undefined;intent.reversedAt=intent.reversedAt||new Date();await intent.save();
     const { recordProviderChargeback }=await import('./chargebacks.js');
-    await recordProviderChargeback({order,intent,providerPayload:data});
+    await recordProviderChargeback({order,intent,providerPayload:data,financeRequest:request,providerOutcome:{lastVerifiedAt:intent.lastVerifiedAt,providerStatus:status,providerTrackingId:tracking,providerConfirmationCode:intent.providerConfirmationCode,providerPaymentMethod:intent.providerPaymentMethod,version:intent.__v||0}});
     return paymentView(await PaymentIntent.findById(intent._id));
   }
-  intent.status='pending';await intent.save();return paymentView(intent);
+  // A later, duplicated PENDING status must never downgrade a captured/refunded payment.
+  if(!terminalIntentStatuses.has(intent.status))intent.status='pending';await persistProviderOutcome();return paymentView(intent);
   });
 }
 
@@ -386,22 +413,21 @@ export async function processPesapalEvents({limit=20,workerId=`worker:${process.
 
 
 export async function requeueProviderEvent(request,eventPublicId,{reason}){
-  const event=await ProviderEvent.findOne({publicId:eventPublicId,provider:PAYMENT_PROVIDER});
-  if(!event)throw new AppError('Provider event not found.',404,'PROVIDER_EVENT_NOT_FOUND');
-  if(!['failed','dead','ignored'].includes(event.status))throw new AppError('Only failed, dead-letter or ignored provider events can be replayed.',409,'PROVIDER_EVENT_STATE');
-  if(event.lockedUntil&&event.lockedUntil>new Date())throw new AppError('Provider event is currently being processed.',409,'PROVIDER_EVENT_LOCKED');
-  let country=event.country;
-  if(!country&&event.merchantReference){
-    const intent=await PaymentIntent.findOne({provider:PAYMENT_PROVIDER,providerReference:event.merchantReference}).select('publicId orderId orderPublicId').lean();
-    const order=intent?.orderId?await Order.findById(intent.orderId).select('publicId country').lean():null;
-    if(intent)event.paymentIntentPublicId=intent.publicId;
-    if(order){event.orderPublicId=order.publicId;event.country=order.country;country=order.country;}
-  }
-  if(!country&&request.user?.role!=='super_admin')throw new AppError('Unmatched provider events can only be replayed by Super Admin because no country scope can be proven.',403,'PROVIDER_EVENT_SCOPE_UNKNOWN');
-  if(country)assertFinanceCountry(request,country);
-  event.status='received';event.attempts=0;event.nextAttemptAt=new Date();event.lockedBy='';event.lockedUntil=null;event.processedAt=null;event.error='';
-  event.manualReplayCount=Number(event.manualReplayCount||0)+1;event.lastManualReplayAt=new Date();event.lastManualReplayByUserId=request.user?._id;event.manualReplayReason=String(reason||'').trim().slice(0,300);
-  await event.save();return event;
+  const cleanReason=String(reason||'').trim();
+  if(cleanReason.length<5||cleanReason.length>300)throw new AppError('Add a replay reason between 5 and 300 characters.',422,'PROVIDER_EVENT_REASON');
+  const session=await mongoose.startSession();let result;
+  try{await session.withTransaction(async()=>{
+    const event=await ProviderEvent.findOne({publicId:eventPublicId,provider:PAYMENT_PROVIDER}).session(session);
+    if(!event)throw new AppError('Provider event not found.',404,'PROVIDER_EVENT_NOT_FOUND');
+    const intent=event.merchantReference?await PaymentIntent.findOne({provider:PAYMENT_PROVIDER,providerReference:event.merchantReference}).session(session):null;
+    const order=intent?await Order.findById(intent.orderId).session(session):null;
+    if(!intent||!order||intent.orderPublicId!==order.publicId||intent.country!==order.country||intent.currency!==order.totals.currency||intent.providerTrackingId!==event.providerTrackingId||(event.country&&event.country!==order.country))throw new AppError('Provider event cannot be replayed until its payment and country are independently matched.',409,'PROVIDER_EVENT_SCOPE_UNKNOWN');
+    const context=await financeAccess(request,{session,write:true,workspace:false,country:order.country});
+    const updated=await ProviderEvent.findOneAndUpdate({_id:event._id,status:{$in:['failed','dead','ignored']},$or:[{lockedUntil:null},{lockedUntil:{$exists:false}},{lockedUntil:{$lte:new Date()}}]},{$set:{country:order.country,paymentIntentPublicId:intent.publicId,orderPublicId:order.publicId,status:'received',attempts:0,nextAttemptAt:new Date(),lockedBy:'',lockedUntil:null,processedAt:null,error:'',lastManualReplayAt:new Date(),lastManualReplayByUserId:context.actor._id,manualReplayReason:cleanReason},$inc:{manualReplayCount:1,__v:1}},{session,returnDocument:'after'});
+    if(!updated)throw new AppError('Provider event is no longer eligible for replay.',409,'PROVIDER_EVENT_STATE');
+    await writeAudit(request,'finance.provider_event_requeued',{actor:context.actor,targetType:'provider_event',targetPublicId:updated.publicId,country:order.country,metadata:{reason:cleanReason,replayCount:updated.manualReplayCount},session});
+    result=updated;
+  });return result;}finally{await session.endSession();}
 }
 
 async function refundCounterTotals(paymentIntentId,session){
@@ -434,36 +460,61 @@ async function syncRefundStateAfterReservationRelease(order,intent,session){
   await order.save({session});
 }
 
-async function failRefundAndReleaseReservation(refundId,{providerStatus='REJECTED',providerMessage='',failureMessage='' }={}){
+async function failRefundAndReleaseReservation(refundId,{providerStatus='REJECTED',providerMessage='',failureMessage='',request=null }={}){
   const session=await mongoose.startSession();let failed;
   try{await session.withTransaction(async()=>{
     const refund=await Refund.findById(refundId).session(session);if(!refund)throw new AppError('Refund not found.',404,'REFUND_NOT_FOUND');
     if(refund.status==='failed'||refund.status==='cancelled'){failed=refund;return;}
     if(refund.status==='completed')throw new AppError('Completed refund reservation cannot be released.',409,'REFUND_ALREADY_COMPLETED');
-    const intent=await PaymentIntent.findOneAndUpdate({_id:refund.paymentIntentId,refundReservedMinor:{$gte:refund.amountMinor}},{$inc:{refundReservedMinor:-refund.amountMinor}},{session,returnDocument:'after'});
+    const intent=await PaymentIntent.findOneAndUpdate({_id:refund.paymentIntentId,refundReservedMinor:{$gte:refund.amountMinor}},{$inc:{refundReservedMinor:-refund.amountMinor,__v:1}},{session,returnDocument:'after'});
     if(!intent)throw new AppError('Refund reservation counter is inconsistent; manual reconciliation is required.',409,'REFUND_COUNTER_CONFLICT');
     refund.status='failed';refund.providerStatus=String(providerStatus||'REJECTED').slice(0,120);refund.providerMessage=String(providerMessage||'').slice(0,400);refund.failureMessage=String(failureMessage||providerMessage||'Refund failed.').slice(0,400);await refund.save({session});
     const order=await Order.findById(refund.orderId).session(session);if(order)await syncRefundStateAfterReservationRelease(order,intent,session);
+    if(request&&order){await writeAudit(request,'finance.refund_submission_failed',{targetType:'refund',targetPublicId:refund.publicId,country:order.country,metadata:{provider:refund.provider,status:refund.status},session});await queueFinanceAlert({country:order.country,kind:'escalation',href:'/finance/refunds?record='+encodeURIComponent(refund.publicId)},session);}
     failed=refund;
   });return failed;}finally{await session.endSession();}
 }
 
-async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,allocations=[]}){
-  const existing=await Refund.findOne({idempotencyKey});if(existing)return {refund:existing,existing:true};
+async function refundActorAccess(request,order,session,{write=false,financeRequired=false}={}){
+  const actor=request.user?._id?await User.findById(request.user._id).select('+operationalCountries').session(session):null;
+  if(actor&&(!['active'].includes(actor.status)||actor.security.tokenVersion!==request.user.security?.tokenVersion||(request.session?.tokenVersion!==undefined&&actor.security.tokenVersion!==request.session.tokenVersion)))throw new AppError('Your account or session is unavailable.',403,'ACCOUNT_UNAVAILABLE');
+  const financial=financeRequired||['finance','country_admin','super_admin'].includes(request.user?.role)||['finance','country_admin','super_admin'].includes(actor?.role);
+  if(financial)return {...await financeAccess(request,{session,write,workspace:false,country:order.country}),finance:true};
+  const ownedByUser=Boolean(actor&&order.userId&&String(order.userId)===String(actor._id));
+  const ownedByGuest=Boolean(!request.user?._id&&request.session?.cartKey&&order.sessionKey===request.session.cartKey);
+  if(!ownedByUser&&!ownedByGuest)throw new AppError('You cannot refund this order.',403,'ORDER_SCOPE');
+  if(order.fulfillmentState!=='cancelled'||order.cancellationState!=='processing'||!order.cancellation?.requestedAt)throw new AppError('Customer refunds require an authorized pre-fulfilment cancellation.',403,'REFUND_CANCELLATION_REQUIRED');
+  if(write&&actor){const fenced=await User.updateOne({_id:actor._id,status:'active',__v:actor.__v||0,'security.tokenVersion':actor.security.tokenVersion},{$inc:{__v:1}},{session});if(fenced.modifiedCount!==1)throw new AppError('Your account changed. Retry with a current session.',409,'ACCOUNT_CHANGED');}
+  return {actor,finance:false};
+}
+
+async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,allocations=[],version}){
+  if(typeof orderId!=='string'||orderId.length<4||orderId.length>100||typeof idempotencyKey!=='string'||idempotencyKey.length<12||idempotencyKey.length>120||typeof reason!=='string'||reason.trim().length<3||reason.trim().length>300)throw new AppError('Provide a valid order, reason and request key.',422,'REFUND_INPUT_INVALID');
+  if(amountMinor!==undefined&&(!Number.isSafeInteger(amountMinor)||amountMinor<=0))throw new AppError('Enter a positive refund amount in minor units.',422,'REFUND_AMOUNT_INVALID');
+  if(version!==undefined&&(!Number.isSafeInteger(version)||version<0))throw new AppError('Provide the current payment version.',422,'REFUND_VERSION_INVALID');
+  if(!Array.isArray(allocations)||allocations.length>100)throw new AppError('Provide supported order-line allocations.',422,'REFUND_ALLOCATION_INVALID');
   const session=await mongoose.startSession();let result;
   try{await session.withTransaction(async()=>{
     const order=await Order.findOne({publicId:orderId}).session(session);if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
-    const financeActor=['finance','country_admin','super_admin'].includes(request.user?.role);
-    const ownedByUser=Boolean(request.user?._id&&order.userId&&order.userId.equals(request.user._id));const ownedByGuest=Boolean(!request.user?._id&&request.session?.cartKey&&order.sessionKey===request.session.cartKey);
-    if(financeActor)assertFinanceCountry(request,order.country);else if(!ownedByUser&&!ownedByGuest)throw new AppError('You cannot refund this order.',403,'ORDER_SCOPE');
+    const access=await refundActorAccess(request,order,session,{write:true});
+    if(!access.finance&&idempotencyKey!==`cancel:${order.publicId}`)throw new AppError('Customer refund keys must match the authorized cancellation.',403,'REFUND_CANCELLATION_REQUIRED');
+    const existing=await Refund.findOne({idempotencyKey}).session(session);
+    if(existing){
+      const requestedAllocations=allocations.map(row=>({storePublicId:row.storePublicId,orderLineId:row.orderLineId,grossMinor:row.grossMinor})).sort((a,b)=>(a.storePublicId+':'+a.orderLineId).localeCompare(b.storePublicId+':'+b.orderLineId));
+      const savedAllocations=(existing.allocations||[]).map(row=>({storePublicId:row.storePublicId,orderLineId:row.orderLineId,grossMinor:row.grossMinor})).sort((a,b)=>(a.storePublicId+':'+a.orderLineId).localeCompare(b.storePublicId+':'+b.orderLineId));
+      if(String(existing.orderId)!==String(order._id)||String(existing.requestedByUserId||'')!==String(access.actor?._id||'')||existing.reason!==reason.trim()||(amountMinor!==undefined&&existing.amountMinor!==amountMinor)||JSON.stringify(requestedAllocations)!==JSON.stringify(savedAllocations))throw new AppError('This request key already identifies another refund.',409,'REFUND_IDEMPOTENCY_CONFLICT');
+      result={refund:existing,order,intent:await PaymentIntent.findById(existing.paymentIntentId).session(session),existing:true};return;
+    }
     if(!['paid','partially_refunded','refunded'].includes(order.paymentState))throw new AppError('Only a verified paid order can be refunded.',409,'REFUND_ORDER_STATE');
-    const intent=await PaymentIntent.findOne({orderId:order._id,status:{$in:['succeeded','partially_refunded','refunded','reversed']}}).sort({paidAt:-1}).session(session);
+    const intent=await PaymentIntent.findOne({orderId:order._id,orderPublicId:order.publicId,country:order.country,currency:order.totals.currency,status:{$in:['succeeded','partially_refunded','refunded']}}).sort({paidAt:-1}).session(session);
     if(!intent)throw new AppError('Verified payment record not found.',409,'REFUND_PAYMENT_MISSING');
+    if(!['pesapal','cod','wallet'].includes(intent.provider))throw new AppError('This payment provider cannot issue a financial refund.',409,'REFUND_PROVIDER_UNSUPPORTED');
+    if(version!==undefined&&Number(intent.__v||0)!==version)throw new AppError('The original payment changed. Reload before refunding.',409,'REFUND_VERSION_CONFLICT');
     if(intent.provider===PAYMENT_PROVIDER&&!intent.providerConfirmationCode)throw new AppError('Pesapal confirmation code is missing; reconcile the payment before refunding.',409,'PESAPAL_CONFIRMATION_REQUIRED');
     if(await Chargeback.exists({paymentIntentId:intent._id,status:{$in:['open','reviewing','lost']}}).session(session))throw new AppError('This payment has an open or lost chargeback and cannot be refunded.',409,'REFUND_CHARGEBACK_BLOCKED');
     const counters=await assertRefundCounterConsistency(intent,session);
     const reservedRefundMinor=counters.reserved,refundedMinor=counters.completed,capturedMinor=counters.captured;
-    const available=Math.max(0,capturedMinor-reservedRefundMinor-refundedMinor),amount=Math.min(Number(amountMinor||available),available);if(!Number.isSafeInteger(amount)||amount<=0)throw new AppError('Nothing remains refundable.',409,'REFUND_EXHAUSTED');
+    const available=Math.max(0,capturedMinor-reservedRefundMinor-refundedMinor),amount=amountMinor??available;if(!Number.isSafeInteger(amount)||amount<=0||amount>available)throw new AppError('The refund exceeds the remaining refundable balance.',409,'REFUND_EXHAUSTED');
     if((!Array.isArray(allocations)||!allocations.length)&&(reservedRefundMinor>0||refundedMinor>0||amount<capturedMinor))throw new AppError('Partial or follow-up refunds require explicit immutable order-line allocations.',422,'PARTIAL_REFUND_ALLOCATION_REQUIRED');
     const cleanAllocations=[];let allocationTotal=0;
     const requestedAllocations=Array.isArray(allocations)?allocations:[];
@@ -480,8 +531,8 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
       const priorByLine=new Map();
       for(const prior of priorRefunds){for(const allocation of prior.allocations||[]){const key=`${allocation.storePublicId}:${allocation.orderLineId}`;priorByLine.set(key,(priorByLine.get(key)||0)+Number(allocation.grossMinor||0));}}
       for(const raw of requestedAllocations){
-        const storePublicId=String(raw.storePublicId||'').trim(),productPublicId=String(raw.productPublicId||'').trim(),orderLineId=String(raw.orderLineId||'').trim(),grossMinor=Math.floor(Number(raw.grossMinor||0));
-        if(!storePublicId||!orderLineId||grossMinor<=0)throw new AppError('Refund allocation must identify an immutable order line and a positive amount.',422,'REFUND_ALLOCATION_INVALID');
+        const storePublicId=String(raw.storePublicId||'').trim(),productPublicId=String(raw.productPublicId||'').trim(),orderLineId=String(raw.orderLineId||'').trim(),grossMinor=Number(raw.grossMinor||0);
+        if(!storePublicId||!orderLineId||!Number.isSafeInteger(grossMinor)||grossMinor<=0)throw new AppError('Refund allocation must identify an immutable order line and a positive integer amount.',422,'REFUND_ALLOCATION_INVALID');
         const purchased=order.items.some(item=>item.storePublicId===storePublicId&&(!productPublicId||item.productPublicId===productPublicId)&&String(item.linePublicId||'')===orderLineId);
         if(!purchased)throw new AppError('Refund allocation does not belong to this order.',422,'REFUND_ALLOCATION_INVALID');
         const key=`${storePublicId}:${orderLineId}`,line=sellerLineById.get(key);
@@ -499,9 +550,11 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
       const card=/card|visa|master|amex/i.test(String(intent.providerPaymentMethod||''));
       if(priorProvider||(!card&&amount<available))provider='external_manual';
     }
-    const reservedIntent=await PaymentIntent.findOneAndUpdate({_id:intent._id,refundReservedMinor:reservedRefundMinor,refundedMinor,$expr:{$lte:[{$add:[{$ifNull:['$refundReservedMinor',0]},{$ifNull:['$refundedMinor',0]},amount]},'$amountMinor']}},{$inc:{refundReservedMinor:amount}},{session,returnDocument:'after'});
+    const reservedIntent=await PaymentIntent.findOneAndUpdate({_id:intent._id,refundReservedMinor:reservedRefundMinor,refundedMinor,$expr:{$lte:[{$add:[{$ifNull:['$refundReservedMinor',0]},{$ifNull:['$refundedMinor',0]},amount]},'$amountMinor']}},{$inc:{refundReservedMinor:amount,__v:1}},{session,returnDocument:'after'});
     if(!reservedIntent)throw new AppError('Another refund changed the remaining refundable balance. Reload and retry with the current balance.',409,'REFUND_RESERVATION_CONFLICT');
-    const docs=await Refund.create([{publicId:publicId('rfd'),idempotencyKey,orderId:order._id,paymentIntentId:intent._id,amountMinor:amount,currency:order.totals.currency,reason,allocations:cleanAllocations,provider,requestedByUserId:request.user?._id,status:provider===PAYMENT_PROVIDER?'pending':'processing'}],{session});
+    const docs=await Refund.create([{publicId:publicId('rfd'),idempotencyKey,orderId:order._id,paymentIntentId:intent._id,amountMinor:amount,currency:order.totals.currency,reason:reason.trim(),allocations:cleanAllocations,provider,requestedByUserId:request.user?._id,status:provider===PAYMENT_PROVIDER?'pending':'processing'}],{session});
+    await writeAudit(request,'finance.refund_reserved',{actor:access.actor,targetType:'refund',targetPublicId:docs[0].publicId,country:order.country,metadata:{amountMinor:amount,currency:order.totals.currency,provider},session});
+    await queueFinanceAlert({country:order.country,kind:'priority',href:'/finance/refunds?record='+encodeURIComponent(docs[0].publicId)},session);
     order.refundState=provider===PAYMENT_PROVIDER?'pending':'processing';
     if(order.cancellationState==='requested')order.cancellationState='processing';
     syncLegacyOrderStatus(order);await order.save({session});
@@ -510,10 +563,13 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
 }
 
 export async function createRefund(request,input){
-  const {refund,order,intent,existing}=await reserveRefund(request,input);if(existing)return refund;
+  const {refund,order,intent,existing}=await reserveRefund(request,input);
+  // Wallet completion is local and ledger-idempotent. Resume it after a rolled
+  // back accounting attempt; never repeat an external provider submission.
+  if(existing&&(refund.provider!=='wallet'||refund.status!=='processing'))return refund;
   if(refund.provider==='wallet'){
     refund.status='completed';refund.completedAt=new Date();refund.completedByUserId=request.user?._id;refund.providerRefundId=`wallet:${refund.publicId}`;refund.providerStatus='COMPLETED';refund.providerMessage='Refund returned to Classic Wallet.';
-    await postRefundLedger(order,refund,intent);
+    await postRefundLedger(order,refund,intent,{request});
     return Refund.findById(refund._id);
   }
   if(refund.provider!=='pesapal')return refund;
@@ -521,33 +577,44 @@ export async function createRefund(request,input){
     const payload=await requestPesapalRefund({confirmationCode:intent.providerConfirmationCode,amount:major(refund.amountMinor,refund.currency),username:request.user?.name||request.user?.email||'Classic Mart Finance',remarks:refund.reason});
     refund.providerRefundId=String(intent.providerConfirmationCode);refund.providerStatus=String(payload?.status||'');refund.providerMessage=String(payload?.message||'').slice(0,400);
     if(String(payload?.status)==='200'||Number(payload?.error)===200){refund.status='processing';await refund.save();return refund;}
-    const message=refund.providerMessage||'Pesapal rejected the refund request.';await failRefundAndReleaseReservation(refund._id,{providerStatus:refund.providerStatus||'REJECTED',providerMessage:message,failureMessage:message});throw new AppError(message,409,'PESAPAL_REFUND_REJECTED');
+    const message=refund.providerMessage||'Pesapal rejected the refund request.';await failRefundAndReleaseReservation(refund._id,{providerStatus:refund.providerStatus||'REJECTED',providerMessage:message,failureMessage:message,request});throw new AppError(message,409,'PESAPAL_REFUND_REJECTED');
   }catch(error){
     if(error?.code==='PESAPAL_REFUND_REJECTED')throw error;
     if(error?.ambiguous){refund.status='processing';refund.providerStatus='UNKNOWN';refund.providerMessage='Pesapal refund submission outcome is unknown. Do not resubmit; reconcile in the Pesapal merchant portal.';await refund.save();return refund;}
-    const message=String(error.message||'Pesapal refund failed.').slice(0,400);await failRefundAndReleaseReservation(refund._id,{providerStatus:'REJECTED',providerMessage:message,failureMessage:message});throw error;
+    const message=String(error.message||'Pesapal refund failed.').slice(0,400);await failRefundAndReleaseReservation(refund._id,{providerStatus:'REJECTED',providerMessage:message,failureMessage:message,request});throw error;
   }
 }
 
-export async function completeManualRefund(request,refundPublicId,{reference}){
-  const refund=await Refund.findOne({publicId:refundPublicId,provider:{$in:['cod_manual','external_manual','pesapal']},status:'processing'});
+export async function completeManualRefund(request,refundPublicId,{reference,version}){
+  if(typeof reference!=='string'||reference.trim().length<4||reference.trim().length>180)throw new AppError('Enter the verified refund/disbursement reference.',422,'REFUND_REFERENCE_REQUIRED');
+  if(version!==undefined&&(!Number.isSafeInteger(version)||version<0))throw new AppError('Provide the current refund version.',422,'REFUND_VERSION_INVALID');
+  const refund=await Refund.findOne({publicId:refundPublicId,provider:{$in:['cod_manual','external_manual','pesapal']},status:{$in:['processing','completed']}});
   if(!refund)throw new AppError('Pending refund not found.',404,'REFUND_NOT_FOUND');
-  const order=await Order.findById(refund.orderId);if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');assertFinanceCountry(request,order.country);
+  const order=await Order.findById(refund.orderId);if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');await financeAccess(request,{workspace:false,country:order.country});
   if(refund.requestedByUserId?.equals(request.user._id))throw new AppError('A different finance operator must confirm refund disbursement.',403,'FOUR_EYES_REQUIRED');
   const intent=await PaymentIntent.findById(refund.paymentIntentId);if(!intent)throw new AppError('Payment record not found.',409,'REFUND_PAYMENT_MISSING');
   refund.manualReference=String(reference||'').trim();if(refund.manualReference.length<4)throw new AppError('Enter the verified refund/disbursement reference.',422,'REFUND_REFERENCE_REQUIRED');
   refund.status='completed';refund.completedAt=new Date();refund.completedByUserId=request.user._id;refund.providerRefundId=refund.providerRefundId||`${refund.provider}:${refund.manualReference}`;refund.providerStatus='COMPLETED';
-  await postRefundLedger(order,refund,intent);return Refund.findById(refund._id);
+  await postRefundLedger(order,refund,intent,{request,manual:true,version});return Refund.findById(refund._id);
 }
 
-async function postRefundLedger(orderLike,refundLike,intentLike){
+async function postRefundLedger(orderLike,refundLike,intentLike,{request,manual=false,version}={}){
   const session=await mongoose.startSession();
   try{await session.withTransaction(async()=>{
-    if(await LedgerTransaction.exists({idempotencyKey:`refund:${refundLike.publicId}`}).session(session))return;
     const order=await Order.findById(orderLike._id).session(session),loadedIntent=await PaymentIntent.findById(intentLike._id).session(session),refund=await Refund.findById(refundLike._id).session(session);
     if(!order||!loadedIntent||!refund)throw new AppError('Refund accounting records are incomplete.',409,'REFUND_ACCOUNTING_MISSING');
+    if(!request)throw new AppError('Refund accounting requires an authorized actor.',403,'UNAUTHENTICATED');
+    const access=await refundActorAccess(request,order,session,{write:true,financeRequired:manual});
+    if(String(refund.paymentIntentId)!==String(loadedIntent._id)||String(loadedIntent.orderId)!==String(order._id)||loadedIntent.orderPublicId!==order.publicId||loadedIntent.country!==order.country||loadedIntent.currency!==order.totals.currency||refund.currency!==order.totals.currency)throw new AppError('Refund accounting references do not match.',409,'REFUND_ACCOUNTING_MISMATCH');
+    if(manual&&String(refund.requestedByUserId)===String(access.actor._id))throw new AppError('A different finance operator must confirm refund disbursement.',403,'FOUR_EYES_REQUIRED');
+    if(await LedgerTransaction.exists({idempotencyKey:`refund:${refundLike.publicId}`}).session(session)){
+      if(manual&&(refund.manualReference!==refundLike.manualReference||String(refund.completedByUserId)!==String(access.actor._id)))throw new AppError('This refund was completed with different evidence.',409,'REFUND_COMPLETION_CONFLICT');
+      return;
+    }
+    if(!['pending','processing'].includes(refund.status)||(manual&&refund.status!=='processing'))throw new AppError('This refund is no longer available for completion.',409,'REFUND_STATE_CONFLICT');
+    if(version!==undefined&&Number(refund.__v||0)!==version)throw new AppError('The refund changed. Reload before completion.',409,'REFUND_VERSION_CONFLICT');
     await assertRefundCounterConsistency(loadedIntent,session);
-    let intent=await PaymentIntent.findOneAndUpdate({_id:loadedIntent._id,refundReservedMinor:{$gte:refund.amountMinor},$expr:{$lte:[{$add:[{$ifNull:['$refundedMinor',0]},refund.amountMinor]},'$amountMinor']}},{$inc:{refundReservedMinor:-refund.amountMinor,refundedMinor:refund.amountMinor}},{session,returnDocument:'after'});
+    let intent=await PaymentIntent.findOneAndUpdate({_id:loadedIntent._id,refundReservedMinor:{$gte:refund.amountMinor},$expr:{$lte:[{$add:[{$ifNull:['$refundedMinor',0]},refund.amountMinor]},'$amountMinor']}},{$inc:{refundReservedMinor:-refund.amountMinor,refundedMinor:refund.amountMinor,__v:1}},{session,returnDocument:'after'});
     if(!intent)throw new AppError('Refund completion could not atomically consume the reserved balance.',409,'REFUND_COUNTER_CONFLICT');
     if(refundLike.status==='completed'){
       refund.status='completed';refund.completedAt=refundLike.completedAt||new Date();refund.completedByUserId=refundLike.completedByUserId||refund.completedByUserId;
@@ -588,6 +655,7 @@ async function postRefundLedger(orderLike,refundLike,intentLike){
       const clearing=await ensureLedgerAccount({code:intent.provider==='cod'?'cod_clearing':'provider_clearing',type:'asset',ownerType:intent.provider==='cod'?'platform':'provider',ownerPublicId:intent.provider==='cod'?'classic-mart':PAYMENT_PROVIDER,country:order.country,currency:order.totals.currency},session);entries.push({account:clearing,debitMinor:0,creditMinor:refund.amountMinor,memo:intent.provider==='cod'?'COD refund disbursed':'Customer refund'});
     }
     await postLedgerTransaction({idempotencyKey:`refund:${refund.publicId}`,referenceType:'refund',referencePublicId:refund.publicId,currency:refund.currency,country:order.country,description:`Refund for ${order.publicId}`,entries},session);
+    await writeAudit(request,'finance.refund_completed',{actor:access.actor,targetType:'refund',targetPublicId:refund.publicId,country:order.country,metadata:{amountMinor:refund.amountMinor,currency:refund.currency,manual},session});
     const previous=await Refund.aggregate([{$match:{orderId:order._id,status:'completed',_id:{$ne:refund._id}}},{$group:{_id:null,total:{$sum:'$amountMinor'}}}]).session(session);const completedMinor=Number(previous[0]?.total||0)+refund.amountMinor,fully=completedMinor>=order.totals.totalMinor;
     intent.status=fully?'refunded':'partially_refunded';order.paymentState=fully?'refunded':'partially_refunded';order.refundState=fully?'complete':'partial';if(order.fulfillmentState==='cancelled'&&order.cancellation?.requestedAt)order.cancellationState='cancelled';syncLegacyOrderStatus(order);await intent.save({session});order.timeline.push({type:'refund.completed',message:`Refund ${refund.publicId} completed.`});
     if(fully||!allocations.length)await SellerOrder.updateMany({orderId:order._id},{$set:{status:fully?'refunded':'partially_refunded'},$push:{timeline:{type:'refund.completed',message:`Refund ${refund.publicId} applied to marketplace order.`}}},{session});else if(affectedStores.size)await SellerOrder.updateMany({orderId:order._id,storePublicId:{$in:[...affectedStores]}},{$set:{status:'partially_refunded'},$push:{timeline:{type:'refund.completed',message:`Item refund ${refund.publicId} applied to this seller order.`}}},{session});
@@ -658,101 +726,197 @@ function payoutPayableCode(ownerType){return ownerType==='store'?'seller_payable
 function payoutLedgerOwnerType(account){return account?.ownerType==='seller'?'store':account?.ownerType==='delivery'?'delivery':'promoter';}
 async function postPayoutHold(payout,account,ownerType,ownerPublicId,session=null){const payable=await ensureLedgerAccount({code:payoutPayableCode(ownerType),type:'liability',ownerType,ownerPublicId,country:account.country,currency:payout.currency},session),clearing=await ensureLedgerAccount({code:'payout_clearing',type:'liability',ownerType:'platform',ownerPublicId:'classic-mart',country:account.country,currency:payout.currency},session);await postLedgerTransaction({idempotencyKey:`payout-hold:${payout.publicId}`,referenceType:'payout',referencePublicId:payout.publicId,currency:payout.currency,country:account.country,description:`Payout reserved for ${payout.publicId}`,entries:[{account:payable,debitMinor:payout.amountMinor,creditMinor:0,memo:'Move payable into payout clearing'},{account:clearing,debitMinor:0,creditMinor:payout.amountMinor,memo:'Pending external disbursement'}]},session);}
 export async function releasePayoutHold(payout,account,reason='Payout rejected',session=null){const ownerType=payoutLedgerOwnerType(account),owner=ownerType==='store'?await Store.findOne(payout.ownerStoreId?{_id:payout.ownerStoreId}:{ownerUserId:payout.ownerUserId}).session(session).lean():null,ownerPublicId=ownerType==='store'?(payout.ownerStorePublicId||owner?.publicId):String(payout.ownerUserId),payable=await ensureLedgerAccount({code:payoutPayableCode(ownerType),type:'liability',ownerType,ownerPublicId,country:account.country,currency:payout.currency},session),clearing=await ensureLedgerAccount({code:'payout_clearing',type:'liability',ownerType:'platform',ownerPublicId:'classic-mart',country:account.country,currency:payout.currency},session);await postLedgerTransaction({idempotencyKey:`payout-release:${payout.publicId}`,referenceType:'payout',referencePublicId:payout.publicId,currency:payout.currency,country:account.country,description:`Release payout reservation ${payout.publicId}`,entries:[{account:clearing,debitMinor:payout.amountMinor,creditMinor:0,memo:reason},{account:payable,debitMinor:0,creditMinor:payout.amountMinor,memo:'Restore available payable'}]},session);}
-export async function rejectPayout(request,payoutPublicId,{reason}){
-  const rejectionReason=String(reason||'Rejected by finance').trim().slice(0,300);if(rejectionReason.length<3)throw new AppError('Enter a rejection reason.',422,'PAYOUT_REJECTION_REASON_REQUIRED');
-  const session=await mongoose.startSession();let rejected;
-  try{
-    await session.withTransaction(async()=>{
-      const payout=await Payout.findOne({publicId:payoutPublicId,status:{$in:['requested','approved']}}).session(session);
-      if(!payout)throw new AppError('Open payout not found.',404,'PAYOUT_NOT_FOUND');
-      if((payout.requestedByUserId||payout.ownerUserId).equals(request.user._id))throw new AppError('You cannot reject a payout you requested.',403,'FOUR_EYES_REQUIRED');
-      const account=await PayoutAccount.findById(payout.payoutAccountId).session(session);
-      if(!account)throw new AppError('Payout account not found.',404,'PAYOUT_ACCOUNT_NOT_FOUND');
-      assertFinanceCountry(request,account.country);
-      await releasePayoutHold(payout,account,rejectionReason,session);
-      payout.status='rejected';payout.failureMessage=rejectionReason;await payout.save({session});rejected=payout;
-    });
-  }finally{await session.endSession();}
-  return rejected;
+function payoutVersion(document, expectedVersion) {
+  if (expectedVersion === undefined || expectedVersion === '') return;
+  if (!Number.isSafeInteger(Number(expectedVersion)) || Number(expectedVersion) < 0) throw new AppError('Provide a valid record version.',422,'PAYOUT_VERSION_INVALID');
+  if (Number(expectedVersion) !== Number(document.__v || 0)) throw new AppError('This record changed. Refresh it before making a decision.',409,'PAYOUT_STATE_CHANGED');
 }
-
-export async function submitPayout(request,payoutPublicId){
-  const payout=await Payout.findOne({publicId:payoutPublicId,status:'approved'});
-  if(!payout)throw new AppError('Approved payout not found.',404,'PAYOUT_NOT_FOUND');
-  if(payout.approvedByUserId?.equals(request.user._id))throw new AppError('A different finance operator must submit an approved payout.',403,'FOUR_EYES_REQUIRED');
-  const account=await PayoutAccount.findOne({_id:payout.payoutAccountId,status:'verified'}).select('+destinationEncrypted');
-  if(!account)throw new AppError('Verified payout destination not found.',409,'PAYOUT_ACCOUNT_REQUIRED');
-  assertFinanceCountry(request,account.country);
-  try{JSON.parse(decryptSensitive(account.destinationEncrypted));}catch{throw new AppError('Payout destination is invalid.',422,'PAYOUT_DESTINATION_INVALID');}
-  const now=new Date(),submissionAttemptId=crypto.randomUUID();
-  const claimed=await Payout.findOneAndUpdate(
-    {publicId:payoutPublicId,status:'approved',approvedByUserId:{$ne:request.user._id}},
-    {$set:{status:'submitting',submittedByUserId:request.user._id,submissionStartedAt:now,submissionAttemptId,submittedAt:null,providerReference:'',ambiguityReason:'',unknownAt:null,unknownByUserId:null,disbursementProvider:'external'}},
-    {new:true}
-  );
-  if(!claimed)throw new AppError('This payout has already been claimed for submission. Reconcile the existing attempt instead of resubmitting.',409,'PAYOUT_SUBMISSION_CLAIMED');
-  return claimed;
+function payoutReference(value) {
+  const reference=typeof value==='string'?value.trim():'';
+  if(reference.length<4||reference.length>180||/[\u0000-\u001f\u007f]/.test(reference))throw new AppError('Enter a supported external disbursement reference.',422,'PAYOUT_REFERENCE_REQUIRED');
+  return reference;
 }
-
-export async function confirmPayoutSubmission(request,payoutPublicId,{reference}){
-  const payout=await Payout.findOne({publicId:payoutPublicId,status:'submitting'});
-  if(!payout)throw new AppError('Payout submission is not awaiting confirmation.',404,'PAYOUT_NOT_FOUND');
-  if(!payout.submittedByUserId?.equals(request.user._id))throw new AppError('Only the finance operator who began the external transfer may confirm its submission.',403,'PAYOUT_SUBMITTER_REQUIRED');
-  const account=await PayoutAccount.findById(payout.payoutAccountId);
+function payoutReason(value,min=3,max=400) {
+  const reason=typeof value==='string'?value.trim():'';
+  if(reason.length<min||reason.length>max||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(reason))throw new AppError('Enter a complete review reason within the supported length.',422,'PAYOUT_REASON_REQUIRED');
+  return reason;
+}
+async function guardedPayoutAccount(request,account,{session,write=true}={}) {
+  const access=await financeAccess(request,{session,write,workspace:false,country:account.country});
+  if(!access.market||access.market.currency!==account.currency)throw new AppError('Payout destination currency does not match its configured market.',409,'PAYOUT_MARKET_INVALID');
+  if(write) {
+    const result=await PayoutAccount.updateOne({_id:account._id,__v:account.__v||0,country:account.country,currency:account.currency,status:account.status},{$inc:{__v:1}},{session});
+    if(!result.modifiedCount)throw new AppError('The payout destination changed. Refresh and retry.',409,'PAYOUT_STATE_CHANGED');
+    account.__v=Number(account.__v||0)+1;
+  }
+  return access;
+}
+async function guardedPayout(request,payout,session) {
+  const account=await PayoutAccount.findById(payout.payoutAccountId).session(session);
   if(!account)throw new AppError('Payout account not found.',404,'PAYOUT_ACCOUNT_NOT_FOUND');
-  assertFinanceCountry(request,account.country);
-  const ref=String(reference||'').trim();if(ref.length<4)throw new AppError('Enter the external disbursement reference.',422,'PAYOUT_REFERENCE_REQUIRED');
-  const confirmed=await Payout.findOneAndUpdate(
-    {_id:payout._id,status:'submitting',submittedByUserId:request.user._id,submissionAttemptId:payout.submissionAttemptId},
-    {$set:{status:'submitted',providerReference:ref,submittedAt:new Date(),ambiguityReason:'',unknownAt:null,unknownByUserId:null}},
-    {new:true}
-  );
-  if(!confirmed)throw new AppError('Payout submission state changed before confirmation. Re-open the finance queue before taking another action.',409,'PAYOUT_STATE_CHANGED');
-  return confirmed;
+  const access=await guardedPayoutAccount(request,account,{session});
+  if(payout.currency!==account.currency||String(payout.ownerUserId)!==String(account.ownerUserId)||String(payout.ownerStoreId||'')!==String(account.ownerStoreId||'')||!Number.isSafeInteger(payout.amountMinor)||payout.amountMinor<1)throw new AppError('Payout ownership, market or amount references are inconsistent.',409,'PAYOUT_REFERENCES_INVALID');
+  // An operator can only move an actual reserved liability. A manually inserted
+  // payout row never authorizes fabricated money or a disbursement.
+  const hold=await LedgerTransaction.findOne({idempotencyKey:`payout-hold:${payout.publicId}`,referenceType:'payout',referencePublicId:payout.publicId,country:account.country,currency:payout.currency}).session(session).lean();
+  if(!hold||hold.entries?.length!==2)throw new AppError('Payout funds have no complete reservation.',409,'PAYOUT_HOLD_REQUIRED');
+  const accounts=await LedgerAccount.find({_id:{$in:hold.entries.map(entry=>entry.accountId)}}).session(session).lean(),byId=new Map(accounts.map(row=>[String(row._id),row]));
+  const ownerType=payoutLedgerOwnerType(account),ownerPublicId=ownerType==='store'?payout.ownerStorePublicId:String(payout.ownerUserId);
+  const debit=hold.entries.find(row=>Number(row.debitMinor)===payout.amountMinor&&Number(row.creditMinor||0)===0),credit=hold.entries.find(row=>Number(row.creditMinor)===payout.amountMinor&&Number(row.debitMinor||0)===0);
+  const payable=byId.get(String(debit?.accountId)),clearing=byId.get(String(credit?.accountId));
+  if(!payable||!clearing||payable.type!=='liability'||clearing.type!=='liability'||payable.code!==payoutPayableCode(ownerType)||payable.ownerType!==ownerType||payable.ownerPublicId!==ownerPublicId||clearing.code!=='payout_clearing'||clearing.ownerType!=='platform'||clearing.ownerPublicId!=='classic-mart'||[payable,clearing].some(row=>row.country!==account.country||row.currency!==payout.currency))throw new AppError('Payout reservation does not match its owner and market.',409,'PAYOUT_HOLD_INVALID');
+  const released=await LedgerTransaction.exists({idempotencyKey:{$in:[`payout-release:${payout.publicId}`,`payout-reverse:${payout.publicId}`,`payout-paid:${payout.publicId}`]}}).session(session);
+  if(released)throw new AppError('This payout reservation was already finalized.',409,'PAYOUT_HOLD_FINALIZED');
+  return {account,access};
 }
-
-export async function markPayoutUnknown(request,payoutPublicId,{reason}){
-  const payout=await Payout.findOne({publicId:payoutPublicId,status:{$in:['submitting','submitted']}});
-  if(!payout)throw new AppError('Payout is not in an ambiguous submission state.',404,'PAYOUT_NOT_FOUND');
-  const account=await PayoutAccount.findById(payout.payoutAccountId);
-  if(!account)throw new AppError('Payout account not found.',404,'PAYOUT_ACCOUNT_NOT_FOUND');
-  assertFinanceCountry(request,account.country);
-  const ambiguityReason=String(reason||'').trim();if(ambiguityReason.length<8)throw new AppError('Explain why the external payout outcome is uncertain.',422,'PAYOUT_AMBIGUITY_REASON_REQUIRED');
-  const unknown=await Payout.findOneAndUpdate(
-    {_id:payout._id,status:{$in:['submitting','submitted']}},
-    {$set:{status:'unknown',unknownByUserId:request.user._id,unknownAt:new Date(),ambiguityReason:ambiguityReason.slice(0,400)}},
-    {new:true}
-  );
-  if(!unknown)throw new AppError('Payout state changed before it could be marked UNKNOWN.',409,'PAYOUT_STATE_CHANGED');
-  return unknown;
+function independentPayoutActor(payout,actor,message='You cannot decide a payout you requested or own.') {
+  if(String(payout.requestedByUserId||payout.ownerUserId)===String(actor._id)||String(payout.ownerUserId)===String(actor._id))throw new AppError(message,403,'FOUR_EYES_REQUIRED');
 }
-
-export async function reconcilePayout(request,payoutPublicId,{reference,success=true,message=''}){
-  const ref=String(reference||'').trim();if(ref.length<4)throw new AppError('Enter the external disbursement reference.',422,'PAYOUT_REFERENCE_REQUIRED');
-  const session=await mongoose.startSession();let completed;
-  try{
-    await session.withTransaction(async()=>{
-      const payout=await Payout.findOne({publicId:payoutPublicId,status:{$in:['submitted','unknown']}}).session(session);
-      if(!payout)throw new AppError('Submitted payout not found.',404,'PAYOUT_NOT_FOUND');
-      if(payout.submittedByUserId?.equals(request.user._id))throw new AppError('A different finance operator must reconcile the payout.',403,'FOUR_EYES_REQUIRED');
-      const account=await PayoutAccount.findById(payout.payoutAccountId).session(session);
-      if(!account)throw new AppError('Payout account not found.',404,'PAYOUT_ACCOUNT_NOT_FOUND');
-      assertFinanceCountry(request,account.country);
-      const ownerType=payoutLedgerOwnerType(account),owner=ownerType==='store'?await Store.findOne(payout.ownerStoreId?{_id:payout.ownerStoreId}:{ownerUserId:payout.ownerUserId}).session(session).lean():null,ownerPublicId=ownerType==='store'?(payout.ownerStorePublicId||owner?.publicId):String(payout.ownerUserId),clearing=await ensureLedgerAccount({code:'payout_clearing',type:'liability',ownerType:'platform',ownerPublicId:'classic-mart',country:account.country,currency:payout.currency},session);
-      if(success){
-        const bank=await ensureLedgerAccount({code:'external_disbursement_clearing',type:'asset',ownerType:'provider',ownerPublicId:'external',country:account.country,currency:payout.currency},session);
-        await postLedgerTransaction({idempotencyKey:`payout-paid:${payout.publicId}`,referenceType:'payout',referencePublicId:payout.publicId,currency:payout.currency,country:account.country,description:`Payout completed ${payout.publicId}`,entries:[{account:clearing,debitMinor:payout.amountMinor,creditMinor:0,memo:'Clear payout liability'},{account:bank,debitMinor:0,creditMinor:payout.amountMinor,memo:`External disbursement ${ref}`}]},session);
-        payout.status='paid';payout.failureMessage='';
-        if(ownerType==='promoter'){const {settlePromoterCommissions}=await import('./promoters.js');await settlePromoterCommissions(payout.ownerUserId,payout.amountMinor,session,{country:account.country,currency:payout.currency});}
-      }else{
-        const payable=await ensureLedgerAccount({code:payoutPayableCode(ownerType),type:'liability',ownerType,ownerPublicId,country:account.country,currency:payout.currency},session);
-        await postLedgerTransaction({idempotencyKey:`payout-reverse:${payout.publicId}`,referenceType:'payout',referencePublicId:payout.publicId,currency:payout.currency,country:account.country,description:`Failed payout reversal ${payout.publicId}`,entries:[{account:clearing,debitMinor:payout.amountMinor,creditMinor:0,memo:'Release payout clearing'},{account:payable,debitMinor:0,creditMinor:payout.amountMinor,memo:'Restore payable balance'}]},session);
-        payout.status='failed';payout.failureMessage=String(message||'External disbursement failed.').slice(0,400);
-      }
-      payout.providerReference=ref;payout.completedByUserId=request.user._id;payout.completedAt=new Date();await payout.save({session});completed=payout;
-    });
-  }finally{await session.endSession();}
-  return completed;
+function payoutAttempt(payout,attemptId) {
+  if(!payout.submissionAttemptId||!payout.submissionStartedAt)throw new AppError('This payout has no recorded external submission attempt.',409,'PAYOUT_ATTEMPT_REQUIRED');
+  if(attemptId!==undefined&&attemptId!==payout.submissionAttemptId)throw new AppError('The external submission attempt changed.',409,'PAYOUT_ATTEMPT_CHANGED');
+}
+async function payoutTransaction(work) {
+  const session=await mongoose.startSession();let result;
+  try{await session.withTransaction(async()=>{result=await work(session);});}catch(error){if(error?.code===11000&&error.keyPattern?.providerReference)throw new AppError('This external transfer reference already belongs to another payout.',409,'PAYOUT_REFERENCE_REUSED');throw error;}finally{await session.endSession();}
+  return result;
+}
+async function assertUnusedPayoutReference(payout,reference,session) {
+  const provider=payout.disbursementProvider||'external';
+  const providerScope=provider==='external'?{$or:[{disbursementProvider:'external'},{disbursementProvider:{$exists:false}},{disbursementProvider:null}]}:{disbursementProvider:provider};
+  const existing=await Payout.exists({_id:{$ne:payout._id},...providerScope,providerReference:reference}).session(session);
+  if(existing)throw new AppError('This external transfer reference already belongs to another payout.',409,'PAYOUT_REFERENCE_REUSED');
+}
+export async function reviewPayoutAccount(request,accountPublicId,{decision='verify',reason,version}={}) {
+  if(!['verify','reject'].includes(decision))throw new AppError('Choose verify or reject.',422,'PAYOUT_ACCOUNT_DECISION_INVALID');
+  const reviewReason=payoutReason(reason,3,400);
+  return payoutTransaction(async session=>{
+    const account=await PayoutAccount.findOne({publicId:accountPublicId,status:'pending'}).select('+destinationEncrypted').session(session);
+    if(!account)throw new AppError('Pending payout destination not found.',404,'PAYOUT_ACCOUNT_NOT_FOUND');
+    payoutVersion(account,version);
+    const {actor}=await guardedPayoutAccount(request,account,{session});
+    if(String(account.ownerUserId)===String(actor._id))throw new AppError('A different finance operator must review your payout destination.',403,'FOUR_EYES_REQUIRED');
+    if(decision==='verify') {
+      let destination;try{destination=JSON.parse(decryptSensitive(account.destinationEncrypted));}catch{throw new AppError('Payout destination is invalid.',422,'PAYOUT_DESTINATION_INVALID');}
+      if(!destination||typeof destination!=='object'||typeof destination.beneficiary_name!=='string'||destination.beneficiary_name.trim().length<2||!(account.method==='bank'?destination.account_bank&&destination.account_number:destination.network&&destination.phone))throw new AppError('Payout destination details are incomplete.',422,'PAYOUT_DESTINATION_INVALID');
+    }
+    account.status=decision==='verify'?'verified':'disabled';account.verifiedAt=decision==='verify'?new Date():undefined;
+    await account.save({session});
+    await writeAudit(request,'finance.payout_account_'+(decision==='verify'?'verified':'rejected'),{actor,targetType:'payout_account',targetPublicId:account.publicId,country:account.country,metadata:{decision,reason:reviewReason,status:account.status},session});
+    return publicPayoutAccount(account);
+  });
+}
+export async function approvePayout(request,payoutPublicId,{reason,version}={}) {
+  const reviewReason=payoutReason(reason||'Approved after checking the reserved funds and destination.',3,400);
+  return payoutTransaction(async session=>{
+    const payout=await Payout.findOne({publicId:payoutPublicId,status:'requested'}).session(session);
+    if(!payout)throw new AppError('Requested payout not found.',404,'PAYOUT_NOT_FOUND');
+    payoutVersion(payout,version);
+    const {account,access}=await guardedPayout(request,payout,session);independentPayoutActor(payout,access.actor);
+    if(account.status!=='verified')throw new AppError('Verified payout destination required.',409,'PAYOUT_ACCOUNT_REQUIRED');
+    payout.status='approved';payout.approvedByUserId=access.actor._id;payout.approvedAt=new Date();await payout.save({session});
+    await writeAudit(request,'finance.payout_approved',{actor:access.actor,targetType:'payout',targetPublicId:payout.publicId,country:account.country,metadata:{amountMinor:payout.amountMinor,currency:payout.currency,reason:reviewReason},session});
+    return payout;
+  });
+}
+export async function rejectPayout(request,payoutPublicId,{reason,version}={}) {
+  const rejectionReason=payoutReason(reason,3,300);
+  return payoutTransaction(async session=>{
+    const payout=await Payout.findOne({publicId:payoutPublicId,status:{$in:['requested','approved']}}).session(session);
+    if(!payout)throw new AppError('Open payout not found.',404,'PAYOUT_NOT_FOUND');
+    payoutVersion(payout,version);const {account,access}=await guardedPayout(request,payout,session);independentPayoutActor(payout,access.actor);
+    await releasePayoutHold(payout,account,rejectionReason,session);
+    payout.status='rejected';payout.failureMessage=rejectionReason;await payout.save({session});
+    await writeAudit(request,'finance.payout_rejected',{actor:access.actor,targetType:'payout',targetPublicId:payout.publicId,country:account.country,metadata:{reason:rejectionReason},session});
+    return payout;
+  });
+}
+export async function submitPayout(request,payoutPublicId,{version}={}) {
+  return payoutTransaction(async session=>{
+    const payout=await Payout.findOne({publicId:payoutPublicId,status:'approved'}).session(session);
+    if(!payout)throw new AppError('This payout has already been claimed or is not approved. Reconcile its recorded attempt.',409,'PAYOUT_SUBMISSION_CLAIMED');
+    payoutVersion(payout,version);const {account,access}=await guardedPayout(request,payout,session);independentPayoutActor(payout,access.actor);
+    if(String(payout.approvedByUserId)===String(access.actor._id))throw new AppError('A different finance operator must submit an approved payout.',403,'FOUR_EYES_REQUIRED');
+    if(account.status!=='verified')throw new AppError('Verified payout destination required.',409,'PAYOUT_ACCOUNT_REQUIRED');
+    if(payout.submissionAttemptId||payout.submissionStartedAt||payout.providerReference)throw new AppError('A recorded external attempt cannot be replaced.',409,'PAYOUT_SUBMISSION_CLAIMED');
+    const encrypted=await PayoutAccount.findById(account._id).select('+destinationEncrypted').session(session);
+    try{JSON.parse(decryptSensitive(encrypted.destinationEncrypted));}catch{throw new AppError('Payout destination is invalid.',422,'PAYOUT_DESTINATION_INVALID');}
+    const now=new Date(),submissionAttemptId=crypto.randomUUID();
+    const claimed=await Payout.findOneAndUpdate(
+      {publicId:payoutPublicId,status:'approved',approvedByUserId:{$ne:request.user._id},__v:payout.__v||0},
+      {$set:{status:'submitting',submittedByUserId:access.actor._id,submissionStartedAt:now,submissionAttemptId,submittedAt:null,providerReference:'',ambiguityReason:'',unknownAt:null,unknownByUserId:null,disbursementProvider:'external'},$inc:{__v:1}},
+      {new:true,session}
+    );
+    if(!claimed)throw new AppError('This payout has already been claimed for submission. Reconcile the existing attempt instead of resubmitting.',409,'PAYOUT_SUBMISSION_CLAIMED');
+    await writeAudit(request,'finance.payout_submission_started',{actor:access.actor,targetType:'payout',targetPublicId:claimed.publicId,country:account.country,metadata:{submissionAttemptId},session});
+    return claimed;
+  });
+}
+export async function confirmPayoutSubmission(request,payoutPublicId,{reference,version,submissionAttemptId}={}) {
+  const ref=payoutReference(reference);
+  return payoutTransaction(async session=>{
+    const payout=await Payout.findOne({publicId:payoutPublicId,status:'submitting'}).session(session);
+    if(!payout)throw new AppError('Payout submission is not awaiting confirmation.',404,'PAYOUT_NOT_FOUND');
+    payoutVersion(payout,version);payoutAttempt(payout,submissionAttemptId);
+    const {account,access}=await guardedPayout(request,payout,session);
+    if(String(payout.submittedByUserId)!==String(access.actor._id))throw new AppError('Only the operator who began the external transfer may confirm it.',403,'PAYOUT_SUBMITTER_REQUIRED');
+    if(payout.providerReference&&payout.providerReference!==ref)throw new AppError('The external reference cannot be replaced.',409,'PAYOUT_REFERENCE_FROZEN');
+    await assertUnusedPayoutReference(payout,ref,session);
+    payout.status='submitted';payout.providerReference=ref;payout.submittedAt=new Date();payout.disbursementProvider=payout.disbursementProvider||'external';payout.markModified('disbursementProvider');await payout.save({session});
+    await writeAudit(request,'finance.payout_submission_confirmed',{actor:access.actor,targetType:'payout',targetPublicId:payout.publicId,country:account.country,metadata:{submissionAttemptId:payout.submissionAttemptId,reference:ref},session});
+    return payout;
+  });
+}
+export async function markPayoutUnknown(request,payoutPublicId,{reason,version,submissionAttemptId}={}) {
+  const ambiguityReason=payoutReason(reason,8,400);
+  return payoutTransaction(async session=>{
+    const payout=await Payout.findOne({publicId:payoutPublicId,status:{$in:['submitting','submitted']}}).session(session);
+    if(!payout)throw new AppError('Payout is not in an ambiguous submission state.',404,'PAYOUT_NOT_FOUND');
+    payoutVersion(payout,version);payoutAttempt(payout,submissionAttemptId);const {account,access}=await guardedPayout(request,payout,session);independentPayoutActor(payout,access.actor);
+    payout.status='unknown';payout.unknownByUserId=access.actor._id;payout.unknownAt=new Date();payout.ambiguityReason=ambiguityReason;await payout.save({session});
+    await queueFinanceAlert({country:account.country,kind:'escalation',href:'/finance/payouts?record='+encodeURIComponent(payout.publicId)},session);
+    await writeAudit(request,'finance.payout_marked_unknown',{actor:access.actor,targetType:'payout',targetPublicId:payout.publicId,country:account.country,metadata:{submissionAttemptId:payout.submissionAttemptId,reason:ambiguityReason},session});
+    return payout;
+  });
+}
+export async function reconcilePayout(request,payoutPublicId,{reference,success=true,message='',version,submissionAttemptId}={}) {
+  if(typeof success!=='boolean')throw new AppError('Choose a supported payout outcome.',422,'PAYOUT_OUTCOME_INVALID');
+  const ref=payoutReference(reference),evidence=payoutReason(message||'Externally verified disbursement outcome.',3,400);
+  return payoutTransaction(async session=>{
+    const payout=await Payout.findOne({publicId:payoutPublicId,status:{$in:['submitted','unknown']}}).session(session);
+    if(!payout)throw new AppError('Submitted payout not found.',404,'PAYOUT_NOT_FOUND');
+    payoutVersion(payout,version);payoutAttempt(payout,submissionAttemptId);const {account,access}=await guardedPayout(request,payout,session);independentPayoutActor(payout,access.actor);
+    if(String(payout.submittedByUserId)===String(access.actor._id))throw new AppError('A different finance operator must reconcile the payout.',403,'FOUR_EYES_REQUIRED');
+    if(payout.providerReference&&payout.providerReference!==ref)throw new AppError('Use the frozen external transfer reference.',409,'PAYOUT_REFERENCE_FROZEN');
+    await assertUnusedPayoutReference(payout,ref,session);
+    const ownerType=payoutLedgerOwnerType(account),ownerPublicId=ownerType==='store'?payout.ownerStorePublicId:String(payout.ownerUserId),clearing=await ensureLedgerAccount({code:'payout_clearing',type:'liability',ownerType:'platform',ownerPublicId:'classic-mart',country:account.country,currency:payout.currency},session);
+    if(success){
+      const bank=await ensureLedgerAccount({code:'external_disbursement_clearing',type:'asset',ownerType:'provider',ownerPublicId:'external',country:account.country,currency:payout.currency},session);
+      await postLedgerTransaction({idempotencyKey:`payout-paid:${payout.publicId}`,referenceType:'payout',referencePublicId:payout.publicId,currency:payout.currency,country:account.country,description:`Payout completed ${payout.publicId}`,entries:[{account:clearing,debitMinor:payout.amountMinor,creditMinor:0,memo:'Clear payout liability'},{account:bank,debitMinor:0,creditMinor:payout.amountMinor,memo:`External disbursement ${ref}`}]},session);
+      payout.status='paid';payout.failureMessage='';
+      if(ownerType==='promoter'){const {settlePromoterCommissions}=await import('./promoters.js');const settlement=await settlePromoterCommissions(payout.ownerUserId,payout.amountMinor,session,{country:account.country,currency:payout.currency});if(settlement.unappliedMinor>0)throw new AppError('Promoter payable does not match settleable commission records.',409,'PAYOUT_COMMISSION_MISMATCH');}
+    }else{
+      const payable=await ensureLedgerAccount({code:payoutPayableCode(ownerType),type:'liability',ownerType,ownerPublicId,country:account.country,currency:payout.currency},session);
+      await postLedgerTransaction({idempotencyKey:`payout-reverse:${payout.publicId}`,referenceType:'payout',referencePublicId:payout.publicId,currency:payout.currency,country:account.country,description:`Failed payout reversal ${payout.publicId}`,entries:[{account:clearing,debitMinor:payout.amountMinor,creditMinor:0,memo:'Release payout clearing'},{account:payable,debitMinor:0,creditMinor:payout.amountMinor,memo:'Restore payable balance'}]},session);
+      payout.status='failed';payout.failureMessage=evidence;
+    }
+    payout.providerReference=ref;payout.completedByUserId=access.actor._id;payout.completedAt=new Date();payout.disbursementProvider=payout.disbursementProvider||'external';payout.markModified('disbursementProvider');await payout.save({session});
+    await writeAudit(request,'finance.payout_reconciled',{actor:access.actor,targetType:'payout',targetPublicId:payout.publicId,country:account.country,metadata:{outcome:success?'paid':'failed',reference:ref,evidence,submissionAttemptId:payout.submissionAttemptId},session});
+    return payout;
+  });
+}
+export async function revealPayoutDestination(request,payoutPublicId) {
+  return payoutTransaction(async session=>{
+    const payout=await Payout.findOne({publicId:payoutPublicId,status:'submitting'}).session(session);
+    if(!payout)throw new AppError('Claim this approved payout before opening its transfer destination.',409,'PAYOUT_SUBMITTER_REQUIRED');
+    const {account,access}=await guardedPayout(request,payout,session);
+    if(String(payout.submittedByUserId)!==String(access.actor._id))throw new AppError('Only the claimed transfer operator may open the destination.',403,'PAYOUT_SUBMITTER_REQUIRED');
+    const encrypted=await PayoutAccount.findById(account._id).select('+destinationEncrypted').session(session);let raw;
+    try{raw=JSON.parse(decryptSensitive(encrypted.destinationEncrypted));}catch{throw new AppError('Payout destination is invalid.',422,'PAYOUT_DESTINATION_INVALID');}
+    const destination={beneficiaryName:String(raw.beneficiary_name||''),...(account.method==='bank'?{bank:String(raw.account_bank||''),accountNumber:String(raw.account_number||'')}:{network:String(raw.network||''),phone:String(raw.phone||'')})};
+    await writeAudit(request,'finance.payout_destination_opened',{actor:access.actor,targetType:'payout',targetPublicId:payout.publicId,country:account.country,metadata:{destinationPublicId:account.publicId,submissionAttemptId:payout.submissionAttemptId},session});
+    return {payoutPublicId:payout.publicId,method:account.method,destination,submissionAttemptId:payout.submissionAttemptId};
+  });
 }
 
 export async function savePayoutAccount(request,{method,label,destination}){
@@ -840,6 +1004,7 @@ export async function requestPayout(request, { payoutAccountId, amountMinor, ide
         ownerStoreId: owner.ownerStoreId || undefined, ownerStorePublicId: owner.ownerStorePublicId || '',
         requestedByUserId: actor._id, payoutAccountId: account._id, amountMinor, currency: owner.currency, status: 'requested' }], { session });
       await postPayoutHold(payout, account, owner.ownerType, owner.ownerPublicId, session);
+      await queueFinanceAlert({country:account.country,kind:'priority',href:'/finance/payouts?record='+encodeURIComponent(payout.publicId)},session);
     });
   } catch (error) {
     if (error?.code === 11000) throw new AppError('This request key already belongs to a payout. Refresh and retry.', 409, 'PAYOUT_IDEMPOTENCY_CONFLICT');
@@ -850,13 +1015,21 @@ export async function requestPayout(request, { payoutAccountId, amountMinor, ide
   return payout;
 }
 
-export async function reconcilePayments(request,{hours=24}={}){
-  const scopes=userCountryScopes(request.user),countries=scopes.includes('*')?null:scopes,since=new Date(Date.now()-Math.min(Math.max(Number(hours)||24,1),168)*60*60*1000);
-  const run=await ReconciliationRun.create({publicId:publicId('rec'),country:countries?.length===1?countries[0]:'GLOBAL',provider:PAYMENT_PROVIDER,startedByUserId:request.user._id,status:'running',startedAt:new Date()});
-  const query={provider:PAYMENT_PROVIDER,status:{$in:['created','requires_action','pending','failed']},createdAt:{$gte:since}};
-  if(countries?.length){const orderIds=await Order.find({country:{$in:countries}}).distinct('_id');query.orderId={$in:orderIds};}
-  const errors=[];let matched=0,updated=0,failed=0,lastId=null;
+export async function reconcilePayments(request,{hours=24,country}={}){
+  const range=Number(hours);if(!Number.isInteger(range)||range<1||range>168)throw new AppError('Choose a reconciliation window between 1 and 168 hours.',422,'RECONCILIATION_WINDOW');
+  const context=await financeAccess(request,{workspace:false,country});
+  if(!context.country)throw new AppError('Select one country to reconcile its provider payments.',422,'RECONCILIATION_COUNTRY_REQUIRED');
+  if(!env.pesapal.consumerKey||!env.pesapal.consumerSecret)throw new AppError('Pesapal credentials are required for independent payment reconciliation.',503,'PESAPAL_NOT_CONFIGURED');
+  const session=await mongoose.startSession();let run;
+  try{await session.withTransaction(async()=>{
+    const access=await financeAccess(request,{session,write:true,workspace:false,country:context.country});
+    [run]=await ReconciliationRun.create([{publicId:publicId('rec'),country:access.country,currency:access.market.currency,provider:PAYMENT_PROVIDER,startedByUserId:access.actor._id,status:'running',startedAt:new Date()}],{session});
+    await writeAudit(request,'finance.reconciliation_started',{actor:access.actor,targetType:'reconciliation_run',targetPublicId:run.publicId,country:access.country,metadata:{hours:range},session});
+  });}finally{await session.endSession();}
+  const query={country:context.country,currency:context.market.currency,provider:PAYMENT_PROVIDER,status:{$in:['created','requires_action','pending','failed','succeeded','partially_refunded']},createdAt:{$gte:new Date(Date.now()-range*60*60*1000)}};
+  const errors=[];let matched=0,updated=0,failed=0,lastId=null,authorizationLost=false;
   while(true){
+    if(authorizationLost)break;
     const batchQuery=lastId?{$and:[query,{_id:{$gt:lastId}}]}:query;
     const intents=await PaymentIntent.find(mongoose.trusted(batchQuery)).sort({_id:1}).limit(100);
     if(!intents.length)break;
@@ -864,9 +1037,12 @@ export async function reconcilePayments(request,{hours=24}={}){
       lastId=intent._id;run.checked+=1;
       try{
         if(!intent.providerTrackingId){failed+=1;if(errors.length<100)errors.push(`${intent.publicId}: Pesapal tracking ID not found`);continue;}
-        const before=intent.status,verified=await verifyAndApplyPayment(intent.publicId,intent.providerTrackingId);matched+=1;if(verified.status!==before)updated+=1;
-      }catch(error){failed+=1;if(errors.length<100)errors.push(`${intent.publicId}: ${error.message}`);}
+        const order=await Order.findOne({_id:intent.orderId,publicId:intent.orderPublicId,country:context.country,'totals.currency':context.market.currency}).select('_id').lean();
+        if(!order)throw new AppError('Payment and order market do not match.',409,'RECONCILIATION_SOURCE_MISMATCH');
+        await financeAccess(request,{workspace:false,country:context.country});
+        const before=intent.status,verified=await verifyAndApplyPayment(intent.publicId,intent.providerTrackingId,{request,country:context.country});matched+=1;if(verified.status!==before)updated+=1;
+      }catch(error){failed+=1;if(errors.length<100)errors.push(`${intent.publicId}: ${String(error.code||'RECONCILIATION_ERROR').slice(0,80)}`);if([401,403].includes(error.status)){authorizationLost=true;break;}}
     }
   }
-  run.matched=matched;run.updated=updated;run.failed=failed;run.errorMessages=errors;run.status=failed&&failed===run.checked?'failed':'completed';run.completedAt=new Date();await run.save();return run;
+  return completeReconciliationHistory(request,run,{checked:run.checked,matched,updated,failed,errorMessages:errors});
 }

@@ -6,4 +6,6 @@ const schema=new Schema({
  checked:{type:Number,default:0,min:0},matched:{type:Number,default:0,min:0},updated:{type:Number,default:0,min:0},failed:{type:Number,default:0,min:0},
  errorMessages:{type:[String],default:[],select:false},startedAt:{type:Date,default:Date.now},completedAt:Date,
 },{timestamps:true});
+schema.index({country:1,createdAt:-1,_id:-1});
+schema.index({country:1,status:1,createdAt:-1,_id:-1});
 export const ReconciliationRun=mongoose.model('ReconciliationRun',schema);

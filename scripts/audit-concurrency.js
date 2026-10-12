@@ -4,11 +4,12 @@ import mongoose from 'mongoose';
 import { mongoDatabaseName, mongoUriWithDatabase } from '../src/core/mongo-uri.js';
 import { PaymentIntent, Payout, ProcurementRun, Shipment, WarehouseTask } from '../src/models/index.js';
 
-const baseUri = process.env.CONCURRENCY_MONGO_URI || process.env.MONGO_URI || '';
+const applicationUri = process.env.MONGO_URI || '';
+const baseUri = applicationUri || process.env.CONCURRENCY_MONGO_URI || '';
 if (!baseUri) throw new Error('MONGO_URI or CONCURRENCY_MONGO_URI is required for the concurrency audit.');
 const uri = process.env.CONCURRENCY_MONGO_URI || mongoUriWithDatabase(baseUri, 'classic-mart-concurrency-test');
 const dbName = mongoDatabaseName(uri);
-const appDbName = mongoDatabaseName(baseUri);
+const appDbName = applicationUri ? mongoDatabaseName(applicationUri) : '';
 if (!/concurrency-test$/i.test(dbName)) throw new Error('Concurrency audit database name must end in concurrency-test.');
 if (dbName === appDbName) throw new Error('Concurrency audit must never use the application database.');
 
@@ -17,13 +18,16 @@ function duplicateCount(results) { return results.filter((row) => row.status ===
 
 await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000, autoIndex: false });
 try {
+  // Native collection races below isolate indexes and atomic claims. Authenticated
+  // Finance service suites separately exercise MFA, current grants and real holds.
+  await Promise.all(Object.values(mongoose.models).map(model => model.init()));
   await mongoose.connection.db.dropDatabase();
   await Promise.all([PaymentIntent.createIndexes(), Payout.createIndexes(), Shipment.createIndexes(), ProcurementRun.createIndexes(), WarehouseTask.createIndexes()]);
 
   const orderId = new mongoose.Types.ObjectId();
   const paymentResults = await race(20, (index) => PaymentIntent.collection.insertOne({
     publicId: `pay_race_${index}_${crypto.randomBytes(4).toString('hex')}`,
-    orderId, orderPublicId: 'ord_race', idempotencyKey: `idem_${index}`,
+    orderId, orderPublicId: 'ord_race', country: 'UG', idempotencyKey: `idem_${index}`,
     provider: 'pesapal', purpose: 'order_payment', method: 'pesapal', status: 'created',
     amountMinor: 1000, currency: 'UGX', activeKey: 'order:ord_race:active', createdAt: new Date(), updatedAt: new Date(),
   }));
@@ -64,17 +68,18 @@ try {
     publicId: `pyo_submit_race_${crypto.randomBytes(5).toString('hex')}`,
     idempotencyKey: `payout-submit-race-${crypto.randomBytes(6).toString('hex')}`,
     ownerUserId: new mongoose.Types.ObjectId(), requestedByUserId: new mongoose.Types.ObjectId(), payoutAccountId: new mongoose.Types.ObjectId(),
-    amountMinor: 1000, currency: 'UGX', status: 'approved', approvedByUserId: payoutApproverId, approvedAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
+    amountMinor: 1000, currency: 'UGX', status: 'approved', approvedByUserId: payoutApproverId, approvedAt: new Date(), __v: 0, createdAt: new Date(), updatedAt: new Date(),
   });
   const payoutSubmitters = Array.from({ length: 20 }, () => new mongoose.Types.ObjectId());
   const payoutClaimResults = await race(20, (index) => Payout.collection.updateOne(
-    { _id: payoutId, status: 'approved', approvedByUserId: { $ne: payoutSubmitters[index] } },
-    { $set: { status: 'submitting', submittedByUserId: payoutSubmitters[index], submissionStartedAt: new Date(), submissionAttemptId: crypto.randomUUID(), updatedAt: new Date() } },
+    { _id: payoutId, status: 'approved', approvedByUserId: { $ne: payoutSubmitters[index] }, __v: 0 },
+    { $set: { status: 'submitting', submittedByUserId: payoutSubmitters[index], submissionStartedAt: new Date(), submissionAttemptId: crypto.randomUUID(), updatedAt: new Date() }, $inc: { __v: 1 } },
   ));
   const payoutClaims = payoutClaimResults.filter((row) => row.status === 'fulfilled').reduce((sum, row) => sum + Number(row.value.modifiedCount || 0), 0);
   assert.equal(payoutClaims, 1, 'Exactly one finance operator may claim an approved payout for external submission.');
   const claimedPayout = await Payout.findById(payoutId).lean();
   assert.equal(claimedPayout.status, 'submitting');
+  assert.equal(claimedPayout.__v, 1, 'The successful payout claim advances its optimistic version exactly once.');
   assert.ok(claimedPayout.submissionAttemptId, 'The payout submission claim must freeze an attempt ID for reconciliation.');
 
   const payoutDecisionId = new mongoose.Types.ObjectId();
@@ -83,16 +88,17 @@ try {
     publicId: `pyo_decision_race_${crypto.randomBytes(5).toString('hex')}`,
     idempotencyKey: `payout-decision-race-${crypto.randomBytes(6).toString('hex')}`,
     ownerUserId: new mongoose.Types.ObjectId(), requestedByUserId: new mongoose.Types.ObjectId(), payoutAccountId: new mongoose.Types.ObjectId(),
-    amountMinor: 1000, currency: 'UGX', status: 'approved', approvedByUserId: payoutApproverId, approvedAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
+    amountMinor: 1000, currency: 'UGX', status: 'approved', approvedByUserId: payoutApproverId, approvedAt: new Date(), __v: 0, createdAt: new Date(), updatedAt: new Date(),
   });
   const payoutDecisionResults = await race(20, (index) => index < 10
-    ? Payout.collection.updateOne({_id:payoutDecisionId,status:'approved'},{$set:{status:'submitting',submittedByUserId:new mongoose.Types.ObjectId(),submissionStartedAt:new Date(),submissionAttemptId:crypto.randomUUID(),updatedAt:new Date()}})
-    : Payout.collection.updateOne({_id:payoutDecisionId,status:'approved'},{$set:{status:'rejected',failureMessage:'Concurrent rejection test',updatedAt:new Date()}})
+    ? Payout.collection.updateOne({_id:payoutDecisionId,status:'approved',__v:0},{$set:{status:'submitting',submittedByUserId:new mongoose.Types.ObjectId(),submissionStartedAt:new Date(),submissionAttemptId:crypto.randomUUID(),updatedAt:new Date()},$inc:{__v:1}})
+    : Payout.collection.updateOne({_id:payoutDecisionId,status:'approved',__v:0},{$set:{status:'rejected',failureMessage:'Concurrent rejection test',updatedAt:new Date()},$inc:{__v:1}})
   );
   const payoutDecisions = payoutDecisionResults.filter((row) => row.status === 'fulfilled').reduce((sum, row) => sum + Number(row.value.modifiedCount || 0), 0);
   assert.equal(payoutDecisions, 1, 'Payout submission and rejection must be mutually exclusive decisions from the approved state.');
   const decidedPayout = await Payout.findById(payoutDecisionId).lean();
   assert.ok(['submitting','rejected'].includes(decidedPayout.status));
+  assert.equal(decidedPayout.__v, 1, 'The winning payout decision advances its version once; losing decisions cannot change it.');
 
   const shipmentOrderId = new mongoose.Types.ObjectId();
   const outboundResults = await race(20, (index) => Shipment.collection.insertOne({
@@ -146,6 +152,7 @@ try {
 
   console.log('Concurrency audit passed: payment intent, refund reservation/completion, payout submission/rejection claims, shipment, recurring procurement, return reservation and warehouse-claim invariants held under 20-way races.');
 } finally {
+  await Promise.all(Object.values(mongoose.models).map(model => model.init())).catch(() => {});
   await mongoose.connection.db.dropDatabase().catch(() => {});
   await mongoose.disconnect();
 }

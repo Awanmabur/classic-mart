@@ -13,6 +13,7 @@ import { expirePrivacyExports, processPrivacyRequests } from './privacy.js';
 import { scanBusinessInvariants } from './invariants.js';
 import { scanMaintenanceBatch } from './maintenance-scan.js';
 import { expirePlatformGrants } from './platform-grants.js';
+import { queueWeeklyFinanceReports } from './finance-weekly-reports.js';
 
 let lastInvariantScanAt=0;
 
@@ -77,6 +78,7 @@ export async function runMaintenanceCycle() {
   const privacyExpired = await expirePrivacyExports();
   const platformGrantsExpired = await expirePlatformGrants();
   const pesapal = await processPesapalEvents();
+  const financeReports = await queueWeeklyFinanceReports();
   const notifications = await processNotificationOutbox();
   const stage10 = await stage10Maintenance();
   const webhooks = await deliverWebhookBatch();
@@ -85,5 +87,5 @@ export async function runMaintenanceCycle() {
   const securityRetentionResult = await securityRetention();
   let invariants=null;
   if(Date.now()-lastInvariantScanAt>=5*60_000){invariants=await scanBusinessInvariants();lastInvariantScanAt=Date.now();}
-  return { alerts, stage9, pricing, recurringProcurement, businessInvoices, privacy, privacyExpired, platformGrantsExpired, pesapal, notifications, stage10, webhooks, push, siem, securityRetention: securityRetentionResult, invariants };
+  return { alerts, stage9, pricing, recurringProcurement, businessInvoices, privacy, privacyExpired, platformGrantsExpired, pesapal, financeReports, notifications, stage10, webhooks, push, siem, securityRetention: securityRetentionResult, invariants };
 }

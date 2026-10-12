@@ -1,0 +1,11 @@
+<% const reportFlow = financeFlow; %>
+<% if (financePage.id === 'finance-reports') { %>
+<section class="panel role-chart-panel" id="finance-report-options"><div class="role-panel-head"><div><h2>Financial exports</h2><p>Select the recorded money movement you need. Every amount keeps its country and currency.</p></div></div>
+  <form method="get" action="/finance/reports" class="finance-compact-filter"><input type="hidden" name="country" value="<%= reportFlow.context?.country || '' %>"><% if (reportFlow.filters?.search) { %><input type="hidden" name="search" value="<%= reportFlow.filters.search %>"><% } %>
+    <label for="financeReportType">Report</label><select id="financeReportType" name="report"><% for (const option of reportFlow.reportOptions || []) { %><option value="<%= option.value %>" <%= option.value === reportFlow.report ? 'selected' : '' %>><%= option.label %></option><% } %></select>
+    <label for="financeReportPeriod">Period</label><select id="financeReportPeriod" name="period"><% for (const option of reportFlow.periodOptions || []) { %><option value="<%= option.value %>" <%= option.value === reportFlow.period ? 'selected' : '' %>><%= option.label %></option><% } %></select><button class="primary-button" type="submit">View report</button><a class="outline-button" href="<%= reportFlow.exportHref %>">Download CSV</a>
+  </form><p class="form-intro">CSV exports include all matching records, including records beyond the current page. Private contact details, payout destinations and provider payloads are excluded.</p>
+</section>
+<% } else if (financePage.id === 'finance-audit') { %>
+<section class="panel role-chart-panel"><div class="role-panel-head"><div><h2>Finance audit scope</h2><p>Privileged finance decisions and exports within your current country permissions.</p></div></div><p class="form-intro">The audit trail shows marketplace references, actor references, results and recorded times. Sensitive request metadata and internal diagnostics remain protected.</p></section>
+<% } %>

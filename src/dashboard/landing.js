@@ -1,8 +1,11 @@
 import { primaryWorkspaceFor } from './access.js';
 import { routeForPage, defaultPageFor } from './registry.js';
+import { FINANCE_LIVE_ROUTES } from './finance-routes.js';
 
 export function dashboardLanding(user) {
-  return routeForPage(defaultPageFor(primaryWorkspaceFor(user)));
+  const workspace = primaryWorkspaceFor(user);
+  if (workspace === 'finance' && FINANCE_LIVE_ROUTES[user.preferences?.financeLandingPage]) return FINANCE_LIVE_ROUTES[user.preferences.financeLandingPage];
+  return routeForPage(defaultPageFor(workspace));
 }
 
 function localDestination(value) {

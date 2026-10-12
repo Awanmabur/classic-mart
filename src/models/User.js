@@ -106,6 +106,12 @@ const userSchema = new Schema(
     preferences: {
       lowData: { type: Boolean, default: false },
       promoterMessages: { type: Boolean, default: true },
+      financeDefaultCountry: { type: String, default: '', maxlength: 2 },
+      financeReportingPeriod: { type: String, enum: ['30days', '7months', 'year'], default: '30days' },
+      financeLandingPage: { type: String, default: 'finance-overview', maxlength: 80 },
+      financePriorityAlerts: { type: Boolean, default: true },
+      financeEscalationAlerts: { type: Boolean, default: true },
+      financeWeeklyReport: { type: Boolean, default: false },
       notifications: {
         orders: { type: Boolean, default: true },
         wishlist: { type: Boolean, default: true },

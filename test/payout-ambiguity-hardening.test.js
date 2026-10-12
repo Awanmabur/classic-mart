@@ -9,22 +9,42 @@ const concurrency = fs.readFileSync(new URL('../scripts/audit-concurrency.js', i
 const privacy = fs.readFileSync(new URL('../src/services/privacy.js', import.meta.url), 'utf8');
 const promoters = fs.readFileSync(new URL('../src/services/promoters.js', import.meta.url), 'utf8');
 const invariants = fs.readFileSync(new URL('../src/services/invariants.js', import.meta.url), 'utf8');
+function payoutFunction(name) {
+  const start = payments.indexOf('export async function ' + name + '(');
+  assert.ok(start >= 0, name + ' must remain an exported payout operation.');
+  const end = payments.indexOf('\nexport ', start + 1);
+  return payments.slice(start, end < 0 ? undefined : end);
+}
 
 test('payout submission uses an atomic approved-to-submitting claim with a frozen attempt id', () => {
-  assert.match(payments, /findOneAndUpdate\(\s*\{publicId:payoutPublicId,status:'approved',approvedByUserId:\{\$ne:request\.user\._id\}\}/s);
-  assert.match(payments, /status:'submitting'/);
-  assert.match(payments, /submissionAttemptId=crypto\.randomUUID\(\)/);
-  assert.match(payments, /PAYOUT_SUBMISSION_CLAIMED/);
+  const submit = payoutFunction('submitPayout');
+  assert.match(submit, /return payoutTransaction\(async session=>/);
+  assert.match(submit, /guardedPayout\(request,payout,session\)/);
+  assert.match(submit, /findOneAndUpdate\(\s*\{publicId:payoutPublicId,status:'approved',approvedByUserId:\{\$ne:request\.user\._id\},__v:payout\.__v\|\|0\}/s);
+  assert.match(submit, /\$set:\{status:'submitting'/);
+  assert.match(submit, /\$inc:\{__v:1\}/);
+  assert.match(submit, /\{new:true,session\}/);
+  assert.match(submit, /submissionAttemptId=crypto\.randomUUID\(\)/);
+  assert.match(submit, /PAYOUT_SUBMISSION_CLAIMED/);
   assert.match(payoutModel, /submissionStartedAt:Date/);
   assert.match(payoutModel, /submissionAttemptId:\{type:String,maxlength:80,index:true\}/);
 });
 
 test('manual external handoff has explicit confirm and UNKNOWN transitions', () => {
-  assert.match(payments, /export async function confirmPayoutSubmission/);
-  assert.match(payments, /PAYOUT_SUBMITTER_REQUIRED/);
-  assert.match(payments, /status:'submitted',providerReference:ref,submittedAt:new Date\(\)/);
-  assert.match(payments, /export async function markPayoutUnknown/);
-  assert.match(payments, /status:'unknown',unknownByUserId:request\.user\._id,unknownAt:new Date\(\)/);
+  const confirmation = payoutFunction('confirmPayoutSubmission'), unknown = payoutFunction('markPayoutUnknown');
+  for (const operation of [confirmation, unknown]) {
+    assert.match(operation, /return payoutTransaction\(async session=>/);
+    assert.match(operation, /Payout\.findOne\([\s\S]*?\.session\(session\)/);
+    assert.match(operation, /payoutVersion\(payout,version\);payoutAttempt\(payout,submissionAttemptId\)/);
+    assert.match(operation, /guardedPayout\(request,payout,session\)/);
+    assert.match(operation, /await payout\.save\(\{session\}\)/);
+  }
+  assert.match(confirmation, /String\(payout\.submittedByUserId\)!==String\(access\.actor\._id\)/);
+  assert.match(confirmation, /PAYOUT_SUBMITTER_REQUIRED/);
+  assert.match(confirmation, /PAYOUT_REFERENCE_FROZEN/);
+  assert.match(confirmation, /payout\.status='submitted';payout\.providerReference=ref;payout\.submittedAt=new Date\(\)/);
+  assert.match(unknown, /independentPayoutActor\(payout,access\.actor\)/);
+  assert.match(unknown, /payout\.status='unknown';payout\.unknownByUserId=access\.actor\._id;payout\.unknownAt=new Date\(\)/);
   assert.match(routes, /payouts\/:id\/submission-confirm/);
   assert.match(routes, /payouts\/:id\/unknown/);
 });

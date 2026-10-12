@@ -8,6 +8,7 @@ const commissionReversalSchema = new Schema({
   amountMinor: { type: Number, required: true, min: 0 },
   priorStatus: { type: String, required: true, maxlength: 60 },
   priorReversedAmountMinor: { type: Number, required: true, min: 0, default: 0 },
+  posted: { type: Boolean },
 }, { _id: false });
 
 const timelineSchema = new Schema({
@@ -45,5 +46,7 @@ const chargebackSchema = new Schema({
 }, { timestamps: true, optimisticConcurrency: true });
 
 chargebackSchema.index({ country: 1, status: 1, openedAt: -1 });
+chargebackSchema.index({country:1,createdAt:-1,_id:-1});
+chargebackSchema.index({country:1,status:1,createdAt:-1,_id:-1});
 
 export const Chargeback = mongoose.model('Chargeback', chargebackSchema);

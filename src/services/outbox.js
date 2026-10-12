@@ -3,6 +3,7 @@ import { currentTraceFields, runWithStoredTrace } from '../core/trace.js';
 import { MarketingCampaign, OutboxEvent, StoreBroadcast } from '../models/index.js';
 import { sendNotificationEmail } from './mail.js';
 import { clearStorefrontCache } from './storefront.js';
+import { prepareFinanceDigestDelivery, finishFinanceDigestDelivery } from './finance-weekly-reports.js';
 
 export async function addOutboxEvent(
   { type, aggregateType, aggregatePublicId, payload },
@@ -26,19 +27,22 @@ export async function addOutboxEvent(
 }
 
 
-export async function processNotificationOutbox({ limit = 50, workerId=`notifications:${process.pid}`, leaseMs=60_000 } = {}) {
+export async function processNotificationOutbox({ limit = 50, workerId=`notifications:${process.pid}`, leaseMs=60_000, sendEmail=sendNotificationEmail } = {}) {
   let checked=0,processed=0,failed=0;const completedAggregates=new Set();
   for(let i=0;i<Math.min(Math.max(Number(limit)||50,1),100);i++){
     const now=new Date();
     const event=await OutboxEvent.findOneAndUpdate(
-      {type:{$in:['marketing.campaign_message','store.broadcast','guest.order_access_code','platform.staff_invitation','seller.verification_notification','catalogue.product_notification','seller.order_notification']},availableAt:{$lte:now},$or:[{status:{$in:['pending','failed']}},{status:'processing',lockedUntil:{$lte:now}}]},
+      {type:{$in:['marketing.campaign_message','store.broadcast','guest.order_access_code','platform.staff_invitation','seller.verification_notification','catalogue.product_notification','seller.order_notification','finance.weekly_report']},availableAt:{$lte:now},$or:[{status:{$in:['pending','failed']}},{status:'processing',lockedUntil:{$lte:now}}]},
       {$set:{status:'processing',lockedBy:workerId,lockedUntil:new Date(now.getTime()+leaseMs)},$inc:{attempts:1}},
       {sort:{createdAt:1},returnDocument:'after'},
     );
     if(!event)break;checked+=1;
     try{
-      const result=await runWithStoredTrace({traceId:event.traceId,spanId:event.traceSpanId},()=>sendNotificationEmail({email:event.payload?.email,subject:event.payload?.subject,text:event.payload?.body}));
-      event.status='processed';event.processedAt=new Date();event.lastError=result.developmentSink?'Development mail sink: no external email was sent.':'';processed+=1;if(['marketing.campaign_message','store.broadcast'].includes(event.type))completedAggregates.add(event.aggregatePublicId);
+      const financeDigest=event.type==='finance.weekly_report';
+      const message=financeDigest?await prepareFinanceDigestDelivery(event):{email:event.payload?.email,subject:event.payload?.subject,text:event.payload?.body};
+      const result=message?await runWithStoredTrace({traceId:event.traceId,spanId:event.traceSpanId},()=>sendEmail(message)):null;
+      if(financeDigest&&message)await finishFinanceDigestDelivery(event,result);
+      event.status='processed';event.processedAt=new Date();event.lastError=!message?'Finance report cancelled: current delivery authorization is unavailable.':result.developmentSink?'Development mail sink: no external email was sent.':'';processed+=1;if(['marketing.campaign_message','store.broadcast'].includes(event.type))completedAggregates.add(event.aggregatePublicId);
     }catch(error){
       event.status=event.attempts>=10?'dead':'failed';event.lastError=String(error.message||error).slice(0,1000);event.availableAt=new Date(Date.now()+Math.min(60,2**Math.min(8,event.attempts))*60_000);failed+=1;
     }

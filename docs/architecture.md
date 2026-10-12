@@ -78,6 +78,26 @@ legacy receipt indexes. Campaign messages allow the accepted Promoter and the
 current Seller owner to reply to the same persisted conversation. Ordinary
 conversation alerts honor the Promoter's communication preference.
 
+## Finance entry points
+
+`/finance/overview` is the default Finance landing page; operators may choose
+another of the nine connected Finance queues in their saved settings. Canonical
+routes use `/finance/...` and legacy `/dashboard/finance-*` URLs redirect.
+The current primary workspace controls the UI independently of the identity's
+stored role mirror. An active staff grant can authorize Finance while the
+underlying account still stores Customer. Admin/Super Admin money permissions
+remain scoped to their own API workflows and do not open the Finance UI.
+
+Financial services use fresh, transaction-aware account/grant/market fences,
+immutable source references, independent operator decisions and atomic audit.
+Country/currency totals are kept separate; shopping preferences do not move
+operational money. Pages and long exports stop when current authorization or
+market changes. Refunds, payouts, COD and disputes retain real ledger accounting
+and explicit provider/manual evidence. Weekly report settings drive the actual
+maintenance/outbox job with idempotent scheduling and fresh delivery checks.
+See the [Finance page contracts](finance/workspace-pages.md) for the nine pages,
+operator boundaries, migration precautions and validation limits.
+
 ## Verification
 
 Role landing tests exercise real login, session regeneration and route access.

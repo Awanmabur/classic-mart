@@ -423,24 +423,22 @@ export async function appealCommissionReversal(request, commissionPublicId, mess
   return appealPromoterCommission(request, commissionPublicId, { message });
 }
 
-export async function reviewCommissionAppeal(request, commissionPublicId, { decision, reason }) {
+export async function reviewCommissionAppeal(request, commissionPublicId, { decision, reason, version }) {
   if (!['accept', 'reject'].includes(decision) || typeof reason !== 'string' || reason.trim().length < 3 || reason.trim().length > 1200) throw new AppError('Provide an appeal decision and reason.', 422, 'COMMISSION_APPEAL_DECISION_INVALID');
-  const [{ env }, { hasPermission }, { hydratePlatformAuthorization }, { writeAudit }] = await Promise.all([import('../config/env.js'), import('../core/roles.js'), import('./platform-grants.js'), import('./audit.js')]);
+  const [{ financeAccess }, { writeAudit }] = await Promise.all([import('./finance-workspace-access.js'), import('./audit.js')]);
   const session = await mongoose.startSession(); let result;
   try { await session.withTransaction(async () => {
-    const actor = await User.findById(request.user?._id).session(session);
-    if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user?.security?.tokenVersion || (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) throw new AppError('Your finance account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
-    await hydratePlatformAuthorization(actor);
-    if (!hasPermission(actor, 'finance:manage') && !hasPermission(actor, 'finance:country')) throw new AppError('Finance permission is required for commission appeals.', 403, 'FORBIDDEN');
-    if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt || (env.security.privilegedMfaRequired && !actor.security.mfaEnabled))) throw new AppError('Complete privileged account verification first.', 403, 'ACCOUNT_UNAVAILABLE');
+    let { actor } = await financeAccess(request, { session, workspace: false, country: '' });
     const current = await CommissionEntry.findOne({ publicId: commissionPublicId, 'appeal.status': 'pending', status: { $in: ['reversed', 'partially_reversed'] } }).session(session);
     if (!current) throw new AppError('Pending commission appeal not found.', 404, 'COMMISSION_APPEAL_NOT_FOUND');
+    if (version !== undefined && (!Number.isSafeInteger(Number(version)) || Number(version) < 0 || Number(version) !== Number(current.__v || 0))) throw new AppError('This appeal changed. Refresh before reviewing it.', 409, 'COMMISSION_APPEAL_STATE_CHANGED');
     if (String(current.promoterUserId) === String(actor._id)) throw new AppError('You cannot review your own commission appeal.', 403, 'FOUR_EYES_REQUIRED');
     const campaign = await Campaign.findById(current.campaignId).select('country').session(session).lean();
     const order = campaign ? await Order.findOne({ _id: current.orderId, publicId: current.orderPublicId, country: campaign.country, 'totals.currency': current.currency }).select('_id').session(session).lean() : null;
     if (!campaign || !order) throw new AppError('Commission market references are inconsistent.', 409, 'COMMISSION_MARKET_INVALID');
-    assertOperationalCountry(actor, campaign.country, 'Commission is outside your country scope.');
-    await User.updateOne({ _id: actor._id, status: 'active', 'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
+    const financeContext = await financeAccess(request, { session, workspace: false, country: campaign.country, write: true });
+    actor = financeContext.actor;
+    if (financeContext.market.currency !== current.currency) throw new AppError('Commission currency does not match its configured market.', 409, 'COMMISSION_MARKET_INVALID');
     let restoredPostedMinor = 0;
     if (decision === 'accept') {
       const restore = Number(current.reversedAmountMinor || 0);

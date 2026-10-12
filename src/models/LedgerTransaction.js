@@ -8,5 +8,6 @@ const ledgerTransactionSchema=new Schema({
   postedAt:{type:Date,default:Date.now,immutable:true}
 },{timestamps:{createdAt:true,updatedAt:false}});
 ledgerTransactionSchema.index({ 'entries.accountId': 1, postedAt: -1 });
+ledgerTransactionSchema.index({ country: 1, postedAt: -1 });
 for(const op of ['updateOne','updateMany','findOneAndUpdate','replaceOne','deleteOne','deleteMany']) ledgerTransactionSchema.pre(op,function(){throw new Error('Ledger transactions are immutable.');});
 export const LedgerTransaction=mongoose.model('LedgerTransaction',ledgerTransactionSchema);

@@ -204,7 +204,7 @@ test('Promoter finance pages keep identity, market, funds and performance scoped
       await owner.client.post('/promoter/commissions/' + estimate.publicId + '/appeal').set('x-csrf-token', token).send({ message }).expect(409);
       await assert.rejects(reviewCommissionAppeal(scoped(owner), estimate.publicId, { decision: 'accept', reason: 'Denied owner review' }), error => error.status === 403);
       await User.updateOne({ _id: reviewer.user._id }, { $set: { country: 'KE' } });
-      await assert.rejects(reviewCommissionAppeal(scoped(reviewer), estimate.publicId, { decision: 'accept', reason: 'Denied market review' }), error => error.code === 'COUNTRY_SCOPE');
+      await assert.rejects(reviewCommissionAppeal(scoped(reviewer), estimate.publicId, { decision: 'accept', reason: 'Denied market review' }), error => error.code === 'FINANCE_COUNTRY_FORBIDDEN');
       await User.updateOne({ _id: reviewer.user._id }, { $set: { country: 'UG' } });
       const before = await accountBalanceMinor(payable._id), beforeTransactions = await LedgerTransaction.countDocuments({ referenceType: 'commission_appeal' });
       t.mock.method(AuditLog, 'create', async () => { throw new Error('Audit storage unavailable'); });

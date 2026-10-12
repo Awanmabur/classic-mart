@@ -7,4 +7,5 @@ const payoutAccountSchema=new Schema({
 },{timestamps:true});
 payoutAccountSchema.index({ownerUserId:1,status:1});
 payoutAccountSchema.index({ownerStoreId:1,status:1});
+payoutAccountSchema.index({country:1,currency:1,status:1,createdAt:-1});
 export const PayoutAccount=mongoose.model('PayoutAccount',payoutAccountSchema);

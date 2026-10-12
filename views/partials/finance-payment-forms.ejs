@@ -1,0 +1,60 @@
+<% const paymentFlow = financeFlow; const selectedFinanceRecord = paymentFlow.selected; %>
+<% if (selectedFinanceRecord) { %>
+<section class="panel role-form-section" aria-labelledby="finance-selected-heading">
+  <div class="role-panel-head"><h2 id="finance-selected-heading"><%= paymentFlow.pageId === 'finance-payments' ? 'Payment details' : 'Refund details' %></h2><span class="role-status"><%= selectedFinanceRecord.status.replaceAll('_', ' ') %></span></div>
+  <div class="role-form-grid">
+    <div><span>Record</span><strong><%= selectedFinanceRecord.publicId %></strong></div>
+    <div><span>Order</span><strong><%= selectedFinanceRecord.orderPublicId %></strong></div>
+    <div><span>Amount</span><strong><%= formatMoney(selectedFinanceRecord.amountMinor, selectedFinanceRecord.currency) %></strong></div>
+    <div><span>Market</span><strong><%= selectedFinanceRecord.country %> · <%= selectedFinanceRecord.currency %></strong></div>
+    <div><span>Provider</span><strong><%= selectedFinanceRecord.provider.replaceAll('_', ' ') %></strong></div>
+    <% if (selectedFinanceRecord.reason) { %><div><span>Reason</span><strong><%= selectedFinanceRecord.reason %></strong></div><% } %>
+  </div>
+  <% if (paymentFlow.pageId === 'finance-payments') { %>
+    <% if (selectedFinanceRecord.canVerify) { %>
+      <form method="post" action="/finance/payments/<%= encodeURIComponent(selectedFinanceRecord.publicId) %>/verify" class="role-inline-action">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedFinanceRecord.version %>">
+        <button class="primary-button" type="submit">Verify with Pesapal</button>
+      </form>
+    <% } %>
+    <% if (['succeeded','partially_refunded'].includes(selectedFinanceRecord.status) && selectedFinanceRecord.remainingRefundMinor > 0) { %>
+      <a class="soft-button" href="/finance/refunds?order=<%= encodeURIComponent(selectedFinanceRecord.orderPublicId) %>&amp;country=<%= selectedFinanceRecord.country %>">Record refund</a>
+    <% } %>
+  <% } else if (selectedFinanceRecord.canComplete) { %>
+    <form method="post" action="/finance/refunds/<%= encodeURIComponent(selectedFinanceRecord.publicId) %>/complete" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedFinanceRecord.version %>">
+      <label ><span>Verified disbursement reference</span><input name="reference" minlength="4" maxlength="180" required autocomplete="off"></label>
+      <p class="wide form-intro">Confirm the merchant portal or disbursement record first. A different operator must confirm the refund.</p>
+      <div class="wide"><button class="primary-button" type="submit">Confirm refund completion</button></div>
+    </form>
+  <% } else if (paymentFlow.pageId === 'finance-refunds' && selectedFinanceRecord.status === 'processing') { %>
+    <p class="wide form-intro">A different finance operator must confirm this refund after verifying its disbursement.</p>
+  <% } %>
+</section>
+<% } %>
+<% if (paymentFlow.pageId === 'finance-refunds') { const refundOrder = paymentFlow.refundOrder; %>
+<section class="panel role-form-section" id="finance-refund-request" aria-labelledby="finance-refund-heading">
+  <div class="role-panel-head"><h2 id="finance-refund-heading">Record refund</h2></div>
+  <% if (!refundOrder) { %>
+    <form method="get" action="/finance/refunds" class="role-form-grid">
+      <label ><span>Order ID</span><input name="order" minlength="4" maxlength="100" required autocomplete="off" placeholder="Enter the original order ID"></label>
+      <input type="hidden" name="country" value="<%= paymentFlow.country %>">
+      <div class="wide"><button class="primary-button" type="submit">Find paid order</button></div>
+    </form>
+  <% } else { %>
+    <form method="post" action="/finance/refunds" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="idempotencyKey" value="<%= paymentFlow.idempotencyKey %>">
+      <input type="hidden" name="orderId" value="<%= refundOrder.publicId %>"><input type="hidden" name="version" value="<%= refundOrder.payment.version %>">
+      <div ><span>Order</span><strong><%= refundOrder.publicId %> · <%= refundOrder.country %> · <%= refundOrder.currency %></strong></div>
+      <div ><span>Remaining refundable balance</span><strong><%= formatMoney(refundOrder.payment.remainingRefundMinor, refundOrder.currency) %></strong></div>
+      <label ><span>Amount in minor units (<%= refundOrder.currency %>)</span><input name="amountMinor" type="number" min="1" max="<%= refundOrder.payment.remainingRefundMinor %>" step="1" placeholder="Leave blank for the remaining balance"></label>
+      <label class="wide"><span>Refund reason</span><textarea name="reason" minlength="3" maxlength="300" required rows="3"></textarea></label>
+      <% for (const item of refundOrder.items) { %>
+        <label ><span><%= item.title %> · line amount in minor units</span><input name="line:<%= item.orderLineId %>" type="number" min="0" max="<%= item.lineTotalMinor %>" step="1" value="0"></label>
+      <% } %>
+      <p class="wide form-intro">For partial or follow-up refunds, assign the refund amount to the purchased lines. Line amounts must total the refund amount. A full untouched payment can be refunded without line amounts.</p>
+      <div class="wide"><button class="primary-button" type="submit">Record refund</button></div>
+    </form>
+  <% } %>
+</section>
+<% } %>

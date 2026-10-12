@@ -30,4 +30,6 @@ const providerEventSchema=new Schema({
 providerEventSchema.index({provider:1,eventId:1},{unique:true});
 providerEventSchema.index({provider:1,status:1,nextAttemptAt:1,lockedUntil:1,createdAt:1});
 providerEventSchema.index({country:1,status:1,createdAt:-1});
+providerEventSchema.index({country:1,provider:1,createdAt:-1,_id:-1});
+providerEventSchema.index({country:1,status:1,createdAt:-1,_id:-1});
 export const ProviderEvent=mongoose.model('ProviderEvent',providerEventSchema);

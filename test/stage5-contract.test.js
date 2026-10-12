@@ -47,5 +47,16 @@ test('Stage 5 shares seller net-settlement math between provider and COD payment
 });
 
 test('Stage 5 reloads refund order and payment records inside the refund transaction',async()=>{
-  const service=await read('src/services/payments.js');assert.match(service,/async function postRefundLedger\(orderLike,refundLike,intentLike\)/);assert.match(service,/Order\.findById\(orderLike\._id\)\.session\(session\)/);assert.match(service,/PaymentIntent\.findById\(intentLike\._id\)\.session\(session\)/);assert.match(service,/Refund\.findById\(refundLike\._id\)\.session\(session\)/);assert.match(service,/LedgerTransaction\.exists\(/);assert.match(service,/\.session\(session\)\)return/);
+  const service=await read('src/services/payments.js');
+  const start=service.indexOf('async function postRefundLedger(');assert.ok(start>=0);
+  const end=service.indexOf('\nexport ',start);const refundLedger=service.slice(start,end<0?undefined:end);
+  assert.match(refundLedger,/async function postRefundLedger\(orderLike,refundLike,intentLike,\{request,manual=false,version\}=\{\}\)/);
+  assert.match(refundLedger,/session\.withTransaction\(/);
+  assert.match(refundLedger,/Order\.findById\(orderLike\._id\)\.session\(session\)/);
+  assert.match(refundLedger,/PaymentIntent\.findById\(intentLike\._id\)\.session\(session\)/);
+  assert.match(refundLedger,/Refund\.findById\(refundLike\._id\)\.session\(session\)/);
+  assert.match(refundLedger,/refundActorAccess\(request,order,session,\{write:true,financeRequired:manual\}\)/);
+  assert.match(refundLedger,/LedgerTransaction\.exists\(\{idempotencyKey:`refund:\$\{refundLike\.publicId\}`\}\)\.session\(session\)\)\{[\s\S]*?return;/);
+  assert.match(refundLedger,/REFUND_COMPLETION_CONFLICT/);
+  assert.match(service,/postRefundLedger\(order,refund,intent,\{request,manual:true,version\}\)/);
 });
