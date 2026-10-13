@@ -117,6 +117,50 @@ test('mobile storefront does not create horizontal page overflow and exposes mob
   expect(overflow).toBeLessThanOrEqual(2);
 });
 
+test('homepage search dropdown fills its panel with aligned results and keeps keyboard selection', async ({ page }, testInfo) => {
+  const widths = testInfo.project.name.startsWith('mobile') ? [390, 320] : [1366];
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/', { waitUntil: 'networkidle' });
+    const search = page.getByRole('combobox', { name: 'Search products', exact: true });
+    await search.fill('Classic');
+    const list = page.getByRole('listbox', { name: 'Search suggestions' });
+    const options = list.getByRole('option');
+    await expect(options.nth(1)).toBeVisible();
+    const layout = await list.evaluate(node => {
+      const panel = node.parentElement, box = node.getBoundingClientRect(), panelBox = panel.getBoundingClientRect();
+      const style = getComputedStyle(panel);
+      return { width: box.width, expectedWidth: panelBox.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth),
+        boxes: [...node.querySelectorAll('[role="option"]')].map(option => {
+          const rect = option.getBoundingClientRect(); return { x: rect.x, y: rect.y, width: rect.width, right: rect.right };
+        }), left: box.left, right: box.right, overflow: panel.scrollWidth - panel.clientWidth };
+    });
+    expect(Math.abs(layout.width - layout.expectedWidth), `${width}px list fills the available panel`).toBeLessThanOrEqual(1);
+    expect(Math.abs(layout.boxes[0].y - layout.boxes[1].y), `${width}px results share a row`).toBeLessThanOrEqual(1);
+    expect(layout.boxes[1].x).toBeGreaterThan(layout.boxes[0].right);
+    for (const box of layout.boxes) {
+      expect(box.x).toBeGreaterThanOrEqual(layout.left - 1);
+      expect(box.right).toBeLessThanOrEqual(layout.right + 1);
+    }
+    expect(layout.overflow).toBeLessThanOrEqual(1);
+    await search.press('ArrowDown');
+    await expect(search).toBeFocused();
+    await expect(options.first()).toHaveAttribute('aria-selected', 'true');
+    const productName = await options.first().locator('strong').innerText();
+    await search.press('Enter');
+    await expect(page.getByRole('dialog', { name: productName, exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(search).toBeFocused();
+    await search.fill('no-matching-product-' + 'x'.repeat(90));
+    await expect(page.locator('.no-suggestions')).toBeVisible();
+    await expect(list.getByRole('option')).toHaveCount(0);
+    const summaryOverflow = await page.locator('#searchSuggestions').evaluate(panel => panel.scrollWidth - panel.clientWidth);
+    expect(summaryOverflow, `${width}px long empty-query summary stays inside the panel`).toBeLessThanOrEqual(1);
+    await search.press('Escape');
+    await expect(page.locator('#searchSuggestions')).not.toBeVisible();
+  }
+});
+
 test('double activation of navigation does not create duplicate browser errors', async ({ page }) => {
   const failures = monitorBrowserFailures(page);
   await page.goto('/');
