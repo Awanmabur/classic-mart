@@ -6,14 +6,15 @@ Classic Mart is a server-authoritative multi-vendor marketplace built with Node.
 
 ## Connected dashboards
 
-- Customer uses `/dashboard` and canonical shopping/account routes. Seller has 17 connected `/seller/...` destinations; Promoter has 15 `/promoter/...` destinations; Finance and Support each have nine connected destinations.
+- Customer uses `/dashboard` and canonical shopping/account routes. Seller has 17 connected `/seller/...` destinations; Promoter has 15 `/promoter/...` destinations; Finance and Support each have nine connected destinations. Moderation has eight connected `/moderation/...` destinations.
 - Current server-side roles, staff grants and primary workspace determine login landing and access. There is no demo role selector or browser-owned business state. Seller accounts land in the Seller workspace; Finance staff grants do not render a Customer dashboard even when their stored identity role is Customer.
 - Original approved base styles, scripts and images remain byte-for-byte unchanged. Live records and saved workflows use the approved layouts, with scoped additions for forms and responsive record text.
 - Finance includes real refund reservation/completion, independent payout review/settlement, COD/provider reconciliation, chargeback controls, scoped reports/audit and weekly report delivery. Transfers and provider delivery are not simulated as successes.
 - Support uses `/support/overview` and scoped staff pages. Customer conversations remain at `/support`. Real replies, private notes, customer appeals, receipt-backed Warehouse returns and independently completed Finance refunds use the approved layouts.
+- Moderation starts at `/moderation/overview`. Product and seller verification, purchased reviews, risk cases/signals, audit, reports, independent QA and saved settings use current grants, actual source records and transactional decisions. Customer reports/replies/appeals and Seller review disputes connect to those same records.
 - Classic Wallet uses verified payment and liability accounting. Authenticated checkout debits actual funds atomically; Wallet refunds return to the same owner's wallet.
 - Personal security, messages, privacy, notifications and connected apps preserve the current identity and workspace navigation. Configured MFA is required before privileged operations; enrollment retains its validated continuation.
-- See [architecture](docs/architecture.md), [Seller contracts](docs/seller/workspace-pages.md), [Promoter contracts](docs/promoter/workspace-pages.md), [Finance contracts](docs/finance/workspace-pages.md) and [Support contracts](docs/support/workspace-pages.md) for exact routes, operations, tests and remaining production limits. Other workspaces continue through their own implementation stages.
+- See [architecture](docs/architecture.md), [Seller contracts](docs/seller/workspace-pages.md), [Promoter contracts](docs/promoter/workspace-pages.md), [Finance contracts](docs/finance/workspace-pages.md), [Support contracts](docs/support/workspace-pages.md) and [Moderation contracts](docs/moderation/workspace-pages.md) for exact routes, operations, tests and remaining production limits. Other workspaces continue through their own implementation stages.
 
 ## External-service-first development
 

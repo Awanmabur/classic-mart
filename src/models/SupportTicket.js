@@ -12,4 +12,6 @@ schema.index({country:1,createdAt:-1,_id:-1});
 schema.index({country:1,resolvedAt:-1});
 schema.index({country:1,'notes.at':1});
 schema.index({country:1,'assignmentHistory.at':1});
+schema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
+
 export const SupportTicket=mongoose.model('SupportTicket',schema);

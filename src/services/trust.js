@@ -16,10 +16,9 @@ import { createCustomerSupportTicket, createGuestSupportTicket } from './support
 import { supportAccess, fenceSupportAccess } from './support-workspace-access.js';
 import { writeAudit } from './audit.js';
 import { z } from 'zod';
-import { hasPermission } from '../core/roles.js';
-import { moderationReviewAccess, fenceModerationReviewAccess } from './moderation-review-access.js';
 import { createOwnedDispute, submitOwnedSatisfaction, authorizeCustomerCaseActor, fenceCustomerCaseMarket } from './customer-dispute-pages.js';
 import { queueSupportAlert } from './support-notifications.js';
+import { createOwnedVerifiedReview, disputeOwnedReview, createOwnedTrustIssue, moderateVerifiedReview, moderateTrustCase, moderateRiskSignal } from './moderation-trust-pages.js';
 
 const ACTIVE_RETURN = ['requested','approved','awaiting_return','received','inspected','refund_pending','refund_processing','exchange_pending'];
 export async function createPublicSupportTicket(request,input){
@@ -252,100 +251,12 @@ export async function createExchangeReplacement(request,returnId,input={}){
 
 export async function createDispute(request,input){return createOwnedDispute(request,input);}
 export async function createTicket(request,input){return createCustomerSupportTicket(request,input);}
-export async function createVerifiedReview(request,input){
-  const orderQuery={userId:request.user._id,fulfillmentState:'delivered','items.productPublicId':input.productId};if(input.orderId)orderQuery.publicId=input.orderId;
-  const order=await Order.findOne(orderQuery).sort({createdAt:-1});if(!order)throw new AppError('A delivered verified purchase is required to review this product.',403,'VERIFIED_PURCHASE_REQUIRED');
-  const item=order.items.find(x=>x.productPublicId===input.productId&&Number(x.deliveredQuantity||0)>0);if(!item)throw new AppError('This product was not delivered in the selected order.',422,'REVIEW_PRODUCT_INVALID');
-  const store=await Store.findOne({publicId:item.storePublicId}).lean();if(store&&(String(store.ownerUserId)===String(request.user._id)||await StoreMember.exists({storeId:store._id,userId:request.user._id,status:'active'})))throw new AppError('Store owners and staff cannot review products from a store they operate.',403,'SELF_REVIEW_BLOCKED');
-  const product=await Product.findOne({publicId:item.productPublicId});if(!product)throw new AppError('Product not found.',404,'PRODUCT_NOT_FOUND');
-  try{const review=await Review.create({publicId:publicId('rev'),userId:request.user._id,orderId:order._id,orderPublicId:order.publicId,productId:product._id,productPublicId:product.publicId,country:order.country,rating:input.rating,title:input.title||'',body:input.body,verifiedPurchase:true,status:'pending'});const recent=await Review.countDocuments({userId:request.user._id,createdAt:{$gte:new Date(Date.now()-86400000)}});if(recent>5)await RiskSignal.create({publicId:publicId('rsk'),country:order.country,subjectType:'user',subjectPublicId:String(request.user._id),type:'review_velocity',severity:'medium',score:55,evidence:[review.publicId],createdBy:'system'}).catch(()=>{});return review;}catch(error){if(error?.code===11000)throw new AppError('You already reviewed this product from this order.',409,'REVIEW_EXISTS');throw error;}
-}
-
-export async function disputeReview(request,reviewId,reason){const review=await Review.findOne({publicId:reviewId,status:'published'});if(!review)throw new AppError('Published review not found.',404,'REVIEW_NOT_FOUND');const product=await Product.findById(review.productId);const store=product?await Store.findById(product.storeId):null;const member=store?await StoreMember.findOne({storeId:store._id,userId:request.user._id,status:'active',role:{$in:['owner','admin','support']}}):null;if(!store||(!store.ownerUserId.equals(request.user._id)&&!member))throw new AppError('Only authorized staff from the affected store can dispute this review.',403,'FORBIDDEN');review.status='disputed';review.disputeReason=reason;review.disputedByUserId=request.user._id;review.disputedAt=new Date();await review.save();return review;}
-
-export async function reportTrustIssue(request,input){const product=input.productId?await Product.findOne({publicId:input.productId}).lean():null;const store=input.storeId?await Store.findOne({publicId:input.storeId}).lean():null;if(input.productId&&!product)throw new AppError('Product not found.',404,'PRODUCT_NOT_FOUND');if(input.storeId&&!store)throw new AppError('Store not found.',404,'STORE_NOT_FOUND');const country=product?.countries?.[0]||store?.country||request.user.country;const trustCase=await TrustCase.create({publicId:publicId('case'),reporterUserId:request.user._id,country,type:input.type,productId:product?._id,productPublicId:product?.publicId,storeId:store?._id,storePublicId:store?.publicId,description:input.description});const severity=['counterfeit','unsafe_product','prohibited_product'].includes(input.type)?'high':'medium';await RiskSignal.create({publicId:publicId('rsk'),country,subjectType:product?'product':'store',subjectPublicId:product?.publicId||store?.publicId,type:`trust_${input.type}`,severity,score:severity==='high'?80:55,evidence:[trustCase.publicId],createdBy:'user'});return trustCase;}
-export async function publishReview(request,reviewId,input){
-  const values=z.object({decision:z.enum(['publish','reject']),reason:z.string().trim().min(3).max(500),version:z.coerce.number().int().nonnegative().optional()}).parse(input);
-  const session=await mongoose.startSession();let result;
-  try{await session.withTransaction(async()=>{
-    const review=await Review.findOne({publicId:reviewId}).session(session);
-    if(!review)throw new AppError('Review not found.',404,'REVIEW_NOT_FOUND');
-    const access=await moderationReviewAccess(request,session,review.country);
-    if(!['pending','disputed'].includes(review.status))throw new AppError('Review is already finalized.',409,'REVIEW_STATE');
-    if(values.version!==undefined&&values.version!==(review.__v||0))throw new AppError('The review changed. Reload before deciding.',409,'MODERATION_VERSION_CONFLICT');
-    const order=await Order.findOne({_id:review.orderId,publicId:review.orderPublicId,userId:review.userId,country:review.country}).select('publicId').session(session);
-    if(!order)throw new AppError('Review purchase linkage needs investigation.',409,'REVIEW_LINKAGE_INVALID');
-    await fenceModerationReviewAccess(access,session);
-    review.status=values.decision==='publish'?'published':'rejected';review.moderationReason=values.reason;
-    review.publishedAt=review.status==='published'?new Date():undefined;await review.save({session});
-    await writeAudit(request,'review.moderated',{session,actor:access.actor,targetType:'review',targetPublicId:review.publicId,country:review.country,metadata:{decision:values.decision,reason:values.reason}});
-    result=review;
-  });return result;}finally{await session.endSession();}
-}
-
-export async function reviewTrustCase(request,caseDoc,input){
-  const values=z.object({status:z.enum(['investigating','actioned','dismissed','closed']),enforcement:z.enum(['none','suspend_product','restore_product','suspend_store','restore_store']).default('none'),decision:z.string().trim().min(3).max(1000),version:z.coerce.number().int().nonnegative().optional()}).parse(input);
-  if(values.status!=='actioned'&&values.enforcement!=='none')throw new AppError('Enforcement requires an actioned trust case.',422,'TRUST_ENFORCEMENT_STATE');
-  const session=await mongoose.startSession();let result;
-  try{await session.withTransaction(async()=>{
-    const doc=await TrustCase.findOne({publicId:caseDoc?.publicId||caseDoc}).session(session);
-    if(!doc)throw new AppError('Trust case not found.',404,'TRUST_CASE_NOT_FOUND');
-    const access=await moderationReviewAccess(request,session,doc.country);
-    const expected=values.version??caseDoc?.__v;
-    if(expected!==undefined&&expected!==(doc.__v||0))throw new AppError('The trust case changed. Reload before deciding.',409,'MODERATION_VERSION_CONFLICT');
-    if(!['open','investigating','appealed'].includes(doc.status))throw new AppError('This trust case has a recorded outcome.',409,'TRUST_CASE_STATE');
-    const appealReview=doc.status==='appealed';
-    if(appealReview&&String(doc.assignedUserId||'')===String(access.actor._id))throw new AppError('An appealed trust case requires a different reviewer.',409,'TRUST_APPEAL_FOUR_EYES');
-    if(values.enforcement!=='none'&&!hasPermission(access.actor,'catalogue:moderate'))throw new AppError('Catalogue moderation permission is required for enforcement.',403,'CATALOGUE_MODERATION_REQUIRED');
-    let product=null,store=null;
-    if(values.enforcement!=='none'){
-      if(doc.productPublicId)product=await Product.findOne({publicId:doc.productPublicId,_id:doc.productId,countries:doc.country}).session(session);
-      if(values.enforcement.endsWith('_product')&&!product)throw new AppError('Product not found for scoped enforcement.',404,'PRODUCT_NOT_FOUND');
-      if(product&&!access.scopes.includes('*')&&product.countries.some(country=>!access.scopes.includes(country)))throw new AppError('Global product enforcement requires authority over every selling country.',403,'TRUST_ENFORCEMENT_COUNTRY_FORBIDDEN');
-      if(values.enforcement.endsWith('_store')){
-        store=doc.storePublicId?await Store.findOne({publicId:doc.storePublicId,_id:doc.storeId,country:doc.country}).session(session):product?await Store.findOne({_id:product.storeId,country:doc.country}).session(session):null;
-        if(!store)throw new AppError('Store not found for scoped enforcement.',404,'STORE_NOT_FOUND');
-      }
-    }
-    await fenceModerationReviewAccess(access,session);
-    if(values.enforcement==='suspend_product'){
-      if(product.status==='closed')throw new AppError('Closed products cannot be suspended.',409,'PRODUCT_STATE');
-      if(product.status!=='suspended'){product.suspension.previousStatus=product.status;product.suspension.reason=values.decision;product.suspension.suspendedAt=new Date();product.suspension.suspendedByUserId=access.actor._id;product.status='suspended';await product.save({session});}
-    }else if(values.enforcement==='restore_product'){
-      if(product.status!=='suspended'||!['draft','submitted','changes_requested','approved','published','rejected','archived'].includes(product.suspension?.previousStatus))throw new AppError('A verified previous product state is required for restoration.',409,'PRODUCT_RESTORE_STATE');
-      product.status=product.suspension.previousStatus;product.suspension.reason='';product.suspension.suspendedAt=undefined;product.suspension.suspendedByUserId=undefined;await product.save({session});
-    }else if(values.enforcement==='suspend_store'){
-      if(store.status==='closed')throw new AppError('Closed stores cannot be suspended.',409,'STORE_STATE');
-      if(store.status!=='suspended'){
-        const previousStatus=store.status;store.status='suspended';store.suspendedAt=new Date();store.suspensionReason=values.decision;store.suspendedByUserId=access.actor._id;await store.save({session});
-        await writeAudit(request,'trust.store_suspended',{session,actor:access.actor,targetType:'store',targetPublicId:store.publicId,country:store.country,metadata:{previousStatus}});
-      }
-    }else if(values.enforcement==='restore_store'){
-      const {AuditLog}=await import('../models/index.js');
-      const prior=await AuditLog.findOne({action:'trust.store_suspended',targetType:'store',targetPublicId:store.publicId,country:store.country}).select('metadata').sort({createdAt:-1,_id:-1}).session(session).lean();
-      if(store.status!=='suspended'||!['pending_verification','verified'].includes(prior?.metadata?.previousStatus))throw new AppError('A verified previous store state is required for restoration.',409,'STORE_RESTORE_STATE');
-      store.status=prior.metadata.previousStatus;store.suspendedAt=undefined;store.suspensionReason='';store.suspendedByUserId=undefined;await store.save({session});
-    }
-    doc.status=values.status;doc.decision=values.decision;doc.assignedUserId=access.actor._id;doc.resolvedAt=['actioned','dismissed','closed'].includes(values.status)?new Date():undefined;await doc.save({session});
-    await writeAudit(request,'trust.case_reviewed',{session,actor:access.actor,targetType:'trust_case',targetPublicId:doc.publicId,country:doc.country,metadata:{status:values.status,enforcement:values.enforcement,appealReview}});
-    result=doc;
-  });return result;}finally{await session.endSession();}
-}
-
-export async function reviewRiskSignal(request,risk,input){
-  const values=z.object({status:z.enum(['reviewed','dismissed','actioned']),decision:z.string().trim().min(3).max(1000),version:z.coerce.number().int().nonnegative().optional()}).parse(input);
-  const session=await mongoose.startSession();let result;
-  try{await session.withTransaction(async()=>{
-    const doc=await RiskSignal.findOne({publicId:risk?.publicId||risk}).session(session);if(!doc)throw new AppError('Risk signal not found.',404,'RISK_NOT_FOUND');
-    const access=await moderationReviewAccess(request,session,doc.country),expected=values.version??risk?.__v;
-    if(expected!==undefined&&expected!==(doc.__v||0))throw new AppError('The risk signal changed. Reload before deciding.',409,'MODERATION_VERSION_CONFLICT');
-    if(doc.status!=='open')throw new AppError('The risk signal already has a recorded outcome.',409,'RISK_STATE');
-    await fenceModerationReviewAccess(access,session);
-    doc.status=values.status;doc.decision=values.decision;doc.reviewedByUserId=access.actor._id;doc.reviewedAt=new Date();await doc.save({session});
-    await writeAudit(request,'trust.risk_signal_reviewed',{session,actor:access.actor,targetType:'risk_signal',targetPublicId:doc.publicId,country:doc.country,metadata:{status:values.status}});
-    result=doc;
-  });return result;}finally{await session.endSession();}
-}
+export async function createVerifiedReview(request,input){return createOwnedVerifiedReview(request,input);}
+export async function disputeReview(request,reviewId,reason){return disputeOwnedReview(request,reviewId,reason);}
+export async function reportTrustIssue(request,input){return createOwnedTrustIssue(request,input);}
+export async function publishReview(request,reviewId,input){return moderateVerifiedReview(request,reviewId,input);}
+export async function reviewTrustCase(request,caseDoc,input){return moderateTrustCase(request,caseDoc,input);}
+export async function reviewRiskSignal(request,risk,input){return moderateRiskSignal(request,risk,input);}
 
 export async function createKnowledgeArticle(request,input){const slug=input.slug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');return SupportKnowledge.create({publicId:publicId('kb'),country:input.country||request.user.country,title:input.title,slug,body:input.body,category:input.category,status:input.status,createdByUserId:request.user._id,updatedByUserId:request.user._id,publishedAt:input.status==='published'?new Date():null});}
 export async function submitSatisfaction(request,ticketPublicId,input){return submitOwnedSatisfaction(request,ticketPublicId,input);}

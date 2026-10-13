@@ -113,4 +113,6 @@ orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ userId: 1, paymentState: 1, createdAt: -1 });
 orderSchema.index({ userId: 1, fulfillmentState: 1, createdAt: -1 });
 
+orderSchema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
+
 export const Order = mongoose.model('Order', orderSchema);

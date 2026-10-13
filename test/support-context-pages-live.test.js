@@ -20,7 +20,7 @@ test('Support context uses assigned customer and commerce records with audited l
   await mongoose.connect(uri, { dbName: 'classicmart_support_context_test_' + suffix });
   try {
     const { createApp } = await import('../src/app.js');
-    const { User, CountrySetting, PlatformGrant, Order, PaymentIntent, Refund, Shipment, SupportTicket, Review, TrustCase, RiskSignal, AuditLog, Notification } = await import('../src/models/index.js');
+    const { User, CountrySetting, PlatformGrant, Order, PaymentIntent, Refund, Shipment, SupportTicket, Review, TrustCase, RiskSignal, AuditLog, Notification, Store, Product } = await import('../src/models/index.js');
     const { encryptSensitive } = await import('../src/core/sensitive.js');
     const { hashPassword } = await import('../src/core/crypto.js');
     const { totpCode } = await import('../src/services/mfa.js');
@@ -57,7 +57,11 @@ test('Support context uses assigned customer and commerce records with audited l
     const scoped = (entry = staff, query = { country: 'UG' }) => ({ id: `req_sc_${suffix}_${++sequence}`, user: entry.user, session: { tokenVersion: entry.user.security.tokenVersion }, query,
       ip: '127.0.0.1', get: () => 'SupportContextTest/1.0' });
     async function order(country = 'UG', owner = buyer, overrides = {}) {
-      const index = ++sequence, productId = new mongoose.Types.ObjectId(), variantId = new mongoose.Types.ObjectId(), storeId = new mongoose.Types.ObjectId(), currency = { UG: 'UGX', KE: 'KES', TZ: 'TZS' }[country];
+      const index = ++sequence, variantId = new mongoose.Types.ObjectId(), currency = { UG: 'UGX', KE: 'KES', TZ: 'TZS' }[country];
+      const seller = await actor('seller', { country, countries: [] });
+      const store = await Store.create({ publicId: `sto_sc_${index}`, ownerUserId: seller.user._id, name: `Context store ${index}`, slug: `context-store-${suffix}-${index}`, country, currency, status: 'verified' });
+      const product = await Product.create({ publicId: `prd_sc_${index}`, storeId: store._id, ownerUserId: seller.user._id, categoryId: new mongoose.Types.ObjectId(), title: 'Recorded Product', slug: `context-product-${suffix}-${index}`, description: 'A real source product purchased by the recorded customer.', countries: [country], status: 'published', qualityScore: 80 });
+      const productId = product._id, storeId = store._id;
       return Order.create({ publicId: `ord_sc_${suffix}_${index}`, idempotencyKey: `context-${suffix}-${index}`, checkoutId: `checkout-${index}`, cartPublicId: `cart-${index}`, sessionKey: `private-order-session-${index}`,
         userId: owner?.user?._id, country, status: 'paid', paymentState: 'paid', fulfillmentState: 'delivered', paymentMethod: 'pesapal', deliveryMethod: 'standard',
         contact: { fullName: owner?.user?.name || 'Guest', email: 'private-order-contact@example.com', phone: '+256700999888', address: 'PRIVATE SHIPPING ADDRESS', city: 'Kampala', country },
@@ -254,7 +258,7 @@ test('Support context uses assigned customer and commerce records with audited l
       await PlatformGrant.updateOne({ _id: delegated.grant._id }, { $set: { status: 'active', role: 'support' } });
       await assert.rejects(publishReview(scoped(delegated), next.publicId, { decision: 'publish', reason: 'Current Support grant must reject this decision.' }), error => error.status === 403);
       const issue = await TrustCase.findOne({ reviewId: review._id });
-      await TrustCase.updateOne({ _id: issue._id }, { $set: { status: 'appealed', assignedUserId: moderator.user._id }, $inc: { __v: 1 } });
+      await TrustCase.updateOne({ _id: issue._id }, { $set: { status: 'appealed', appealOriginalDecisionByUserId: moderator.user._id }, $unset: { assignedUserId: 1, assignedAt: 1 }, $inc: { __v: 1 } });
       const appeal = await TrustCase.findById(issue._id);
       await assert.rejects(reviewTrustCase(scoped(moderator), appeal, { status: 'dismissed', enforcement: 'none', decision: 'The prior reviewer must not decide this appeal.' }), error => error.code === 'TRUST_APPEAL_FOUR_EYES');
       const independent = await actor('moderator');

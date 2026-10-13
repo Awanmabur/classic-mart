@@ -22,6 +22,7 @@ import { supportTicketCustomerDto, customerReplySupportTicket, customerReopenSup
 import { replyToOwnedDispute, supportEvidenceRecord, warehouseReturnReceiptEvidenceRecord, returnFinancialAllocations } from '../services/support-case-pages.js';
 import { financeAccess } from '../services/finance-workspace-access.js';
 import { supportAccess } from '../services/support-workspace-access.js';
+import { customerTrustCaseDto, customerReviewDto, appealOwnedTrustCase, customerReplyTrustCase, authorizeModerationTrustEvidence, recordModerationTrustEvidenceAccess } from '../services/moderation-trust-pages.js';
 import { customerDisputeDto, customerSatisfactionDto, appealOwnedDispute } from '../services/customer-dispute-pages.js';
 import { sanitizeAndStoreEvidenceImage, uploadVerificationImage } from '../services/media.js';
 import { sendStoredMedia } from '../services/media-delivery.js';
@@ -37,7 +38,7 @@ import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 import { writeAudit } from '../services/audit.js';
 
 const router=Router();
-router.use(['/api/v1/returns','/api/v1/disputes','/api/v1/support/tickets','/api/v1/finance/returns','/account/returns','/account/support','/account/disputes','/evidence'],(_req,res,next)=>{res.set({'Cache-Control':'private, no-store','X-Robots-Tag':'noindex, nofollow, noarchive'});next();});
+router.use(['/api/v1/returns','/api/v1/disputes','/api/v1/trust','/api/v1/reviews','/account/trust-cases','/api/v1/support/tickets','/api/v1/finance/returns','/account/returns','/account/support','/account/disputes','/evidence'],(_req,res,next)=>{res.set({'Cache-Control':'private, no-store','X-Robots-Tag':'noindex, nofollow, noarchive'});next();});
 const customerReplyLimit=rateLimit({windowMs:15*60_000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
 function customerTrustReturn(request){const value=String(request.body?.returnTo||'');if (['/returns','/support'].includes(value)) return value;return {'/dashboard/returns':'/returns','/dashboard/support':'/support'}[value] || '/account/returns';}
 const publicSupportLimit=rateLimit({windowMs:15*60_000,limit:8,standardHeaders:'draft-8',legacyHeaders:false});
@@ -84,7 +85,7 @@ router.get('/account/returns',requireAuth,requireVerified,async(req,res,next)=>{
     fetchPage(SupportTicket,req.query.ticketsAfter,{populate:[['evidenceDocumentIds','publicId description']]}),
     (async()=>{const caseBase={reporterUserId:req.user._id};let q=TrustCase.find(cursorScope(caseBase,req.query.casesAfter)).populate('evidenceDocumentIds','publicId description').sort(cursorSort()).limit(pageSize+1);const [rows,total]=await Promise.all([q.lean(),TrustCase.countDocuments(caseBase)]);return pageResult(rows,{limit:pageSize,total});})(),
   ]);
-  const orders=orderPage.items,returns=returnPage.items.map(customerReturnDto),disputes=disputePage.items.map(customerDisputeDto),tickets=ticketPage.items.map(row=>({...supportTicketCustomerDto(row),evidenceDocumentIds:row.evidenceDocumentIds})),cases=casePage.items;
+  const orders=orderPage.items,returns=returnPage.items.map(customerReturnDto),disputes=disputePage.items.map(customerDisputeDto),tickets=ticketPage.items.map(row=>({...supportTicketCustomerDto(row),evidenceDocumentIds:row.evidenceDocumentIds})),cases=casePage.items.map(row=>({...customerTrustCaseDto(row),evidenceDocumentIds:row.evidenceDocumentIds}));
   const surveys=tickets.length?await SatisfactionSurvey.find({userId:req.user._id,ticketPublicId:{$in:tickets.map(t=>t.publicId)}}).lean():[];
   const surveyByTicket=Object.fromEntries(surveys.map(row=>[row.ticketPublicId,row]));
   const returnableLines=[],reviewableLines=[];
@@ -129,7 +130,9 @@ router.post('/account/reviews',requireAuth,requireVerified,async(req,res,next)=>
 
 router.post('/account/trust-report',requireAuth,requireVerified,async(req,res,next)=>{try{await reportTrustIssue(req,trustSchema.parse(req.body));res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
 
-router.post('/account/trust-cases/:id/appeal',requireAuth,requireVerified,async(req,res,next)=>{try{const message=z.string().trim().min(10).max(1500).parse(req.body.message);const c=await TrustCase.findOne({publicId:req.params.id,reporterUserId:req.user._id,status:{$in:['actioned','dismissed','closed']}});if(!c)throw new AppError('Eligible trust case not found.',404,'TRUST_CASE_NOT_FOUND');c.status='appealed';c.decision=`Appeal: ${message}`;c.resolvedAt=undefined;await c.save();res.redirect(customerTrustReturn(req));}catch(e){next(e);}});
+router.post('/account/trust-cases/:id/reply',requireAuth,requireVerified,customerReplyLimit,async(req,res,next)=>{try{verifyDeferredCsrf(req);await customerReplyTrustCase(req,req.params.id,req.body);setFlash(req,'success','Your report reply has been saved.');res.redirect(303,customerTrustReturn(req));}catch(e){next(e);}});
+for(const [path,operation] of [['reply',customerReplyTrustCase],['appeal',appealOwnedTrustCase]])router.post('/api/v1/trust/cases/:id/'+path,requireAuth,requireVerified,customerReplyLimit,async(req,res,next)=>{try{verifyDeferredCsrf(req);res.set('Cache-Control','private, no-store').json({case:customerTrustCaseDto(await operation(req,req.params.id,req.body))});}catch(e){next(e);}});
+router.post('/account/trust-cases/:id/appeal',requireAuth,requireVerified,customerReplyLimit,async(req,res,next)=>{try{verifyDeferredCsrf(req);await appealOwnedTrustCase(req,req.params.id,req.body);setFlash(req,'success','Your report appeal has been saved for independent review.');res.redirect(303,customerTrustReturn(req));}catch(e){next(e);}});
 
 router.post('/api/v1/disputes',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({dispute:customerDisputeDto(await createDispute(req,disputeSchema.parse(req.body)))});}catch(e){next(e);}});
 
@@ -137,9 +140,9 @@ router.post('/api/v1/support/tickets',requireAuth,requireVerified,async(req,res,
 
 router.post('/api/v1/support/tickets/:id/csat',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({rating:z.coerce.number().int().min(1).max(5),comment:z.string().trim().max(1000).default('')}).parse(req.body);res.status(201).json({survey:customerSatisfactionDto(await submitSatisfaction(req,req.params.id,input))});}catch(e){next(e);}});
 
-router.post('/api/v1/reviews',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({review:await createVerifiedReview(req,reviewSchema.parse(req.body))});}catch(e){next(e);}});
+router.post('/api/v1/reviews',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({review:customerReviewDto(await createVerifiedReview(req,reviewSchema.parse(req.body)))});}catch(e){next(e);}});
 
-router.post('/api/v1/trust/reports',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({case:await reportTrustIssue(req,trustSchema.parse(req.body))});}catch(e){next(e);}});
+router.post('/api/v1/trust/reports',requireAuth,requireVerified,async(req,res,next)=>{try{res.status(201).json({case:customerTrustCaseDto(await reportTrustIssue(req,trustSchema.parse(req.body)))});}catch(e){next(e);}});
 
 
 router.get('/evidence/:id',requireAuth,requireVerified,async(req,res,next)=>{try{
@@ -150,6 +153,13 @@ router.get('/evidence/:id',requireAuth,requireVerified,async(req,res,next)=>{try
   if(primaryWorkspaceFor(actor)==='support'){
     const evidence=await supportEvidenceRecord(currentRequest,req.params.id);
     return sendStoredMedia(res,evidence.storageKey,{cacheControl:'private, no-store',contentType:'image/webp',contentDisposition:'inline'});
+  }
+  if(primaryWorkspaceFor(actor)==='moderator'){
+    const evidence=await authorizeModerationTrustEvidence(currentRequest,req.params.id);
+    return sendStoredMedia(res,evidence.storageKey,{cacheControl:'private, no-store',contentType:'image/webp',contentDisposition:'inline',authorize:async()=>{
+      const current=await recordModerationTrustEvidenceAccess(currentRequest,req.params.id,evidence.storageKey);
+      if(current.storageKey!==evidence.storageKey)throw new AppError('Evidence access changed. Reload before continuing.',403,'EVIDENCE_ACCESS_CHANGED');
+    }});
   }
   const evidence=await EvidenceDocument.findOne({publicId:req.params.id,status:'ready'}).select('+storageKey');
   if(!evidence)throw new AppError('Evidence not found.',404,'EVIDENCE_NOT_FOUND');
@@ -196,7 +206,7 @@ router.post('/api/v1/finance/returns/:id/refund',requireAuth,requireVerified,fin
   res.set('Cache-Control','private, no-store').status(201).json({refund:{publicId:refund.publicId,status:refund.status,amountMinor:refund.amountMinor,currency:refund.currency,returnPublicId:refund.returnPublicId},returnRequest:{publicId:fresh.publicId,status:fresh.status,refundPublicId:fresh.refundPublicId,version:fresh.__v}});
 }catch(e){next(e);}});
 
-router.post('/api/v1/seller/reviews/:id/dispute',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(10).max(1000)}).parse(req.body);res.json({review:await disputeReview(req,req.params.id,input.reason)});}catch(e){next(e);}});
+router.post('/api/v1/seller/reviews/:id/dispute',requireAuth,requireVerified,async(req,res,next)=>{try{const input=z.object({reason:z.string().trim().min(10).max(1000)}).parse(req.body);res.json({review:customerReviewDto(await disputeReview(req,req.params.id,input.reason))});}catch(e){next(e);}});
 
 router.post('/api/v1/disputes/:id/appeal',requireAuth,requireVerified,customerReplyLimit,async(req,res,next)=>{try{verifyDeferredCsrf(req);res.set('Cache-Control','private, no-store').json({dispute:await appealOwnedDispute(req,req.params.id,req.body)});}catch(e){next(e);}});
 

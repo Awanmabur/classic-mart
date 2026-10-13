@@ -15,18 +15,18 @@ import { sellerProductList, sellerProductOptions, sellerProductDetail, createSel
   addSellerProductVariant, updateSellerProductVariant, createSellerProductWarehouse, adjustSellerProductStock,
   uploadSellerProductImage, updateSellerProductImage, removeSellerProductImage, reorderSellerProductImages,
   transitionSellerProduct } from '../services/seller-products.js';
-import { reviewerProductDetail, productReviewQueue, reviewProduct } from '../services/product-moderation.js';
+import { reviewProduct } from '../services/product-moderation.js';
+import { loadModerationCataloguePage, streamModerationCatalogueCsv } from '../services/moderation-catalogue-pages.js';
+import { moderationPageGates, renderModerationPage } from '../dashboard/moderation-page-view.js';
 
 const router = Router();
 const privatePage = (_request, response, next) => { response.set('X-Robots-Tag', 'noindex, nofollow, noarchive'); next(); };
 const common = [noStore, privatePage, requireAuth, requireVerified, requireOnboarding];
 const seller = [...common, (request, _response, next) => canAccessWorkspace(request.user, 'seller') ? next() : next(new AppError('Seller access is required.', 403, 'DASHBOARD_FORBIDDEN')),
   loadSellerStore, requireStoreCapability('catalogue')];
-const reviewer = [...common, requirePermission('catalogue:moderate')];
+const reviewer = moderationPageGates();
 const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const uploadLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
-const reviewerReady = new Set(['moderator-sellers', 'moderator-products']);
-const navigation = (workspace, ready) => DASHBOARD_PAGES[workspace].map(row => ({ id: row[0], label: row[1], icon: row[2], href: routeForPage(row[0]), ready: ready.has(row[0]) }));
 const productPath = id => '/seller/products/' + encodeURIComponent(id);
 
 function preservedDraft(request) {
@@ -129,16 +129,18 @@ for (const action of ['submit', 'publish', 'archive', 'reopen']) router.post('/s
     ({ submit: 'Product submitted for independent review.', publish: 'Product published.', archive: 'Product archived.', reopen: 'Product returned to draft. Submit it for review after editing.' })[action]));
 
 async function reviewPage(request, response, error = '') {
-  const [header, data] = await Promise.all([liveAccountHeader(request), request.params.publicId ? reviewerProductDetail(request.user, request.params.publicId) : productReviewQueue(request.user, request.query.after)]);
-  return response.render('approved-dashboard', { ...header, workspace: 'moderator', initialPage: 'moderator-products',
-    customerRoutes: { ...header.customerRoutes, 'moderator-sellers': '/moderation/verifications', 'moderator-products': '/moderation/products' },
-    allowedWorkspaces: allowedWorkspacesFor(request.user), liveSeller: { profileRole: 'Moderator', navigation: navigation('moderator', reviewerReady),
-      productReviewFlow: { ...data, mode: request.params.publicId ? 'detail' : 'list', error,
-        draft: error && typeof request.body?.reason === 'string' ? { reason: request.body.reason.slice(0, 1000) } : {} } } });
+  const flow = await loadModerationCataloguePage(request, 'moderator-products');
+  flow.error = error;
+  if (flow.selected?.productFlow) {
+    flow.selected.productFlow.error = error;
+    flow.selected.productFlow.draft = error && typeof request.body?.reason === 'string' ? { reason: request.body.reason.slice(0, 1000) } : {};
+  }
+  return renderModerationPage(request, response, 'moderator-products', flow);
 }
+router.get('/moderation/products/export.csv', ...reviewer, uploadLimit, asyncHandler((request,response) => streamModerationCatalogueCsv(request,response,'moderator-products')));
 router.get('/moderation/products', ...reviewer, asyncHandler((request, response) => reviewPage(request, response)));
 router.get('/moderation/products/:publicId', ...reviewer, asyncHandler((request, response) => reviewPage(request, response)));
-router.get('/dashboard/moderator-products', ...reviewer, (_request, response) => response.redirect(308, '/moderation/products'));
+router.get('/dashboard/moderator-products', ...reviewer, (request, response) => response.redirect(308, '/moderation/products' + new URL(request.originalUrl, 'http://localhost').search));
 for (const action of ['claim', 'release', 'decision']) router.post('/moderation/products/:publicId/' + action, ...reviewer, mutationLimit, asyncHandler(async (request, response) => {
   try { await reviewProduct(request, action); setFlash(request, 'success', 'Product review updated.'); return response.redirect('/moderation/products/' + encodeURIComponent(request.params.publicId)); }
   catch (error) {

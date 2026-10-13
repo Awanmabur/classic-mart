@@ -208,7 +208,7 @@ test('seller relationship pages use complete scoped counts and persist authorize
     const reviewPage = await owner.agent.get('/seller/reviews?review=' + review.publicId).expect(200);
     await owner.agent.post(`/seller/reviews/${review.publicId}/dispute`).type('form').send({ _csrf: csrf(reviewPage.text), version: 0, reason: 'The feedback appears to concern a different item.' }).expect(302);
     assert.equal((await Review.findById(review._id)).status, 'disputed');
-    assert.equal(await AuditLog.countDocuments({ action: 'seller.review_disputed', targetPublicId: review.publicId }), 1);
+    assert.equal(await AuditLog.countDocuments({ action: 'review.disputed', targetPublicId: review.publicId }), 1);
     await assert.rejects(disputeSellerReview(serviceRequest(owner, foreignReview.publicId, { version: 0, reason: 'A forged foreign-store review dispute.' })), { code: 'REVIEW_NOT_FOUND' });
 
     const messagePage = await owner.agent.get('/seller/messages?thread=' + thread.publicId).expect(200);

@@ -3,6 +3,7 @@ import { WAREHOUSE_ROUTES } from './warehouse-routes.js';
 import { SELLER_LIVE_ROUTES } from './seller-routes.js';
 import { PROMOTER_LIVE_ROUTES } from './promoter-routes.js';
 import { FINANCE_LIVE_ROUTES } from './finance-routes.js';
+import { MODERATION_LIVE_ROUTES } from './moderation-routes.js';
 import { SUPPORT_LIVE_ROUTES } from './support-routes.js';
 // Classic Mart production dashboard page registry.
 // Visual labels/page structure are intentionally preserved; route targets bind the design to production server routes.
@@ -74,7 +75,7 @@ export const DASHBOARD_WORKSPACES = Object.freeze({
   },
   "moderator": {
     "label": "Moderation",
-    "defaultPage": "moderator-sellers",
+    "defaultPage": "moderator-overview",
     "search": "Search products, reviews, sellers and risk cases...",
     "quickLabel": "Review Queue",
     "quickPage": "moderator-products",
@@ -1242,8 +1243,7 @@ export function routeForPage(pageId) {
   if (PROMOTER_LIVE_ROUTES[pageId]) return PROMOTER_LIVE_ROUTES[pageId];
   if (FINANCE_LIVE_ROUTES[pageId]) return FINANCE_LIVE_ROUTES[pageId];
   if (SUPPORT_LIVE_ROUTES[pageId]) return SUPPORT_LIVE_ROUTES[pageId];
-  if (pageId === 'moderator-products') return '/moderation/products';
-  if (pageId === 'moderator-sellers') return '/moderation/verifications';
+  if (MODERATION_LIVE_ROUTES[pageId]) return MODERATION_LIVE_ROUTES[pageId];
   return CUSTOMER_ROUTES[pageId] || (pageWorkspace(pageId) ? `/dashboard/${encodeURIComponent(pageId)}` : '/dashboard');
 }
 

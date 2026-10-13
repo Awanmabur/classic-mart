@@ -1,0 +1,71 @@
+<%
+const flow = moderationFlow;
+const metrics = flow.metrics || [];
+const insights = flow.insights || [];
+const workflow = flow.workflow || [];
+const health = flow.health || {};
+const healthValue = Number.isFinite(health.value) ? Math.max(0, Math.min(100, Math.round(health.value))) : null;
+const filters = flow.filters || {};
+const page = flow.page || {};
+const rows = flow.rows || [];
+const columns = flow.columns || [];
+const countries = flow.context?.countries || flow.countries || [];
+const selectedCountry = flow.country ?? flow.context?.country ?? filters.params?.country ?? filters.country ?? '';
+const statusTone = value => /^(active|healthy|published|completed|delivered|approved|resolved|fulfilled|available|paid|verified|preferred|valid|succeeded|matched|closed|won)$/i.test(String(value)) ? 'good' : /^(rejected|failed|expired|cancelled|critical|blocked|reversed|revoked|mismatch|overdue|escalated)$/i.test(String(value)) ? 'bad' : 'warn';
+const localHref = value => typeof value === 'string' && (/^\/(?!\/)/.test(value) || /^#[a-zA-Z0-9_-]+$/.test(value)) && !/[\\\u0000-\u001f\u007f]/.test(value) ? value : null;
+const rawParams = { ...(filters.params || {}) };
+for (const key of ['country', 'period', 'report', 'view', 'tab', 'kind', 'assignment', 'risk', 'priority']) { if (typeof filters[key] === 'string') rawParams[key] = filters[key]; }
+rawParams.country = selectedCountry;
+const activeStatus = filters.status || '';
+const statusOptions = filters.statuses || flow.filterStatuses || [];
+const assignments = filters.assignments || (Object.hasOwn(filters, 'assignment') ? [{value:'all',label:'All ownership'},{value:'mine',label:'Assigned to me'},{value:'unassigned',label:'Unassigned'}] : []);
+const risks = filters.risks || (Object.hasOwn(filters, 'risk') ? [{value:'all',label:'All risk levels'},{value:'high',label:'High risk'},{value:'standard',label:'Standard'}] : []);
+if (typeof flow.period === 'string') rawParams.period = flow.period;
+const filterParams = Object.entries(rawParams).filter(([key, value]) => /^[a-zA-Z][a-zA-Z0-9_-]{0,30}$/.test(key) && !['search', 'status', 'after', 'before', 'cursor', 'record', 'selected'].includes(key) && typeof value === 'string' && value.length <= 200);
+const countryParams = filterParams.filter(([key]) => !['country', 'selected', 'record', 'after'].includes(key));
+const cursorKey = /^[a-zA-Z][a-zA-Z0-9_-]{0,30}$/.test(filters.cursorKey || '') ? filters.cursorKey : 'after';
+const pageLink = after => { const query = new URLSearchParams(filterParams); if (filters.search) query.set('search', filters.search); if (filters.status) query.set('status', filters.status); if (after) query.set(cursorKey, after); return moderationPage.href + (query.size ? '?' + query : ''); };
+const recommendation = insights.find(item => localHref(item?.href));
+const nextHref = localHref(flow.pagination?.nextHref || flow.page?.nextHref) || (page.next ? pageLink(page.next) : null);
+const createHref = localHref(flow.create?.href);
+const exportHref = localHref(flow.exportHref);
+%>
+<section class="app-page active role-page moderation-standard-live moderation-fidelity-page" data-page="<%= moderationPage.id %>" data-role="moderator" data-page-kind="<%= moderationPage.kind %>">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow"><%= moderationPage.eyebrow %></span><h1><%= moderationPage.title %></h1><p><%= moderationPage.description %></p></div><div class="moderation-heading-actions">
+    <% if (countries.length) { %><form class="moderation-country-filter" method="get" action="<%= moderationPage.href %>"><% for (const [key, value] of countryParams) { %><input type="hidden" name="<%= key %>" value="<%= value %>"><% } %><% if (filters.search) { %><input type="hidden" name="search" value="<%= filters.search %>"><% } %><% if (filters.status) { %><input type="hidden" name="status" value="<%= filters.status %>"><% } %><label class="sr-only" for="moderationCountry">Country scope</label><select id="moderationCountry" name="country"><option value="" <%= selectedCountry === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= country.code === selectedCountry ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select><button class="plain-link" type="submit">Apply</button></form><% } %>
+    <% if (createHref) { %><a class="primary-button icon-button" href="<%= createHref %>"><svg aria-hidden="true"><use href="#i-plus"></use></svg><%= flow.create.label %></a><% } %>
+  </div></div>
+  <% if (flow.error) { %><p class="server-flash error" role="alert"><%= flow.error %></p><% } %>
+  <section class="role-metric-grid"><% for (const [index, metric] of metrics.entries()) { %><article class="role-metric panel"><span class="role-metric-icon tone-<%= index % 4 + 1 %>"><svg aria-hidden="true"><use href="#<%= ['i-eye','i-clipboard','i-wallet','i-award'][index % 4] %>"></use></svg></span><div><small><%= metric.label %></small><strong title="<%= metric.value ?? '—' %>"><%= metric.value ?? '—' %></strong><span><%= metric.detail || metric.note || '' %></span></div></article><% } %></section>
+  <div class="role-content-grid">
+    <div class="role-side-stack">
+      <section class="panel role-table-panel" id="moderation-records">
+        <div class="role-panel-head"><div><h2><%= flow.tableTitle || moderationPage.title + ' records' %></h2><p><%= flow.tableDescription || 'Current records within your authorized Moderation scope.' %></p></div><div class="role-table-tools">
+          <% if (flow.filters) { %><form class="moderation-compact-filter" method="get" action="<%= moderationPage.href %>"><% for (const [key, value] of filterParams) { %><input type="hidden" name="<%= key %>" value="<%= value %>"><% } %><% if (filters.status) { %><input type="hidden" name="status" value="<%= filters.status %>"><% } %><label class="role-mini-search"><svg aria-hidden="true"><use href="#i-search"></use></svg><input type="search" name="search" value="<%= filters.search || '' %>" maxlength="100" placeholder="Filter records" aria-label="Filter records"></label><button class="plain-link" type="submit">Search</button></form><% } %>
+          <% if (exportHref) { %><a class="outline-button role-export" href="<%= exportHref %>"><svg aria-hidden="true"><use href="#i-download"></use></svg>Export</a><% } %>
+        </div></div>
+        <% if (assignments.length || risks.length) { %>
+        <form class="moderation-compact-filter moderation-queue-filter" method="get" action="<%= moderationPage.href %>">
+          <% for (const [key, value] of filterParams.filter(([key]) => !['assignment','risk'].includes(key))) { %><input type="hidden" name="<%= key %>" value="<%= value %>"><% } %>
+          <% if (filters.search) { %><input type="hidden" name="search" value="<%= filters.search %>"><% } %><% if (filters.status) { %><input type="hidden" name="status" value="<%= filters.status %>"><% } %>
+          <% for (const field of [{name:'assignment',label:'Ownership',options:assignments},{name:'risk',label:'Risk level',options:risks}]) { if (!field.options?.length) continue; %><label><%= field.label %><select name="<%= field.name %>"><% for (const option of field.options) { %><option value="<%= option.value %>" <%= option.value === (filters[field.name] || 'all') ? 'selected' : '' %>><%= option.label %></option><% } %></select></label><% } %>
+          <button class="plain-link" type="submit">Apply filters</button>
+        </form>
+        <% } %>
+        <% if (filters.views?.length) { %><nav class="role-status-tabs moderation-record-tabs" aria-label="Record type"><% for (const view of filters.views) { const query = new URLSearchParams(filterParams); if (view.value) query.set('view', view.value); if (filters.search) query.set('search', filters.search); if (filters.status) query.set('status', filters.status); %><a class="<%= String(filters.view || '') === view.value ? 'active' : '' %>" href="<%= moderationPage.href + (query.size ? '?' + query : '') %>" <%= String(filters.view || '') === view.value ? 'aria-current=page' : '' %>><%= view.label %></a><% } %></nav><% } %>
+        <% if (statusOptions.length) { %><nav class="role-status-tabs moderation-record-tabs" aria-label="Record status"><% for (const status of statusOptions) { const query = new URLSearchParams(filterParams); if (status.value) query.set('status', status.value); if (filters.search) query.set('search', filters.search); %><a class="<%= String(activeStatus) === status.value ? 'active' : '' %>" href="<%= moderationPage.href + (query.size ? '?' + query : '') %>" <%= String(activeStatus) === status.value ? 'aria-current=page' : '' %>><%= status.label %></a><% } %></nav><% } %>
+        <div class="role-table-wrap"><table class="role-table"><thead><tr><% for (const column of columns) { %><th><%= column %></th><% } %><th>Action</th></tr></thead><tbody>
+        <% for (const row of rows) { const rowHref = localHref(row.href); %><tr><% for (const [index, cell] of (row.cells || []).entries()) { %><td data-label="<%= columns[index] || 'Value' %>"><% if (index === row.cells.length - 1 && /status|state|relationship/i.test(columns[index] || '')) { %><span class="role-status <%= statusTone(cell) %>"><%= cell %></span><% } else { %><span><%= cell %></span><% } %></td><% } %><td data-label="Action"><% if (rowHref) { %><a class="role-row-menu moderation-record-action" href="<%= rowHref %>" aria-label="Open <%= row.cells?.[0] || row.id || row.publicId %>">•••</a><% } else { %><span aria-label="No action required">—</span><% } %></td></tr><% } %>
+        <% if (!rows.length) { %><tr><td colspan="<%= columns.length + 1 %>"><%= flow.emptyText || 'No records match this view yet.' %></td></tr><% } %>
+        </tbody></table></div>
+        <div class="role-table-footer"><span><%= rows.length %> records on this page<%= Number.isFinite(page.total) ? ' · ' + page.total + ' total' : '' %></span><div><% if (filters.after) { %><a class="plain-link" href="<%= pageLink('') %>">First</a><% } else { %><span class="moderation-page-control" aria-disabled="true">Previous</span><% } %><span class="moderation-page-control active" aria-current="page">Current</span><% if (nextHref) { %><a class="plain-link" href="<%= nextHref %>">Next</a><% } else { %><span class="moderation-page-control" aria-disabled="true">Next</span><% } %></div></div>
+      </section>
+      <% if (flow.kind === 'catalogue') { %><%- include('moderation-catalogue-forms') %><% } else if (flow.kind === 'trust') { %><%- include('moderation-trust-forms') %><% } else if (flow.kind === 'reports') { %><%- include('moderation-report-forms') %><% } %>
+    </div>
+    <aside class="role-side-stack">
+      <section class="panel role-insights"><div class="role-panel-head compact"><div><span class="eyebrow">Decision moderation</span><h2>What needs attention</h2></div></div><div class="role-insight-list"><% for (const [index, insight] of insights.entries()) { %><article><span><%= index + 1 %></span><p><%= typeof insight === 'string' ? insight : insight.text %></p></article><% } %><% if (!insights.length) { %><p class="form-intro">No actions need attention in this view.</p><% } %></div><% if (recommendation) { %><a class="soft-button full-button" href="<%= localHref(recommendation.href) %>"><%= recommendation.label || 'Review recommendations' %></a><% } %></section>
+      <section class="panel role-progress-card"><div class="role-panel-head compact"><div><span class="eyebrow">Performance</span><h2><%= health.label || 'Workspace health' %></h2></div><strong><%= healthValue === null ? '—' : healthValue + '%' %></strong></div><div class="role-health-ring" data-health-known="<%= healthValue !== null %>"><span><%= healthValue === null ? '—' : healthValue %><% if (healthValue !== null) { %><small>%</small><% } %></span></div><div class="role-health-rows"><% for (const row of health.rows || []) { %><div><span><%= row.label %></span><b><%= row.value ?? '—' %></b></div><% } %></div><% if (health.note) { %><p class="form-intro"><%= health.note %></p><% } %></section>
+    </aside>
+  </div>
+  <section class="panel role-activity-panel"><div class="role-panel-head"><div><h2>Workflow &amp; recent activity</h2><p>Keep the team aligned on the next operational actions.</p></div><% if (localHref(flow.activityHref)) { %><a class="plain-link" href="<%= localHref(flow.activityHref) %>">View all activity</a><% } %></div><div class="role-workflow-grid"><% for (const [index, item] of workflow.entries()) { %><article><span class="role-step <%= index === 0 ? 'current' : '' %>"><%= index + 1 %></span><div><strong><%= item.title %></strong><p><%= item.text || item.detail || '' %></p></div><% if (localHref(item.href)) { %><a class="plain-link" href="<%= localHref(item.href) %>"><%= item.label || 'Continue' %></a><% } %></article><% } %></div><% if (!workflow.length) { %><p class="form-intro">No workflow activity recorded yet.</p><% } %></section>
+</section>

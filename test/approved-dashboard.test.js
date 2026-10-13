@@ -17,7 +17,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cases = {
   customer: 'dashboard', seller: 'seller-overview', promoter: 'promoter-overview',
   country_admin: 'admin-overview', super_admin: 'super-overview', finance: 'finance-overview',
-  support: 'support-overview', warehouse: 'warehouse-overview', moderator: 'moderator-sellers',
+  support: 'support-overview', warehouse: 'warehouse-overview', moderator: 'moderator-overview',
   business: 'business-overview', delivery: 'dashboard',
 };
 
@@ -69,10 +69,12 @@ test('real login/session routes land every role in the approved UI; unauthorized
       await agent.get('/dashboard/warehouse-overview').expect(403);
       await agent.get('/dashboard/unknown').expect(404);
     } else if (role === 'seller' || role === 'promoter' || role === 'finance' || role === 'support' || role === 'moderator' || role === 'warehouse') {
-      const landing = role === 'seller' ? '/seller/overview' : role === 'promoter' ? '/promoter/overview' : role === 'finance' ? '/finance/overview' : role === 'support' ? '/support/overview' : role === 'warehouse' ? '/warehouse' : '/moderation/verifications';
+      const landing = role === 'seller' ? '/seller/overview' : role === 'promoter' ? '/promoter/overview' : role === 'finance' ? '/finance/overview' : role === 'support' ? '/support/overview' : role === 'warehouse' ? '/warehouse' : '/moderation/overview';
       await agent.get('/dashboard').expect(302).expect('location', landing);
       await agent.get('/dashboard/' + page).expect(308).expect('location', landing);
-      if (role === 'moderator') await agent.get('/dashboard/' + role + '-overview').expect(503);
+      if (role === 'moderator') {
+        for (const [id] of DASHBOARD_PAGES.moderator) await agent.get('/dashboard/' + id).expect(308).expect('location', routeForPage(id));
+      }
     } else {
       const dashboard = await agent.get('/dashboard/' + page).expect(200);
       assert.match(dashboard.text, /\/approved-dashboard\/styles.css/);
@@ -83,7 +85,7 @@ test('real login/session routes land every role in the approved UI; unauthorized
     if (role === 'super_admin') {
       for (const [workspace, rows] of Object.entries(DASHBOARD_PAGES)) {
         if (workspace === 'customer') continue;
-        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(['warehouse', 'seller', 'promoter', 'finance', 'support'].includes(workspace) || ['moderator-sellers','moderator-products'].includes(id) ? 308 : workspace === 'moderator' ? 503 : 200);
+        for (const [id] of rows) await agent.get('/dashboard/' + id).expect(['warehouse', 'seller', 'promoter', 'finance', 'support', 'moderator'].includes(workspace) ? 308 : 200);
       }
     }
   }

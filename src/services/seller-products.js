@@ -6,8 +6,9 @@ import { publicId, slugify } from '../core/ids.js';
 import { hasPermission } from '../core/roles.js';
 import { env } from '../config/env.js';
 import { storeCapabilities } from './store.js';
-import { assertOperationalCountry } from './authorization.js';
+import { moderationAccess, assertModerationReadAccess } from './moderation-workspace-access.js';
 import { writeAudit } from './audit.js';
+import { queueModerationAlert } from './moderation-notifications.js';
 import { addOutboxEvent } from './outbox.js';
 import { prepareProductImage } from './media.js';
 import { deleteMediaObject } from './object-storage.js';
@@ -507,12 +508,15 @@ export async function transitionSellerProduct(request, action) {
       await quality(product, session);
     }
     await saveProduct(request, product, store, session, `catalogue.product_${product.status}`);
+    if (action === 'submit' && product.moderation.riskLevel === 'high') await queueModerationAlert({ country: store.country, kind: 'priority', href: '/moderation/products?record=' + product.publicId + '&country=' + store.country }, session);
     await notifyOwner(store, product, session);
     return product;
   });
 }
 
-export async function readableSellerProductImage(user, imageId) {
+export async function readableSellerProductImage(value, imageId) {
+  const request = value?.user ? value : { user: value, query: {} };
+  const user = request.user;
   const media = await ProductMedia.findOne({ publicId: id.parse(imageId) }).select('+storageKey +thumbnailStorageKey');
   if (!media) throw new AppError('Image not found.', 404, 'MEDIA_NOT_FOUND');
   const product = await Product.findOne({ _id: media.productId, storeId: media.storeId });
@@ -524,7 +528,12 @@ export async function readableSellerProductImage(user, imageId) {
   if (!isPublic) {
     if (!user || !await User.exists({ _id: user._id, status: 'active', 'security.tokenVersion': user.security?.tokenVersion ?? -1 })) throw new AppError('Image not found.', 404, 'MEDIA_NOT_FOUND');
     if (env.security.privilegedMfaRequired && !user.security?.mfaEnabled) throw new AppError('Authenticator enrollment is required to preview unpublished product images.', 403, 'MFA_ENROLLMENT_REQUIRED');
-    if (hasPermission(user, 'catalogue:moderate')) assertOperationalCountry(user, store.country, 'Image not found.');
+    if (hasPermission(user, 'catalogue:moderate')) {
+      const scoped = { ...request, query: { country: store.country } };
+      const context = await moderationAccess(scoped, { workspace: false, country: store.country });
+      if (!['ready', 'approved'].includes(media.status)) throw new AppError('Image not found.', 404, 'MEDIA_NOT_FOUND');
+      await assertModerationReadAccess(scoped, context, { workspace: false });
+    }
     else {
       if (!['pending_verification', 'verified'].includes(store.status)) throw new AppError('Image not found.', 404, 'MEDIA_NOT_FOUND');
       const member = await StoreMember.findOne({ storeId: store._id, userId: user._id, status: 'active' }).select('role');

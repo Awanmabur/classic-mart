@@ -13,7 +13,7 @@ import { setFlash } from '../middleware/view.js';
 const router = Router();
 const gates = [noStore, requireAuth, requireVerified, requireOnboarding, requirePermission('catalogue:moderate'),
   rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false })];
-const version = z.coerce.number().int().nonnegative().optional();
+const version = z.coerce.number().int().nonnegative();
 router.post('/moderation/reviews/:id/decision', ...gates, asyncHandler(async (request, response) => {
   verifyDeferredCsrf(request);
   const input = z.object({ version, decision: z.enum(['publish', 'reject']), reason: z.string().trim().min(3).max(500) }).parse(request.body);

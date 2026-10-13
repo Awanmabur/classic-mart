@@ -63,7 +63,7 @@ test('seller products complete authenticated creation, inventory, independent re
   }
   try {
     await Promise.all([Store.init(), StoreMember.init(), Product.init(), ProductVariant.init(), ProductMedia.init(), StockItem.init(), Category.init(), Brand.init()]);
-    await CountrySetting.create({ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256', active: true });
+    await CountrySetting.create([{ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256', active: true }, { code: 'KE', name: 'Kenya', currency: 'KES', locale: 'en-KE', timeZone: 'Africa/Nairobi', phonePrefix: '+254', active: true }]);
     await ShippingZone.create({ publicId: `zone_products_${suffix}`, country: 'UG', name: 'Test Kampala Delivery', cities: ['Kampala'], standardFeeMinor: 5000, currency: 'UGX', active: true });
     await request(app).get('/seller/products').expect(302).expect('location', '/login?next=%2Fseller%2Fproducts');
     const owner = await actor();
@@ -214,7 +214,7 @@ test('seller products complete authenticated creation, inventory, independent re
     const reviewBase = '/moderation/products/' + product.publicId;
     assert.match((await reviewer.agent.get('/moderation/products').expect(200)).text, new RegExp(fields.title));
     assert.doesNotMatch((await foreignReviewer.agent.get('/moderation/products').expect(200)).text, new RegExp(fields.title));
-    await foreignReviewer.agent.get(reviewBase).expect(403);
+    await foreignReviewer.agent.get(reviewBase).expect(404);
     await foreignReviewer.agent.get('/media/catalogue/' + media.publicId).expect(403);
     const reviewPost = async (session, action, payload = {}, id = product.publicId) => {
       const view = await session.agent.get('/moderation/products/' + id).expect(200);

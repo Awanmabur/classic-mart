@@ -125,4 +125,6 @@ productSchema.index({ status: 1, countries: 1, _id: 1 });
 productSchema.index({ status: 1, 'moderation.riskLevel': 1, 'moderation.submittedAt': 1 });
 productSchema.index({ title: 'text', description: 'text', tags: 'text' });
 
+productSchema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
+
 export const Product = mongoose.model('Product', productSchema);

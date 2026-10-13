@@ -120,6 +120,36 @@ maintenance/outbox job. Long CSV exports recheck authorization and honor stream
 backpressure. See the [Support contracts](support/workspace-pages.md) for actual
 routes, rollout precautions, responsive verification and remaining limits.
 
+## Moderation entry points
+
+`/moderation/overview` is the default landing page. All eight approved
+destinations use canonical `/moderation/...` routes; `/dashboard/moderator-*`
+aliases preserve their queries. Saved settings can select another connected
+landing page. A current Moderator grant controls the workspace even when the
+stored identity role is Customer. Other primary workspaces, including Admin and
+Super Admin, cannot render this UI. Existing administrative decision services
+retain their own permission boundaries.
+
+`moderation-workspace-access.js` rereads the account, current device, grant and
+active market configuration. Mutations fence those records and the affected
+source records within their database transaction. Decisions require current
+versions, an independent claimed reviewer and atomic audit evidence. Store
+owners and active or invited staff cannot review their own catalogue; buyers,
+reporters and disputers cannot decide their own concerns. Restricted product
+approval and customer appeals require a different deciding reviewer.
+
+Catalogue queues use the owning Store country. Purchased reviews validate the
+actual buyer, delivered order line, Product and Store. Trust cases and signals
+validate their actual subjects instead of trusting a country label. Global
+product/store enforcement requires authority over every affected market and
+restoration retains the recorded prior state. Independent QA validates the
+original saved decision and history; escalations create a durable linked trust
+case. Source-verified reports count the full scope, and CSV exports use bounded
+pages, stream backpressure and repeated authorization checks. Private evidence
+is reauthorized after storage reads and before sending bytes. See the
+[Moderation contracts](moderation/workspace-pages.md) for routes, tests and
+remaining deployment limits.
+
 ## Verification
 
 Role landing tests exercise real login, session regeneration and route access.

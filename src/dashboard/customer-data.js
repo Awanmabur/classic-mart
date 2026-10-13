@@ -7,6 +7,7 @@ import { getStorefront, publicIdsForMongoIds, publishedProductsByPublicIds } fro
 import { cartView, getOrCreateCart } from '../services/checkout.js';
 import { supportTicketCustomerDto } from '../services/support-ticket-pages.js';
 import { customerReturnDto, customerRefundDto } from '../services/customer-case-projections.js';
+import { customerTrustCaseDto } from '../services/moderation-trust-pages.js';
 import { customerDisputeDto } from '../services/customer-dispute-pages.js';
 
 function safeHref(value) { const href=String(value||'').trim(); return href.startsWith('/') && !href.startsWith('//') && !/[\\\x00-\x1f\x7f]/.test(href) ? href : ''; }
@@ -40,7 +41,7 @@ async function loadReturns(request){
   for (const shipment of shipments) if (shipment.deliveredAt && !deliveredAt.has(String(shipment.orderId))) deliveredAt.set(String(shipment.orderId), shipment.deliveredAt);
   const now=Date.now(),returnableLines=[];
   for(const order of orders){const deliveryDate = deliveredAt.get(String(order._id));if(!deliveryDate)continue;const eligibleUntil=new Date(deliveryDate).getTime()+Number(order.policySnapshot?.returnWindowDays??30)*86400000;if(eligibleUntil<now)continue;for(const item of order.items||[]){const remaining=Math.max(0,Number(item.deliveredQuantity||0)-Number(item.returnReservedQuantity||0)-Number(item.returnedQuantity||0));if(remaining>0)returnableLines.push({orderPublicId:order.publicId,orderLineId:item.linePublicId,title:item.title,variantTitle:item.variantTitle,remaining});}}
-  return {returns:returns.map(customerReturnDto),refunds:refunds.map(customerRefundDto),returnableLines,disputes:disputes.map(customerDisputeDto),cases};
+  return {returns:returns.map(customerReturnDto),refunds:refunds.map(customerRefundDto),returnableLines,disputes:disputes.map(customerDisputeDto),cases:cases.map(customerTrustCaseDto)};
 }
 async function loadSupport(request){const [tickets,knowledge,orders]=await Promise.all([SupportTicket.find({userId:request.user._id}).select('publicId userId country orderPublicId category subject status priority notes createdAt updatedAt resolvedAt reopenedAt __v').sort({createdAt:-1}).limit(40).lean(),SupportKnowledge.find({country:request.user.country,status:'published'}).select('publicId title slug body category').sort({publishedAt:-1}).limit(12).lean(),Order.find({userId:request.user._id}).select('publicId createdAt').sort({createdAt:-1}).limit(30).lean()]);return {tickets:tickets.map(supportTicketCustomerDto),knowledge,orders};}
 async function loadProfile(request){return {countries:await getCountries()};}

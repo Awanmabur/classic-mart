@@ -7,6 +7,7 @@ import { sellerNavigation, SELLER_LIVE_ROUTES } from './seller-navigation.js';
 import { sellerStoreAccesses } from '../services/store.js';
 import { PROMOTER_LIVE_ROUTES } from './promoter-routes.js';
 import { FINANCE_LIVE_ROUTES } from './finance-routes.js';
+import { MODERATION_LIVE_ROUTES } from './moderation-routes.js';
 import { SUPPORT_LIVE_ROUTES } from './support-routes.js';
 
 /** Personal account data stays scoped to the signed-in user. The surrounding
@@ -27,7 +28,7 @@ export async function accountWorkspaceView(request, section = 'profile') {
     const config = DASHBOARD_WORKSPACES[primaryWorkspace];
     const connected = primaryWorkspace === 'warehouse'
       ? new Set(DASHBOARD_PAGES.warehouse.map(([id]) => id))
-      : primaryWorkspace === 'moderator' ? new Set(['moderator-sellers', 'moderator-products'])
+      : primaryWorkspace === 'moderator' ? new Set(Object.keys(MODERATION_LIVE_ROUTES))
         : primaryWorkspace === 'promoter' ? new Set(Object.keys(PROMOTER_LIVE_ROUTES))
           : primaryWorkspace === 'finance' ? new Set(Object.keys(FINANCE_LIVE_ROUTES))
             : primaryWorkspace === 'support' ? new Set(Object.keys(SUPPORT_LIVE_ROUTES)) : new Set();

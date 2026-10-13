@@ -7,21 +7,22 @@ import { loadSellerStore, requireStoreCapability } from '../middleware/store.js'
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { setFlash } from '../middleware/view.js';
 import { canAccessWorkspace, allowedWorkspacesFor } from '../dashboard/access.js';
-import { DASHBOARD_PAGES, routeForPage } from '../dashboard/registry.js';
-import { liveAccountHeader } from '../dashboard/live-account-header.js';
 import { renderSellerStore } from '../dashboard/seller-store-view.js';
 import { uploadVerificationImage } from '../services/media.js';
 import { sellerVerificationRecord, verificationDetail, uploadSellerVerificationDocument, submitSellerVerification, appealSellerVerification,
   reviewerVerificationRecord, sellerVerificationQueue, reviewSellerVerification, readableVerificationDocument } from '../services/seller-verification.js';
-import { sendVerificationDocument } from '../services/verification-media.js';
+import { sendVerificationDocument, readVerificationDocumentBuffer } from '../services/verification-media.js';
 import { writeAudit } from '../services/audit.js';
+import { loadModerationCataloguePage, streamModerationCatalogueCsv } from '../services/moderation-catalogue-pages.js';
+import { moderationPageGates, renderModerationPage } from '../dashboard/moderation-page-view.js';
+import { moderationAccess, assertModerationReadAccess } from '../services/moderation-workspace-access.js';
 
 const router = Router();
 const privatePage = (_request, response, next) => { response.set('X-Robots-Tag', 'noindex, nofollow, noarchive'); next(); };
 const common = [noStore, privatePage, requireAuth, requireVerified, requireOnboarding];
 const seller = [...common, (request, _response, next) => canAccessWorkspace(request.user, 'seller') ? next() : next(new AppError('Seller access is required.', 403, 'DASHBOARD_FORBIDDEN')),
   loadSellerStore, requireStoreCapability('staff')];
-const reviewer = [...common, requirePermission('catalogue:moderate')];
+const reviewer = moderationPageGates();
 const uploadLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
 const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 
@@ -58,24 +59,24 @@ router.post('/seller/verification/documents', ...seller, uploadLimit, sellerActi
 router.post('/seller/verification/submit', ...seller, mutationLimit, sellerAction(submitSellerVerification, 'Verification submitted for independent review.'));
 router.post('/seller/verification/appeal', ...seller, mutationLimit, sellerAction(appealSellerVerification, 'Appeal submitted for review.'));
 router.get('/seller/verification/documents/:documentId', ...seller, asyncHandler(async (request, response) => {
-  const document = await readableVerificationDocument(request.user, request.params.documentId);
+  const document = await readableVerificationDocument(request, request.params.documentId);
   if (String(document.storeId) !== String(request.store._id)) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
   return sendVerificationDocument(response, document);
 }));
 
 async function reviewPage(request, response, error = '') {
-  const [header, flow] = await Promise.all([liveAccountHeader(request), request.params.publicId ? (async () => {
-    const { record, store } = await reviewerVerificationRecord(request.user, request.params.publicId);
-    return { ...(await verificationDetail(record, { revealIdentifiers: true })), store: store.toObject() };
-  })() : sellerVerificationQueue(request.user, request.query.after)]);
-  return response.render('approved-dashboard', { ...header, customerRoutes: { ...header.customerRoutes, 'moderator-sellers': '/moderation/verifications' },
-    workspace: 'moderator', initialPage: 'moderator-sellers', allowedWorkspaces: allowedWorkspacesFor(request.user),
-    liveSeller: { profileRole: 'Moderator', reviewFlow: { ...flow, error },
-      navigation: DASHBOARD_PAGES.moderator.map(row => ({ id: row[0], label: row[1], icon: row[2], href: routeForPage(row[0]), ready: ['moderator-sellers', 'moderator-products'].includes(row[0]) })) } });
+  const flow = await loadModerationCataloguePage(request, 'moderator-sellers');
+  flow.error = error;
+  if (flow.selected?.reviewFlow) {
+    flow.selected.reviewFlow.error = error;
+    flow.selected.reviewFlow.draft = error && typeof request.body?.reason === 'string' ? { reason: request.body.reason.slice(0,1000) } : {};
+  }
+  return renderModerationPage(request, response, 'moderator-sellers', flow);
 }
+router.get('/moderation/verifications/export.csv', ...reviewer, uploadLimit, asyncHandler((request,response) => streamModerationCatalogueCsv(request,response,'moderator-sellers')));
 router.get('/moderation/verifications', ...reviewer, asyncHandler((request, response) => reviewPage(request, response)));
 router.get('/moderation/verifications/:publicId', ...reviewer, asyncHandler((request, response) => reviewPage(request, response)));
-router.get('/dashboard/moderator-sellers', ...reviewer, (_request, response) => response.redirect(308, '/moderation/verifications'));
+router.get('/dashboard/moderator-sellers', ...reviewer, (request, response) => response.redirect(308, '/moderation/verifications' + new URL(request.originalUrl, 'http://localhost').search));
 for (const action of ['claim', 'release', 'decision']) router.post('/moderation/verifications/:publicId/' + action, ...reviewer, mutationLimit, asyncHandler(async (request, response) => {
   try { await reviewSellerVerification(request, action); setFlash(request, 'success', 'Verification review updated.'); return response.redirect('/moderation/verifications/' + encodeURIComponent(request.params.publicId)); }
   catch (error) {
@@ -86,10 +87,18 @@ for (const action of ['claim', 'release', 'decision']) router.post('/moderation/
   }
 }));
 router.get('/moderation/verifications/:publicId/documents/:documentId', ...reviewer, asyncHandler(async (request, response) => {
-  const { record } = await reviewerVerificationRecord(request.user, request.params.publicId);
-  const document = await readableVerificationDocument(request.user, request.params.documentId);
+  const context = await moderationAccess(request);
+  let reviewed;
+  try { reviewed = await reviewerVerificationRecord(request, request.params.publicId); }
+  catch(error) { if(error.code === 'MODERATION_COUNTRY_FORBIDDEN') throw new AppError('Document not found.',404,'DOCUMENT_NOT_FOUND'); throw error; }
+  const { record, store } = reviewed;
+  const document = await readableVerificationDocument(request, request.params.documentId);
   if (String(document.verificationId) !== String(record._id)) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
-  await writeAudit(request, 'seller.verification_document_viewed', { targetType: 'verification_document', targetPublicId: document.publicId });
-  return sendVerificationDocument(response, document);
+  const data = await readVerificationDocumentBuffer(document);
+  await writeAudit(request, 'seller.verification_document_viewed', { targetType: 'verification_document', targetPublicId: document.publicId, country: store.country });
+  await readableVerificationDocument(request,request.params.documentId);
+  await assertModerationReadAccess(request,context);
+  response.set({ 'Content-Type': 'image/webp', 'X-Content-Type-Options': 'nosniff' });
+  return response.send(data);
 }));
 export default router;

@@ -23,7 +23,7 @@ test('seller evidence, independent country-scoped review, rejection, appeal and 
   const database = `classicmart_verification_flow_test_${suffix}`;
   await mongoose.connect(uri, { dbName: database });
   const { createApp } = await import('../src/app.js');
-  const { User, Store, StoreMember, SellerVerification, VerificationDocument, AuditLog, Notification, OutboxEvent, ModerationQaReview } = await import('../src/models/index.js');
+  const { User, Store, StoreMember, SellerVerification, VerificationDocument, AuditLog, Notification, OutboxEvent, ModerationQaReview, CountrySetting } = await import('../src/models/index.js');
   const { hashPassword } = await import('../src/core/crypto.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { readVerificationDocumentBuffer } = await import('../src/services/verification-media.js');
@@ -53,12 +53,13 @@ test('seller evidence, independent country-scoped review, rejection, appeal and 
       await agent.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: token((await agent.get('/account/security')).text) }).expect(302);
       assert.equal((await User.findById(user._id)).security.mfaEnabled, true);
     }
-    return { user, agent };
+    return { user: await User.findById(user._id), agent };
   }
   async function version() { return (await SellerVerification.findOne({ storeId: store._id })).__v; }
   let store;
   try {
-    await Promise.all([Store.init(), StoreMember.init(), SellerVerification.init(), VerificationDocument.init()]);
+    await Promise.all(Object.values(mongoose.models).map(Model => Model.init()));
+    await CountrySetting.create([{ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256', active: true }, { code: 'KE', name: 'Kenya', currency: 'KES', locale: 'en-KE', timeZone: 'Africa/Nairobi', phonePrefix: '+254', active: true }]);
     const owner = await actor('seller');
     let page = await owner.agent.get('/seller/verification').expect(200);
     store = await Store.findOne({ ownerUserId: owner.user._id });
@@ -138,7 +139,7 @@ test('seller evidence, independent country-scoped review, rejection, appeal and 
     assert.match(queue.text, /Verified Business Ltd/);
     assert.doesNotMatch((await foreignReviewer.agent.get('/moderation/verifications')).text, /Verified Business Ltd/);
     await foreignReviewer.agent.get('/media/verification/' + current.publicId).expect(403);
-    await foreignReviewer.agent.get('/moderation/verifications/' + verification.publicId).expect(403);
+    await foreignReviewer.agent.get('/moderation/verifications/' + verification.publicId).expect(404);
     const base = '/moderation/verifications/' + verification.publicId;
     const reviewerPost = async (action, fields = {}) => {
       const view = await reviewer.agent.get(base).expect(200);

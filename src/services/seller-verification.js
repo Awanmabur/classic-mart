@@ -7,8 +7,9 @@ import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import { hasPermission } from '../core/roles.js';
 import { env } from '../config/env.js';
 import { storeCapabilities } from './store.js';
-import { assertOperationalCountry, operationalCountryScope } from './authorization.js';
+import { moderationAccess, fenceModerationAccess, assertModerationReadAccess } from './moderation-workspace-access.js';
 import { writeAudit } from './audit.js';
+import { queueModerationAlert } from './moderation-notifications.js';
 import { addOutboxEvent } from './outbox.js';
 import { prepareVerificationDocument } from './media.js';
 import { deleteMediaObject } from './object-storage.js';
@@ -119,8 +120,10 @@ export async function submitSellerVerification(request) {
     record.status = 'submitted'; record.declarationAcceptedAt = new Date(); record.submittedAt = new Date();
     record.reviewReason = ''; record.assignedUserId = null; record.assignedAt = null; record.escalatedAt = null; record.escalationReason = ''; record.appeal = undefined;
     record.increment(); await record.save({ session });
-    await writeAudit(request, 'seller.verification_submitted', { session, targetType: 'seller_verification', targetPublicId: record.publicId });
-    await notifyOwner(request.store, record, session);
+    const store = await Store.findById(record.storeId).session(session);
+    await writeAudit(request, 'seller.verification_submitted', { session, targetType: 'seller_verification', targetPublicId: record.publicId, country: store.country });
+    if (record.sellerType === 'business') await queueModerationAlert({ country: store.country, kind: 'priority', href: '/moderation/verifications?record=' + record.publicId + '&country=' + store.country }, session);
+    await notifyOwner(store, record, session);
     return record;
   });
 }
@@ -138,14 +141,17 @@ export async function appealSellerVerification(request) {
   });
 }
 
-export async function reviewerVerificationRecord(user, id, session = null) {
-  if (!hasPermission(user, 'catalogue:moderate')) throw new AppError('Review permission is required.', 403, 'FORBIDDEN');
+const reviewerRequest = value => value?.user ? value : { user: value, query: {} };
+export async function reviewerVerificationRecord(value, id, session = null) {
+  const request = reviewerRequest(value);
   const record = await SellerVerification.findOne({ publicId: id }).session(session);
   if (!record) throw new AppError('Verification not found.', 404, 'VERIFICATION_NOT_FOUND');
   const store = await Store.findById(record.storeId).session(session);
   if (!store) throw new AppError('Verification not found.', 404, 'VERIFICATION_NOT_FOUND');
-  assertOperationalCountry(user, store.country, 'Verification is outside your assigned countries.');
-  return { record, store };
+  const access = await moderationAccess(request, { session, workspace: false, country: store.country });
+  if (!hasPermission(access.actor, 'catalogue:moderate')) throw new AppError('Verification review permission is required.', 403, 'MODERATION_FORBIDDEN');
+  if (request.query?.country && request.query.country !== store.country) throw new AppError('Verification not found.', 404, 'VERIFICATION_NOT_FOUND');
+  return { record, store, access };
 }
 
 async function assertIndependentReviewer(user, record, store, session) {
@@ -159,10 +165,15 @@ export async function reviewSellerVerification(request, action) {
   const version = revision.parse(request.body.version);
   const input = action === 'decision' ? verificationDecisionSchema.parse(request.body) : null;
   const reviewed = await transaction(async session => {
-    const { record, store } = await reviewerVerificationRecord(request.user, request.params.publicId, session);
+    const { record, store, access } = await reviewerVerificationRecord(request, request.params.publicId, session);
+    const previousStatus = record.status;
     assertRevision(record, version);
     if (!reviewable.has(record.status) || store.status !== 'pending_verification') throw new AppError('This verification is not reviewable.', 409, 'VERIFICATION_LOCKED');
-    await assertIndependentReviewer(request.user, record, store, session);
+    await assertIndependentReviewer(access.actor, record, store, session);
+    await fenceModerationAccess(access, session);
+    const storeFence = await Store.updateOne({ _id: store._id, country: store.country, status: store.status, ownerUserId: store.ownerUserId, __v: store.__v || 0 }, { $inc: { __v: 1 } }, { session });
+    if (storeFence.modifiedCount !== 1) throw new AppError('Store changed. Reload the verification.', 409, 'STORE_VERSION_CONFLICT');
+    store.__v = (store.__v || 0) + 1;
     const assigned = record.assignedUserId && String(record.assignedUserId) === String(request.user._id);
     const now = new Date();
     if (action === 'claim') {
@@ -183,41 +194,55 @@ export async function reviewSellerVerification(request, action) {
         await store.save({ session });
         await VerificationDocument.updateMany({ verificationId: record._id, publicId: { $in: currentIds }, status: { $in: statuses } }, { $set: { status: input.decision === 'approve' ? 'approved' : 'rejected', reviewedAt: now, reviewedByUserId: request.user._id } }, { session });
         await ModerationQaReview.create([{ publicId: publicId('mqa'), targetType: 'seller_verification', targetObjectId: record._id, targetPublicId: record.publicId, country: store.country,
-          riskLevel: record.sellerType === 'business' ? 'high' : 'standard', decision: record.status, decisionReason: input.reason, originalReviewerUserId: request.user._id }], { session });
+          riskLevel: record.sellerType === 'business' ? 'high' : 'standard', decision: record.status, decisionReason: input.reason, originalReviewerUserId: request.user._id,
+          decisionVersionSnapshot: record.__v + 1, decisionEventAt: now }], { session });
         await notifyOwner(store, record, session);
       } else throw new AppError('Review action is invalid.', 422, 'REVIEW_ACTION_INVALID');
     }
     record.reviewHistory.push({ action: action === 'decision' ? input.decision : action, actorUserId: request.user._id, reason: input?.reason || '', at: now });
     record.reviewHistory = record.reviewHistory.slice(-200);
     record.increment(); await record.save({ session });
-    await writeAudit(request, `seller.verification_${action === 'decision' ? record.status : action}`, { session, targetType: 'seller_verification', targetPublicId: record.publicId, country: store.country });
+    await writeAudit(request, `seller.verification_${action === 'decision' ? record.status : action}`, { session, targetType: 'seller_verification', targetPublicId: record.publicId, country: store.country,
+      metadata: action === 'decision' ? { decision: input.decision, appealReview: previousStatus === 'appealed', previousStatus } : undefined });
     return record;
   });
   if (action === 'decision') clearStorefrontCache();
   return reviewed;
 }
 
-export async function sellerVerificationQueue(user, after = '') {
-  if (!hasPermission(user, 'catalogue:moderate')) throw new AppError('Review permission is required.', 403, 'FORBIDDEN');
+export async function sellerVerificationQueue(value, after = '') {
+  const request = reviewerRequest(value), access = await moderationAccess(request, { workspace: false });
+  const countryScope = Object.fromEntries(Object.entries(access.countryScope).map(([key, condition]) => ['store.' + key, condition]));
   const rows = await SellerVerification.aggregate([
     { $match: cursorScope({ status: { $in: ['submitted', 'appealed'] } }, after, { field: 'submittedAt', direction: 1 }) },
     { $sort: { submittedAt: 1, _id: 1 } },
     { $lookup: { from: Store.collection.name, localField: 'storeId', foreignField: '_id', as: 'store' } }, { $unwind: '$store' },
-    { $match: { ...operationalCountryScope(user, 'store.country'), 'store.status': 'pending_verification' } }, { $limit: 51 },
+    { $match: { ...countryScope, 'store.status': 'pending_verification' } }, { $limit: 51 },
     { $project: { publicId: 1, sellerType: 1, legalName: 1, status: 1, submittedAt: 1, assignedUserId: 1, __v: 1, 'store.name': 1, 'store.country': 1 } },
   ]);
+  await assertModerationReadAccess(request, access, { workspace: false });
   return pageResult(rows, { field: 'submittedAt', direction: 1, limit: 50 });
 }
 
-export async function readableVerificationDocument(user, id) {
-  if (!user) throw new AppError('Authentication required.', 401, 'UNAUTHENTICATED');
+export async function readableVerificationDocument(value, id) {
+  const request = reviewerRequest(value);
+  if (!request.user?._id) throw new AppError('Authentication required.', 401, 'UNAUTHENTICATED');
+  const user = await User.findById(request.user._id).select('+operationalCountries');
+  if (!user || user.status !== 'active' || user.security.tokenVersion !== request.user.security?.tokenVersion
+    || (request.session?.tokenVersion !== undefined && user.security.tokenVersion !== request.session.tokenVersion)) throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
+  if (!env.auth.simpleLogin && (!user.emailVerifiedAt || !user.onboardingCompletedAt)) throw new AppError('Complete identity verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');
   if (env.security.privilegedMfaRequired && !user.security?.mfaEnabled) throw new AppError('Authenticator enrollment is required to view verification documents.', 403, 'MFA_ENROLLMENT_REQUIRED');
   const document = await VerificationDocument.findOne({ publicId: id }).select('+storageKey');
   if (!document) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
   const store = await Store.findById(document.storeId).select('country status');
   if (!store) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
-  if (hasPermission(user, 'catalogue:moderate')) assertOperationalCountry(user, store.country, 'Document not found.');
-  else {
+  const isStaff = Boolean(user.platformAccessManagedAt || hasPermission(user, 'catalogue:moderate'));
+  if (isStaff) {
+    const access = await moderationAccess(request, { workspace: false, country: store.country });
+    const record = await SellerVerification.findOne({ _id: document.verificationId, storeId: document.storeId, 'documents.mediaPublicId': document.publicId });
+    if (!record || document.status === 'superseded') throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
+    await assertModerationReadAccess({ ...request, query: { ...request.query, country: store.country } }, access, { workspace: false });
+  } else {
     const member = await StoreMember.findOne({ storeId: document.storeId, userId: user._id, status: 'active', role: { $in: ['owner', 'admin'] } });
     if (!member) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
   }

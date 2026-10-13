@@ -1,0 +1,36 @@
+<%
+const reportFlow = moderationFlow;
+const qa = reportFlow.selectedQa;
+const reportPath = moderationPage.id === 'moderator-audit' ? '/moderation/audit' : '/moderation/reports';
+const reportLabel = value => String(value || '').replaceAll('_', ' ');
+const qaCountry = qa?.country || reportFlow.context?.country || '';
+const qaPath = qa ? '/moderation/reports/qa/' + encodeURIComponent(qa.publicId) + '/action?country=' + encodeURIComponent(qaCountry) : '';
+const qaIndependent = qa && !qa.originalReviewerIsYou && !qa.storeConflict && qa.provenanceVerified;
+%>
+<section class="panel role-form-section moderation-report-controls">
+  <div class="role-panel-head compact"><div><h2><%= moderationPage.id === 'moderator-audit' ? 'Audit reporting period' : 'Moderation reports' %></h2><p>Review recorded decisions and independent quality outcomes within your assigned countries.</p></div></div>
+  <form method="get" action="<%= reportPath %>" class="moderation-compact-filter moderation-queue-filter">
+    <input type="hidden" name="country" value="<%= reportFlow.context?.country || '' %>"><% if (reportFlow.filters?.search) { %><input type="hidden" name="search" value="<%= reportFlow.filters.search %>"><% } %>
+    <% if (moderationPage.id !== 'moderator-audit') { %><label for="moderationReportType">Report<select id="moderationReportType" name="report"><% for (const option of reportFlow.reportOptions || []) { %><option value="<%= option.value %>" <%= option.value === reportFlow.report ? 'selected' : '' %>><%= option.label %></option><% } %></select></label><% } %>
+    <label for="moderationReportPeriod">Period<select id="moderationReportPeriod" name="period"><% for (const option of reportFlow.periodOptions || []) { %><option value="<%= option.value %>" <%= option.value === reportFlow.period ? 'selected' : '' %>><%= option.label %></option><% } %></select></label>
+    <button class="primary-button" type="submit">View report</button><a class="outline-button" href="<%= reportFlow.exportHref %>">Download CSV</a>
+  </form>
+  <p class="form-intro">Decision quality is upheld outcomes divided by completed independent quality reviews. An empty sample shows no observations. CSV downloads include all matching records and public references; identity documents, customer contacts and internal notes stay private.</p>
+</section>
+<% if (qa) { %>
+<section class="panel role-form-section moderation-qa-detail" id="moderation-qa-review">
+  <div class="role-panel-head compact"><div><span class="eyebrow">Independent quality review</span><h2><%= qa.targetTitle %></h2><p><%= qa.country %> · <%= reportLabel(qa.targetType) %> · <%= qa.targetPublicId %></p></div><a class="plain-link" href="<%= '/moderation/reports?' + new URLSearchParams({ report: 'qa', country: qa.country, period: reportFlow.period }) %>">Close review</a></div>
+  <div class="role-form-grid">
+    <label>Original decision<input readonly value="<%= reportLabel(qa.decision) %>"></label><label>Risk level<input readonly value="<%= reportLabel(qa.riskLevel) %>"></label>
+    <label>Decision recorded<input readonly value="<%= formatDate(qa.decisionAt) %>"></label><label>Sample recorded<input readonly value="<%= formatDate(qa.sampledAt) %>"></label>
+    <label class="wide">Original decision reason<textarea readonly rows="3"><%= qa.decisionReason || 'No reason recorded.' %></textarea></label>
+    <label>Status<input readonly value="<%= reportLabel(qa.status) %>"></label><label>Assignment<input readonly value="<%= qa.assignedToYou ? 'Assigned to you' : qa.assigned ? 'Assigned to another reviewer' : 'Unassigned' %>"></label>
+  </div>
+  <% if (qa.status === 'completed') { %><p class="form-intro"><strong><%= qa.outcomeVerified ? reportLabel(qa.outcome) : 'Outcome needs audit verification' %></strong> · <%= formatDate(qa.reviewedAt) %></p><% if (qa.outcomeVerified) { %><p class="form-intro"><%= qa.note %></p><% if (qa.escalationCasePublicId) { %><a class="outline-button" href="<%= '/moderation/risk-cases?' + new URLSearchParams({ country: qa.country, record: qa.escalationCasePublicId }) %>">Open trust investigation</a><% } } %>
+  <% } else if (!qaIndependent) { %><p class="form-intro">This decision requires a reviewer who is independent of the original decision and affected store.</p>
+  <% } else { %>
+    <form method="post" action="<%= qaPath %>" class="seller-verification-actions"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= qa.version %>"><input type="hidden" name="action" value="<%= qa.assignedToYou ? 'release' : 'claim' %>"><button class="outline-button" type="submit" <%= qa.assigned && !qa.assignedToYou ? 'disabled' : '' %>><%= qa.assignedToYou ? 'Release quality review' : 'Claim quality review' %></button></form>
+    <% if (qa.assignedToYou) { %><form method="post" action="<%= qaPath %>"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= qa.version %>"><input type="hidden" name="action" value="complete"><div class="role-form-grid"><label>Quality outcome<select name="outcome" required><option value="">Choose an outcome</option><% for (const outcome of ['upheld', 'coaching', 'escalated']) { %><option value="<%= outcome %>" <%= reportFlow.qaDraft?.outcome === outcome ? 'selected' : '' %>><%= reportLabel(outcome) %></option><% } %></select></label><label class="wide">Review reason<textarea name="note" rows="4" minlength="10" maxlength="1000" required><%= reportFlow.qaDraft?.note || '' %></textarea></label></div><p class="form-intro">Upheld confirms the original decision. Coaching records an improvement for future decisions. Escalated opens a trust investigation for independent follow-up.</p><div class="seller-verification-actions"><button class="primary-button" type="submit">Complete quality review</button></div></form><% } %>
+  <% } %>
+</section>
+<% } %>

@@ -223,7 +223,8 @@ function reviewPipeline(store) {
 function reviewDto(row) {
   return { publicId: row.publicId, version: Number(row.__v || 0), productTitle: row.product[0].title, productPublicId: row.product[0].publicId,
     rating: row.rating, title: row.title || '', body: row.body, verifiedPurchase: row.verifiedPurchase, status: row.status,
-    disputeReason: row.disputeReason || '', moderationReason: row.moderationReason || '', createdAt: row.createdAt };
+    disputeReason: row.disputeReason || '', moderationReason: row.moderationReason || '', createdAt: row.createdAt,
+    publicMessages: (row.publicMessages || []).map(message => ({ author: message.author, message: message.message, at: message.at })) };
 }
 
 async function reviewsPage(request, store, country) {
@@ -363,17 +364,9 @@ export async function attachSellerReturnEvidence(request) {
 
 export async function disputeSellerReview(request) {
   const input = z.object({ version: versionInput, reason: z.string().trim().min(10).max(1000) }).parse(request.body), id = idInput.parse(request.params.publicId);
-  return transaction(request, async ({ store }, session) => {
-    const row = await Review.findOne({ publicId: id, country: store.country }).session(session);
-    const product = row ? await Product.findOne({ _id: row.productId, storeId: store._id }).session(session) : null;
-    if (!row || !product) throw new AppError('Store review not found.', 404, 'REVIEW_NOT_FOUND');
-    checkVersion(row, input.version);
-    if (row.status !== 'published') throw new AppError('Only a published review can be disputed.', 409, 'REVIEW_STATE');
-    row.status = 'disputed'; row.disputeReason = input.reason; row.disputedByUserId = request.user._id; row.disputedAt = new Date();
-    row.increment(); await row.save({ session });
-    await writeAudit(request, 'seller.review_disputed', { targetType: 'review', targetPublicId: id, country: store.country, session });
-    return { publicId: id };
-  });
+  const { disputeOwnedReview } = await import('./moderation-trust-pages.js');
+  const row = await disputeOwnedReview(request, id, input, { sellerWorkspace: true });
+  return { publicId: row.publicId };
 }
 
 export async function replySellerConversation(request, resolve = false) {
