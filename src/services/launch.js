@@ -25,6 +25,28 @@ export const REQUIRED_LAUNCH_EVIDENCE=Object.freeze([
 
 export const RECOVERY_EVIDENCE_KEYS=Object.freeze(new Set(['backup-restore','pitr','rollback']));
 
+export function launchEvidenceIssues(evidence,now=new Date()){
+  const issues=[];
+  const maxAgeMs=env.disasterRecovery.evidenceMaxAgeDays*86_400_000;
+  for(const item of evidence){
+    if(item.status!=='passed')continue;
+    const verifiedAt=item.verifiedAt?new Date(item.verifiedAt):null;
+    const validUntil=item.validUntil?new Date(item.validUntil):null;
+    if(!verifiedAt||!Number.isFinite(verifiedAt.getTime())||verifiedAt>now)issues.push(`${item.key}: missing or invalid verification timestamp`);
+    if(!validUntil||!Number.isFinite(validUntil.getTime())||validUntil<=now)issues.push(`${item.key}: evidence expired or has no validity window`);
+    if(verifiedAt&&Number.isFinite(verifiedAt.getTime())){
+      if(now-verifiedAt>maxAgeMs)issues.push(`${item.key}: evidence is older than ${env.disasterRecovery.evidenceMaxAgeDays} days`);
+      if(validUntil&&validUntil-verifiedAt>maxAgeMs)issues.push(`${item.key}: validity window exceeds evidence age policy`);
+    }
+  }
+  return issues;
+}
+
+export function satisfiesLaunchEvidence(item,now=new Date()){
+  return Boolean(item&&item.status==='passed'&&launchEvidenceIssues([item],now).length===0
+    &&(!RECOVERY_EVIDENCE_KEYS.has(item.key)||recoveryEvidenceIssues([item],now).length===0));
+}
+
 export async function ensureLaunchEvidence(){
   for(const [key,label] of REQUIRED_LAUNCH_EVIDENCE){
     await LaunchEvidence.updateOne({key},{$setOnInsert:{key,label,status:'missing'}},{upsert:true});
@@ -34,26 +56,26 @@ export async function ensureLaunchEvidence(){
 
 export function recoveryEvidenceIssues(evidence,now=new Date()){
   const byKey=new Map(evidence.map(item=>[item.key,item]));
-  const issues=[];
+  const issues=launchEvidenceIssues(evidence.filter(item=>RECOVERY_EVIDENCE_KEYS.has(item.key)),now);
   const policy=env.disasterRecovery;
   for(const key of RECOVERY_EVIDENCE_KEYS){
     const item=byKey.get(key);
     if(!item||item.status!=='passed')continue;
-    if(!item.verifiedAt)issues.push(`${key}: missing verification timestamp`);
-    const validUntil=item.validUntil?new Date(item.validUntil):null;
-    if(!validUntil||validUntil<=now)issues.push(`${key}: evidence expired or has no validity window`);
-    const ageMs=item.verifiedAt?now-new Date(item.verifiedAt):Infinity;
-    if(ageMs>policy.evidenceMaxAgeDays*86_400_000)issues.push(`${key}: evidence is older than ${policy.evidenceMaxAgeDays} days`);
     const metrics=item.recoveryMetrics||{};
     if(key==='pitr'){
-      if(!Number.isFinite(Number(metrics.rpoMinutes)))issues.push('pitr: measured RPO is missing');
-      else if(Number(metrics.rpoMinutes)>policy.maxRpoMinutes)issues.push(`pitr: measured RPO ${metrics.rpoMinutes}m exceeds ${policy.maxRpoMinutes}m policy`);
+      if(typeof metrics.rpoMinutes!=='number'||!Number.isFinite(metrics.rpoMinutes)||metrics.rpoMinutes<0)issues.push('pitr: measured RPO is missing or invalid');
+      else if(metrics.rpoMinutes>policy.maxRpoMinutes)issues.push(`pitr: measured RPO ${metrics.rpoMinutes}m exceeds ${policy.maxRpoMinutes}m policy`);
     }
     if(key==='backup-restore'||key==='rollback'){
-      if(!Number.isFinite(Number(metrics.rtoMinutes)))issues.push(`${key}: measured RTO is missing`);
-      else if(Number(metrics.rtoMinutes)>policy.maxRtoMinutes)issues.push(`${key}: measured RTO ${metrics.rtoMinutes}m exceeds ${policy.maxRtoMinutes}m policy`);
+      if(typeof metrics.rtoMinutes!=='number'||!Number.isFinite(metrics.rtoMinutes)||metrics.rtoMinutes<0)issues.push(`${key}: measured RTO is missing or invalid`);
+      else if(metrics.rtoMinutes>policy.maxRtoMinutes)issues.push(`${key}: measured RTO ${metrics.rtoMinutes}m exceeds ${policy.maxRtoMinutes}m policy`);
     }
     if(key==='backup-restore'&&(!metrics.sourceSnapshotAt||!metrics.restoredAt))issues.push('backup-restore: snapshot/restore timestamps are required');
+    const snapshot=metrics.sourceSnapshotAt?new Date(metrics.sourceSnapshotAt):null;
+    const restored=metrics.restoredAt?new Date(metrics.restoredAt):null;
+    if((snapshot&&(!Number.isFinite(snapshot.getTime())||snapshot>now||snapshot>new Date(item.verifiedAt)))
+      ||(restored&&(!Number.isFinite(restored.getTime())||restored>now||restored>new Date(item.verifiedAt)))
+      ||(snapshot&&restored&&snapshot>restored))issues.push(`${key}: recovery timestamps are invalid or out of order`);
   }
   return issues;
 }
@@ -62,6 +84,7 @@ export async function launchReadiness(){
   const evidence=await ensureLaunchEvidence();
   const unresolved=await SecurityFinding.find({severity:{$in:['high','critical']},status:{$in:['open','acceptance_requested']}}).lean();
   const missing=evidence.filter(item=>item.status!=='passed');
+  const evidenceIssues=launchEvidenceIssues(evidence);
   const recoveryIssues=recoveryEvidenceIssues(evidence);
-  return {evidence,unresolved,missing,recoveryIssues,recoveryPolicy:env.disasterRecovery,ready:missing.length===0&&unresolved.length===0&&recoveryIssues.length===0};
+  return {evidence,unresolved,missing,evidenceIssues,recoveryIssues,recoveryPolicy:env.disasterRecovery,ready:missing.length===0&&unresolved.length===0&&evidenceIssues.length===0&&recoveryIssues.length===0};
 }

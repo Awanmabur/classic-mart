@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { AppError, asyncHandler } from '../core/errors.js';
 import { countryAdminPageGates, renderCountryAdminPage } from '../dashboard/country-admin-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -11,9 +11,9 @@ import { loadCountryAdminCommercePage, streamCountryAdminCommerceCsv, mutateCoun
   reconcileCountryAdminPayments, countryAdminCommerceEvidenceRecord } from '../services/country-admin-commerce-pages.js';
 
 const router=Router();
-const mutateLimit=rateLimit({windowMs:15*60_000,limit:40,standardHeaders:'draft-8',legacyHeaders:false});
-const exportLimit=rateLimit({windowMs:15*60_000,limit:15,standardHeaders:'draft-8',legacyHeaders:false});
-const uploadLimit=rateLimit({windowMs:15*60_000,limit:12,standardHeaders:'draft-8',legacyHeaders:false});
+const mutateLimit=rateLimit({ scope: 'country-admin-commerce-pages:1',windowMs:15*60_000,limit:40,standardHeaders:'draft-8',legacyHeaders:false});
+const exportLimit=rateLimit({ scope: 'country-admin-commerce-pages:2',windowMs:15*60_000,limit:15,standardHeaders:'draft-8',legacyHeaders:false});
+const uploadLimit=rateLimit({ scope: 'country-admin-commerce-pages:3',windowMs:15*60_000,limit:12,standardHeaders:'draft-8',legacyHeaders:false});
 function queryShape(request){const params=new URL(request.originalUrl,'http://localhost').searchParams;for(const key of params.keys())if(params.getAll(key).length>1||/[.\[\]]/.test(key))throw new AppError('Provide one value for each commerce filter.',422,'ADMIN_COMMERCE_FILTER_INVALID');}
 for(const slug of ['orders','returns','payments']){
   const path='/admin/'+slug,pageId='admin-'+slug;

@@ -41,6 +41,9 @@ async function bootstrap() {
   const emailNormalized = normalizeEmail(env.admin.email);
   let admin = await User.findOne({ emailNormalized }).select('+operationalCountries +passwordHash');
   let adminCreated = false;
+  if (admin && (admin.role !== 'super_admin' || admin.status !== 'active')) {
+    throw new Error('ADMIN_EMAIL belongs to an existing non-administrator or inactive account. Bootstrap cannot promote or reactivate that identity.');
+  }
   if (!admin) {
     if (!env.admin.phone || !env.admin.password) throw new Error('ADMIN_PHONE and ADMIN_PASSWORD are required when creating the first production Super Admin.');
     assertStrongPassword(env.admin.password);
@@ -54,7 +57,7 @@ async function bootstrap() {
     await Category.updateOne({ slug: category.key }, { $set: { name: category.name, description: category.description, active: true, restricted: false, countries: [], attributes: category.attributes }, $setOnInsert: { publicId: `cat_${category.key.replaceAll('-', '_')}`, createdByUserId: admin._id } }, { upsert: true, runValidators: true });
   }
 
-  logger.info({ adminEmail: env.admin.email, launchCountries: env.security.launchCountries, categories: marketplaceCategories.length }, 'Classic Mart production bootstrap completed');
+  logger.info({ adminPublicId: admin.publicId, launchCountries: env.security.launchCountries, categories: marketplaceCategories.length }, 'Classic Mart production bootstrap completed');
   console.log(adminCreated ? 'Production bootstrap complete. Remove ADMIN_PASSWORD from runtime environment after verifying Super Admin login.' : 'Production bootstrap refreshed existing Super Admin access, indexes, countries and categories.');
 }
 

@@ -1,5 +1,9 @@
 # Classic Mart v2.13.74 — Full Verification
 
+This is the historical Customer-only record. The current staged cleanup and
+restoration results, including remaining release blockers, are in
+[14 October cleanup verification](production/2026-10-14-cleanup-verification.md).
+
 ## Scope
 
 Customer Dashboard correction only, built cumulatively on v2.13.73. This checkpoint corrects the Customer presentation against the uploaded **Classic Mart Unified Role Dashboard — Polished Final 19** reference while retaining the real Classic Mart backend, Customer authorization, data loaders, Wallet, cart, addresses, notifications, account actions and temporary Simple Login behavior. No Seller or later-role dashboard is introduced.

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { countryAdminPageGates, renderCountryAdminPage } from '../dashboard/country-admin-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -8,8 +8,8 @@ import { loadCountryAdminGrowthPage, streamCountryAdminGrowthCsv, createCountryC
   cancelCountryMessagingCampaign, decideCountryAffiliateCampaign, saveCountryCmsRevision, requestCountryCmsPublication, decideCountryCmsApproval, cancelCountryCmsSchedule } from '../services/country-admin-growth-pages.js';
 
 const router = Router();
-const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
-const exportLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+const mutationLimit = rateLimit({ scope: 'country-admin-growth-pages:1', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+const exportLimit = rateLimit({ scope: 'country-admin-growth-pages:2', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
 for (const slug of ['coupons', 'campaigns', 'content']) {
   const path = '/admin/' + slug, pageId = 'admin-' + slug;
   router.get(path, ...countryAdminPageGates(), asyncHandler(async (request, response) => renderCountryAdminPage(request, response, pageId, await loadCountryAdminGrowthPage(request, pageId))));

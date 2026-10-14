@@ -1,5 +1,10 @@
 # Classic Mart Production Launch Setup
 
+Read [staged launch operations](docs/production/staged-launch.md) for released
+registration types, staff provisioning, MFA-protected launch evidence, current
+worker readiness, logging and verification limits. Use the actual HTTPS domain
+and launch markets; example values do not establish production readiness.
+
 This production package contains no development database bootstrap, reset tooling, demo marketplace records, stock-photo downloader, seed-product assets, unused dashboard mock assets, test suites or CI fixtures. Its staged `package.json` also removes `devDependencies`, and the Docker image installs runtime dependencies only.
 
 ## Required real services

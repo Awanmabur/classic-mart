@@ -23,6 +23,6 @@ try{
   const developmentData=[];
   for(const [collection,filter] of developmentDataChecks){const found=await mongoose.connection.db.collection(collection).findOne(filter,{projection:{_id:1}});if(found)developmentData.push(collection);}
   const readiness=await launchReadiness();
-  const failures=[...configFailures,...developmentData.map(collection=>`development data present: ${collection}`),...readiness.missing.map(item=>`${item.key}: ${item.status}`),...readiness.recoveryIssues,...readiness.unresolved.map(item=>`${item.publicId}: unresolved ${item.severity} finding` )];
+  const failures=[...new Set([...configFailures,...developmentData.map(collection=>`development data present: ${collection}`),...readiness.missing.map(item=>`${item.key}: ${item.status}`),...readiness.evidenceIssues,...readiness.recoveryIssues,...readiness.unresolved.map(item=>`${item.publicId}: unresolved ${item.severity} finding` )])];
   if(failures.length){console.error('Launch gate blocked:\n- '+failures.join('\n- '));process.exitCode=1;}else console.log(`Stage 12 launch gate passed for ${env.security.launchCountries.join(', ')}.`);
 }finally{await disconnectDatabase();}

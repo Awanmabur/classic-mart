@@ -1,13 +1,13 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { AppError, asyncHandler } from '../core/errors.js';
 import { financePageGates, renderFinancePage } from '../dashboard/finance-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { setFlash } from '../middleware/view.js';
 import { completeFinanceRefund, loadFinancePaymentPage, requestFinanceRefund, streamFinancePaymentCsv, verifyFinancePayment } from '../services/finance-payment-pages.js';
 const router=Router();
-const mutateLimit=rateLimit({windowMs:15*60_000,limit:35,standardHeaders:'draft-8',legacyHeaders:false});
-const exportLimit=rateLimit({windowMs:15*60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
+const mutateLimit=rateLimit({ scope: 'finance-payment-pages:1',windowMs:15*60_000,limit:35,standardHeaders:'draft-8',legacyHeaders:false});
+const exportLimit=rateLimit({ scope: 'finance-payment-pages:2',windowMs:15*60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
 function queryShape(req){const query=new URL(req.originalUrl,'http://localhost').searchParams;for(const key of ['country','q','search','status','after','record','order','return'])if(query.getAll(key).length>1||[...query.keys()].some(value=>value.startsWith(key+'[')||value.startsWith(key+'.')))throw new AppError('Use one supported value for each finance filter.',422,'FINANCE_FILTER_INVALID');}
 for(const slug of ['payments','refunds']){
   const path='/finance/'+slug,pageId='finance-'+slug;

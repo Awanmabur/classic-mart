@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { renderSellerPage, sellerPageGates } from '../dashboard/seller-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -7,7 +7,7 @@ import { setFlash } from '../middleware/view.js';
 import { createGrowthPromotion, requestSellerSubscription, sellerPromotionsPage, sellerSubscriptionPage, updateGrowthPromotionStatus } from '../services/seller-growth-pages.js';
 
 const router = Router();
-const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+const mutationLimit = rateLimit({ scope: 'seller-growth-pages:1', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const fields = ['type', 'name', 'code', 'productPublicIds', 'discountBps', 'fixedDiscountMinor', 'minQuantity', 'minSubtotalMinor', 'disclosureText', 'startsAt', 'endsAt', 'status', 'planPublicId', 'note'];
 
 function safeDraft(body) {

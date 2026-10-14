@@ -1,5 +1,9 @@
 # Classic Mart v2.13.74 — Final 19 Customer Dashboard Correction
 
+This historical version record is superseded for the current staged source by
+[cleanup and approved UI restoration](docs/production/2026-10-14-cleanup-verification.md)
+and [staged launch operations](docs/production/staged-launch.md).
+
 This cumulative checkpoint builds directly on v2.13.73 and corrects the Customer dashboard against the uploaded **Classic Mart Unified Role Dashboard — Polished Final 19** reference rather than merely preserving its CSS.
 
 ## Visible reference corrections

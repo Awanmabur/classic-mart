@@ -1,8 +1,9 @@
 # Application architecture
 
 Classic Mart is a modular monolith: one Node.js/Express application, with EJS
-pages rendered on the server and MongoDB accessed through Mongoose. Redis is
-optional infrastructure for shared caching and related runtime services. The
+pages rendered on the server and MongoDB accessed through Mongoose. Production
+requires Redis for shared sessions and atomic rate limits across web instances;
+isolated development fixtures can omit it. The
 dashboard is not a separate frontend application.
 
 Routes validate requests and enforce access. Services implement marketplace
@@ -30,7 +31,27 @@ data or operations.
   in configuration. Enrollment is a security step before entering that
   workspace, rather than a change of account type. A validated continuation
   retains the requested destination through setup; recovery codes are shown
-  before the user continues.
+  before the user continues. Production always requires privileged MFA.
+
+## Runtime and staged release boundaries
+
+The production process supervisor runs web and maintenance workers from the same
+build. Readiness requires healthy MongoDB/Redis and a recent successful completed
+worker cycle carrying that full commit SHA. Missing services and worker failures
+prevent readiness; an open HTTP listener alone does not pass deployment smoke.
+
+Production registration exposes only released Customer, Seller and Promoter
+flows. Staff use dedicated invitations, current scopes and independent approval.
+Password/MFA-protected operator commands provision staff and record actual launch
+evidence while the Super Admin UI remains a separate implementation stage. They
+reuse the same transactional domain, audit and authority checks. Neither tool
+fabricates provider success or independent sign-offs.
+
+Static assets receive content fingerprints; session/CSRF-bearing HTML and errors
+remain private and no-store. Public discovery uses configured-domain canonicals,
+server-rendered records and bounded market-aware sitemaps. No authentication or
+dashboard content is exposed for SEO or AI indexing. See
+[staged launch operations](production/staged-launch.md) for the operating contract.
 
 ## Seller entry points
 
@@ -192,7 +213,19 @@ and observed Support SLA rather than synthetic outcomes. Five settings tabs
 save allowed profile/preferences and control actual in-app work alerts. See the
 [Country Admin contracts](country-admin/workspace-pages.md) for all routes,
 counterparts, source controls and deployment limits. Super Admin, Business and
-the full approved Warehouse workspace continue through separate stages.
+Delivery UI continue through separate stages.
+
+## Warehouse entry points
+
+Nine approved Warehouse destinations cover overview, inventory, receiving,
+picking, packing, dispatch, returns, reports and settings. Current managed grants,
+MFA, active market and explicit warehouse scopes protect reads and mutations.
+Receiving and put-away use versioned tasks; inventory counts need an independent
+reviewer. Paid-order parcels provide the actual fulfilment manifest, and task
+claims/replays preserve committed stock custody. Real private receipt uploads
+and exact line inspection establish returned goods before an independent Finance
+refund. Personal account pages retain Warehouse navigation. The isolated browser
+and concurrency tests exercise these operations through genuine persisted data.
 
 ## Verification
 

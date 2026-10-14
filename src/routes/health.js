@@ -5,6 +5,7 @@ import { isDatabaseReady } from '../config/db.js';
 import { env } from '../config/env.js';
 import { isRedisReady } from '../config/redis.js';
 import { prometheusMetrics } from '../services/invariants.js';
+import { isWorkerReady } from '../services/worker-readiness.js';
 
 const require = createRequire(import.meta.url);
 const { version: applicationVersion } = require('../../package.json');
@@ -12,10 +13,13 @@ const router = Router();
 function safeEqual(a,b){const aa=Buffer.from(String(a||'')),bb=Buffer.from(String(b||''));return aa.length===bb.length&&aa.length>0&&crypto.timingSafeEqual(aa,bb);}
 router.get('/health/live', (_request, response) => response.json({ status: 'ok' }));
 router.get('/health/version', (_request, response) => response.json({ status: 'ok', version: applicationVersion, buildSha: env.buildSha || null }));
-router.get('/health/ready', (_request, response) => {
+router.get('/health/ready', async (_request, response) => {
   const mongo = isDatabaseReady();
   const redis = !env.redisUrl || isRedisReady();
-  response.status(mongo && redis ? 200 : 503).json({ status: mongo && redis ? 'ready' : 'not_ready', checks: { mongo, redis } });
+  const worker = await isWorkerReady();
+  const ready = mongo && redis && worker;
+  response.set('Cache-Control', 'no-store').status(ready ? 200 : 503)
+    .json({ status: ready ? 'ready' : 'not_ready', checks: { mongo, redis, worker } });
 });
 router.get('/internal/metrics', async (request,response,next)=>{
   try{

@@ -131,6 +131,43 @@ test('Country growth uses actual scoped coupon checkout, consent delivery and in
       content = (await growth.loadCountryAdminGrowthPage(scoped(author,{id:content.publicId}),'admin-content')).selected; const third = await growth.saveCountryCmsRevision(scoped(),{...input,version:content.version,body:'Scheduled Country Help Copy'}); const due = new Date(Date.now()+60000); const scheduled = await growth.requestCountryCmsPublication(scoped(),content.publicId,{country:'UG',version:third.content.version,revisionVersion:3,action:'publish',scheduledFor:due.toISOString(),reason:'Schedule verified content'}); await growth.decideCountryCmsApproval(scoped(reviewer),scheduled.publicId,{country:'UG',version:0,decision:'approve',reason:'Independent scheduled content review'}); assert.equal((await stage9.publishedCms('help.main','UG')).body,input.body); assert.equal(await stage9.publishScheduledCms(new Date(due.getTime()+1000)),1); assert.equal((await stage9.publishedCms('help.main','UG')).body,'Scheduled Country Help Copy');
       await assert.rejects(growth.saveCountryCmsRevision(scoped(),{...input,key:'legal.privacy',type:'help'}),error=>error.status===403); await assert.rejects(growth.saveCountryCmsRevision(scoped(),{...input,key:'home.hero.unsafe',type:'hero',image:'javascript:alert(1)'}),error=>error.code==='CMS_URL_INVALID');
     });
+    await t.test('scheduled country CMS falls back to published global copy until a valid scoped revision is active', async () => {
+      const key = `press.article.scheduled-fallback-${suffix}`;
+      const globalBody = 'Already published global article remains readable.';
+      const scopedBody = 'Independently approved country article becomes active on schedule.';
+      const futureBody = 'Future replacement must remain private until its scheduled publication.';
+      try {
+        await CmsContent.create({ publicId: id('cms'), key, type: 'press', country: '', status: 'published', activeVersion: 1,
+          revisions: [{ version: 1, title: 'Published global article', body: globalBody, reason: 'Existing approved global publication fixture', createdByUserId: author.user._id, publishedAt: new Date() }] });
+        const input = { country: 'UG', key, type: 'press', title: 'Scheduled country article', body: scopedBody, reason: 'Country override requires independent scheduled publication' };
+        let saved = await growth.saveCountryCmsRevision(scoped(), input);
+        const due = new Date(Date.now() + 120000);
+        let pending = await growth.requestCountryCmsPublication(scoped(), saved.content.publicId, { country: 'UG', version: saved.content.version, revisionVersion: 1, action: 'publish', scheduledFor: due.toISOString(), reason: 'Schedule first scoped publication' });
+        await growth.decideCountryCmsApproval(scoped(reviewer), pending.publicId, { country: 'UG', version: 0, decision: 'approve', reason: 'Independent review of scheduled country copy' });
+        let document = await CmsContent.findOne({ publicId: saved.content.publicId });
+        assert.equal(document.status, 'scheduled'); assert.equal(document.activeVersion, 0);
+        let resolved = await stage9.publishedCms(key, 'UG');
+        assert.equal(resolved.country, ''); assert.equal(resolved.body, globalBody);
+        assert.equal((await stage9.publishedCmsList({ prefix: key, type: 'press', country: 'UG' }))[0].body, globalBody);
+        let page = await request(app).get('/press/' + key).expect(200);
+        assert.ok(page.text.includes(globalBody)); assert.ok(!page.text.includes(scopedBody));
+        await CmsContent.updateOne({ _id: document._id }, { $set: { activeVersion: 999 } });
+        assert.equal((await stage9.publishedCms(key, 'UG')).body, globalBody, 'an absent scoped revision also permits the valid global fallback');
+        page = await request(app).get('/press/' + key).expect(200); assert.ok(page.text.includes(globalBody));
+        await CmsContent.updateOne({ _id: document._id }, { $set: { activeVersion: 0 } });
+        assert.equal(await stage9.publishScheduledCms(new Date(due.getTime() + 1000)), 1);
+        assert.equal((await stage9.publishedCms(key, 'UG')).body, scopedBody);
+        document = await CmsContent.findById(document._id);
+        saved = await growth.saveCountryCmsRevision(scoped(), { ...input, version: document.__v, title: 'Future country replacement', body: futureBody });
+        pending = await growth.requestCountryCmsPublication(scoped(), document.publicId, { country: 'UG', version: saved.content.version, revisionVersion: 2, action: 'publish', scheduledFor: new Date(due.getTime() + 120000).toISOString(), reason: 'Schedule next independently reviewed country revision' });
+        await growth.decideCountryCmsApproval(scoped(reviewer), pending.publicId, { country: 'UG', version: 0, decision: 'approve', reason: 'Independent review of the future replacement' });
+        resolved = await stage9.publishedCms(key, 'UG');
+        assert.equal(resolved.country, 'UG'); assert.equal(resolved.version, 1); assert.equal(resolved.body, scopedBody);
+        assert.equal((await stage9.publishedCmsList({ prefix: key, type: 'press', country: 'UG' }))[0].body, scopedBody);
+        page = await request(app).get('/press/' + key).expect(200);
+        assert.ok(page.text.includes(scopedBody)); assert.ok(!page.text.includes(futureBody));
+      } finally { await CmsContent.deleteMany({ key }); }
+    });
     await t.test('CMS approval rechecks requester authority, revision digest and author independence, while schedules can be cancelled', async () => {
       const independent = await identity('country_admin'), requester=await identity('country_admin');
       const input={country:'UG',key:'home.hero.integrity',type:'hero',title:'Integrity checked content',body:'Country content requiring independent review',reason:'Verified source integrity'};

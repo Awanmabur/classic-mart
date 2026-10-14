@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { countryAdminPageGates, renderCountryAdminPage } from '../dashboard/country-admin-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -7,7 +7,7 @@ import { setFlash } from '../middleware/view.js';
 import { COUNTRY_ADMIN_CATALOGUE_PATHS, loadCountryAdminCataloguePage, streamCountryAdminCatalogueCsv, countryAdminCatalogueAction, readCountryAdminSellerDocument } from '../services/country-admin-catalogue-pages.js';
 
 const router=Router();
-const limiter=rateLimit({windowMs:15*60_000,limit:80,standardHeaders:'draft-8',legacyHeaders:false});
+const limiter=rateLimit({ scope: 'country-admin-catalogue-pages:1',windowMs:15*60_000,limit:80,standardHeaders:'draft-8',legacyHeaders:false});
 async function page(request,response,pageId,error='') {
   const flow=await loadCountryAdminCataloguePage(request,pageId);flow.error=error;
   if(flow.selected) {

@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 import { projectMongoUri } from '../core/project-env.js';
+import { openRegistrationTypes } from '../core/registration.js';
+import { assertProductionOrigin } from '../core/production-origin.js';
 
 const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -57,6 +59,7 @@ function validEncryptionKey(value) {
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development';
+const publicRegistrationTypes = openRegistrationTypes({ production: nodeEnv === 'production' });
 if (nodeEnv === 'production' && boolean(process.env.SIMPLE_LOGIN, false)) {
   throw new Error('SIMPLE_LOGIN cannot bypass verification or MFA in production.');
 }
@@ -103,6 +106,7 @@ if (nodeEnv === 'production') {
   if (!String(process.env.BASE_URL || '').startsWith('https://')) {
     throw new Error('Production requires an HTTPS BASE_URL.');
   }
+  assertProductionOrigin(process.env.BASE_URL);
   if (integer(process.env.TRUST_PROXY, 0) < 1) {
     throw new Error('Production requires TRUST_PROXY to match the trusted reverse-proxy topology.');
   }
@@ -205,6 +209,7 @@ export const env = Object.freeze({
   metricsToken: process.env.METRICS_TOKEN || '',
   auth: Object.freeze({
     simpleLogin: simpleLoginMode,
+    publicRegistrationTypes: Object.freeze(publicRegistrationTypes),
   }),
   disasterRecovery: Object.freeze({
     maxRpoMinutes: Math.max(1, integer(process.env.DR_MAX_RPO_MINUTES, 60)),

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { promoterPageGates, renderPromoterPage } from '../dashboard/promoter-page-view.js';
 import { setFlash } from '../middleware/view.js';
@@ -9,7 +9,7 @@ import { promoterRelationshipPage, generatePromoterReferral, followPromoterBrand
 
 const router = Router();
 const gates = promoterPageGates();
-const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
+const limiter = rateLimit({ scope: 'promoter-relationship-pages:1', windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
 for (const kind of ['referrals', 'brands', 'messages']) router.get('/promoter/' + kind, ...gates,
   asyncHandler(async (request, response) => renderPromoterPage(request, response, 'promoter-' + kind, await promoterRelationshipPage(request, 'promoter-' + kind))));
 

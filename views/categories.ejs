@@ -2,11 +2,12 @@
 
 <html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
 <head>
+<%- include('partials/brand-icons') %>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
-<meta content="Browse, search and filter products across Classic Mart categories." name="description"/>
+
 <meta content="#ff6200" name="theme-color"/>
-<title>All Categories — Classic Mart</title>
+<%- include("partials/seo-meta") %>
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
 <link href="/marketplace-pages.css" rel="stylesheet"/>
@@ -23,9 +24,9 @@
 </div>
 </div>
 </section>
-<section class="container category-directory" hidden="" id="categoryDirectory">
+<section class="container category-directory" id="categoryDirectory">
 <div class="catalog-section-heading"><div><span>Explore departments</span><h2>Shop all categories</h2></div><p>Choose a department to see products, deals and popular brands in one place.</p></div>
-<div class="category-directory-grid" id="categoryDirectoryGrid"></div>
+<div class="category-directory-grid" id="categoryDirectoryGrid"><% if (typeof initialCatalogue !== 'undefined') { (initialCatalogue.categories || []).forEach(category => { %><a class="category-directory-card" href="/categories/<%= encodeURIComponent(category.id) %>?country=<%= country.code %>"><div class="category-directory-image"><img src="<%= category.image %>" alt="<%= category.name %>" loading="lazy" decoding="async"/><span><img src="/assets/icons/tags.svg" alt=""/></span></div><div><h3><%= category.name %></h3><p><%= category.note %></p><b><%= category.count %> product<%= category.count === 1 ? '' : 's' %> <img src="/assets/icons/chevron-right.svg" alt=""/></b></div></a><% }); } %></div>
 <div class="category-feature-strip">
 <article><img alt="" src="/assets/icons/truck-fast.svg"/><div><strong>Tracked delivery</strong><small>See delivery information before checkout</small></div></article>
 <article><img alt="" src="/assets/icons/rotate-left.svg"/><div><strong>Simple returns</strong><small>Manage eligible return requests from your account</small></div></article>

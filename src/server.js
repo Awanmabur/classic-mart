@@ -8,6 +8,7 @@ import { ensureStorageReady } from './config/storage.js';
 
 let server;
 let shuttingDown = false;
+let shutdownExitCode = 0;
 
 async function start() {
   await ensureStorageReady();
@@ -28,7 +29,8 @@ async function start() {
   });
 }
 
-async function shutdown(signal) {
+async function shutdown(signal, exitCode = 0) {
+  shutdownExitCode = Math.max(shutdownExitCode, exitCode);
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ signal }, 'Shutting down');
@@ -44,21 +46,21 @@ async function shutdown(signal) {
   }
   await Promise.allSettled([disconnectRedis(), disconnectDatabase()]);
   clearTimeout(forceTimer);
-  process.exit(0);
+  process.exit(shutdownExitCode);
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('uncaughtException', (error) => {
-  logger.fatal({ error }, 'Uncaught exception');
-  shutdown('uncaughtException');
+  logger.fatal({ err: error }, 'Uncaught exception');
+  shutdown('uncaughtException', 1);
 });
 process.on('unhandledRejection', (error) => {
-  logger.fatal({ error }, 'Unhandled rejection');
-  shutdown('unhandledRejection');
+  logger.fatal({ err: error }, 'Unhandled rejection');
+  shutdown('unhandledRejection', 1);
 });
 
 start().catch((error) => {
-  logger.fatal({ error }, 'Startup failed');
+  logger.fatal({ err: error }, 'Startup failed');
   process.exit(1);
 });

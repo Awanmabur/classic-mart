@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { noStore } from '../middleware/request.js';
 import { requireAuth, requireVerified, requireOnboarding } from '../middleware/auth.js';
 import { loadSellerStore, requireStoreCapability } from '../middleware/store.js';
@@ -16,7 +16,7 @@ const gates = [noStore, requireAuth, requireVerified, requireOnboarding,
     response.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
     return canAccessWorkspace(request.user, 'seller') ? next() : next(new AppError('You do not have access to this dashboard.', 403, 'DASHBOARD_FORBIDDEN'));
   }, loadSellerStore, requireStoreCapability('staff')];
-const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+const limiter = rateLimit({ scope: 'seller-store-settings:1', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 router.get('/seller/store', ...gates, asyncHandler((request, response) => renderSellerStore(request, response)));
 router.get('/dashboard/seller-store', ...gates.slice(0, 5), (request, response) => {
   const search = new URL(request.originalUrl, 'http://localhost').search;

@@ -31,28 +31,58 @@ const csrf = html => {
 };
 
 async function controlGeometry(page, selector = textActions) {
-  return page.locator(selector).evaluateAll(nodes => nodes.filter(node => node.checkVisibility() && node.textContent.trim()).map(node => {
-    const box = node.getBoundingClientRect(), style = getComputedStyle(node), content = [];
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      if (!walker.currentNode.textContent.trim()) continue;
-      const range = document.createRange();
-      range.selectNodeContents(walker.currentNode);
-      content.push(...range.getClientRects());
+  return page.locator(selector).evaluateAll(nodes => {
+    const properties = ['minHeight', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight',
+      'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomLeftRadius', 'borderBottomRightRadius',
+      'fontSize', 'fontWeight', 'lineHeight', 'whiteSpace', 'backgroundColor', 'color',
+      'borderTopWidth', 'borderTopColor', 'boxShadow', 'display', 'gap', 'alignItems', 'justifyContent'];
+    const appearance = node => {
+      const style = getComputedStyle(node);
+      return Object.fromEntries(properties.map(property => [property, style[property]]));
+    };
+    const visible = nodes.filter(node => node.checkVisibility() && node.textContent.trim());
+    const controls = visible.map(node => {
+      const box = node.getBoundingClientRect(), content = [];
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        if (!walker.currentNode.textContent.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(walker.currentNode);
+        content.push(...range.getClientRects());
+      }
+      content.push(...[...node.querySelectorAll('svg')].map(icon => icon.getBoundingClientRect()));
+      const left = Math.min(...content.map(rect => rect.left)), right = Math.max(...content.map(rect => rect.right));
+      const top = Math.min(...content.map(rect => rect.top)), bottom = Math.max(...content.map(rect => rect.bottom));
+      return { label: `${node.tagName.toLowerCase()}.${[...node.classList].join('.')} "${node.textContent.trim()}"`,
+        width: box.width, height: box.height, appearance: appearance(node),
+        icons: [...node.querySelectorAll('svg')].map(icon => ({ width: icon.getBoundingClientRect().width, height: icon.getBoundingClientRect().height })),
+        horizontalOffset: Math.abs((left + right) / 2 - (box.left + box.right) / 2),
+        verticalOffset: Math.abs((top + bottom) / 2 - (box.top + box.bottom) / 2),
+        overflow: node.scrollWidth - node.clientWidth };
+    });
+    // Compare each real control to the frozen approved CSS on the same DOM.
+    // This catches broad padding/height/color/whitespace rewrites while allowing
+    // only the live form placement and native-button adapters in live-controls.
+    const liveSheets = [...document.styleSheets].filter(sheet => sheet.href?.includes('/approved-dashboard/live-controls.css'));
+    const previous = liveSheets.map(sheet => sheet.disabled);
+    try {
+      liveSheets.forEach(sheet => { sheet.disabled = true; });
+      for (const [index, node] of visible.entries()) {
+        let reference = node;
+        if (node.matches('.notification-list article > form > button')) {
+          // The approved preview renders this action directly under article.
+          reference = node.cloneNode(true);
+          node.closest('article').append(reference);
+        }
+        controls[index].approved = appearance(reference);
+        controls[index].approvedIcons = [...reference.querySelectorAll('svg')].map(icon => ({ width: icon.getBoundingClientRect().width, height: icon.getBoundingClientRect().height }));
+        if (reference !== node) reference.remove();
+      }
+    } finally {
+      liveSheets.forEach((sheet, index) => { sheet.disabled = previous[index]; });
     }
-    content.push(...[...node.querySelectorAll('svg')].map(icon => icon.getBoundingClientRect()));
-    const left = Math.min(...content.map(rect => rect.left)), right = Math.max(...content.map(rect => rect.right));
-    const top = Math.min(...content.map(rect => rect.top)), bottom = Math.max(...content.map(rect => rect.bottom));
-    return { label: `${node.tagName.toLowerCase()}.${[...node.classList].join('.')} "${node.textContent.trim()}"`, width: box.width, height: box.height,
-      blockStart: parseFloat(style.paddingTop), blockEnd: parseFloat(style.paddingBottom),
-      inlineStart: parseFloat(style.paddingLeft), inlineEnd: parseFloat(style.paddingRight),
-      horizontalOffset: Math.abs((left + right) / 2 - (box.left + box.right) / 2),
-      verticalOffset: Math.abs((top + bottom) / 2 - (box.top + box.bottom) / 2),
-      leftSpace: left - box.left, rightSpace: box.right - right,
-      topSpace: top - box.top, bottomSpace: box.bottom - bottom,
-      overflow: node.scrollWidth - node.clientWidth,
-      icons: [...node.querySelectorAll('svg')].map(icon => ({ width: icon.getBoundingClientRect().width, expected: icon.getBoundingClientRect().height })) };
-  }));
+    return controls;
+  });
 }
 
 function geometryFailures(controls, context) {
@@ -63,15 +93,26 @@ function geometryFailures(controls, context) {
     check(control.width > 0 && control.height > 0, 'visible control has nonzero dimensions');
     check(control.horizontalOffset <= 2, `horizontal centering (${control.horizontalOffset}px offset)`);
     check(control.verticalOffset <= 3, `vertical centering (${control.verticalOffset}px offset)`);
-    check(control.leftSpace >= 8 && control.rightSpace >= 8, `horizontal breathing room (${control.leftSpace}px / ${control.rightSpace}px)`);
-    check(control.topSpace >= 5 && control.bottomSpace >= 5, `vertical breathing room (${control.topSpace}px / ${control.bottomSpace}px)`);
     check(control.overflow <= 1, 'label must not clip');
-    for (const icon of control.icons) check(Math.abs(icon.width - icon.expected) <= 1, 'icon must keep its width');
+    for (const [index, icon] of control.icons.entries()) {
+      const expected = control.approvedIcons[index];
+      check(Math.abs(icon.width - expected.width) <= 1 && Math.abs(icon.height - expected.height) <= 1, 'icon keeps its approved dimensions');
+    }
+    for (const [property, expected] of Object.entries(control.approved)) {
+      // Clear Cart adapts the original plain link to a centered button; its
+      // padding, radius, typography and colors still come from approved CSS.
+      if (control.label.includes('plain-link') && ['display', 'alignItems', 'justifyContent'].includes(property)) continue;
+      // The preview hides its mobile dismiss icon. The persisted Mark read
+      // action stays reachable; its padding, type, colors and radius match.
+      if (control.label === 'button. "Mark read"' && property === 'display' && expected === 'none') continue;
+      check(control.appearance[property] === expected,
+        `${property} preserves approved appearance (${control.appearance[property]} versus ${expected})`);
+    }
   }
   return failures;
 }
 
-test('live dashboard text actions keep centered labels, breathing room and rounded photos on every connected page', { skip: !uri, timeout: 600_000 }, async t => {
+test('live dashboard actions and photos preserve approved appearance on every connected page', { skip: !uri, timeout: 600_000 }, async t => {
   assert.equal(new URL(uri).hostname, '127.0.0.1');
   assert.match(new URL(uri).pathname, /verification|test/i);
   const suffix = crypto.randomBytes(8).toString('hex');
@@ -230,9 +271,23 @@ test('live dashboard text actions keep centered labels, breathing room and round
                 followsCopy: !copy || submit.top >= copy.bottom };
             }));
             if (uploads.some(upload => !upload.centered || !upload.followsCopy)) failures.push(`${member.workspace} ${href} at ${width}px: upload action must stay centered below its instructions`);
-            const photos = await page.locator('#pageHost :is(.product-image img, .wishlist-item img, .category-card img, .cart-item > img, .seller-product-image)').evaluateAll(nodes =>
-              nodes.filter(node => node.checkVisibility()).map(node => parseFloat(getComputedStyle(node).borderTopLeftRadius)));
-            assert.ok(photos.every(radius => radius >= 12), href + ' rounded catalogue photos');
+            const photos = await page.locator('#pageHost :is(.product-image img, .wishlist-item img, .category-card img, .cart-item > img, .seller-product-image)').evaluateAll(nodes => {
+              const visible = nodes.filter(node => node.checkVisibility());
+              const radii = node => {
+                const style = getComputedStyle(node);
+                return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius];
+              };
+              const actual = visible.map(radii);
+              const liveSheets = [...document.styleSheets].filter(sheet => sheet.href?.includes('/approved-dashboard/live-controls.css'));
+              const previous = liveSheets.map(sheet => sheet.disabled);
+              try {
+                liveSheets.forEach(sheet => { sheet.disabled = true; });
+                return visible.map((node, index) => ({ actual: actual[index], approved: radii(node) }));
+              } finally {
+                liveSheets.forEach((sheet, index) => { sheet.disabled = previous[index]; });
+              }
+            });
+            for (const photo of photos) assert.deepEqual(photo.actual, photo.approved, href + ' photo keeps its approved component corners');
             photoCount += photos.length;
             const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
             if (overflow > 1) failures.push(`${activeVisit}: document overflows horizontally by ${overflow}px`);

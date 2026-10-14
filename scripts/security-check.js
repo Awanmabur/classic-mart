@@ -17,9 +17,14 @@ for(const file of files){
   if(!isSecurityChecker(file)&&/new\s+Function\s*\(/.test(text))failures.push(`${file}: new Function() is forbidden`);
   if(file.startsWith('views'+path.sep)){
     const raw=[...text.matchAll(/<%-(.*?)%>/gs)].map(match=>match[1].trim());
-    const allowed=new Set(["include(\"partials/product-preview-modal\")","include(\"partials/social-links\")","include(\"partials/storefront-header\")","include(\"partials/storefront-footer\")","include(\"social-links\")"]);
+    const allowed=new Set(["include(\"partials/product-preview-modal\")","include(\"partials/social-links\")","include(\"partials/storefront-header\")","include(\"partials/storefront-footer\")","include(\"social-links\")", "include('partials/brand-icons')", 'include("partials/seo-meta")']);
     if(file.startsWith('views'+path.sep)) {
       for (const expression of raw) {
+        if (file === path.join('views', 'partials', 'seo-meta.ejs') && expression === 'pageMetadata.jsonLd') allowed.add(expression);
+        if (file === path.join('views', 'products.ejs') && expression === "include('partials/catalogue-cards')") allowed.add(expression);
+        if (['sellers.ejs','promoters.ejs'].some(name => file === path.join('views',name)) && /^include\("partials\/people-cards", \{directoryKind: "(?:sellers|promoters)"\}\)$/.test(expression)) allowed.add(expression);
+        if (['seller-profile.ejs','promoter-profile.ejs'].some(name => file === path.join('views',name)) && expression === 'include("partials/profile-products")') allowed.add(expression);
+        if (file === path.join('views','index.ejs') && expression === "include('partials/product-details-readable')") allowed.add(expression);
         if (/^include\('partials\/approved-account-(security|messages|privacy|returns|rewards|apps|invitation)'\)$/.test(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
         if (expression === "include('partials/seller-store-live')" && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
         if (expression === "include('partials/seller-overview-live')" && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);

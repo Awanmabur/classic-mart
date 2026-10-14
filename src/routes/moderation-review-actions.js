@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { z } from 'zod';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { requireAuth, requireVerified, requireOnboarding, requirePermission } from '../middleware/auth.js';
@@ -12,7 +12,7 @@ import { setFlash } from '../middleware/view.js';
 
 const router = Router();
 const gates = [noStore, requireAuth, requireVerified, requireOnboarding, requirePermission('catalogue:moderate'),
-  rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false })];
+  rateLimit({ scope: 'moderation-review-actions:1', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false })];
 const version = z.coerce.number().int().nonnegative();
 router.post('/moderation/reviews/:id/decision', ...gates, asyncHandler(async (request, response) => {
   verifyDeferredCsrf(request);

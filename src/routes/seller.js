@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { z } from 'zod';
 import { routeForPage } from '../dashboard/registry.js';
 import { asyncHandler, AppError } from '../core/errors.js';
@@ -85,19 +85,19 @@ import {
 function escapeSellerSearch(value){return String(value||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 
 const router = Router();
-const uploadLimiter = rateLimit({
+const uploadLimiter = rateLimit({ scope: 'seller:1',
   windowMs: 15 * 60_000,
   limit: 30,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 });
-const workflowLimiter = rateLimit({
+const workflowLimiter = rateLimit({ scope: 'seller:2',
   windowMs: 15 * 60_000,
   limit: 80,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 });
-const importLimiter = rateLimit({
+const importLimiter = rateLimit({ scope: 'seller:3',
   windowMs: 15 * 60_000,
   limit: 12,
   standardHeaders: 'draft-8',

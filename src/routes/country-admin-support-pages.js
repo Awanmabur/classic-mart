@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { countryAdminPageGates, renderCountryAdminPage } from '../dashboard/country-admin-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -7,8 +7,8 @@ import { setFlash } from '../middleware/view.js';
 import { loadCountryAdminSupportPage, countryAdminSupportAction, streamCountryAdminSupportCsv } from '../services/country-admin-support-pages.js';
 
 const router = Router(), base = '/admin/support';
-const writes = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
-const exports = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+const writes = rateLimit({ scope: 'country-admin-support-pages:1', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+const exports = rateLimit({ scope: 'country-admin-support-pages:2', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
 async function page(request, response, error = '') {
   const flow = await loadCountryAdminSupportPage(request); flow.error = error;
   flow.draft = error ? Object.fromEntries(['message', 'recipient', 'priority', 'queue', 'status', 'internal'].filter(key => typeof request.body?.[key] === 'string')

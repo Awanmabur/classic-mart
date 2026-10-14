@@ -45,7 +45,8 @@ test('customer dashboard data, addresses and notifications persist and isolate a
     }
     const anonymous=request(base);
     for(const path of ['/orders','/addresses','/wallet','/notifications']) await anonymous.get(path).expect(302).expect('location','/login?next='+encodeURIComponent(path));
-    for(const path of ['/categories','/cart','/returns','/return-policy']) await anonymous.get(path).expect(200);
+    for(const path of ['/categories','/cart','/return-policy']) await anonymous.get(path).expect(200);
+    await anonymous.get('/returns').expect(301).expect('location','/return-policy');
     const home=await agent.get('/').expect(200);
     assert.match(home.headers['cache-control'],/private/);
     const signupForm=await anonymous.get('/signup').expect(200);

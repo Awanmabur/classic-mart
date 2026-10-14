@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { sellerPageGates, renderSellerPage } from '../dashboard/seller-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -8,7 +8,7 @@ import { sellerPromoterConversationsPage, updateSellerPromoterConversation } fro
 
 const router = Router();
 const gates = sellerPageGates('support');
-const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
+const limiter = rateLimit({ scope: 'seller-promoter-conversations:1', windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
 router.get(['/seller/promoter-messages', '/seller/promoter-messages/:publicId'], ...gates, asyncHandler(async (request, response) =>
   renderSellerPage(request, response, 'seller-messages', await sellerPromoterConversationsPage(request))));
 for (const action of ['reply', 'read', 'resolve']) router.post('/seller/promoter-messages/:publicId/' + action, ...gates, limiter,

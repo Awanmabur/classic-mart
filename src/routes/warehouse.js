@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { AppError, asyncHandler } from '../core/errors.js';
 import { hasPermission } from '../core/roles.js';
 import { env } from '../config/env.js';
@@ -29,9 +29,9 @@ const operationalAccess = (request, response, next) => {
   return response.redirect('/account/security?next=' + encodeURIComponent(request.originalUrl));
 };
 const access = [noStore, privatePage, requireAuth, requireVerified, requireOnboarding, operationalAccess];
-const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-const intakeUploadLimit = rateLimit({ windowMs: 15 * 60_000, limit: 15, standardHeaders: 'draft-8', legacyHeaders: false });
-const exportLimit = rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
+const mutationLimit = rateLimit({ scope: 'warehouse:1', windowMs: 15 * 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+const intakeUploadLimit = rateLimit({ scope: 'warehouse:2', windowMs: 15 * 60_000, limit: 15, standardHeaders: 'draft-8', legacyHeaders: false });
+const exportLimit = rateLimit({ scope: 'warehouse:3', windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
 const navigation = DASHBOARD_PAGES.warehouse.map(([id, label, icon]) => ({ id, label, icon, href: WAREHOUSE_ROUTES[id], ready: true }));
 
 async function renderPage(request, response, mode, error = '') {

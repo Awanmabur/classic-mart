@@ -42,7 +42,7 @@ function eligibleProduct(product, category, store, brand, country) {
     && hasPublicProductApproval(product, category, store);
 }
 
-function publicEligibilityStages(country) {
+export function publicEligibilityStages(country) {
   return [
     { $lookup: { from: 'categories', localField: 'categoryId', foreignField: '_id', as: '_publicCategory' } },
     { $unwind: '$_publicCategory' },
@@ -603,6 +603,17 @@ export async function publishedProductsByPublicIds(publicIds, country) {
 
 export async function publishedProduct(publicId, country) {
   return (await publishedProductsByPublicIds([publicId], country))[0] || null;
+}
+
+export async function publishedCategory(slug, country) {
+  const category = await Category.findOne({ slug: String(slug), active: true, $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: country.code }] }).lean();
+  if (!category) return null;
+  const products = await Product.aggregate([
+    { $match: { categoryId: category._id, status: 'published', countries: country.code } },
+    ...publicEligibilityStages(country), { $sort: { publishedAt: -1, _id: -1 } }, { $limit: 80 },
+  ]).option({ maxTimeMS: 15_000 });
+  if (category.restricted && !products.length) return null;
+  return { category: { id: category.slug, name: category.name, note: category.description || `Shop ${category.name}` }, catalogue: await hydrateProducts(products, country) };
 }
 
 export async function publishedSellers(country, { after = '', limit = 50 } = {}) {

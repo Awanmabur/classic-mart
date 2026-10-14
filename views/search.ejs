@@ -2,11 +2,12 @@
 
 <html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
 <head>
+<%- include('partials/brand-icons') %>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
-<meta content="Browse, search and filter products across Classic Mart categories." name="description"/>
+
 <meta content="#ff6200" name="theme-color"/>
-<title>Search Classic Mart — Products, brands and categories</title>
+<%- include("partials/seo-meta") %>
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
 <link href="/marketplace-pages.css" rel="stylesheet"/>

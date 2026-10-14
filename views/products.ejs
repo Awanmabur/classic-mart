@@ -2,23 +2,24 @@
 
 <html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
 <head>
+<%- include('partials/brand-icons') %>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
-<meta content="Browse, search and filter products across Classic Mart categories." name="description"/>
+
 <meta content="#ff6200" name="theme-color"/>
-<title>Browse Products — Classic Mart</title>
+<%- include("partials/seo-meta") %>
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
 <link href="/marketplace-pages.css" rel="stylesheet"/>
 </head>
-<body class="catalog-body" data-page-mode="products">
+<body class="catalog-body" data-page-mode="products" data-initial-category="<%= typeof initialCategory !== 'undefined' && initialCategory ? initialCategory.id : '' %>">
 <a class="skip-link" href="#catalogMain">Skip to products</a><%- include("partials/storefront-header") %>
 <main class="catalog-main" id="catalogMain">
 <section class="catalog-hero">
 <div class="container catalog-hero-inner">
 <nav aria-label="Breadcrumb" class="catalog-breadcrumb"><a href="/">Home</a><span>›</span><strong id="catalogBreadcrumb">Browse products</strong></nav>
 <div class="catalog-hero-copy">
-<div><span id="catalogEyebrow">Classic Mart marketplace</span><h1 id="catalogTitle">Browse products</h1><p id="catalogDescription">Compare marketplace products, explore deals and find the right option with clear pricing, ratings and buyer information.</p></div>
+<div><span id="catalogEyebrow">Classic Mart marketplace</span><h1 id="catalogTitle"><%= typeof initialCategory !== 'undefined' && initialCategory ? initialCategory.name : 'Browse products' %></h1><p id="catalogDescription"><%= typeof initialCategory !== 'undefined' && initialCategory ? initialCategory.note : 'Compare marketplace products, current prices and availability from verified sellers.' %></p></div>
 <div class="catalog-hero-benefits"><span><img alt="" src="/assets/icons/circle-check.svg"/> Verified listings</span><span><img alt="" src="/assets/icons/rotate-left.svg"/> Easy returns</span><span><img alt="" src="/assets/icons/lock.svg"/> Secure checkout</span></div>
 </div>
 </div>
@@ -50,7 +51,7 @@
 <div class="catalog-view-controls"><label>Sort by<select id="catalogSort"><option value="featured">Featured</option><option value="rating">Top rated</option><option value="popular">Most popular</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="discount">Biggest discount</option></select></label><button aria-label="Grid view" class="view-mode-button active" data-view-mode="grid" type="button"><img alt="" src="/assets/icons/table-cells-large.svg"/></button><button aria-label="List view" class="view-mode-button" data-view-mode="list" type="button"><img alt="" src="/assets/icons/bars.svg"/></button></div>
 </div>
 <div class="active-filter-row" id="activeFilterRow"></div>
-<div aria-live="polite" class="catalog-product-grid" id="catalogProductGrid"></div>
+<div aria-live="polite" class="catalog-product-grid" id="catalogProductGrid"><%- include('partials/catalogue-cards') %></div>
 <div class="catalog-empty" hidden="" id="catalogEmpty"><span><img alt="" src="/assets/icons/magnifying-glass.svg"/></span><h2>No matching products</h2><p>Try a different search term, category, price range or rating.</p><button class="catalog-primary-button" id="emptyClearButton" type="button">Clear filters</button></div>
 <nav aria-label="Product pages" class="catalog-pagination" id="catalogPagination"></nav>
 </div>

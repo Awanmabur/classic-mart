@@ -1,0 +1,15 @@
+<% const pageMetadata = typeof seo !== 'undefined' && seo ? seo : {title:'Classic Mart',description:'Classic Mart marketplace.',noindex:true}; %>
+<title><%= pageMetadata.title %></title>
+<meta name="description" content="<%= pageMetadata.description %>"/>
+<meta name="robots" content="<%= pageMetadata.noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large' %>"/>
+<% if (pageMetadata.canonical) { %><link rel="canonical" href="<%= pageMetadata.canonical %>"/><meta property="og:url" content="<%= pageMetadata.canonical %>"/><% } %>
+<meta property="og:site_name" content="Classic Mart"/>
+<meta property="og:type" content="<%= pageMetadata.type || 'website' %>"/>
+<meta property="og:title" content="<%= pageMetadata.title %>"/>
+<meta property="og:description" content="<%= pageMetadata.description %>"/>
+<meta property="og:locale" content="<%= pageMetadata.locale || 'en' %>"/>
+<meta name="twitter:card" content="<%= pageMetadata.image ? 'summary_large_image' : 'summary' %>"/>
+<meta name="twitter:title" content="<%= pageMetadata.title %>"/>
+<meta name="twitter:description" content="<%= pageMetadata.description %>"/>
+<% if (pageMetadata.image) { %><meta property="og:image" content="<%= pageMetadata.image %>"/><meta property="og:image:alt" content="<%= pageMetadata.imageAlt || pageMetadata.title %>"/><meta name="twitter:image" content="<%= pageMetadata.image %>"/><% } %>
+<% if (pageMetadata.jsonLd && !pageMetadata.noindex) { %><script type="application/ld+json" nonce="<%= typeof cspNonce === 'undefined' ? '' : cspNonce %>"><%- pageMetadata.jsonLd %></script><% } %>

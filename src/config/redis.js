@@ -21,7 +21,7 @@ export async function getRedisClient() {
     },
   });
   client.on('error', (error) =>
-    logger.warn({ error: error.message }, 'Redis connection issue'),
+    logger.warn({ err: error }, 'Redis connection issue'),
   );
 
   connectionPromise = client
@@ -36,7 +36,7 @@ export async function getRedisClient() {
         throw error;
       }
       logger.warn(
-        { error: error.message },
+        { err: error },
         'Redis unavailable; MongoDB-backed sessions will be used',
       );
       client = undefined;

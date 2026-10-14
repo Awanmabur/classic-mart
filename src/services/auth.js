@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { env } from '../config/env.js';
 import { canonicalPhone } from '../core/phone.js';
 import { AppError } from '../core/errors.js';
-import { publicAccountType } from '../core/registration.js';
+import { publicAccountType, assertPublicRegistrationOpen } from '../core/registration.js';
 import {
   hashPassword,
   hashToken,
@@ -93,6 +93,7 @@ async function issueCode({ user, purpose, ip }) {
 }
 
 export async function registerUser(input, request) {
+  assertPublicRegistrationOpen(publicAccountType(input.accountType), { production: env.isProduction, configured: env.auth.publicRegistrationTypes.join(',') });
   assertStrongPassword(input.password);
   const emailNormalized = normalizeEmail(input.email);
   const phoneNormalized = canonicalPhone(input.phone);

@@ -3,12 +3,15 @@ import multer from 'multer';
 import { AppError } from '../core/errors.js';
 import { logger } from '../config/logger.js';
 import { env } from '../config/env.js';
+import { requestErrorLogged } from './http-logging.js';
 
 export function notFound(request, _response, next) {
   next(new AppError(`Page not found: ${request.path}`, 404, 'NOT_FOUND'));
 }
 
 export function errorHandler(error, request, response, _next) {
+  response.set('Cache-Control', 'private, no-store');
+  response.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   let normalized = error;
   if (error instanceof ZodError) {
     normalized = new AppError(
@@ -44,11 +47,13 @@ export function errorHandler(error, request, response, _next) {
 
   const status = normalized.status || 500;
   if (status >= 500) {
+    request[requestErrorLogged] = true;
     logger.error(
       {
-        requestId: request.id,
-        error: error.message,
-        stack: env.isProduction ? undefined : error.stack,
+        req: request,
+        statusCode: status,
+        errorCode: normalized.code,
+        err: error,
       },
       'Request failed',
     );

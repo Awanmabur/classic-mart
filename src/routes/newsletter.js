@@ -1,13 +1,13 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { z } from 'zod';
 import { publicId } from '../core/ids.js';
 import { encryptSensitive } from '../core/sensitive.js';
 import { NewsletterSubscription } from '../models/index.js';
 
 const router = Router();
-const subscribeLimit = rateLimit({ windowMs: 15 * 60_000, limit: 12, standardHeaders: 'draft-8', legacyHeaders: false });
+const subscribeLimit = rateLimit({ scope: 'newsletter:1', windowMs: 15 * 60_000, limit: 12, standardHeaders: 'draft-8', legacyHeaders: false });
 const schema = z.object({ email: z.string().trim().email().max(254) });
 
 function normalizeEmail(value) { return String(value || '').trim().toLowerCase(); }

@@ -1,21 +1,21 @@
 import discoveryRoutes from './routes/discovery.js';
-import { isVersionedAsset } from './core/public-assets.js';
+import { isVersionedAsset, versionHtmlAssets } from './core/public-assets.js';
 import path from 'node:path';
 import mongoose from 'mongoose';
 import { fileURLToPath } from 'node:url';
 import compression from 'compression';
 import express from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from './middleware/rate-limit.js';
 import helmet from 'helmet';
 import hpp from 'hpp';
-import pinoHttp from 'pino-http';
 import { env } from './config/env.js';
-import { logger } from './config/logger.js';
+import { httpLogging } from './middleware/http-logging.js';
 import { createSessionMiddleware } from './middleware/session.js';
 import { noStore, requestContext, sanitizeBody } from './middleware/request.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { enforcePrivilegedMfaEnrollment, loadUser } from './middleware/auth.js';
 import { countryContext } from './middleware/country.js';
+import { seoContext } from './middleware/seo.js';
 import { viewLocals } from './middleware/view.js';
 import { errorHandler, notFound } from './middleware/errors.js';
 import healthRoutes from './routes/health.js';
@@ -89,22 +89,7 @@ export function createApp(redisClient) {
   app.set('view cache', env.isProduction);
 
   app.use(requestContext);
-  app.use(
-    pinoHttp({
-      logger,
-      genReqId: (request) => request.id,
-      customLogLevel(_request, response, error) {
-        if (error || response.statusCode >= 500) return 'error';
-        if (response.statusCode >= 400) return 'warn';
-        return env.isProduction ? 'info' : 'silent';
-      },
-      customSuccessMessage(request, response) {
-        return `${request.method} ${request.url} ${response.statusCode}`;
-      },
-    }),
-  );
-  app.use(originGuard);
-  app.use(securityShield);
+  app.use(httpLogging);
   app.use(
     helmet({
       crossOriginEmbedderPolicy: false,
@@ -131,6 +116,8 @@ export function createApp(redisClient) {
       },
     }),
   );
+  app.use(originGuard);
+  app.use(securityShield);
   app.use(compression({ threshold: 1_024 }));
   app.use(
     express.static(path.join(root, 'public'), {
@@ -147,6 +134,8 @@ export function createApp(redisClient) {
         } else if (file === 'sw.js') {
           response.setHeader('Cache-Control', 'no-store, max-age=0');
           response.setHeader('Service-Worker-Allowed', '/');
+        } else if (file.endsWith('.webmanifest') || file === 'favicon.ico' || file === 'favicon.png') {
+          response.setHeader('Cache-Control', 'public, no-cache, max-age=0, must-revalidate');
         } else if (file.endsWith('.js') || file.endsWith('.css')) {
           response.setHeader(
             'Cache-Control',
@@ -160,6 +149,11 @@ export function createApp(redisClient) {
   );
   app.use(healthRoutes);
   app.use(discoveryRoutes);
+  // Reject abuse before parsing bodies or loading sessions, actors and page data.
+  app.use(rateLimit({
+    scope: 'global', windowMs: 60_000, limit: 240,
+    standardHeaders: 'draft-8', legacyHeaders: false,
+  }));
   app.use(
     express.urlencoded({
       extended: false,
@@ -176,6 +170,7 @@ export function createApp(redisClient) {
   app.use((request, response, next) => request.user ? noStore(request, response, next) : next());
   app.use(enforcePrivilegedMfaEnrollment);
   app.use(countryContext);
+  app.use(seoContext);
   app.use(async (request, response, next) => {
     try {
       const identity = request.user?.publicId || request.session?.cartKey || request.ip || 'anonymous';
@@ -190,21 +185,15 @@ export function createApp(redisClient) {
       if (error) return callback ? callback(error) : next(error);
       if (request.user || response.locals.csrfToken || response.locals.flash) noStore(request, response, () => {});
       let rendered = html;
-      if (!/rel=["']manifest["']/i.test(rendered)) rendered = rendered.replace(/<\/head>/i, '<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/assets/pwa-192.png"><meta name="theme-color" content="#ff6500"><meta name="application-name" content="Classic Mart"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><script src="/pwa.js" defer></script></head>');
+      if (response.statusCode >= 400) response.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+      if (!/rel=["']manifest["']/i.test(rendered)) rendered = rendered.replace(/<\/head>/i, '<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#ff6500"><meta name="application-name" content="Classic Mart"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><script src="/pwa.js" defer></script></head>');
+      if (!/rel=["']apple-touch-icon["']/i.test(rendered)) rendered = rendered.replace(/<\/head>/i, '<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png"></head>');
+      rendered = versionHtmlAssets(rendered);
       if (callback) return callback(null, rendered);
       return response.send(rendered);
     });
     next();
   });
-  app.use(
-    rateLimit({
-      windowMs: 60_000,
-      limit: 240,
-      standardHeaders: 'draft-8',
-      legacyHeaders: false,
-      skip: (request) => request.path.startsWith('/health/'),
-    }),
-  );
 
   // Retired asset URLs must not fall through to dashboard authentication routes.
   app.use((request, response, next) => {

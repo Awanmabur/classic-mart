@@ -85,12 +85,26 @@ function routePatternMatches(pattern, concrete) {
   return new RegExp(`^${escaped}$`).test(concrete);
 }
 
-test('static EJS links and form actions resolve to registered routes or bundled assets', () => {
+test('static EJS links and form actions resolve to registered routes or bundled assets', async () => {
   const routeSource = fs.readdirSync(path.join(root, 'src/routes'))
     .filter((name) => name.endsWith('.js'))
     .map((name) => read(`src/routes/${name}`))
     .join('\n');
-  const routePatterns = registeredRoutePatterns(routeSource);
+  // Canonical role routes are also registered from imported route maps. Inspect
+  // Express's actual registrations rather than treating their absence from a
+  // source-code string as a missing endpoint.
+  process.env.NODE_ENV = 'test';
+  const { createApp } = await import('../src/app.js');
+  const mounted = [];
+  const visit = stack => {
+    for (const layer of stack || []) {
+      if (layer.route) mounted.push(...(Array.isArray(layer.route.path) ? layer.route.path : [layer.route.path]).filter(value => typeof value === 'string'));
+      if (layer.handle?.stack) visit(layer.handle.stack);
+    }
+  };
+  visit(createApp(null).router.stack);
+  assert.ok(mounted.includes('/promoter/analytics'),'Declarative canonical routes must actually be mounted.');
+  const routePatterns = [...registeredRoutePatterns(routeSource), ...mounted];
   for (const name of ejsFiles) {
     const source = read(`views/${name}`);
     for (const match of source.matchAll(/\b(href|action)=["']([^"']+)["']/gi)) {
@@ -98,7 +112,7 @@ test('static EJS links and form actions resolve to registered routes or bundled 
       if (!raw.startsWith('/') || raw.includes('<%')) continue;
       const clean = raw.split(/[?#]/, 1)[0];
       if (clean === '/') continue;
-      if (/\.(?:css|js|json|webmanifest|png|svg|webp|jpe?g|gif)$/i.test(clean)) {
+      if (/\.(?:css|js|json|webmanifest|ico|png|svg|webp|jpe?g|gif)$/i.test(clean)) {
         assert.ok(fs.existsSync(path.join(root, 'public', clean.replace(/^\/+/, ''))), `${name} references missing asset ${clean}`);
         continue;
       }

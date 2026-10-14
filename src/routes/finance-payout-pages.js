@@ -1,14 +1,14 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { AppError, asyncHandler } from '../core/errors.js';
 import { financePageGates, renderFinancePage } from '../dashboard/finance-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { setFlash } from '../middleware/view.js';
 import { actOnFinancePayout, loadFinancePayoutPage, revealPayoutDestination, reviewFinanceAppeal, reviewFinanceDestination, streamFinancePayoutCsv } from '../services/finance-payout-pages.js';
 const router=Router();
-const mutations=rateLimit({windowMs:15*60_000,limit:60,standardHeaders:'draft-8',legacyHeaders:false});
-const exportsLimit=rateLimit({windowMs:15*60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
-const reveals=rateLimit({windowMs:15*60_000,limit:15,standardHeaders:'draft-8',legacyHeaders:false});
+const mutations=rateLimit({ scope: 'finance-payout-pages:1',windowMs:15*60_000,limit:60,standardHeaders:'draft-8',legacyHeaders:false});
+const exportsLimit=rateLimit({ scope: 'finance-payout-pages:2',windowMs:15*60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
+const reveals=rateLimit({ scope: 'finance-payout-pages:3',windowMs:15*60_000,limit:15,standardHeaders:'draft-8',legacyHeaders:false});
 router.get('/finance/payouts',...financePageGates(),asyncHandler(async(req,res)=>renderFinancePage(req,res,'finance-payouts',await loadFinancePayoutPage(req))));
 router.get('/finance/payouts/export.csv',...financePageGates(),exportsLimit,asyncHandler(streamFinancePayoutCsv));
 function redirectPath(req,tab,key,id) {const query=new URLSearchParams({tab,[key]:id});if(typeof req.query.country==='string'&&req.query.country)query.set('country',req.query.country);return '/finance/payouts?'+query.toString();}

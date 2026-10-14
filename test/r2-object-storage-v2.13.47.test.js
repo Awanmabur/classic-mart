@@ -55,7 +55,7 @@ test('catalogue and private evidence delivery stream from object storage behind 
   assert.doesNotMatch(mediaRoutes,/sendFile\(resolveUploadPath/);
   assert.match(trustRoutes,/sendStoredMedia/);
   assert.doesNotMatch(trustRoutes,/sendFile\(resolveUploadPath/);
-  assert.match(mediaRoutes,/readableSellerProductImage\(request\.user, request\.params\.publicId\)/);
+  assert.equal([...mediaRoutes.matchAll(/readableSellerProductImage\(request, request\.params\.publicId\)/g)].length,2,'The real request and current Device authority protect initial access and the post-read authorization check.');
   assert.match(productAccess,/media\.status === 'approved'/);
   assert.match(productAccess,/product\.status === 'published'/);
   assert.match(productAccess,/store\.status === 'verified'/);

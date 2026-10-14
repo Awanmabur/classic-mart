@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { sellerPageGates, renderSellerPage } from '../dashboard/seller-page-view.js';
 import { setFlash } from '../middleware/view.js';
@@ -10,7 +10,7 @@ import { sellerRelationshipPage, respondSellerReturn, attachSellerReturnEvidence
 
 const router = Router();
 const gates = sellerPageGates('support');
-const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+const mutationLimit = rateLimit({ scope: 'seller-relationship-pages:1', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const selectionPath = (kind, key, id, tab = '') => `/seller/${kind}?${tab ? `tab=${encodeURIComponent(tab)}&` : ''}${key}=${encodeURIComponent(id)}`;
 
 for (const kind of ['returns', 'customers', 'reviews', 'messages']) {

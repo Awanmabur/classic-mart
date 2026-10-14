@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { AppError, asyncHandler } from '../core/errors.js';
 import { noStore } from '../middleware/request.js';
 import { requireAuth, requireVerified, requireOnboarding, requirePermission } from '../middleware/auth.js';
@@ -23,8 +23,8 @@ const common = [noStore, privatePage, requireAuth, requireVerified, requireOnboa
 const seller = [...common, (request, _response, next) => canAccessWorkspace(request.user, 'seller') ? next() : next(new AppError('Seller access is required.', 403, 'DASHBOARD_FORBIDDEN')),
   loadSellerStore, requireStoreCapability('staff')];
 const reviewer = moderationPageGates();
-const uploadLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
-const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+const uploadLimit = rateLimit({ scope: 'seller-verification:1', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+const mutationLimit = rateLimit({ scope: 'seller-verification:2', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 
 async function sellerPage(request, response, error = '') {
   const record = await sellerVerificationRecord(request);

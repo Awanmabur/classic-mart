@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { z } from 'zod';
 import { randomToken } from '../core/crypto.js';
 import { AppError } from '../core/errors.js';
@@ -25,8 +25,8 @@ import { ensureHistoricalReceipt } from '../services/financial-documents.js';
 import { createGuestOrderChallenge, verifyGuestOrderChallenge } from '../services/guest-order-access.js';
 
 const router = Router();
-const trackingLimit=rateLimit({windowMs:10*60_000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
-const trackingChallengeLimit=rateLimit({windowMs:10*60_000,limit:10,standardHeaders:'draft-8',legacyHeaders:false});
+const trackingLimit=rateLimit({ scope: 'checkout:1',windowMs:10*60_000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
+const trackingChallengeLimit=rateLimit({ scope: 'checkout:2',windowMs:10*60_000,limit:10,standardHeaders:'draft-8',legacyHeaders:false});
 const addSchema = z.object({
   productId: z.string().trim().min(3).max(80),
   variantId: z.string().trim().min(3).max(80).optional(),

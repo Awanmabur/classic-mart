@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { moderationPageGates, renderModerationPage } from '../dashboard/moderation-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -7,8 +7,8 @@ import { setFlash } from '../middleware/view.js';
 import { actModerationQa, loadModerationReportPage, streamModerationReportCsv } from '../services/moderation-report-pages.js';
 
 const router = Router();
-const exportLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
-const actionLimit = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+const exportLimit = rateLimit({ scope: 'moderation-report-pages:1', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+const actionLimit = rateLimit({ scope: 'moderation-report-pages:2', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 for (const slug of ['overview', 'audit', 'reports']) {
   const pageId = 'moderator-' + slug, path = '/moderation/' + slug;
   router.get(path, ...moderationPageGates(), asyncHandler(async (request, response) => renderModerationPage(request, response, pageId, await loadModerationReportPage(request, pageId))));

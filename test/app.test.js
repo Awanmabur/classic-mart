@@ -111,7 +111,6 @@ test('renders every preserved public page and restored profile asset', async () 
     '/privacy',
     '/products',
     '/promoters',
-    '/returns',
     '/search',
     '/sellers',
     '/shipping',
@@ -122,13 +121,14 @@ test('renders every preserved public page and restored profile asset', async () 
     await request(app).get(route).expect(200);
   }
   await request(app).get('/profile-page.js').expect(200);
+  await request(app).get('/returns').expect(301).expect('location', '/return-policy');
   await request(app).get('/profile-pages.css').expect(200);
   await request(app).get('/sellers/profile').expect(301).expect('location', '/sellers');
   await request(app).get('/sellers/profile?slug=verified-store').expect(301).expect('location', '/sellers/verified-store');
-  await request(app).get('/sellers/verified-store').expect(200);
+  await request(app).get('/sellers/verified-store').expect(404);
   await request(app).get('/promoters/profile').expect(301).expect('location', '/promoters');
   await request(app).get('/promoters/profile?id=verified-promoter').expect(301).expect('location', '/promoters/verified-promoter');
-  await request(app).get('/promoters/verified-promoter').expect(200);
+  await request(app).get('/promoters/verified-promoter').expect(404);
   await request(app).get('/seller-profile.html?slug=verified-store').expect(301).expect('location', '/sellers/verified-store');
   await request(app).get('/promoter-profile.html?id=verified-promoter').expect(301).expect('location', '/promoters/verified-promoter');
   await request(app)

@@ -2,10 +2,10 @@ import { getPhoneCountries } from '../services/phone-countries.js';
 import { Router } from 'express';
 import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
 import { hasSellerSignupIntent, loginDestination, signupDestination } from '../dashboard/landing.js';
-import { publicAccountType } from '../core/registration.js';
+import { publicAccountType, assertPublicRegistrationOpen } from '../core/registration.js';
 import { hydratePlatformAuthorization } from '../services/platform-grants.js';
 import { env } from '../config/env.js';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { randomToken } from '../core/crypto.js';
 import { canonicalPhone } from '../core/phone.js';
@@ -52,7 +52,7 @@ router.post('/staff/invitations/:token/accept',requireAuth,asyncHandler(async(re
   return response.redirect('/');
 }));
 
-const authenticationLimit = rateLimit({
+const authenticationLimit = rateLimit({ scope: 'identity:1',
   windowMs: 15 * 60_000,
   limit: 12,
   standardHeaders: 'draft-8',
@@ -242,6 +242,7 @@ router.get('/signup', (request, response) => {
     return response.redirect('/onboarding/seller');
   }
   if (request.user) return response.redirect(loginDestination(request.user));
+  assertPublicRegistrationOpen(publicAccountType(request.query.role), { production: env.isProduction, configured: env.auth.publicRegistrationTypes.join(',') });
   return response.render('signup', { pageError: null, values: { accountType: publicAccountType(request.query.role), referralCode: String(request.query.ref || '').trim().slice(0,24) } });
 });
 

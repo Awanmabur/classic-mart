@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import multer from 'multer';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -24,7 +24,7 @@ import { assertOperationalCountry, operationalCountriesFor, operationalCountrySc
 import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 
 const router=Router();
-const aiLimit=rateLimit({windowMs:60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
+const aiLimit=rateLimit({ scope: 'ai:1',windowMs:60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
 const imageUpload=multer({storage:multer.memoryStorage(),limits: {fileSize:5*1024*1024,files:1,fields:4, fieldArrayIndexLimit: 16 },fileFilter(_req,file,cb){if(!['image/jpeg','image/png','image/webp','image/avif'].includes(file.mimetype))return cb(new AppError('Upload a JPEG, PNG, WebP or AVIF image.',422,'AI_IMAGE_TYPE_INVALID'));cb(null,true);}}).single('image');
 const supportRoles=new Set(['support','country_admin','super_admin']);
 const adminRoles=new Set(['country_admin','super_admin']);

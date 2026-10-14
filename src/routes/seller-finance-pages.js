@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { AppError, asyncHandler } from '../core/errors.js';
 import { sellerPageGates, renderSellerPage } from '../dashboard/seller-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -9,7 +9,7 @@ import { streamSellerLedgerCsv } from '../services/seller-finance.js';
 import { createSellerPayoutDestination, loadSellerAnalyticsPage, loadSellerFinancePage, requestSellerPayout, sellerFinanceAccess } from '../services/seller-finance-pages.js';
 
 const router = Router();
-const mutateLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
+const mutateLimiter = rateLimit({ scope: 'seller-finance-pages:1', windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
 const periods = new Set(['7months', '30days', 'year']);
 function reportingPeriod(request) {
   const query = new URL(request.originalUrl, 'http://localhost').searchParams;

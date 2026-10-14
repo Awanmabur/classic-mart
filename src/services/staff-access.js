@@ -20,7 +20,7 @@ function maskEmail(email){
 }
 function normalizeCountries(values=[]){return [...new Set(values.map(v=>String(v||'').trim().toUpperCase()).filter(v=>/^[A-Z]{2}$/.test(v)))];}
 
-export async function createPlatformStaffInvitation(request,{email,role,operationalCountries=[],warehouseScopes=[],grantDurationDays=180,reason}){
+export async function createPlatformStaffInvitation(request,{email,role,operationalCountries=[],warehouseScopes=[],grantDurationDays=180,reason},{session=null}={}){
   const cleanEmail=normalizeEmail(email),countries=normalizeCountries(operationalCountries),warehouses=[...new Set((warehouseScopes||[]).map(v=>String(v||'').trim()).filter(Boolean))].slice(0,100),duration=Math.max(1,Math.min(365,Math.floor(Number(grantDurationDays)||180)));
   if(!cleanEmail.includes('@'))throw new AppError('Enter a valid staff email address.',422,'STAFF_INVITE_EMAIL');
   if(!STAFF_ROLES.has(role))throw new AppError('Staff role is invalid.',422,'STAFF_INVITE_ROLE');
@@ -35,13 +35,14 @@ export async function createPlatformStaffInvitation(request,{email,role,operatio
   }else throw new AppError('Administrator access required.',403,'FORBIDDEN');
   if(!scopes.includes('*'))for(const country of countries)assertOperationalCountry(request.user,country);
   const emailHash=hashValue(cleanEmail),now=new Date();
-  await PlatformStaffInvitation.updateMany({emailHash,status:'pending',expiresAt:{$lte:now}},{$set:{status:'expired'}});
-  const active=await PlatformStaffInvitation.findOne({emailHash,status:'pending',expiresAt:{$gt:now}}).select('+emailHash');
+  await PlatformStaffInvitation.updateMany({emailHash,status:'pending',expiresAt:{$lte:now}},{$set:{status:'expired'}},session?{session}:undefined);
+  const active=await PlatformStaffInvitation.findOne({emailHash,status:'pending',expiresAt:{$gt:now}}).select('+emailHash').session(session);
   if(active)throw new AppError('An active staff invitation already exists for this email.',409,'STAFF_INVITE_EXISTS');
   const token=randomToken(32),expiresAt=new Date(Date.now()+INVITE_TTL_MS);
-  const invitation=await PlatformStaffInvitation.create({publicId:publicId('sinv'),emailHash,emailEncrypted:encryptSensitive(cleanEmail),emailMasked:maskEmail(cleanEmail),role,operationalCountries:countries,warehouseScopes:warehouses,grantDurationDays:duration,approvalCountry,reason:String(reason||'').trim(),status:'pending',tokenHash:hashToken(token),expiresAt,invitedByUserId:request.user._id});
+  const document={publicId:publicId('sinv'),emailHash,emailEncrypted:encryptSensitive(cleanEmail),emailMasked:maskEmail(cleanEmail),role,operationalCountries:countries,warehouseScopes:warehouses,grantDurationDays:duration,approvalCountry,reason:String(reason||'').trim(),status:'pending',tokenHash:hashToken(token),expiresAt,invitedByUserId:request.user._id};
+  const invitation=session?(await PlatformStaffInvitation.create([document],{session}))[0]:await PlatformStaffInvitation.create(document);
   const link=`${String(env.baseUrl).replace(/\/$/,'')}/staff/invitations/${encodeURIComponent(token)}`;
-  await addOutboxEvent({type:'platform.staff_invitation',aggregateType:'platform_staff_invitation',aggregatePublicId:invitation.publicId,payload:{email:cleanEmail,subject:'Classic Mart staff invitation',body:`You have been invited to Classic Mart as ${role.replaceAll('_',' ')} for ${countries.join(', ')}. Create or sign in to a dedicated account using this email, verify email and phone, enroll MFA, then open this link within 72 hours: ${link}. Accepting the invitation does not grant access immediately; a different administrator must approve activation.`}});
+  await addOutboxEvent({type:'platform.staff_invitation',aggregateType:'platform_staff_invitation',aggregatePublicId:invitation.publicId,payload:{email:cleanEmail,subject:'Classic Mart staff invitation',body:`You have been invited to Classic Mart as ${role.replaceAll('_',' ')} for ${countries.join(', ')}. Create or sign in to a dedicated account using this email, verify email and phone, enroll MFA, then open this link within 72 hours: ${link}. Accepting the invitation does not grant access immediately; a different administrator must approve activation.`}},session);
   return invitation;
 }
 

@@ -115,14 +115,16 @@ function safeFlagPayload(payload={}){
   return {key,description:String(payload.description||'').trim().slice(0,500),enabled:Boolean(payload.enabled),countries:[...new Set((payload.countries||[]).map(v=>String(v).toUpperCase()).filter(v=>/^[A-Z]{2}$/.test(v)))],roles:[...new Set(payload.roles||[])],rolloutPercentage:Math.min(100,Math.max(0,Number(payload.rolloutPercentage??100))),startsAt:payload.startsAt?new Date(payload.startsAt):null,endsAt:payload.endsAt?new Date(payload.endsAt):null};
 }
 
-export async function applyApproval(approval,decider,{request}={}){
+export async function applyApproval(approval,decider,{request,beforeApply,dryRun=false}={}){
   if(!approval)throw new AppError('Approval request is no longer pending.',409,'APPROVAL_STATE');
   const session=await mongoose.startSession();let result={},postCommitExportPublicId='',invalidateFeatureFlags=false;
+  const dryRunRollback=new Error('Approval preview transaction rolled back.');
   try{
     await session.withTransaction(async()=>{
       const freshApproval=await ApprovalRequest.findOne({_id:approval._id,status:'requested'}).session(session);
       if(!freshApproval)throw new AppError('Approval request is no longer pending.',409,'APPROVAL_STATE');
       if(Number(approval.__v||0)!==Number(freshApproval.__v||0))throw new AppError('Approval request changed. Reload before deciding.',409,'APPROVAL_VERSION_CONFLICT');
+      if(beforeApply)await beforeApply({session,approval:freshApproval});
       const context=await currentAdministrativeAuthority(decider,{country:freshApproval.country,session,request});
       decider=context.actor;
       const requester=await User.findById(freshApproval.requestedByUserId).select('+operationalCountries').session(session);
@@ -217,8 +219,10 @@ export async function applyApproval(approval,decider,{request}={}){
       }else throw new AppError('Unsupported approval type.',422,'APPROVAL_TYPE');
       freshApproval.status='applied';freshApproval.decidedByUserId=decider._id;freshApproval.decidedAt=new Date();freshApproval.appliedAt=new Date();freshApproval.increment();await freshApproval.save({session});
       await writeAudit(administrativeRequest(decider,request,freshApproval.country),'country_admin.approval_applied',{actor:decider,targetType:'approval',targetPublicId:freshApproval.publicId,country:freshApproval.country,session,metadata:{type:freshApproval.type}});
+      if(dryRun)throw dryRunRollback;
     });
-  }finally{await session.endSession();}
+  }catch(error){if(error!==dryRunRollback)throw error;}finally{await session.endSession();}
+  if(dryRun)return result;
   if(postCommitExportPublicId){const exp=await DataExport.findOne({publicId:postCommitExportPublicId});if(exp)await generateExport(exp);}
   if(invalidateFeatureFlags) clearActiveFeatureCache();
   return result;
@@ -437,8 +441,14 @@ export async function stage9Maintenance(){return {cmsActivated:await publishSche
 export async function revealGiftCard(publicId,user){const card=await GiftCard.findOne({publicId,...adminCountryScope(user)}).select('+codeEncrypted').lean();if(!card)throw new AppError('Gift card not found.',404,'GIFT_CARD_NOT_FOUND');return {...card,code:decryptSensitive(card.codeEncrypted)};}
 export async function publishedCms(key,country){
   const clean=String(key||'').toLowerCase();
-  const doc=await CmsContent.findOne({key:clean,country:String(country||'').toUpperCase(),status:{$in:['published','scheduled']}}).lean() || await CmsContent.findOne({key:clean,country:'',status:{$in:['published','scheduled']}}).lean();
-  if(!doc?.activeVersion)return null;const revision=doc.revisions.find(row=>row.version===doc.activeVersion);return revision?{key:doc.key,type:doc.type,country:doc.country,version:revision.version,title:revision.title,body:revision.body,data:(await import('./country-admin-growth-pages.js')).safeCmsData(revision.data)}:null;
+  const docs=await CmsContent.find({key:clean,country:{$in:[String(country||'').toUpperCase(),'']},status:{$in:['published','scheduled']},activeVersion:{$gt:0}}).sort({country:-1}).limit(2).lean();
+  // Prefer a scoped active revision. A first scheduled publication or a stale
+  // revision reference must not conceal the already published global copy.
+  for(const doc of docs){
+    const revision=doc.revisions.find(row=>row.version===doc.activeVersion);
+    if(revision)return {key:doc.key,type:doc.type,country:doc.country,version:revision.version,title:revision.title,body:revision.body,data:(await import('./country-admin-growth-pages.js')).safeCmsData(revision.data)};
+  }
+  return null;
 }
 
 export async function publishedCmsList({prefix='',type='',country='',limit=20}={}){

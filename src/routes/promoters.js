@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { requireAuth, requirePermission, requireVerified } from '../middleware/auth.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -16,7 +16,7 @@ import {
 
 const router = Router();
 const sellerCampaignGates = sellerPageGates('growth');
-const promoterMutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+const promoterMutationLimit = rateLimit({ scope: 'promoters:1', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const deferredCsrf = (request, _response, next) => { try { verifyDeferredCsrf(request); next(); } catch (error) { next(error); } };
 router.use(['/api/v1/promoters/verification', '/api/v1/promoters/links', '/api/v1/promoters/campaigns/:id/apply', '/api/v1/promoters/coupons/redeem'], (request, response, next) => request.method === 'POST' ? promoterMutationLimit(request, response, next) : next(), deferredCsrf);
 const sellerCampaignCsrf = (request, _response, next) => {

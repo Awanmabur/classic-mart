@@ -28,7 +28,7 @@ async function request(path, { method = 'GET', body, auth = true, tolerateBusine
     if (trace?.traceId) headers['x-classic-mart-trace-id'] = trace.traceId;
     if (auth) headers.Authorization = `Bearer ${await pesapalToken()}`;
     const startedAt = Date.now();
-    logger.debug({ span: 'pesapal.request', phase: 'start', provider: 'pesapal', method, path }, 'Pesapal request started');
+    const operation = path.split('?', 1)[0];
     const response = await fetch(endpoint(path), {
       method,
       headers,
@@ -36,7 +36,7 @@ async function request(path, { method = 'GET', body, auth = true, tolerateBusine
       signal: controller.signal,
     });
     const payload = await parsePayload(response);
-    logger.debug({ span: 'pesapal.request', phase: 'finish', provider: 'pesapal', method, path, statusCode: response.status, durationMs: Date.now() - startedAt }, 'Pesapal request completed');
+    logger.debug({ span: 'pesapal.request', provider: 'pesapal', method, operation, statusCode: response.status, durationMs: Date.now() - startedAt }, 'Pesapal request completed');
     const providerError = payload?.error && (payload.error.message || payload.error.code || payload.error.type);
     const businessFailure = String(payload?.status || '') === '500' || Number(payload?.error) === 500;
     if (!response.ok || providerError || (!tolerateBusinessError && businessFailure)) {

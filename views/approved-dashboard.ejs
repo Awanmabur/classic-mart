@@ -29,6 +29,7 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<%- include('partials/brand-icons') %>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow, noarchive" />
@@ -37,7 +38,6 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/styles.css') %>" />
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/role-workspaces.css') %>" />
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/design-system.css') %>" />
-  <link rel="icon" type="image/png" href="/approved-dashboard/assets/classic-mart-icon.png" />
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/session.css') %>" />
   <% if (realSeller) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/seller-fidelity.css') %>" /><% } %>
   <% if (promoterShell) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/promoter-live.css') %>" /><% } %>

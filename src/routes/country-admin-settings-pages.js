@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { countryAdminPageGates, renderCountryAdminPage } from '../dashboard/country-admin-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -9,7 +9,7 @@ import { loadCountryAdminSettingsPage, saveCountryAdminSettings, saveCountryAdmi
 import { writeAudit } from '../services/audit.js';
 import { countryAdminAccess, assertCountryAdminReadAccess, fenceCountryAdminAccess } from '../services/country-admin-workspace-access.js';
 const router = Router();
-const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
+const limiter = rateLimit({ scope: 'country-admin-settings-pages:1', windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
 const currentScopeQuery = request => typeof request.query?.country === 'string' ? { country: request.query.country } : {};
 router.get('/admin/settings', ...countryAdminPageGates(), asyncHandler(async (request, response) => renderCountryAdminPage(request, response, 'admin-settings', await loadCountryAdminSettingsPage(request))));
 router.get('/admin/settings/export.csv', ...countryAdminPageGates(), limiter, asyncHandler(async (request, response) => {

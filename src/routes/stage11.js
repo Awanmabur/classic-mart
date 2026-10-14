@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { asyncHandler, AppError } from '../core/errors.js';
@@ -24,7 +24,7 @@ import {
 import { Order, Product, StockItem } from '../models/index.js';
 
 const router = Router();
-const authLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+const authLimit = rateLimit({ scope: 'stage11:1', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
 const mobileLoginSchema = z.object({ identity: z.string().trim().min(3).max(254), password: z.string().min(1).max(256), deviceName: z.string().trim().min(1).max(120).optional(), platform: z.enum(['android','ios','web','other']).default('other') });
 const pushSchema = z.object({ platform: z.enum(['web','android','ios']), token: z.string().trim().min(12).max(4096), label: z.string().trim().max(120).optional() });
 const cartAddSchema = z.object({ productId: z.string().min(3).max(120), variantId: z.string().max(120).optional(), quantity: z.coerce.number().int().min(1).max(99) });

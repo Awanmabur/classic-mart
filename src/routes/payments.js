@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { AppError } from '../core/errors.js';
 import { hasPermission } from '../core/roles.js';
 import { requireAuth, requireVerified, requireOnboarding } from '../middleware/auth.js';
@@ -13,7 +13,7 @@ import { processWalletPesapalNotification } from '../services/customer-wallet.js
 import { reviewChargeback, resolveChargeback } from '../services/chargebacks.js';
 
 const router=Router();
-const financeMutationLimit=rateLimit({windowMs:15*60_000,limit:60,standardHeaders:'draft-8',legacyHeaders:false});
+const financeMutationLimit=rateLimit({ scope: 'payments:1',windowMs:15*60_000,limit:60,standardHeaders:'draft-8',legacyHeaders:false});
 router.use('/api/v1/finance',noStore,requireAuth,requireVerified,requireOnboarding,async(req,res,next)=>{
   try{res.set('X-Robots-Tag','noindex, nofollow, noarchive');await financeAccess(req,{workspace:false});verifyDeferredCsrf(req);return req.method==='POST'?financeMutationLimit(req,res,next):next();}catch(error){next(error);}
 });

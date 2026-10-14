@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { AppError, asyncHandler } from '../core/errors.js';
 import { moderationPageGates, renderModerationPage } from '../dashboard/moderation-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -8,7 +8,7 @@ import { loadModerationTrustPage, moderationTrustAction, streamModerationTrustCs
 import { readMediaObject } from '../services/object-storage.js';
 
 const router = Router();
-const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
+const limiter = rateLimit({ scope: 'moderation-trust-pages:1', windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
 router.get('/moderation/evidence/:id', ...moderationPageGates(), limiter, asyncHandler(async (request, response) => {
   const evidence = await authorizeModerationTrustEvidence(request, request.params.id);
   let stored;

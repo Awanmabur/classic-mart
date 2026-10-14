@@ -39,7 +39,7 @@ test('runtime exposes non-secret build identity and deployment smoke fails on wr
   assert.match(smoke,/EXPECTED_BUILD_SHA/);
   assert.match(smoke,/build SHA mismatch/);
   assert.match(smoke,/\/health\/ready/);
-  assert.match(docker,/ARG BUILD_SHA=unknown/);
+  assert.match(docker,/^ARG BUILD_SHA=$/m);
   assert.match(docker,/ENV BUILD_SHA=\$BUILD_SHA/);
 });
 
@@ -61,4 +61,29 @@ test('sanitized release preserves source-control runtime exclusions required by 
   assert.match(checker,/['"]\.gitignore['"]/);
   assert.match(gitignore,/\.classic-mart\//);
   assert.match(gitignore,/storage\/exports\//);
+});
+
+
+test('CI activates isolated live database fixtures with Chromium and the model lifecycle runner',()=>{
+  const ci=read('.github/workflows/ci.yml');
+  const runner=read('scripts/run-tests.js');
+  assert.match(ci,/branches: \[main, master, approved-dashboard-ui\]/);
+  assert.match(ci,/CLASSIC_MART_LIVE_TEST_MONGO_URI: mongodb:\/\/127\.0\.0\.1:27018\/classic_mart_ci_test\?replicaSet=rs0/);
+  assert.ok(ci.indexOf('playwright install --with-deps chromium') < ci.indexOf('run: npm test'));
+  assert.match(runner,/CLASSIC_MART_LIVE_TEST_MONGO_URI[\s\S]*--test-concurrency=1[\s\S]*live-test-model-lifecycle\.js/);
+});
+
+test('Docker carries launch evidence and R2 operations without copying prototype engines or seed data',()=>{
+  const docker=read('Dockerfile');
+  const ignore=read('.dockerignore');
+  assert.match(docker,/COPY[^\n]*scripts\/check-r2\.js[^\n]*scripts\/launch-evidence\.js/);
+  for(const relative of ['dashboard-preview/','test/','tests/','src/config/initial-catalogue.js',
+    'public/assets/products/','public/approved-dashboard/script.js','public/approved-dashboard/role-workspaces.js',
+    'public/approved-dashboard/enhancements.js','public/approved-dashboard/session-controls.js']) assert.ok(ignore.split('\n').includes(relative),relative);
+  assert.match(ignore,/^scripts\/\*$/m);
+  assert.match(ignore,/^!scripts\/check-r2\.js$/m);
+  assert.match(ignore,/^!scripts\/launch-evidence\.js$/m);
+  assert.match(docker,/COPY[^\n]*scripts\/staff-access\.js[^\n]*scripts\/operator-input\.js/);
+  assert.match(ignore,/^!scripts\/staff-access\.js$/m);
+  assert.match(ignore,/^!scripts\/operator-input\.js$/m);
 });

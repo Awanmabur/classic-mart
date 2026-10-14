@@ -2,11 +2,17 @@
 
 Current staged dashboard checkpoint: **v2.13.74 — approved role workspaces**.
 
+The current cleanup, restored image/button styling and staged launch controls are
+documented in [staged launch operations](docs/production/staged-launch.md).
+Production sign-off still requires configured real services and current evidence.
+See the [current verification record](docs/production/2026-10-14-cleanup-verification.md)
+for passing checks and the remaining colour-contrast/container/provider blockers.
+
 Classic Mart is a server-authoritative multi-vendor marketplace built with Node.js 24, Express 5, EJS, MongoDB, Redis, Pesapal and Cloudflare R2. The approved **Unified Role Dashboard — Polished Final 19** design is connected one workspace at a time to the existing marketplace backend.
 
 ## Connected dashboards
 
-- Customer uses `/dashboard` and canonical shopping/account routes. Seller has 17 connected `/seller/...` destinations; Promoter has 15 `/promoter/...` destinations; Finance and Support each have nine connected destinations. Moderation has eight connected `/moderation/...` destinations. Country Admin has 16 connected `/admin/...` destinations.
+- Customer uses `/dashboard` and canonical shopping/account routes. Seller has 17 connected `/seller/...` destinations; Promoter has 15 `/promoter/...` destinations; Finance and Support each have nine connected destinations. Moderation has eight connected `/moderation/...` destinations. Country Admin has 16 connected `/admin/...` destinations. Warehouse has nine connected receiving, inventory, fulfilment, returns and reporting destinations.
 - Current server-side roles, staff grants and primary workspace determine login landing and access. There is no demo role selector or browser-owned business state. Seller accounts land in the Seller workspace; Finance staff grants do not render a Customer dashboard even when their stored identity role is Customer.
 - Original approved base styles, scripts and images remain byte-for-byte unchanged. Live records and saved workflows use the approved layouts, with scoped additions for forms and responsive record text.
 - Finance includes real refund reservation/completion, independent payout review/settlement, COD/provider reconciliation, chargeback controls, scoped reports/audit and weekly report delivery. Transfers and provider delivery are not simulated as successes.
@@ -86,7 +92,7 @@ The import refuses an unspecified MongoDB database, non-external Mongo mode, non
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Start watch mode using the configured external services |
+| `npm run dev` | Start the server using the configured external services |
 | `npm start` | Start the web server once |
 | `npm run worker` | Start the background worker |
 | `npm run db:verify` | Verify MongoDB transaction topology |
@@ -97,6 +103,9 @@ The import refuses an unspecified MongoDB database, non-external Mongo mode, non
 | `npm run release:check` | Run the cumulative engineering release gates |
 | `npm run release:clean-app` | Build the stripped external-service-first app package |
 | `npm run release:production` | Build the production-only package |
+| `npm run staff:access -- --help` | Safely provision independently approved staff access |
+| `npm run launch:evidence -- --help` | Validate or explicitly record actual launch evidence |
+| `npm run seo:research -- --country=UG --sources=google,bing --limit=4` | Collect bounded public wording observations for manual review |
 
 ## Media
 

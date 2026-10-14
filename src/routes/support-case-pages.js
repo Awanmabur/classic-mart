@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { supportPageGates, renderSupportPage } from '../dashboard/support-page-view.js';
 import { requireAuth, requireVerified, requireOnboarding } from '../middleware/auth.js';
@@ -12,9 +12,9 @@ import { loadSupportCasePage, streamSupportCaseCsv, decideSupportReturn, receive
   loadWarehouseReturnIntakes, uploadWarehouseReturnIntakeEvidence, recordWarehouseReturnIntake, supportEvidenceRecord } from '../services/support-case-pages.js';
 
 const router=Router();
-const mutateLimit=rateLimit({windowMs:15*60_000,limit:45,standardHeaders:'draft-8',legacyHeaders:false});
-const uploadLimit=rateLimit({windowMs:15*60_000,limit:15,standardHeaders:'draft-8',legacyHeaders:false});
-const exportLimit=rateLimit({windowMs:15*60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
+const mutateLimit=rateLimit({ scope: 'support-case-pages:1',windowMs:15*60_000,limit:45,standardHeaders:'draft-8',legacyHeaders:false});
+const uploadLimit=rateLimit({ scope: 'support-case-pages:2',windowMs:15*60_000,limit:15,standardHeaders:'draft-8',legacyHeaders:false});
+const exportLimit=rateLimit({ scope: 'support-case-pages:3',windowMs:15*60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
 for(const [slug,pageId] of [['returns','support-returns'],['escalations','support-disputes']]){
   router.get('/support/'+slug,...supportPageGates(),asyncHandler(async(req,res)=>renderSupportPage(req,res,pageId,await loadSupportCasePage(req,pageId))));
   router.get('/support/'+slug+'/export.csv',...supportPageGates(),exportLimit,asyncHandler(async(req,res)=>streamSupportCaseCsv(req,res,pageId)));

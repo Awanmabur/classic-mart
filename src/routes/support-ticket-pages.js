@@ -1,13 +1,13 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { supportPageGates, renderSupportPage } from '../dashboard/support-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { setFlash } from '../middleware/view.js';
 import { loadSupportTicketPage, mutateSupportTicket, saveSupportMacro, streamSupportTicketCsv } from '../services/support-ticket-pages.js';
 const router=Router(),base='/support/queue';
-const writeLimit=rateLimit({windowMs:15*60_000,limit:60,standardHeaders:'draft-8',legacyHeaders:false});
-const exportLimit=rateLimit({windowMs:15*60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
+const writeLimit=rateLimit({ scope: 'support-ticket-pages:1',windowMs:15*60_000,limit:60,standardHeaders:'draft-8',legacyHeaders:false});
+const exportLimit=rateLimit({ scope: 'support-ticket-pages:2',windowMs:15*60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
 router.get(base,...supportPageGates(),asyncHandler(async(req,res)=>renderSupportPage(req,res,'support-queue',await loadSupportTicketPage(req))));
 router.get(base+'/export.csv',...supportPageGates(),exportLimit,asyncHandler(async(req,res)=>streamSupportTicketCsv(req,res)));
 router.post(base+'/:id/action',...supportPageGates(),writeLimit,asyncHandler(async(req,res)=>{verifyDeferredCsrf(req);const ticket=await mutateSupportTicket(req,req.params.id,req.body||{});if(req.accepts(['html','json'])==='json')return res.json({ticket});setFlash(req,'success',req.body?.action==='reply'?'Your reply was saved. Visible replies are queued for requester delivery.':'The ticket workflow was saved.');res.redirect(base+'?record='+encodeURIComponent(ticket.publicId)+'&country='+encodeURIComponent(ticket.country));}));

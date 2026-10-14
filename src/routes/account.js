@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
 import { mfaContinuation, mfaSecurityPath } from '../dashboard/mfa-continuation.js';
 import { dashboardLanding } from '../dashboard/landing.js';
-import { PUBLIC_ACCOUNT_TYPES, publicAccountType } from '../core/registration.js';
+import { PUBLIC_ACCOUNT_TYPES, publicAccountType, assertPublicRegistrationOpen } from '../core/registration.js';
 import { z } from 'zod';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { normalizePhone } from '../core/crypto.js';
 import { Device, Order, PrivacyRequest, PromoterContactRequest, SellerContactRequest, StoreMember, User } from '../models/index.js';
@@ -60,7 +60,7 @@ async function renderSellerEnrollment(request, response, pageError = '') {
     values: { ...actor.roleProfile?.toObject(), ...draft, role: 'seller', version: actor.__v } });
 }
 router.get('/onboarding/seller', asyncHandler((request, response) => renderSellerEnrollment(request, response)));
-const sellerEnrollmentLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false,
+const sellerEnrollmentLimit = rateLimit({ scope: 'account:1', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false,
   keyGenerator: request => String(request.user._id) });
 router.post('/onboarding/seller', sellerEnrollmentLimit, asyncHandler(async (request, response) => {
   try {
@@ -96,7 +96,10 @@ router.post(
       if (request.user.onboardingCompletedAt) return response.redirect(dashboardLanding(request.user));
       const input = onboardingSchema.parse(request.body);
       // Profile completion never overwrites administrator-managed staff access.
-      if (!request.user.platformAccessManagedAt && PUBLIC_ACCOUNT_TYPES.includes(request.user.role)) request.user.role = input.role;
+      if (!request.user.platformAccessManagedAt && PUBLIC_ACCOUNT_TYPES.includes(request.user.role)) {
+        assertPublicRegistrationOpen(input.role, { production: env.isProduction, configured: env.auth.publicRegistrationTypes.join(',') });
+        request.user.role = input.role;
+      }
       request.user.roleProfile = {
         publicName: input.publicName,
         businessName: input.businessName,
@@ -343,7 +346,7 @@ router.post(
 
 
 
-const mfaMutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false,
+const mfaMutationLimit = rateLimit({ scope: 'account:2', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false,
   keyGenerator: request => String(request.user._id) });
 router.post('/account/mfa/begin', mfaMutationLimit, asyncHandler(async (request, response) => {
   const { continuation } = await postedMfaContinuation(request);

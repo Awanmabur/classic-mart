@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { z } from 'zod';
 import { publicId } from '../core/ids.js';
 import { randomToken } from '../core/crypto.js';
@@ -39,7 +39,7 @@ import { cursorScope, pageResult } from '../services/pagination.js';
 
 const router = Router();
 
-const visualSearchLimit = rateLimit({
+const visualSearchLimit = rateLimit({ scope: 'storefront:1',
   windowMs: 15 * 60_000,
   limit: 12,
   standardHeaders: 'draft-8',

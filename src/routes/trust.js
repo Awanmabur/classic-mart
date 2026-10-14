@@ -3,7 +3,7 @@ import { customerView } from '../dashboard/customer-view.js';
 import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
 import { primaryWorkspaceFor } from '../dashboard/access.js';
 import mongoose from 'mongoose';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { decryptSensitive } from '../core/sensitive.js';
@@ -39,9 +39,9 @@ import { writeAudit } from '../services/audit.js';
 
 const router=Router();
 router.use(['/api/v1/returns','/api/v1/disputes','/api/v1/trust','/api/v1/reviews','/account/trust-cases','/api/v1/support/tickets','/api/v1/finance/returns','/account/returns','/account/support','/account/disputes','/evidence'],(_req,res,next)=>{res.set({'Cache-Control':'private, no-store','X-Robots-Tag':'noindex, nofollow, noarchive'});next();});
-const customerReplyLimit=rateLimit({windowMs:15*60_000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
+const customerReplyLimit=rateLimit({ scope: 'trust:1',windowMs:15*60_000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
 function customerTrustReturn(request){const value=String(request.body?.returnTo||'');if (['/returns','/support'].includes(value)) return value;return {'/dashboard/returns':'/returns','/dashboard/support':'/support'}[value] || '/account/returns';}
-const publicSupportLimit=rateLimit({windowMs:15*60_000,limit:8,standardHeaders:'draft-8',legacyHeaders:false});
+const publicSupportLimit=rateLimit({ scope: 'trust:2',windowMs:15*60_000,limit:8,standardHeaders:'draft-8',legacyHeaders:false});
 const publicTicketSchema=z.object({context:z.enum(['help','contact']).default('help'),name:z.string().trim().min(2).max(120),email:z.string().trim().email().max(254),topic:z.string().trim().min(2).max(100),orderId:z.string().trim().max(100).optional().default(''),message:z.string().trim().min(10).max(2000)});
 function publicCategory(topic){const v=String(topic||'').toLowerCase();if(v.includes('order'))return 'order';if(v.includes('return'))return 'return';if(v.includes('payment'))return 'payment';if(v.includes('seller'))return 'seller';if(v.includes('privacy')||v.includes('account'))return 'account';return 'other';}
 function publicPriority(topic){const v=String(topic||'').toLowerCase();return v.includes('payment')||v.includes('return')?'high':'normal';}

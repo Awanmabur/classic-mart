@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { AppError, asyncHandler } from '../core/errors.js';
 import { noStore } from '../middleware/request.js';
 import { requireAuth, requireVerified, requireOnboarding } from '../middleware/auth.js';
@@ -23,8 +23,8 @@ const requireFulfilmentMfa = (request, response, next) => {
   return response.redirect('/account/security?next=' + encodeURIComponent(request.originalUrl));
 };
 const seller = [...access, loadSellerStore, requireStoreCapability('fulfilment'), requireFulfilmentMfa];
-const mutationLimit = rateLimit({ windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
-const exportLimit = rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
+const mutationLimit = rateLimit({ scope: 'seller-orders:1', windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
+const exportLimit = rateLimit({ scope: 'seller-orders:2', windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
 const detailPath = id => '/seller/orders/' + encodeURIComponent(id);
 const filtersFor = request => ({ status: String(request.query.status || '').slice(0, 30), search: String(request.query.search || '').slice(0, 100) });
 

@@ -2,14 +2,14 @@
 
 <html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
 <head>
+<%- include('partials/brand-icons') %>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
 <% if (typeof productMeta !== "undefined" && productMeta) { %><base href="/"/><% } %>
-<meta content="<%= typeof productMeta !== 'undefined' && productMeta ? productMeta.description : 'Classic Mart multi-vendor ecommerce marketplace with verified sellers, real inventory and buyer protection.' %>" name="description"/>
+
 <meta content="#ff6200" name="theme-color"/>
 <link href="/manifest.webmanifest" rel="manifest"/>
-<title><%= typeof productMeta !== 'undefined' && productMeta ? `${productMeta.name} — Classic Mart` : 'Classic Mart — Everything, for everyone' %></title>
-<% if (typeof productMeta !== "undefined" && productMeta) { %><link rel="canonical" href="<%= productMeta.canonical %>"/><meta property="og:type" content="product"/><meta property="og:title" content="<%= productMeta.name %> — Classic Mart"/><meta property="og:description" content="<%= productMeta.description %>"/><meta property="og:image" content="<%= productMeta.image %>"/><script type="application/ld+json" nonce="<%= cspNonce %>"><%- productMeta.jsonLd %></script><% } %>
+<%- include("partials/seo-meta") %>
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
 </head>
@@ -17,6 +17,7 @@
 <a class="skip-link" href="#mainContent">Skip to content</a>
 <%- include("partials/storefront-header") %>
 <main id="mainContent">
+<% if (typeof productMeta !== 'undefined' && productMeta) { %><noscript><section class="container store-section" aria-label="Product details"><%- include('partials/product-details-readable') %></section></noscript><% } %>
 <div class="container">
 <section aria-label="Featured shopping deals" class="hero-grid">
 <aside aria-label="Product categories" class="category-panel" id="categoryPanel" data-dynamic-categories>
@@ -38,10 +39,10 @@
 <% if (heroRows.length) { heroRows.forEach((slide, index) => { %>
 <article aria-hidden="<%= index === 0 ? 'false' : 'true' %>" class="hero-slide hero-slide-<%= ['a','b','c'][index % 3] %> <%= index===0?'is-active':'' %>" <%= index === 0 ? '' : 'inert' %>>
 <div class="hero-copy"><span class="eyebrow"><%= slide.data?.eyebrow || 'Classic Mart' %></span><<%= index===0?'h1':'h2' %>><%= slide.title %></<%= index===0?'h1':'h2' %>><p><%= slide.body %></p><button class="button button-light" data-category-jump="<%= slide.data?.category || 'all' %>" type="button"><%= slide.data?.action || 'Browse products' %></button></div>
-<div aria-hidden="true" class="hero-products"><img alt="" class="hero-product hero-headphones" src="<%= slide.data?.image || '/assets/product-placeholder.svg' %>"/></div>
+<div aria-hidden="true" class="hero-products"><img alt="" class="hero-product hero-headphones" decoding="async" fetchpriority="<%= index === 0 ? 'high' : 'low' %>" src="<%= slide.data?.image || '/assets/product-placeholder.svg' %>"/></div>
 </article>
 <% }); } else { %>
-<article aria-hidden="false" class="hero-slide hero-slide-a is-active"><div class="hero-copy"><span class="eyebrow">Classic Mart</span><h1>Live marketplace catalogue</h1><p>Products, prices and availability will appear here when the marketplace database is connected.</p><a class="button button-light" href="/products">Browse products</a></div></article>
+<article aria-hidden="false" class="hero-slide hero-slide-a is-active"><div class="hero-copy"><span class="eyebrow">Classic Mart</span><h1>Find your next favourite</h1><p>Explore our categories and discover new products as sellers publish them.</p><a class="button button-light" href="/products">Browse products</a></div></article>
 <% } %>
 </div>
 <% if (heroRows.length > 1) { %><button aria-label="Previous slide" class="hero-arrow hero-prev" id="heroPrev" type="button"><img alt="" src="/assets/icons/chevron-left.svg"/></button><button aria-label="Next slide" class="hero-arrow hero-next" id="heroNext" type="button"><img alt="" src="/assets/icons/chevron-right.svg"/></button><div aria-label="Hero slides" class="hero-dots" id="heroDots"><% heroRows.forEach((_, index) => { %><button aria-label="Slide <%= index+1 %>" class="<%= index===0?'active':'' %>" data-slide="<%= index %>" type="button"></button><% }); %></div><% } %>

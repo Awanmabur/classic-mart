@@ -10,8 +10,9 @@ const outRoot = path.join(root, 'dist');
 const folderName = `classic-mart-v${version}-production`;
 const stage = path.join(outRoot, folderName);
 const zipPath = path.join(outRoot, `${folderName}.zip`);
-const allow = ['package.json','package-lock.json','Dockerfile','.dockerignore','.env.production.example','PRODUCTION_SETUP.md','render.yaml','src','public','views','scripts/run-production.js','scripts/bootstrap-production.js','scripts/migrate-production.js','scripts/pesapal-register-ipn.js','scripts/launch-check.js','scripts/check-production-data.js','scripts/deploy-smoke.js','scripts/backup-drill.js','scripts/check-r2.js'];
-const forbiddenExact = new Set(['test','tests','.github','.env.example','scripts/ensure-local-mongo.js','scripts/stop-local-mongo.js','scripts/reset-local.js','scripts/fetch-seed-product-images.js','scripts/seed.js','scripts/seed-starter-catalogue.js','src/config/starter-catalogue.js','scripts/seed-initial-catalogue.js','src/config/initial-catalogue.js','src/core/local-mongo.js','public/assets/products','public/dashboard-assets']);
+const allow = ['package.json','package-lock.json','Dockerfile','.dockerignore','.env.production.example','PRODUCTION_SETUP.md','docs/production/staged-launch.md','render.yaml','src','public','views','scripts/run-production.js','scripts/bootstrap-production.js','scripts/migrate-production.js','scripts/pesapal-register-ipn.js','scripts/launch-check.js','scripts/check-production-data.js','scripts/deploy-smoke.js','scripts/backup-drill.js','scripts/check-r2.js','scripts/launch-evidence.js','scripts/staff-access.js','scripts/operator-input.js'];
+const forbiddenExact = new Set(['test','tests','.github','.env.example','scripts/ensure-local-mongo.js','scripts/stop-local-mongo.js','scripts/reset-local.js','scripts/fetch-seed-product-images.js','scripts/seed.js','scripts/seed-starter-catalogue.js','src/config/starter-catalogue.js','scripts/seed-initial-catalogue.js','src/config/initial-catalogue.js','src/core/local-mongo.js','public/assets/products','public/dashboard-assets','dashboard-preview','playwright.config.js','CLEAN_MANIFEST.json','PRODUCTION_MANIFEST.json','RELEASE_MANIFEST.json',
+  'public/approved-dashboard/script.js','public/approved-dashboard/role-workspaces.js','public/approved-dashboard/enhancements.js','public/approved-dashboard/session-controls.js']);
 const forbiddenNames = new Set(['.env','.git','node_modules','.classic-mart','storage','logs','artifacts','dist','coverage']);
 const privateKey = /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/;
 const highRiskKey = /(?:AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|sk_live_[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})/;
@@ -54,7 +55,9 @@ stagedPackage.scripts={
   'launch:check':'node scripts/launch-check.js',
   'deploy:smoke':'node scripts/deploy-smoke.js',
   'backup:drill':'node scripts/backup-drill.js',
-  'media:r2:check':'node scripts/check-r2.js'
+  'media:r2:check':'node scripts/check-r2.js',
+  'launch:evidence':'node scripts/launch-evidence.js',
+  'staff:access':'node scripts/staff-access.js'
 };
 fs.writeFileSync(stagedPackagePath,JSON.stringify(stagedPackage,null,2)+'\n');
 const stagedLockPath=path.join(stage,'package-lock.json');

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { supportPageGates, renderSupportPage } from '../dashboard/support-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -8,7 +8,7 @@ import { loadSupportSettingsPage, saveSupportSettings, saveSupportProfile, saveS
 import { writeAudit } from '../services/audit.js';
 import { supportAccess, assertSupportReadAccess } from '../services/support-workspace-access.js';
 const router = Router();
-const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
+const limiter = rateLimit({ scope: 'support-settings-pages:1', windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
 router.get('/support/settings', ...supportPageGates(), asyncHandler(async (request, response) => renderSupportPage(request, response, 'support-settings', await loadSupportSettingsPage(request))));
 router.get('/support/settings/export.csv', ...supportPageGates(), limiter, asyncHandler(async (request, response) => {
   const original = await supportAccess(request);

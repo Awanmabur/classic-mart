@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { financePageGates, renderFinancePage } from '../dashboard/finance-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -8,7 +8,7 @@ import { loadFinanceSettingsPage, saveFinanceSettings, saveFinanceProfile, saveF
 import { writeAudit } from '../services/audit.js';
 import { financeAccess, assertFinanceExportAccess } from '../services/finance-workspace-access.js';
 const router = Router();
-const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
+const limiter = rateLimit({ scope: 'finance-settings-pages:1', windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
 router.get('/finance/settings', ...financePageGates(), asyncHandler(async (request, response) => renderFinancePage(request, response, 'finance-settings', await loadFinanceSettingsPage(request))));
 router.get('/finance/settings/export.csv', ...financePageGates(), limiter, asyncHandler(async (request, response) => {
   const original = await financeAccess(request);

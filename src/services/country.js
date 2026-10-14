@@ -1,5 +1,6 @@
 import { CountrySetting } from '../models/index.js';
 import { env } from '../config/env.js';
+import { AppError } from '../core/errors.js';
 
 const FALLBACK = Object.freeze({
   code: 'UG',
@@ -21,11 +22,12 @@ async function refresh() {
   const version = generation;
   const pending = (async () => {
     const countries = env.isTest ? [FALLBACK] : await CountrySetting.find({ active: true }).lean().exec();
-    const updated = new Map(countries.map(country => [country.code, {
+    const eligible = env.isProduction ? countries.filter(country => env.security.launchCountries.includes(country.code)) : countries;
+    const updated = new Map(eligible.map(country => [country.code, {
       code: country.code, name: country.name, currency: country.currency,
       locale: country.locale, timeZone: country.timeZone, phonePrefix: country.phonePrefix, active: country.active,
     }]));
-    if (!updated.has('UG')) updated.set('UG', FALLBACK);
+    if (!env.isProduction && !updated.has('UG')) updated.set('UG', FALLBACK);
     if (generation === version) { cache = updated; cacheExpiresAt = Date.now() + 5 * 60_000; }
   })();
   refreshPromise = pending;
@@ -37,7 +39,9 @@ async function ensureCache() {
 
 export async function getCountry(code = 'UG') {
   await ensureCache();
-  return cache.get(String(code).toUpperCase()) || cache.get('UG') || FALLBACK;
+  const country = cache.get(String(code).toUpperCase()) || cache.get(env.security.launchCountries[0]) || cache.values().next().value;
+  if (!country) throw new AppError('No launched market is currently available.', 503, 'COUNTRY_UNAVAILABLE');
+  return country;
 }
 
 export async function getCountries() {

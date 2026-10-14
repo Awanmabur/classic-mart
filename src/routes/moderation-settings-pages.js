@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { moderationPageGates, renderModerationPage } from '../dashboard/moderation-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -8,7 +8,7 @@ import { loadModerationSettingsPage, saveModerationSettings, saveModerationProfi
 import { writeAudit } from '../services/audit.js';
 import { moderationAccess, assertModerationReadAccess } from '../services/moderation-workspace-access.js';
 const router = Router();
-const limiter = rateLimit({ windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
+const limiter = rateLimit({ scope: 'moderation-settings-pages:1', windowMs: 15 * 60_000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false });
 router.get('/moderation/settings', ...moderationPageGates(), asyncHandler(async (request, response) => renderModerationPage(request, response, 'moderator-settings', await loadModerationSettingsPage(request))));
 router.get('/moderation/settings/export.csv', ...moderationPageGates(), limiter, asyncHandler(async (request, response) => {
   const original = await moderationAccess(request);

@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { financePageGates, renderFinancePage } from '../dashboard/finance-page-view.js';
 import { loadFinanceReportPage, streamFinanceReportCsv } from '../services/finance-report-pages.js';
 
 const router = Router();
-const exportLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+const exportLimit = rateLimit({ scope: 'finance-report-pages:1', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
 for (const slug of ['overview', 'reports', 'audit']) {
   const pageId = 'finance-' + slug, path = '/finance/' + slug;
   router.get(path, ...financePageGates(), asyncHandler(async (request, response) => renderFinancePage(request, response, pageId, await loadFinanceReportPage(request, pageId))));

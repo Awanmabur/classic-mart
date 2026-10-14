@@ -1,7 +1,7 @@
 name: Classic Mart CI
 on:
   push:
-    branches: [main]
+    branches: [main, master, approved-dashboard-ui]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,6 +20,8 @@ jobs:
           node-version: '24.x'
           cache: npm
       - run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
       - name: Start MongoDB replica set and Redis
         run: |
           docker run -d --name classic-mart-mongo --network host mongo:8 mongod --port 27018 --replSet rs0 --bind_ip_all
@@ -33,9 +35,16 @@ jobs:
           NODE_ENV: test
           MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci?replicaSet=rs0
           REDIS_URL: redis://127.0.0.1:6379
-      - name: Automated tests
+      - name: Automated unit, live database and workspace browser tests
         run: npm test
-        env: *testenv
+        env:
+          NODE_ENV: test
+          MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci?replicaSet=rs0
+          REDIS_URL: redis://127.0.0.1:6379
+          # The runner serializes live fixtures and preloads model initialization
+          # cleanup before each disposable test database is dropped.
+          CLASSIC_MART_LIVE_TEST_MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci_test?replicaSet=rs0
+          CLASSIC_MART_LIVE_TEST_REDIS_URL: redis://127.0.0.1:6379/15
       - name: Database topology, integration and concurrency audits
         run: npm run db:verify && npm run audit:integration && npm run audit:concurrency
         env: &databaseenv
@@ -60,8 +69,6 @@ jobs:
           ADMIN_EMAIL: admin@classicmart.local
           ADMIN_PHONE: '+256700000001'
           CLASSIC_MART_TEST_MONGO_OVERRIDE: '1'
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
       - name: Real-browser and WCAG accessibility gates
         run: npm run browser:check
         env: *browserenv

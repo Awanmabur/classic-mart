@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler } from '../core/errors.js';
 import { supportPageGates, renderSupportPage } from '../dashboard/support-page-view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
@@ -7,9 +7,9 @@ import { setFlash } from '../middleware/view.js';
 import { assertSupportContactDisclosure, createSupportOrderCase, escalateSupportReview, loadSupportContextPage, revealSupportCustomerContact, streamSupportContextCsv } from '../services/support-context-pages.js';
 
 const router = Router();
-const mutateLimit = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
-const lookupLimit = rateLimit({ windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
-const exportLimit = rateLimit({ windowMs: 15 * 60_000, limit: 15, standardHeaders: 'draft-8', legacyHeaders: false });
+const mutateLimit = rateLimit({ scope: 'support-context-pages:1', windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
+const lookupLimit = rateLimit({ scope: 'support-context-pages:2', windowMs: 15 * 60_000, limit: 80, standardHeaders: 'draft-8', legacyHeaders: false });
+const exportLimit = rateLimit({ scope: 'support-context-pages:3', windowMs: 15 * 60_000, limit: 15, standardHeaders: 'draft-8', legacyHeaders: false });
 for (const slug of ['customers', 'orders', 'reviews']) {
   const path = '/support/' + slug, pageId = 'support-' + slug;
   router.get(path, ...supportPageGates(), lookupLimit, asyncHandler(async (req, res) => renderSupportPage(req, res, pageId, await loadSupportContextPage(req, pageId))));

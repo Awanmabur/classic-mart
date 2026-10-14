@@ -43,7 +43,7 @@ async function connectWithRetry({ autoIndex = !env.isProduction } = {}) {
       await mongoose.disconnect().catch(() => {});
       if (attempt === maximumAttempts) break;
       logger.warn(
-        { attempt, maximumAttempts, error: error.message },
+        { attempt, maximumAttempts, err: error },
         'MongoDB is not ready; retrying',
       );
       await delay(Math.min(attempt * 1_000, 3_000));

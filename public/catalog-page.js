@@ -20,6 +20,7 @@
     searchId: '',
     autocompleteTimer: null,
   };
+  if (document.body.dataset.initialCategory && !state.params.has('category')) state.params.set('category', document.body.dataset.initialCategory);
 
   const escapeHtml = (value) =>
     String(value ?? '').replace(
