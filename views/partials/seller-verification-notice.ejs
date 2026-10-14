@@ -1,0 +1,9 @@
+<aside class="panel dashboard-message" data-seller-verification-notice aria-label="Store verification">
+  <strong>Store verification required</strong>
+  <p>You can review your store and prepare your catalogue. Complete store verification before publishing products or fulfilling orders.</p>
+  <% if (liveSeller.navigation.some(item => item.id === 'seller-store' && item.ready)) { %>
+    <a class="plain-link" href="/seller/verification">Review store verification</a>
+  <% } else { %>
+    <p>Ask your store owner or administrator to complete verification.</p>
+  <% } %>
+</aside>

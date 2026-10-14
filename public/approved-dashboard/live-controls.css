@@ -1,0 +1,78 @@
+/* Real labels can wrap; the approved preview's single-line controls used zero
+   vertical padding and allowed their icons to shrink alongside longer text. */
+body[data-dashboard-live="true"] :is(.primary-button, .outline-button, .soft-button, .light-button, .ghost-light-button):not(.seller-filter-submit) {
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  padding-block: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  line-height: 1.35;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+body[data-dashboard-live="true"] :is(.primary-button, .outline-button, .soft-button, .light-button, .ghost-light-button) > svg {
+  flex-shrink: 0;
+}
+
+body[data-dashboard-live="true"] :is(.primary-button, .outline-button, .soft-button, .light-button, .ghost-light-button) > span {
+  min-width: 0;
+}
+
+/* Live notification actions sit inside CSRF-protected forms. The preview's
+   direct-child selector misses them and leaves native browser button chrome. */
+body[data-dashboard-live="true"] :is(button.plain-link, .notification-list article > form > button) {
+  min-height: 32px;
+  max-width: 100%;
+  padding: 8px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  line-height: 1.35;
+  text-align: center;
+  white-space: normal;
+}
+
+body[data-dashboard-live="true"] .notification-list article > form > button {
+  color: #778397;
+  font-size: 11px;
+}
+
+/* A real form adds an extra box to action rows that the static preview lacks. */
+body[data-dashboard-live="true"] :is(.card-actions, .row-actions) {
+  flex-wrap: wrap;
+}
+
+body[data-dashboard-live="true"] :is(.card-actions, .row-actions) > form {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 620px) {
+  /* The preview's mobile .soft-button placement belongs to order cards. A
+     form submit must not create two extra grid columns beside its fields. */
+  body[data-dashboard-live="true"] .dashboard-form > .soft-button {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    justify-self: start;
+  }
+
+  body[data-dashboard-live="true"] .role-upload-box > .soft-button {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    justify-self: center;
+  }
+}
+
+/* Catalogue photos need their own clipping, including images inside links.
+   Logos, decorative artwork, flags, and circular account avatars stay separate. */
+body[data-dashboard-live="true"] :is(.product-image img, .wishlist-item img, .category-card img, .cart-item > img, .seller-product-image) {
+  border-radius: var(--radius-small, 18px);
+}

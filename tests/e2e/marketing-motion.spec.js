@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test';
 const start = new Date('2026-10-11T00:00:00Z');
 
 async function openHome(page, reducedMotion = 'no-preference') {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
   await page.emulateMedia({ reducedMotion });
   await page.clock.install({ time: start });
   await page.clock.pauseAt(new Date(start.getTime() + 1_000));
@@ -20,6 +22,7 @@ async function openHome(page, reducedMotion = 'no-preference') {
     });
   });
   await page.goto('/', { waitUntil: 'networkidle' });
+  expect(pageErrors, 'homepage scripts initialize from the published catalogue').toEqual([]);
   expect(await page.locator('.hero-slide').count()).toBeGreaterThan(1);
   expect(await page.locator('.promo-card').count()).toBeGreaterThan(0);
 }
@@ -27,6 +30,44 @@ async function openHome(page, reducedMotion = 'no-preference') {
 const activeSlide = page => page.locator('.hero-slide').evaluateAll(slides => slides.findIndex(slide => slide.classList.contains('is-active')));
 const promoStarts = (page, index) => page.evaluate(index => window.marketingMotionStarts.filter(value => value === index).length, index);
 const stopPointerAndFocus = page => page.evaluate(() => document.activeElement?.blur());
+
+test('published catalogue initializes manual hero navigation and keeps each selected slide in view', async ({ page }) => {
+  await openHome(page, 'reduce');
+
+  const slides = page.locator('.hero-slide');
+  const slideCount = await slides.count();
+  const expectSelectedSlide = async index => {
+    expect(await activeSlide(page)).toBe(index);
+    await expect(slides.nth(index)).toHaveAttribute('aria-hidden', 'false');
+    await expect(slides.nth(index)).toHaveJSProperty('inert', false);
+    await expect(page.getByRole('button', { name: `Slide ${index + 1}`, exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => page.locator('#heroSlider').evaluate((hero, index) => {
+      const selected = hero.querySelectorAll('.hero-slide')[index].getBoundingClientRect();
+      const viewport = hero.getBoundingClientRect();
+      return Math.max(Math.abs(selected.left - viewport.left), Math.abs(selected.right - viewport.right));
+    }, index), { message: 'selected hero slide fills the visible slider' }).toBeLessThanOrEqual(1);
+  };
+
+  await expectSelectedSlide(0);
+  const nextArrow = page.locator('#heroNext');
+  const previousArrow = page.locator('#heroPrev');
+  if (await nextArrow.isVisible()) {
+    await nextArrow.click();
+    await expectSelectedSlide(1);
+    await previousArrow.click();
+    await expectSelectedSlide(0);
+    await previousArrow.click();
+    await expectSelectedSlide(slideCount - 1);
+    await nextArrow.click();
+    await expectSelectedSlide(0);
+  }
+  for (let index = 0; index < slideCount; index += 1) {
+    await page.getByRole('button', { name: `Slide ${index + 1}`, exact: true }).click();
+    await expectSelectedSlide(index);
+  }
+  await page.getByRole('button', { name: 'Slide 1', exact: true }).click();
+  await expectSelectedSlide(0);
+});
 
 test('approved hero advances every 5.6 seconds and pauses while hovered or focused', async ({ page }) => {
   await openHome(page);

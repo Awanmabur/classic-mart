@@ -42,6 +42,13 @@ membership capability. Invited staff must meet the same verification and
 configured MFA requirements as store owners. Legacy `/dashboard/seller-*`
 links redirect to canonical pages while preserving their query parameters.
 
+Pending stores can read their connected pages after normal authentication and
+configured MFA, with a notice directing managers to verification. Fulfilment
+writes and external order API access still require a verified store. Suspended
+stores retain only the existing read-only Store Settings surface; operational
+pages and writes remain blocked. Settings reads recheck the current actor,
+session version and membership instead of relying on a cached store.
+
 Page services project safe view data into the approved EJS layout. Empty stores
 show empty records and real zero totals. Stock writes use transactions and
 version checks; warehouse archive races with receipts and task creation cannot

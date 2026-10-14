@@ -3889,3 +3889,87 @@ body { font-size: 15px; line-height: 1.55; }
   .deal-intro { grid-template-columns: minmax(0, 1fr); }
   .deal-intro .countdown { grid-column: 1; grid-row: auto; margin-top: 6px; }
 }
+
+/* Content photography shares the existing main product image's corner radius.
+   Scope the frames and photos explicitly so icons, logos and avatars keep their shapes.
+   Keep this after the older media overrides; page styles may still set media sizes and fit. */
+:root { --content-image-radius: calc(var(--card-radius) - 1px); }
+
+body :is(
+  .promo-card,
+  .category-card .category-image,
+  .product-image,
+  .compact-product .compact-image,
+  .recommend-card .recommend-image,
+  .mini-product-image,
+  .collection-card,
+  .blog-card,
+  .blog-modal-feature,
+  .blog-modal-card,
+  .catalog-product-image,
+  .category-directory-image,
+  .product-detail-modal .gallery-main,
+  .product-modal-image,
+  .preview-related-image,
+  .cart-page-image,
+  .cart-recommend-image,
+  .wishlist-card-image,
+  .profile-product > a,
+  .news-grid article:has(> img)
+) {
+  border-radius: var(--content-image-radius);
+  overflow: hidden;
+}
+
+body :is(
+  .hero-product,
+  .promo-card > img,
+  .category-image > img,
+  .product-image > img,
+  .compact-product .compact-image > img,
+  .recommend-card .recommend-image > img,
+  .mini-product-image > img,
+  .collection-card > img,
+  .blog-card > img,
+  .blog-modal-feature > img,
+  .blog-modal-card > img,
+  .blog-article-main > img,
+  .catalog-product-image > img,
+  .category-directory-image > img,
+  .product-detail-modal .gallery-main > img,
+  .product-modal-image > img,
+  .preview-related-image > img,
+  .cart-item > img,
+  .cart-page-image > img,
+  .cart-recommend-image > img,
+  .checkout-mini-item > span > img,
+  .confirm-item > span > img,
+  .wishlist-card-image > img,
+  .profile-product > a > img,
+  .news-grid article > img,
+  .classic-ai-product > img
+) {
+  border-radius: var(--content-image-radius);
+  overflow: hidden;
+}
+
+/* This link is the photo frame, while the product card also contains its text. */
+.profile-product > a { display: block; }
+
+/* Quantity badges extend beyond these frames; the image clips its own corners. */
+body :is(.checkout-mini-item > span, .confirm-item > span) {
+  border-radius: var(--content-image-radius);
+  overflow: visible;
+}
+
+/* Compact search thumbnails keep visible straight edges between their corners. */
+.search-suggestions .search-result-option > img {
+  border-radius: 10px !important;
+  overflow: hidden;
+}
+
+/* Gallery controls retain their compact 14px/12px frame geometry. */
+.gallery-thumb > img {
+  border-radius: inherit;
+  overflow: hidden;
+}

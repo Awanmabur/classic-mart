@@ -20,6 +20,7 @@ const actions = z.enum(['processing', 'pick', 'pack', 'dispatch']);
 const same = (left, right) => String(left) === String(right);
 const safeVersion = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 const rootProjection = 'publicId country status paymentState paymentMethod deliveryMethod cancellationState fulfillmentState refundState contact totals.currency items';
+const verificationRequired = 'Complete store verification before preparing or dispatching orders.';
 
 /** The current database membership, rather than a cached role, authorizes every read/write. */
 async function access(request, session = null, mutation = false, requiredScope = '') {
@@ -49,7 +50,14 @@ async function access(request, session = null, mutation = false, requiredScope =
   if (!member || (!capabilities.has('*') && !capabilities.has('fulfilment'))) {
     throw new AppError('Your store role cannot manage fulfilment.', 403, 'STORE_PERMISSION_DENIED');
   }
-  if (!store || store.status !== 'verified') throw new AppError('This store is unavailable for fulfilment.', 409, 'STORE_LOCKED');
+  // A newly enrolled seller has a pending store and can review its own records.
+  // Fulfilment and external API access, including a cached mutation preflight,
+  // retain their approval requirement.
+  const operational = api || mutation || requiredScope === 'orders:fulfil';
+  if (!store || !['pending_verification', 'verified'].includes(store.status)) {
+    throw new AppError('This store is unavailable for fulfilment.', 409, 'STORE_LOCKED');
+  }
+  if (operational && store.status !== 'verified') throw new AppError(verificationRequired, 409, 'STORE_LOCKED');
   if (mutation) {
     // Writing the authorization records makes concurrent suspension/revocation
     // conflict with this transaction instead of permitting a snapshot-only race.
@@ -107,7 +115,7 @@ function statusLabel(order, sellerShipment, parcel) {
 }
 
 function actionPlan(order, root, store, parcel) {
-  let blockedReason = readyRoot(root, store);
+  let blockedReason = store.status === 'verified' ? readyRoot(root, store) : verificationRequired;
   if (!blockedReason && !['confirmed', 'processing'].includes(order.status)) blockedReason = 'This seller order has completed preparation or is no longer fulfilable.';
   const permitted = !blockedReason;
   return { blockedReason, actions: {

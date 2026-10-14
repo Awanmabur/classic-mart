@@ -57,11 +57,11 @@
   }
 
   const initialStorefront = readInitialStorefront();
+  let displayLocale = initialStorefront.country?.locale || "en-UG";
+  let displayCurrency = initialStorefront.country?.currency || "UGX";
   let categories = Array.isArray(initialStorefront.categories) ? initialStorefront.categories : [];
   let products = (Array.isArray(initialStorefront.products) ? initialStorefront.products : []).map(normalizeProduct);
   let brands = Array.isArray(initialStorefront.brands) ? initialStorefront.brands : [];
-  let displayLocale = initialStorefront.country?.locale || "en-UG";
-  let displayCurrency = initialStorefront.country?.currency || "UGX";
   const state = {
     cart: window.ClassicMartCart?.asLegacyCart?.() || {},
     wishlist: [],

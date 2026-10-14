@@ -5,8 +5,12 @@ import { liveSellerAccountHeader as liveAccountHeader } from './live-account-hea
 import { getCountries } from '../services/country.js';
 import { sellerNavigation, SELLER_LIVE_ROUTES } from './seller-navigation.js';
 import { allowedWorkspacesFor } from './access.js';
+import { sellerStoreReadAccess } from '../services/seller-store-read-access.js';
 
 export async function renderSellerStore(request, response, { error = '', section = '', draft = {}, verificationFlow = null } = {}) {
+  const access = await sellerStoreReadAccess(request);
+  request.store = access.store;
+  request.storeMembership = access.member;
   const [header, countries, verification] = await Promise.all([
     liveAccountHeader(request), getCountries(),
     SellerVerification.findOne({ storeId: request.store._id }).select('status sellerType legalName reviewReason').lean(),
