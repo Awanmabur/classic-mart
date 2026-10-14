@@ -1,0 +1,18 @@
+export const COUNTRY_ADMIN_LIVE_ROUTES = Object.freeze({
+  'admin-overview': '/admin/overview',
+  'admin-seller-approvals': '/admin/seller-approvals',
+  'admin-promoter-approvals': '/admin/promoter-approvals',
+  'admin-customers': '/admin/customers',
+  'admin-products': '/admin/products',
+  'admin-categories': '/admin/categories',
+  'admin-orders': '/admin/orders',
+  'admin-returns': '/admin/returns',
+  'admin-payments': '/admin/payments',
+  'admin-coupons': '/admin/coupons',
+  'admin-campaigns': '/admin/campaigns',
+  'admin-reviews': '/admin/reviews',
+  'admin-support': '/admin/support',
+  'admin-content': '/admin/content',
+  'admin-reports': '/admin/reports',
+  'admin-settings': '/admin/settings',
+});

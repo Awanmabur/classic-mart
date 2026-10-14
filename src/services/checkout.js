@@ -6,6 +6,7 @@ import { currentTraceFields } from '../core/trace.js';
 import { orderAccessQuery } from './order-access.js';
 import { orderDisplayStatus, syncLegacyOrderStatus } from './order-state.js';
 import { promotionQuote } from './seller-growth.js';
+import { countryCouponQuote, reserveCountryCoupons } from './country-coupons.js';
 import { publicProductImageUrl } from './product-media-url.js';
 import { allocateSellerLineSettlement } from './money.js';
 import { fulfillableStockAvailability, hasPublicProductApproval } from './storefront.js';
@@ -15,6 +16,7 @@ import {
   Cart,
   Category,
   CountrySetting,
+  Coupon,
   DeliveryOffer,
   InventoryMovement,
   InventoryReservation,
@@ -263,7 +265,10 @@ export async function applyCartPromotionCode(request, code) {
     code: normalized, type: 'voucher', status: 'active', country: request.country.code,
     startsAt: { $lte: now }, $or: [{ endsAt: null }, { endsAt: { $exists: false } }, { endsAt: { $gt: now } }],
   }).lean();
-  if (!promotion) throw new AppError('Seller promotion code not found.', 404, 'SELLER_PROMOTION_NOT_FOUND');
+  const coupon = await Coupon.findOne({ code: normalized, status: 'active', country: request.country.code, currency: request.country.currency, startsAt: { $lte: now }, $or: [{ endsAt: null }, { endsAt: { $gt: now } }] }).lean();
+  if (promotion && coupon) throw new AppError('This code conflicts with another offer. Contact support.', 409, 'COUPON_CODE_AMBIGUOUS');
+  if (coupon && (coupon.perUserLimit || coupon.firstOrderOnly || coupon.eligibleRoles.length) && !request.user) throw new AppError('Sign in to use this account coupon.', 401, 'COUPON_AUTH_REQUIRED');
+  if (!promotion && !coupon) throw new AppError('Promotion code not found.', 404, 'SELLER_PROMOTION_NOT_FOUND');
   const cart = await getOrCreateCart(request);
   if (!cart.promotionCodes.includes(normalized)) cart.promotionCodes.push(normalized);
   await cart.save();
@@ -343,7 +348,7 @@ export async function cartView(cart) {
   if (currencies.size > 1) throw new AppError('Cart contains mixed currencies. Remove out-of-country items and try again.', 409, 'CART_CURRENCY_CONFLICT');
   const currency = rows[0]?.currency || setting?.currency || (cart.country === 'UG' ? 'UGX' : 'USD');
   const subtotalMinor = rows.reduce((sum, item) => sum + item.priceMinor * item.quantity, 0);
-  const promotions = await promotionQuote({ rows, country: cart.country, codes: cart.promotionCodes || [] });
+  const promotions = await countryCouponQuote({ rows, country: cart.country, currency, codes: cart.promotionCodes || [], userId: cart.userId, base: await promotionQuote({ rows, country: cart.country, codes: cart.promotionCodes || [] }) });
   const discountMinor = Math.min(subtotalMinor, promotions.discountMinor);
   return {
     id: cart.publicId,
@@ -412,7 +417,7 @@ export async function reviewCheckout(request, input) {
   if (currencies.size !== 1) throw new AppError('Cart items must use one checkout currency.', 409, 'CURRENCY_CONFLICT');
   for (const item of view.items) if (item.quantity > item.available) throw new AppError(`${item.name} no longer has enough stock.`, 409, 'INSUFFICIENT_STOCK');
 
-  const promo = await promotionQuote({ rows: view.items, country: request.country.code, codes: cart.promotionCodes || [] });
+  const promo = await countryCouponQuote({ rows: view.items, country: request.country.code, currency: view.totals.currency, codes: cart.promotionCodes || [], userId: request.user?._id, base: await promotionQuote({ rows: view.items, country: request.country.code, codes: cart.promotionCodes || [] }) });
   const netSubtotalMinor = Math.max(0, view.totals.subtotalMinor - promo.discountMinor);
   const quote = await deliveryQuote({ countryCode: request.country.code, currency: view.totals.currency, city: input.city, method: input.deliveryMethod, subtotalMinor: netSubtotalMinor, pickupPointId: input.pickupPointId, paymentMethod: input.paymentMethod, forceFreeShipping: promo.freeShipping });
   const checkoutId = publicId('chk');
@@ -477,12 +482,18 @@ export async function placeOrder(request, input) {
       }
       const subtotalMinor = orderItems.reduce((sum, item) => sum + item.lineTotalMinor, 0);
       const promoRows = orderItems.map((item) => ({ productId: item.productPublicId, variantId: item.variantPublicId, storeId: item.storePublicId, priceMinor: item.unitPriceMinor, minimumPriceMinor: Number(item.minimumPriceMinor || 0), quantity: item.quantity }));
-      const promo = await promotionQuote({ rows: promoRows, country: request.country.code, codes: freshCart.promotionCodes || [] });
+      const promo = await countryCouponQuote({ rows: promoRows, country: request.country.code, currency: orderItems[0].currency, codes: freshCart.promotionCodes || [], userId: request.user?._id, session, base: await promotionQuote({ rows: promoRows, country: request.country.code, codes: freshCart.promotionCodes || [] }) });
       const netSubtotalMinor = Math.max(0, subtotalMinor - promo.discountMinor);
       const quote = await deliveryQuote({ countryCode: request.country.code, currency: orderItems[0].currency, city: input.contact.city, method: input.deliveryMethod, subtotalMinor: netSubtotalMinor, pickupPointId: input.pickupPointId, paymentMethod: input.paymentMethod, forceFreeShipping: promo.freeShipping });
       if (quote.shippingMinor !== savedReview.totals.shippingMinor || quote.taxMinor !== savedReview.totals.taxMinor || promo.discountMinor !== savedReview.totals.discountMinor || quote.zonePublicId !== savedReview.zonePublicId) throw new AppError('Delivery, discount or tax changed. Review checkout again.', 409, 'CHECKOUT_TOTAL_CHANGED');
       const totals = { subtotalMinor, shippingMinor: quote.shippingMinor, discountMinor: promo.discountMinor, taxMinor: quote.taxMinor, totalMinor: netSubtotalMinor + quote.shippingMinor + quote.taxMinor, currency: orderItems[0].currency };
-      const [order] = await Order.create([{ publicId: publicId('ord'), ...currentTraceFields(), idempotencyKey: input.idempotencyKey, checkoutId: input.checkoutId, cartPublicId: freshCart.publicId, sessionKey: freshCart.sessionKey, userId: request.user?._id, country: request.country.code, status: 'pending_payment', paymentState: 'pending', fulfillmentState: 'unfulfilled', cancellationState: 'none', returnState: 'none', refundState: 'none', deliveryMethod: input.deliveryMethod, shippingZonePublicId: quote.zonePublicId, pickupPointPublicId: quote.pickupPointPublicId, paymentMethod: input.paymentMethod, contact: input.contact, totals, items: orderItems, policySnapshot: quote.policy, timeline: [{ type: 'order.created', message: 'Order created and stock reserved.' }, { type: 'payment.pending', message: 'Payment has not yet been verified.' }], reservationExpiresAt: expiresAt }], { session });
+      const couponPublicIds = await reserveCountryCoupons(promo, { userId: request.user?._id, country: request.country.code, currency: totals.currency, session });
+      const couponApplications = promo.applications.filter(application => application.type === 'country_coupon').map(application => ({ publicId: application.id, discountMinor: application.discountMinor, allocations: Object.entries(application.allocations).map(([storePublicId,discountMinor]) => ({ storePublicId,discountMinor })), lineAllocations: application.lineAllocations.map(allocation => {
+        const source = orderItems.find(item => item.storePublicId === allocation.storePublicId && item.productPublicId === allocation.productPublicId && item.variantPublicId === allocation.variantPublicId);
+        if (!source) throw new AppError('A coupon order line changed. Review checkout again.', 409, 'COUPON_LINE_CHANGED');
+        return { ...allocation, orderLineId: source.linePublicId };
+      }) }));
+      const [order] = await Order.create([{ publicId: publicId('ord'), ...currentTraceFields(), idempotencyKey: input.idempotencyKey, checkoutId: input.checkoutId, cartPublicId: freshCart.publicId, sessionKey: freshCart.sessionKey, userId: request.user?._id, country: request.country.code, status: 'pending_payment', paymentState: 'pending', fulfillmentState: 'unfulfilled', cancellationState: 'none', returnState: 'none', refundState: 'none', deliveryMethod: input.deliveryMethod, shippingZonePublicId: quote.zonePublicId, pickupPointPublicId: quote.pickupPointPublicId, paymentMethod: input.paymentMethod, contact: input.contact, totals, items: orderItems, policySnapshot: quote.policy, couponPublicIds, couponApplications, timeline: [{ type: 'order.created', message: 'Order created and stock reserved.' }, { type: 'payment.pending', message: 'Payment has not yet been verified.' }], reservationExpiresAt: expiresAt }], { session });
 
       const storeGroups = new Map();
       for (const item of orderItems) {
@@ -501,7 +512,13 @@ export async function placeOrder(request, input) {
         const storeNet = Math.max(0, storeSubtotal - storeDiscount);
         const platformFeeMinor = Math.floor(storeNet * Number(quote.policy.platformFeeBps || 0) / 10000);
         const sellerPublicId = publicId('sord'); sellerOrderPublicIds.push(sellerPublicId);
-        const settlementItems = allocateSellerLineSettlement(items, { discountMinor: storeDiscount, platformFeeMinor });
+        // Preserve the established SellerPromotion line shares, then add each
+        // Country coupon only to its eligible original order lines. Refunds use
+        // these immutable customer-paid snapshots rather than spreading a
+        // category coupon onto another category in the same seller order.
+        const lineDiscounts = promo.couponReservations.length ? allocateSellerLineSettlement(items, { discountMinor: promo.sellerStoreDiscounts[storePublicId] || 0 })
+          .map(item => item.discountMinor + (promo.countryLineDiscounts[`${storePublicId}:${item.variantPublicId}`] || 0)) : undefined;
+        const settlementItems = allocateSellerLineSettlement(items, { discountMinor: storeDiscount, platformFeeMinor, lineDiscounts });
         await SellerOrder.create([{ publicId: sellerPublicId, orderId: order._id, orderPublicId: order.publicId, storeId: items[0].storeId, storePublicId, country: order.country, status: 'pending_payment', subtotalMinor: storeSubtotal, platformFeeMinor, shippingMinor: shippingPart, taxMinor: taxPart, discountMinor: storeDiscount, currency: totals.currency, items: settlementItems.map(item => ({ orderLineId: item.linePublicId, productPublicId: item.productPublicId, variantPublicId: item.variantPublicId, title: item.title, variantTitle: item.variantTitle, sku: item.sku, quantity: item.quantity, unitPriceMinor: item.unitPriceMinor, unitCostMinor: item.unitCostMinor, costSnapshotStatus: item.costSnapshotStatus, lineTotalMinor: item.lineTotalMinor, currency: item.currency, grossMinor: item.grossMinor, discountMinor: item.discountMinor, customerPaidMinor: item.customerPaidMinor, platformFeeMinor: item.platformFeeMinor, sellerReceivableMinor: item.sellerReceivableMinor })), timeline: [{ type: 'seller_order.created', message: 'Seller order created from marketplace checkout with immutable line settlement snapshots.' }] }], { session });
       }
       order.sellerOrderPublicIds = sellerOrderPublicIds;

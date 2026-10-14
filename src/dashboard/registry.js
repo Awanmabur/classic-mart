@@ -5,6 +5,7 @@ import { PROMOTER_LIVE_ROUTES } from './promoter-routes.js';
 import { FINANCE_LIVE_ROUTES } from './finance-routes.js';
 import { MODERATION_LIVE_ROUTES } from './moderation-routes.js';
 import { SUPPORT_LIVE_ROUTES } from './support-routes.js';
+import { COUNTRY_ADMIN_LIVE_ROUTES } from './country-admin-routes.js';
 // Classic Mart production dashboard page registry.
 // Visual labels/page structure are intentionally preserved; route targets bind the design to production server routes.
 
@@ -1238,6 +1239,7 @@ export function defaultPageFor(workspace) {
 }
 
 export function routeForPage(pageId) {
+  if (COUNTRY_ADMIN_LIVE_ROUTES[pageId]) return COUNTRY_ADMIN_LIVE_ROUTES[pageId];
   if (WAREHOUSE_ROUTES[pageId]) return WAREHOUSE_ROUTES[pageId];
   if (SELLER_LIVE_ROUTES[pageId]) return SELLER_LIVE_ROUTES[pageId];
   if (PROMOTER_LIVE_ROUTES[pageId]) return PROMOTER_LIVE_ROUTES[pageId];

@@ -8,6 +8,7 @@ import { writeAudit } from './audit.js';
 import { storeCapabilities } from './store.js';
 import { clearSponsoredOfferCache } from './seller-growth.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
+import { assertSellerCouponCodeAvailable } from './country-coupons.js';
 
 const LIMIT = 25;
 const discountTypes = new Set(['voucher', 'bundle', 'quantity_break']);
@@ -54,8 +55,9 @@ function discountLabel(row) {
 
 async function sellerAccess(request, capability, session = null) {
   if (!request.user?._id || !request.store?._id) throw new AppError('Seller authentication is required.', 401, 'UNAUTHENTICATED');
-  const actor = await User.findById(request.user._id).select('status security.tokenVersion security.mfaEnabled emailVerifiedAt onboardingCompletedAt').session(session).lean();
+  const actor = await User.findById(request.user._id).select('role platformAccessManagedAt status security.tokenVersion security.mfaEnabled emailVerifiedAt onboardingCompletedAt').session(session).lean();
   if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion || (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
+  if (!['seller', 'customer'].includes(actor.role) || actor.platformAccessManagedAt) throw new AppError('Your current workspace cannot manage seller growth.', 403, 'SELLER_WORKSPACE_REQUIRED');
   if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) throw new AppError('Complete account verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');
   if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) throw new AppError('Authenticator enrollment is required for store operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
   const member = await StoreMember.findOne({ storeId: request.store._id, userId: request.user._id, status: 'active' }).session(session);
@@ -63,6 +65,7 @@ async function sellerAccess(request, capability, session = null) {
   if (!member || (!capabilities.has('*') && !capabilities.has(capability))) throw new AppError('Your store staff role does not allow that action.', 403, 'STORE_PERMISSION_DENIED');
   const store = await Store.findById(request.store._id).session(session);
   if (!store || !['pending_verification', 'verified'].includes(store.status)) throw new AppError('This store is unavailable.', 409, 'STORE_LOCKED');
+  if (actor.role === 'customer' && (member.role === 'owner' || String(store.ownerUserId) === String(actor._id))) throw new AppError('Your current workspace cannot own seller growth.', 403, 'SELLER_WORKSPACE_REQUIRED');
   const country = await CountrySetting.findOne({ code: store.country, active: true }).select('currency timeZone').session(session).lean();
   if (!country || country.currency !== store.currency) throw new AppError('The store country and currency need configuration.', 409, 'SELLER_COUNTRY_UNAVAILABLE');
   return { store, member, actor, country };
@@ -78,6 +81,7 @@ async function lockStore(request, capability, session) {
   if (store.country !== request.store.country || store.currency !== request.store.currency) throw new AppError('Your store settings changed. Refresh the page.', 409, 'SELLER_STORE_SCOPE_CHANGED');
   return store;
 }
+export { lockStore as lockSellerGrowthStore };
 async function transaction(work) {
   const session = await mongoose.startSession();
   try { let result; await session.withTransaction(async () => { result = await work(session); }); return result; }
@@ -95,6 +99,7 @@ function dates(input, { activating = false } = {}) {
 
 async function validateOffer(store, input, session) {
   if (input.type === 'voucher' && !/^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(input.code)) throw new AppError('Enter a coupon code with 2–40 letters, numbers, hyphens or underscores.', 422, 'PROMOTION_CODE_REQUIRED');
+  if (input.type === 'voucher') await assertSellerCouponCodeAvailable(store, input.code, session);
   if (discountTypes.has(input.type) && !input.discountBps && !input.fixedDiscountMinor) throw new AppError('Enter a percentage or fixed discount.', 422, 'PROMOTION_DISCOUNT_REQUIRED');
   if (!discountTypes.has(input.type) && (input.discountBps || input.fixedDiscountMinor)) throw new AppError('Delivery and sponsored offers do not use a price discount.', 422, 'PROMOTION_DISCOUNT_INVALID');
   if (input.type === 'bundle' && input.productPublicIds.length < 2) throw new AppError('Choose at least two products for a bundle.', 422, 'PROMOTION_PRODUCTS_REQUIRED');

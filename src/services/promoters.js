@@ -67,16 +67,9 @@ export async function submitPromoterVerification(request, input) {
   return secureSubmitPromoterVerification(request, input);
 }
 
-export async function reviewPromoterVerification(request, verificationId, { decision, reason = '' }) {
-  const row = await PromoterVerification.findOne({ publicId: verificationId, status: 'submitted' });
-  if (!row) throw new AppError('Submitted promoter verification not found.', 404, 'PROMOTER_VERIFICATION_NOT_FOUND');
-  if (request.user.role !== 'super_admin') assertOperationalCountry(request.user,row.country,'Verification is outside your country scope.');
-  row.status = decision === 'approve' ? 'verified' : 'rejected';
-  row.reason = reason;
-  row.reviewedAt = new Date();
-  row.reviewedByUserId = request.user._id;
-  await row.save();
-  return row;
+export async function reviewPromoterVerification(request, verificationId, { decision, reason = '', version }) {
+  const { reviewCountryAdminPromoterLegacy } = await import('./country-admin-people-actions.js');
+  return reviewCountryAdminPromoterLegacy(request, verificationId, { decision, reason, version });
 }
 
 export async function createCampaign(request, input) {

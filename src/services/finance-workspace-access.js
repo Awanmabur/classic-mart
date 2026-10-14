@@ -2,20 +2,24 @@ import mongoose from 'mongoose';
 import { AppError } from '../core/errors.js';
 import { hasPermission } from '../core/roles.js';
 import { env } from '../config/env.js';
-import { CountrySetting, PlatformGrant, User } from '../models/index.js';
+import { CountrySetting, Device, PlatformGrant, User } from '../models/index.js';
+import { currentRequestDevice } from './moderation-workspace-access.js';
 import { primaryWorkspaceFor } from '../dashboard/access.js';
+import { countryAdminAccess } from './country-admin-workspace-access.js';
 
 const scopeError = () => new AppError('This country is outside your current Finance scope.', 403, 'FINANCE_COUNTRY_FORBIDDEN');
 const changed = () => new AppError('Finance access changed. Reload before continuing.', 409, 'FINANCE_ACCESS_CHANGED');
 
 /** Transaction-aware authorization reads the authoritative grants in the same snapshot. */
 export async function financeAccess(request, { session = null, write = false, workspace = true, country } = {}) {
+  if (request.requiredOperationalWorkspace === 'admin') return countryAdminAccess(request, { session, write, country });
   if (!request.user?._id) throw new AppError('Finance authentication is required.', 401, 'UNAUTHENTICATED');
   const actor = await User.findById(request.user._id).select('+operationalCountries').session(session);
   if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion
     || (request.session?.tokenVersion !== undefined && actor.security.tokenVersion !== request.session.tokenVersion)) {
     throw new AppError('Your Finance account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   }
+  const device = request.requiredOperationalWorkspace ? await currentRequestDevice(request, { userId: actor._id, session }) : null;
   const storedRole = actor.role, now = new Date();
   let grant = null;
   if (actor.platformAccessManagedAt) {
@@ -27,6 +31,7 @@ export async function financeAccess(request, { session = null, write = false, wo
     actor.role = grant.role; actor.operationalCountries = [...grant.operationalCountries];
   }
   if (!hasPermission(actor, 'finance:manage') && !hasPermission(actor, 'finance:country')) throw new AppError('Finance permission is required.', 403, 'FINANCE_FORBIDDEN');
+  if (request.requiredOperationalWorkspace && primaryWorkspaceFor(actor) !== request.requiredOperationalWorkspace) throw new AppError('Your operational workspace changed. Reload before continuing.', 403, 'OPERATIONAL_WORKSPACE_CHANGED');
   if (workspace && primaryWorkspaceFor(actor) !== 'finance') throw new AppError('A Finance account is required for this workspace.', 403, 'FINANCE_WORKSPACE_FORBIDDEN');
   if (!env.auth.simpleLogin) {
     if (!actor.emailVerifiedAt || !actor.onboardingCompletedAt) throw new AppError('Complete identity verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');
@@ -48,7 +53,7 @@ export async function financeAccess(request, { session = null, write = false, wo
   const market = requested ? countries.find(row => row.code === requested) : null;
   if (requested && !market) throw scopeError();
   const codes = market ? [market.code] : countries.map(row => row.code);
-  const context = { actor, storedRole, grant, scopes, countries, country: requested,
+  const context = { actor, storedRole, grant, device, scopes, countries, country: requested,
     countryScope: codes.length === 1 ? { country: codes[0] } : { country: { $in: codes } },
     market, currency: market?.currency || null, timeZone: market?.timeZone || 'UTC', actorVersion: actor.__v || 0 };
   if (write) await fenceFinanceAccess(context, session);
@@ -57,11 +62,16 @@ export async function financeAccess(request, { session = null, write = false, wo
 
 export async function fenceFinanceAccess(context, session, { allMarkets = false } = {}) {
   if (!session?.inTransaction()) throw new AppError('Finance changes require a transaction.', 500, 'FINANCE_TRANSACTION_REQUIRED');
-  const { actor, storedRole, grant, countries, country } = context;
+  const { actor, storedRole, grant, device, countries, country } = context;
   const result = await User.updateOne({ _id: actor._id, role: storedRole, status: 'active', __v: context.actorVersion,
     'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
   if (result.modifiedCount !== 1) throw changed();
   context.actorVersion += 1; actor.__v = context.actorVersion;
+  if (device) {
+    const claimed = await Device.updateOne({ _id: device._id, userId: actor._id, sessionHash: device.sessionHash, revokedAt: null, __v: device.__v || 0 }, { $inc: { __v: 1 } }, { session });
+    if (claimed.modifiedCount !== 1) throw changed();
+    device.__v = (device.__v || 0) + 1;
+  }
   if (grant) {
     const now = new Date();
     const claimed = await PlatformGrant.updateOne({ _id: grant._id, status: 'active', role: grant.role,

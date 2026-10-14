@@ -97,6 +97,8 @@ const orderSchema = new Schema(
     contact: { type: addressSchema, required: true },
     totals: { type: moneySchema, required: true },
     items: { type: [orderItemSchema], required: true, validate: value => value.length > 0 },
+    couponPublicIds: { type: [String], default: [], immutable: true },
+    couponApplications: { type: [{ publicId: String, discountMinor: Number, allocations: [{ storePublicId: String, discountMinor: Number }], lineAllocations: [{ orderLineId: { type: String, required: true }, storePublicId: { type: String, required: true }, productPublicId: { type: String, required: true }, variantPublicId: { type: String, required: true }, discountMinor: { type: Number, min: 0, required: true } }] }], default: [], immutable: true },
     sellerOrderPublicIds: { type: [String], default: [] },
     policySnapshot: { returnWindowDays: { type: Number, min: 0, default: 30 }, policyVersion: { type: String, maxlength: 40, default: '2026-07' }, platformFeeBps: { type: Number, min: 0, max: 5000, default: 500 }, taxBps: { type: Number, min: 0, max: 10000, default: 0 } },
     cancellation: { requestedAt: Date, reason: { type: String, maxlength: 300, default: '' }, inventoryRestoredAt: Date, refundPublicId: { type: String, maxlength: 100, default: '' } },

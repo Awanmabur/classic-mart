@@ -10,6 +10,11 @@ const revisionSchema=new mongoose.Schema({
   scheduledFor:Date,
   publishedAt:Date,
   rolledBackFromVersion:{type:Number,min:1},
+  approvalPublicId:{type:String,maxlength:120},
+  approvedByUserId:{type:mongoose.Schema.Types.ObjectId,ref:'User'},
+  approvedAt:Date,
+  dispatchGrantPublicId:{type:String,maxlength:120},
+  dispatchTokenVersion:{type:Number,min:0},
 },{_id:false});
 const cmsContentSchema=new mongoose.Schema({
   publicId:{type:String,required:true,unique:true,immutable:true,index:true},

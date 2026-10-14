@@ -1,0 +1,206 @@
+<% if (adminPage.id === 'admin-overview') { %>
+<%
+const overview = adminFlow;
+const metrics = overview.metrics || [];
+const trend = overview.trend || [];
+const priorities = overview.priorities || [];
+const activity = overview.activity || [];
+const coverage = overview.coverage || {};
+const score = overview.score || overview.verification || overview.health || {};
+const countries = overview.context?.countries || overview.countries || [];
+const selectedCountry = overview.country ?? overview.context?.country ?? overview.filters?.params?.country ?? '';
+const filterParams = Object.entries({ ...(overview.filters?.params || {}), country: selectedCountry, ...(overview.period ? { period: overview.period } : {}) }).filter(([key, value]) => /^[a-zA-Z][a-zA-Z0-9_-]{0,30}$/.test(key) && !['after', 'before', 'cursor', 'record', 'selected'].includes(key) && typeof value === 'string' && value.length <= 200);
+const localHref = value => typeof value === 'string' && (/^\/(?!\/)/.test(value) || /^#[a-zA-Z0-9_-]+$/.test(value)) && !/[\\\u0000-\u001f\u007f]/.test(value) ? value : null;
+const chartValue = bucket => Number.isFinite(Number(bucket.value)) ? Number(bucket.value) : 0;
+const chartMaximum = Math.max(1, ...trend.map(bucket => Math.abs(chartValue(bucket))));
+const member = String(user?.name || 'Member').trim().split(/\s+/)[0];
+const timeZone = overview.timeZone || overview.context?.market?.timeZone || 'UTC';
+const eventDate = value => { const date = new Date(value); if (!value || !Number.isFinite(date.getTime())) return ''; try { return new Intl.DateTimeFormat(user?.locale || 'en-UG', { timeZone, dateStyle: 'medium', timeStyle: 'short' }).format(date); } catch { return new Intl.DateTimeFormat('en', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' }).format(date); } };
+const priorityHref = localHref(overview.priorityHref) || localHref(priorities.find(item => localHref(item.href))?.href);
+const createHref = localHref(overview.create?.href);
+const exportHref = localHref(overview.exportHref);
+%>
+<section class="app-page role-page active country-admin-overview-live country-admin-fidelity-page" data-page="<%= adminPage.id %>" data-role="admin" data-page-kind="overview">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow"><%= adminPage.eyebrow %></span><h1><%= adminPage.title %></h1><p><%= adminPage.description %></p></div><div class="country-admin-heading-actions"><% if (countries.length) { %><form class="country-admin-country-filter" method="get" action="<%= adminPage.href %>"><% for (const [key, value] of filterParams.filter(([key]) => key !== 'country')) { %><input type="hidden" name="<%= key %>" value="<%= value %>"><% } %><label class="sr-only" for="countryAdminOverviewCountry">Country scope</label><select id="countryAdminOverviewCountry" name="country"><option value="" <%= selectedCountry === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= selectedCountry === country.code ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select><button class="plain-link" type="submit">Apply</button></form><% } %><% if (createHref) { %><a class="primary-button icon-button" href="<%= createHref %>"><svg aria-hidden="true"><use href="#i-plus"></use></svg><%= overview.create.label %></a><% } %></div></div>
+  <% if (overview.error) { %><p class="server-flash error" role="alert"><%= overview.error %></p><% } %>
+  <section class="role-welcome panel"><div><span class="eyebrow">Admin workspace</span><h2>Good day, <%= member %>.</h2><p>Review your assigned markets and the source records that need attention.</p><div><% if (priorityHref) { %><a class="primary-button" href="<%= priorityHref %>"><%= overview.priorityLabel || 'Open priority queue' %></a><% } %><% if (exportHref) { %><a class="outline-button" href="<%= exportHref %>">Download summary</a><% } %></div></div><div class="role-welcome-score"><small><%= score.label || 'Workspace score' %></small><strong><%= score.value ?? '—' %></strong><span><%= score.detail || '' %></span></div></section>
+  <section class="role-metric-grid"><% for (const [index, metric] of metrics.entries()) { %><article class="role-metric panel"><span class="role-metric-icon tone-<%= index % 4 + 1 %>"><svg aria-hidden="true"><use href="#<%= ['i-eye','i-clipboard','i-wallet','i-award'][index % 4] %>"></use></svg></span><div><small><%= metric.label %></small><strong title="<%= metric.value ?? '—' %>"><%= metric.value ?? '—' %></strong><span><%= metric.detail || metric.note || '' %></span></div></article><% } %></section>
+  <div class="role-overview-grid">
+    <section class="panel role-chart-panel"><div class="role-panel-head"><div><h2>Performance trend</h2><p><%= overview.trendDescription || 'Recorded administrative results for this reporting period.' %></p></div><% if (overview.periodOptions?.length) { %><form method="get" action="<%= adminPage.href %>" class="country-admin-period-filter"><% for (const [key, value] of filterParams.filter(([key]) => key !== 'period')) { %><input type="hidden" name="<%= key %>" value="<%= value %>"><% } %><label class="sr-only" for="countryAdminOverviewPeriod">Chart period</label><select id="countryAdminOverviewPeriod" name="period"><% for (const option of overview.periodOptions) { %><option value="<%= option.value %>" <%= option.value === overview.period ? 'selected' : '' %>><%= option.label %></option><% } %></select><button class="plain-link" type="submit">Apply</button></form><% } %></div>
+      <% if (trend.length) { %><div class="role-chart" role="img" aria-label="<%= (overview.trendLabel || 'Admin performance') + '. ' + trend.map(bucket => `${bucket.label}: ${bucket.display ?? chartValue(bucket)}`).join('; ') %>"><% for (const bucket of trend) { const value = chartValue(bucket); %><div><span style="height:<%= Math.abs(value) / chartMaximum * 80 %>%" data-zero="<%= value === 0 %>" data-negative="<%= value < 0 %>" title="<%= `${bucket.label}: ${bucket.display ?? value}` %>"><b><%= bucket.display ?? value %></b></span><small><%= bucket.label %></small></div><% } %></div><% } else { %><div class="role-chart country-admin-empty-chart"><p class="form-intro"><%= overview.trendEmptyText || 'No recorded performance in this period.' %></p></div><% } %>
+      <div class="role-chart-legend"><span><i></i><%= overview.trendLabel || 'Recorded performance' %></span><% if (overview.trendSummary) { %><strong><%= overview.trendSummary %></strong><% } %></div>
+    </section>
+    <section class="panel role-focus-panel"><div class="role-panel-head compact"><div><span class="eyebrow">Today</span><h2>Priority actions</h2></div><strong><%= priorities.length %></strong></div><div class="role-focus-list"><% for (const [index, item] of priorities.entries()) { %><% if (localHref(item.href)) { %><a href="<%= localHref(item.href) %>"><span><%= index + 1 %></span><p><%= item.text %></p><svg aria-hidden="true"><use href="#i-chevron-right"></use></svg></a><% } else { %><div class="country-admin-priority-note"><span><%= index + 1 %></span><p><%= item.text %></p></div><% } %><% } %><% if (!priorities.length) { %><p class="form-intro">No priority actions need attention.</p><% } %></div></section>
+  </div>
+  <div class="role-bottom-grid">
+    <section class="panel role-activity-feed"><div class="role-panel-head"><div><h2>Marketplace activity</h2><p>Important changes in your workspace.</p></div><% if (localHref(overview.activityHref)) { %><a class="plain-link" href="<%= localHref(overview.activityHref) %>"><%= overview.activityLabel || 'View all' %></a><% } %></div><% for (const [index, item] of activity.entries()) { const date = eventDate(item.at); %><article><span class="tone-<%= index % 4 + 1 %>"><svg aria-hidden="true"><use href="#<%= /^i-[a-z0-9-]+$/.test(item.icon || '') ? item.icon : ['i-award','i-wallet','i-bell'][index % 3] %>"></use></svg></span><div><strong><% if (localHref(item.href)) { %><a href="<%= localHref(item.href) %>"><%= item.text %></a><% } else { %><%= item.text %><% } %></strong><% if (date) { %><small><time datetime="<%= new Date(item.at).toISOString() %>"><%= date %></time></small><% } %></div></article><% } %><% if (!activity.length) { %><p class="form-intro">No administrative activity recorded yet.</p><% } %></section>
+    <section class="panel role-team-panel"><div class="role-panel-head"><div><h2><%= coverage.title || 'Team coverage' %></h2><p><%= coverage.description || 'Recorded participation in this workspace.' %></p></div><% if (coverage.status) { %><span class="role-live"><i></i><%= coverage.status %></span><% } %></div><div class="role-avatar-stack"><% for (const person of coverage.people || []) { const name = String(person.name || 'Member'); %><span title="<%= name %>"><%= name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() %></span><% } %><% if (Number.isFinite(coverage.total) && coverage.total > (coverage.people || []).length) { %><b>+<%= coverage.total - (coverage.people || []).length %></b><% } %></div><div class="role-team-stats"><% for (const stat of coverage.stats || []) { %><div><small><%= stat.label %></small><strong><%= stat.value ?? '—' %></strong></div><% } %></div><% if (coverage.note) { %><p class="form-intro"><%= coverage.note %></p><% } %><% if (localHref(coverage.href)) { %><a class="soft-button full-button" href="<%= localHref(coverage.href) %>"><%= coverage.label || 'Open workspace' %></a><% } %></section>
+  </div>
+  <%- include('country-admin-report-forms') %>
+</section>
+<% } else if (adminFlow.kind === 'settings') { %>
+<%
+const settings = adminFlow;
+const profile = settings.profile || {};
+const preferences = settings.preferences || {};
+const context = settings.context || {};
+const countries = context.countries || settings.countries || [];
+const selectedCountry = settings.country ?? context.country ?? '';
+const section = settings.section || 'profile';
+const draft = settings.draft || {};
+const initials = String(profile.name || user?.name || 'Admin').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+const profileFields = [profile.name, profile.teamName, profile.email, profile.phone, profile.registrationCountry, profile.bio];
+const completion = Math.round(profileFields.filter(value => typeof value === 'string' && value.trim()).length / profileFields.length * 100);
+const tabs = [['profile','Personal information'],['business','Workspace details'],['payments','Workspace preferences'],['notifications','Communication'],['security','Password & Security']];
+const sectionHref = value => adminPage.href + '?' + new URLSearchParams({ section: value, country: selectedCountry });
+const settingsPostHref = value => value + '?' + new URLSearchParams({ country: selectedCountry });
+const eventDate = value => { const date = new Date(value); if (!value || !Number.isFinite(date.getTime())) return 'Not specified'; try { return new Intl.DateTimeFormat(user?.locale || 'en', { timeZone: settings.timeZone || 'UTC', dateStyle: 'medium', timeStyle: 'short' }).format(date); } catch { return date.toISOString(); } };
+const profileCountry = countries.find(country => country.code === profile.registrationCountry);
+const checked = value => [true, 'true', 'on', '1'].includes(value);
+%>
+<section class="app-page role-page active country-admin-settings-live country-admin-fidelity-page" data-page="<%= adminPage.id %>" data-role="admin" data-page-kind="settings">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow">Account preferences</span><h1><%= adminPage.title %></h1><p><%= adminPage.description %></p></div><div class="country-admin-heading-actions">
+    <% if (countries.length) { %><form class="country-admin-country-filter" method="get" action="<%= adminPage.href %>"><input type="hidden" name="section" value="<%= section %>"><label class="sr-only" for="countryAdminSettingsCountry">Country scope</label><select id="countryAdminSettingsCountry" name="country"><option value="" <%= selectedCountry === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= country.code === selectedCountry ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select><button class="plain-link" type="submit">Apply</button></form><% } %>
+    <a class="outline-button icon-button" href="/account/security"><svg aria-hidden="true"><use href="#i-shield"></use></svg>Security centre</a>
+  </div></div>
+  <% if (settings.error) { %><p class="server-flash error" role="alert"><%= settings.error %></p><% } %>
+  <div class="profile-layout role-settings-layout role-profile-settings">
+    <aside class="panel profile-summary role-profile-summary">
+      <div class="profile-avatar-wrap role-profile-avatar-wrap"><span class="role-profile-avatar"><%= initials %></span></div>
+      <h2><%= profile.name || user?.name || 'Admin' %></h2><p><%= profile.email || '' %></p>
+      <span class="member-pill"><svg aria-hidden="true"><use href="#i-shield"></use></svg>Admin</span>
+      <div class="profile-completion"><div><span>Profile completion</span><strong><%= completion %>%</strong></div><div><span style="width:<%= completion %>%"></span></div></div>
+      <nav class="settings-nav role-settings-nav" aria-label="Profile settings sections"><% for (const [value, label] of tabs) { %><a href="<%= sectionHref(value) %>" class="<%= section === value ? 'active' : '' %>" <%= section === value ? 'aria-current=page' : '' %>><%= label %></a><% } %></nav>
+    </aside>
+    <div class="role-settings-content">
+      <% if (section === 'profile') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="profile" method="post" action="<%= settingsPostHref('/admin/settings/profile') %>">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= profile.version %>">
+        <div class="section-heading"><div><h2>Personal Information</h2><p class="form-intro">Keep the information shown across Classic Mart accurate and consistent.</p></div><% if (user?.emailVerifiedAt) { %><span class="verified-label"><svg aria-hidden="true"><use href="#i-check"></use></svg>Verified</span><% } %></div>
+        <div class="role-form-grid">
+          <label>Display name<input name="name" value="<%= draft.name ?? profile.name ?? '' %>" minlength="2" maxlength="120" autocomplete="name" required></label>
+          <label>Admin team name<input name="teamName" value="<%= draft.teamName ?? profile.teamName ?? '' %>" maxlength="140" autocomplete="organization"></label>
+          <label>Contact email<input type="email" value="<%= profile.email || '' %>" autocomplete="email" readonly></label>
+          <label>Phone number<input type="tel" value="<%= profile.phone || '' %>" autocomplete="tel" readonly></label>
+          <label>Country<input value="<%= profileCountry?.name || profile.registrationCountry || 'Not specified' %>" readonly></label>
+          <label class="wide">About<textarea name="bio" rows="5" maxlength="1000"><%= draft.bio ?? profile.bio ?? '' %></textarea></label>
+        </div>
+        <button class="primary-button" type="submit">Save Changes</button>
+      </form>
+      <% } else if (section === 'business') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="business" method="post" action="<%= settingsPostHref('/admin/settings') %>" id="country-admin-operating-preferences">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= preferences.version %>">
+        <input type="hidden" name="landingPage" value="<%= preferences.landingPage %>"><input type="hidden" name="density" value="<%= preferences.density %>"><input type="hidden" name="idleReminderMinutes" value="<%= preferences.idleReminderMinutes %>">
+        <h2>Workspace &amp; operating preferences</h2><p class="form-intro">These settings keep the workspace aligned with its real operating responsibility.</p>
+        <div class="role-form-grid">
+          <label>Operating region<select name="defaultCountry"><option value="" <%= (draft.defaultCountry ?? preferences.defaultCountry ?? '') === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= country.code === (draft.defaultCountry ?? preferences.defaultCountry) ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select></label>
+          <label>Coverage starts<input value="<%= settings.coverage ? eventDate(settings.coverage.startsAt) : 'Current assigned role' %>" readonly></label>
+          <label>Coverage expires<input value="<%= settings.coverage ? eventDate(settings.coverage.expiresAt) : 'While role remains active' %>" readonly></label>
+          <label>Default reporting period<select name="reportingPeriod"><% for (const [value, label] of [['30days','Last 30 days'],['7months','Last 7 months'],['year','This year']]) { %><option value="<%= value %>" <%= value === (draft.reportingPeriod ?? preferences.reportingPeriod) ? 'selected' : '' %>><%= label %></option><% } %></select></label>
+        </div><p class="form-intro">Operating preferences follow your assigned countries. Review decisions retain their recorded reasons and evidence.</p>
+        <button class="primary-button" type="submit">Save Changes</button>
+      </form>
+      <% } else if (section === 'payments') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="payments" method="post" action="<%= settingsPostHref('/admin/settings') %>" id="country-admin-workspace-controls">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= preferences.version %>">
+        <input type="hidden" name="defaultCountry" value="<%= preferences.defaultCountry || '' %>"><input type="hidden" name="reportingPeriod" value="<%= preferences.reportingPeriod %>">
+        <input type="hidden" name="section" value="payments">
+        <h2>Workspace controls</h2><p class="form-intro">Set sensible defaults for this operational workspace.</p>
+        <div class="role-form-grid">
+          <label>Default landing view<select name="landingPage"><% for (const option of settings.landingOptions || []) { %><option value="<%= option.id %>" <%= option.id === (draft.landingPage ?? preferences.landingPage) ? 'selected' : '' %>><%= option.label %></option><% } %></select></label>
+          <label>Default density<select name="density"><% for (const [value, label] of [['comfortable','Comfortable'],['compact','Compact']]) { %><option value="<%= value %>" <%= value === (draft.density ?? preferences.density) ? 'selected' : '' %>><%= label %></option><% } %></select></label>
+          <label>Session idle reminder<select name="idleReminderMinutes"><% for (const value of [15,30,60]) { %><option value="<%= value %>" <%= String(value) === String(draft.idleReminderMinutes ?? preferences.idleReminderMinutes) ? 'selected' : '' %>><%= value %> minutes</option><% } %></select></label>
+          <label>Timezone<input value="<%= settings.timeZone || context.timeZone || 'UTC' %>" readonly></label>
+        </div><p class="form-intro">The idle reminder helps you review unattended sessions. Reporting uses the selected country’s timezone, or UTC across countries.</p>
+        <button class="primary-button" type="submit">Save workspace controls</button>
+      </form>
+      <% } else if (section === 'notifications') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="notifications" method="post" action="<%= settingsPostHref('/admin/settings/communication') %>">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= preferences.version %>">
+        <h2>Communication Preferences</h2><p class="form-intro">Choose which operational updates should reach this account.</p>
+        <div class="role-toggle-list"><% for (const item of [{name:'highRiskAlerts',title:'Priority work',description:'Priority administrative work in your assigned countries'},{name:'escalationAlerts',title:'Escalations',description:'Administrative records referred for independent review'}]) { %><label><div><strong><%= item.title %></strong><small><%= item.description %></small></div><span class="switch"><input type="checkbox" name="<%= item.name %>" value="on" <%= checked(Object.hasOwn(draft, item.name) ? draft[item.name] : preferences[item.name]) ? 'checked' : '' %>><span></span></span></label><% } %></div>
+        <button class="primary-button" type="submit">Save Preferences</button>
+      </form>
+      <% } else if (section === 'security') { %>
+      <section class="panel form-panel role-settings-panel active" data-role-settings-panel="security">
+        <h2>Password &amp; Security</h2><p class="form-intro">Protect the account and review signed-in sessions.</p>
+        <div class="role-security-row"><span><svg aria-hidden="true"><use href="#i-shield"></use></svg></span><div><strong>Two-factor authentication</strong><small><%= settings.security?.mfaEnabled ? 'Authenticator enabled for this account.' : 'Authenticator enrollment is required for privileged administrative actions.' %></small></div><a class="soft-button" href="/account/security"><%= settings.security?.mfaEnabled ? 'Manage' : 'Enable' %></a></div>
+        <div class="role-security-row"><span><svg aria-hidden="true"><use href="#i-eye"></use></svg></span><div><strong>Active sessions</strong><small><%= settings.security?.activeSessions ?? '—' %> signed-in devices</small></div><a class="outline-button" href="/account/security">Review</a></div>
+      </section>
+      <% } %>
+    </div>
+  </div>
+</section>
+<% } else { %>
+<%
+const flow = adminFlow;
+const metrics = flow.metrics || [];
+const insights = flow.insights || [];
+const workflow = flow.workflow || [];
+const health = flow.health || {};
+const healthValue = Number.isFinite(health.value) ? Math.max(0, Math.min(100, Math.round(health.value))) : null;
+const filters = flow.filters || {};
+const page = flow.page || {};
+const rows = flow.rows || [];
+const columns = flow.columns || [];
+const countries = flow.context?.countries || flow.countries || [];
+const selectedCountry = flow.country ?? flow.context?.country ?? filters.params?.country ?? filters.country ?? '';
+const statusTone = value => /^(active|healthy|published|completed|delivered|approved|resolved|fulfilled|available|paid|verified|preferred|valid|succeeded|matched|closed|won)$/i.test(String(value)) ? 'good' : /^(rejected|failed|expired|cancelled|critical|blocked|reversed|revoked|mismatch|overdue|escalated)$/i.test(String(value)) ? 'bad' : 'warn';
+const localHref = value => typeof value === 'string' && (/^\/(?!\/)/.test(value) || /^#[a-zA-Z0-9_-]+$/.test(value)) && !/[\\\u0000-\u001f\u007f]/.test(value) ? value : null;
+const rawParams = { ...(filters.params || {}) };
+for (const key of ['country', 'period', 'report', 'view', 'tab', 'kind', 'type', 'assignment', 'risk', 'priority', 'queue', 'overdue']) { if (typeof filters[key] === 'string') rawParams[key] = filters[key]; }
+rawParams.country = selectedCountry;
+const activeStatus = filters.status || '';
+const statusOptions = filters.statuses || flow.filterStatuses || [];
+const assignments = filters.assignments || (Object.hasOwn(filters, 'assignment') ? [{value:'all',label:'All ownership'},{value:'mine',label:'Assigned to me'},{value:'unassigned',label:'Unassigned'}] : []);
+const risks = filters.risks || (Object.hasOwn(filters, 'risk') ? [{value:'all',label:'All risk levels'},{value:'high',label:'High risk'},{value:'standard',label:'Standard'}] : []);
+if (typeof flow.period === 'string') rawParams.period = flow.period;
+const filterParams = Object.entries(rawParams).filter(([key, value]) => /^[a-zA-Z][a-zA-Z0-9_-]{0,30}$/.test(key) && !['search', 'status', 'after', 'before', 'cursor', 'record', 'selected'].includes(key) && typeof value === 'string' && value.length <= 200);
+const countryParams = filterParams.filter(([key]) => !['country', 'selected', 'record', 'after'].includes(key));
+const cursorKey = /^[a-zA-Z][a-zA-Z0-9_-]{0,30}$/.test(filters.cursorKey || '') ? filters.cursorKey : 'after';
+const pageLink = after => { const query = new URLSearchParams(filterParams); if (filters.search) query.set('search', filters.search); if (filters.status) query.set('status', filters.status); if (after) query.set(cursorKey, after); return adminPage.href + (query.size ? '?' + query : ''); };
+const recommendation = insights.find(item => localHref(item?.href));
+const nextHref = localHref(flow.pagination?.nextHref || flow.page?.nextHref) || (page.next ? pageLink(page.next) : null);
+const createHref = localHref(flow.create?.href);
+const exportHref = localHref(flow.exportHref);
+%>
+<section class="app-page active role-page country-admin-standard-live country-admin-fidelity-page" data-page="<%= adminPage.id %>" data-role="admin" data-page-kind="<%= adminPage.kind %>">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow"><%= adminPage.eyebrow %></span><h1><%= adminPage.title %></h1><p><%= adminPage.description %></p></div><div class="country-admin-heading-actions">
+    <% if (countries.length) { %><form class="country-admin-country-filter" method="get" action="<%= adminPage.href %>"><% for (const [key, value] of countryParams) { %><input type="hidden" name="<%= key %>" value="<%= value %>"><% } %><% if (filters.search) { %><input type="hidden" name="search" value="<%= filters.search %>"><% } %><% if (filters.status) { %><input type="hidden" name="status" value="<%= filters.status %>"><% } %><label class="sr-only" for="countryAdminCountry">Country scope</label><select id="countryAdminCountry" name="country"><option value="" <%= selectedCountry === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= country.code === selectedCountry ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select><button class="plain-link" type="submit">Apply</button></form><% } %>
+    <% if (createHref) { %><a class="primary-button icon-button" href="<%= createHref %>"><svg aria-hidden="true"><use href="#i-plus"></use></svg><%= flow.create.label %></a><% } %>
+  </div></div>
+  <% if (flow.error) { %><p class="server-flash error" role="alert"><%= flow.error %></p><% } %>
+  <section class="role-metric-grid"><% for (const [index, metric] of metrics.entries()) { %><article class="role-metric panel"><span class="role-metric-icon tone-<%= index % 4 + 1 %>"><svg aria-hidden="true"><use href="#<%= ['i-eye','i-clipboard','i-wallet','i-award'][index % 4] %>"></use></svg></span><div><small><%= metric.label %></small><strong title="<%= metric.value ?? '—' %>"><%= metric.value ?? '—' %></strong><span><%= metric.detail || metric.note || '' %></span></div></article><% } %></section>
+  <div class="role-content-grid">
+    <div class="role-side-stack">
+      <section class="panel role-table-panel" id="country-admin-records">
+        <div class="role-panel-head"><div><h2><%= flow.tableTitle || adminPage.title + ' records' %></h2><p><%= flow.tableDescription || 'Current records within your authorized Admin scope.' %></p></div><div class="role-table-tools">
+          <% if (flow.filters) { %><form class="country-admin-compact-filter" method="get" action="<%= adminPage.href %>"><% for (const [key, value] of filterParams) { %><input type="hidden" name="<%= key %>" value="<%= value %>"><% } %><% if (filters.status) { %><input type="hidden" name="status" value="<%= filters.status %>"><% } %><label class="role-mini-search"><svg aria-hidden="true"><use href="#i-search"></use></svg><input type="search" name="search" value="<%= filters.search || '' %>" maxlength="100" placeholder="Filter records" aria-label="Filter records"></label><button class="plain-link" type="submit">Search</button></form><% } %>
+          <% if (exportHref) { %><a class="outline-button role-export" href="<%= exportHref %>"><svg aria-hidden="true"><use href="#i-download"></use></svg>Export</a><% } %>
+        </div></div>
+        <% if (assignments.length || risks.length || filters.types?.length || filters.queues?.length || filters.priorities?.length || Object.hasOwn(filters, 'overdue')) { %>
+        <form class="country-admin-compact-filter country-admin-queue-filter" method="get" action="<%= adminPage.href %>">
+          <% for (const [key, value] of filterParams.filter(([key]) => !['assignment','risk','type','queue','priority','overdue'].includes(key))) { %><input type="hidden" name="<%= key %>" value="<%= value %>"><% } %>
+          <% if (filters.search) { %><input type="hidden" name="search" value="<%= filters.search %>"><% } %><% if (filters.status) { %><input type="hidden" name="status" value="<%= filters.status %>"><% } %>
+          <% for (const field of [{name:'assignment',label:'Ownership',options:assignments},{name:'risk',label:'Risk level',options:risks},{name:'type',label:'Record type',options:filters.types},{name:'queue',label:'Queue',options:filters.queues},{name:'priority',label:'Priority',options:filters.priorities}]) { if (!field.options?.length) continue; %><label><%= field.label %><select name="<%= field.name %>"><% for (const option of field.options) { %><option value="<%= option.value %>" <%= option.value === (filters[field.name] || 'all') ? 'selected' : '' %>><%= option.label %></option><% } %></select></label><% } %>
+          <% if (Object.hasOwn(filters, "overdue")) { %><label class="country-admin-overdue-label"><input type="checkbox" name="overdue" value="1" <%= filters.overdue === "1" ? "checked" : "" %>>Overdue only</label><% } %><button class="plain-link" type="submit">Apply filters</button>
+        </form>
+        <% } %>
+        <% if (filters.views?.length) { %><nav class="role-status-tabs country-admin-record-tabs" aria-label="Record type"><% for (const view of filters.views) { const query = new URLSearchParams(filterParams); if (view.value) query.set('view', view.value); if (filters.search) query.set('search', filters.search); if (filters.status) query.set('status', filters.status); %><a class="<%= String(filters.view || '') === view.value ? 'active' : '' %>" href="<%= adminPage.href + (query.size ? '?' + query : '') %>" <%= String(filters.view || '') === view.value ? 'aria-current=page' : '' %>><%= view.label %></a><% } %></nav><% } %>
+        <% if (statusOptions.length) { %><nav class="role-status-tabs country-admin-record-tabs" aria-label="Record status"><% for (const status of statusOptions) { const query = new URLSearchParams(filterParams); if (status.value) query.set('status', status.value); if (filters.search) query.set('search', filters.search); %><a class="<%= String(activeStatus) === status.value ? 'active' : '' %>" href="<%= adminPage.href + (query.size ? '?' + query : '') %>" <%= String(activeStatus) === status.value ? 'aria-current=page' : '' %>><%= status.label %></a><% } %></nav><% } %>
+        <div class="role-table-wrap"><table class="role-table"><thead><tr><% for (const column of columns) { %><th><%= column %></th><% } %><th>Action</th></tr></thead><tbody>
+        <% for (const row of rows) { const rowHref = localHref(row.href); %><tr><% for (const [index, cell] of (row.cells || []).entries()) { %><td data-label="<%= columns[index] || 'Value' %>"><% if (index === row.cells.length - 1 && /status|state|relationship/i.test(columns[index] || '')) { %><span class="role-status <%= statusTone(cell) %>"><%= cell %></span><% } else { %><span><%= cell %></span><% } %></td><% } %><td data-label="Action"><% if (rowHref) { %><a class="role-row-menu country-admin-record-action" href="<%= rowHref %>" aria-label="Open <%= row.cells?.[0] || row.id || row.publicId %>">•••</a><% } else { %><span aria-label="No action required">—</span><% } %></td></tr><% } %>
+        <% if (!rows.length) { %><tr><td colspan="<%= columns.length + 1 %>"><%= flow.emptyText || 'No records match this view yet.' %></td></tr><% } %>
+        </tbody></table></div>
+        <div class="role-table-footer"><span><%= rows.length %> records on this page<%= Number.isFinite(page.total) ? ' · ' + page.total + ' total' : '' %></span><div><% if (filters.after) { %><a class="plain-link" href="<%= pageLink('') %>">First</a><% } else { %><span class="country-admin-page-control" aria-disabled="true">Previous</span><% } %><span class="country-admin-page-control active" aria-current="page">Current</span><% if (nextHref) { %><a class="plain-link" href="<%= nextHref %>">Next</a><% } else { %><span class="country-admin-page-control" aria-disabled="true">Next</span><% } %></div></div>
+      </section>
+      <% if (flow.kind === 'catalogue') { %><%- include('country-admin-catalogue-forms') %><% } else if (flow.kind === 'commerce') { %><%- include('country-admin-commerce-forms') %><% } else if (flow.kind === 'growth') { %><%- include('country-admin-growth-forms') %><% } else if (flow.kind === 'reports') { %><%- include('country-admin-report-forms') %><% } else if (flow.kind === 'support') { %><%- include('country-admin-support-forms') %><% } %>
+    </div>
+    <aside class="role-side-stack">
+      <section class="panel role-insights"><div class="role-panel-head compact"><div><span class="eyebrow">Country operations</span><h2>What needs attention</h2></div></div><div class="role-insight-list"><% for (const [index, insight] of insights.entries()) { %><article><span><%= index + 1 %></span><p><%= typeof insight === 'string' ? insight : insight.text %></p></article><% } %><% if (!insights.length) { %><p class="form-intro">No actions need attention in this view.</p><% } %></div><% if (recommendation) { %><a class="soft-button full-button" href="<%= localHref(recommendation.href) %>"><%= recommendation.label || 'Review recommendations' %></a><% } %></section>
+      <section class="panel role-progress-card"><div class="role-panel-head compact"><div><span class="eyebrow">Performance</span><h2><%= health.label || 'Workspace health' %></h2></div><strong><%= healthValue === null ? '—' : healthValue + '%' %></strong></div><div class="role-health-ring" data-health-known="<%= healthValue !== null %>"><span><%= healthValue === null ? '—' : healthValue %><% if (healthValue !== null) { %><small>%</small><% } %></span></div><div class="role-health-rows"><% for (const row of health.rows || []) { %><div><span><%= row.label %></span><b><%= row.value ?? '—' %></b></div><% } %></div><% if (health.note) { %><p class="form-intro"><%= health.note %></p><% } %></section>
+    </aside>
+  </div>
+  <section class="panel role-activity-panel"><div class="role-panel-head"><div><h2>Workflow &amp; recent activity</h2><p>Keep the team aligned on the next operational actions.</p></div><% if (localHref(flow.activityHref)) { %><a class="plain-link" href="<%= localHref(flow.activityHref) %>">View all activity</a><% } %></div><div class="role-workflow-grid"><% for (const [index, item] of workflow.entries()) { %><article><span class="role-step <%= index === 0 ? 'current' : '' %>"><%= index + 1 %></span><div><strong><%= item.title %></strong><p><%= item.text || item.detail || '' %></p></div><% if (localHref(item.href)) { %><a class="plain-link" href="<%= localHref(item.href) %>"><%= item.label || 'Continue' %></a><% } %></article><% } %></div><% if (!workflow.length) { %><p class="form-intro">No workflow activity recorded yet.</p><% } %></section>
+</section>
+<% } %>

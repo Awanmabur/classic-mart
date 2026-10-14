@@ -9,6 +9,7 @@ import { PROMOTER_LIVE_ROUTES } from './promoter-routes.js';
 import { FINANCE_LIVE_ROUTES } from './finance-routes.js';
 import { MODERATION_LIVE_ROUTES } from './moderation-routes.js';
 import { SUPPORT_LIVE_ROUTES } from './support-routes.js';
+import { COUNTRY_ADMIN_LIVE_ROUTES } from './country-admin-routes.js';
 
 /** Personal account data stays scoped to the signed-in user. The surrounding
  * navigation uses current store access, never an account label or saved preview
@@ -28,6 +29,7 @@ export async function accountWorkspaceView(request, section = 'profile') {
     const config = DASHBOARD_WORKSPACES[primaryWorkspace];
     const connected = primaryWorkspace === 'warehouse'
       ? new Set(DASHBOARD_PAGES.warehouse.map(([id]) => id))
+      : primaryWorkspace === 'admin' ? new Set(Object.keys(COUNTRY_ADMIN_LIVE_ROUTES))
       : primaryWorkspace === 'moderator' ? new Set(Object.keys(MODERATION_LIVE_ROUTES))
         : primaryWorkspace === 'promoter' ? new Set(Object.keys(PROMOTER_LIVE_ROUTES))
           : primaryWorkspace === 'finance' ? new Set(Object.keys(FINANCE_LIVE_ROUTES))

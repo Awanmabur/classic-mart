@@ -3,9 +3,11 @@ import { routeForPage, defaultPageFor } from './registry.js';
 import { FINANCE_LIVE_ROUTES } from './finance-routes.js';
 import { MODERATION_LIVE_ROUTES } from './moderation-routes.js';
 import { SUPPORT_LIVE_ROUTES } from './support-routes.js';
+import { COUNTRY_ADMIN_LIVE_ROUTES } from './country-admin-routes.js';
 
 export function dashboardLanding(user) {
   const workspace = primaryWorkspaceFor(user);
+  if (workspace === 'admin' && COUNTRY_ADMIN_LIVE_ROUTES[user.preferences?.countryAdminLandingPage]) return COUNTRY_ADMIN_LIVE_ROUTES[user.preferences.countryAdminLandingPage];
   if (workspace === 'finance' && FINANCE_LIVE_ROUTES[user.preferences?.financeLandingPage]) return FINANCE_LIVE_ROUTES[user.preferences.financeLandingPage];
   if (workspace === 'moderator' && MODERATION_LIVE_ROUTES[user.preferences?.moderationLandingPage]) return MODERATION_LIVE_ROUTES[user.preferences.moderationLandingPage];
   if (workspace === 'support' && SUPPORT_LIVE_ROUTES[user.preferences?.supportLandingPage]) return SUPPORT_LIVE_ROUTES[user.preferences.supportLandingPage];

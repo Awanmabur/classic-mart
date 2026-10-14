@@ -22,7 +22,7 @@ function trustScope(value){if(Array.isArray(value))return value.map(trustScope);
 const escaped=value=>String(value).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 const digest=message=>crypto.createHash('sha256').update(message).digest('hex');
 const conflict=()=>new AppError('This ticket changed. Reload its latest conversation before continuing.',409,'SUPPORT_TICKET_VERSION_CONFLICT');
-const ticketFields='publicId userId requesterName requesterEmailMasked orderId orderPublicId country category subject status priority queue slaDueAt assignedUserId assignedAt assignmentHistory workflowHistory evidenceDocumentIds notes createdAt updatedAt resolvedAt reopenedAt mergedIntoPublicId __v';
+const ticketFields='publicId userId createdByUserId source requesterName requesterEmailMasked orderId orderPublicId country category subject status priority queue slaDueAt assignedUserId assignedAt assignmentHistory workflowHistory evidenceDocumentIds notes createdAt updatedAt resolvedAt reopenedAt mergedIntoPublicId __v';
 const base='/support/queue';
 function filters(query={}){
   const parsed=z.object({country:z.string().max(2).optional(),search:z.string().trim().max(100).default(''),q:z.string().trim().max(100).optional(),status:z.enum(['all',...SUPPORT_TICKET_STATUSES]).default('all'),queue:z.enum(['all',...SUPPORT_QUEUES]).default('all'),priority:z.enum(['all',...PRIORITIES]).default('all'),assignment:z.enum(['all','mine','unassigned']).default('all'),overdue:z.enum(['','1']).default(''),after:z.string().max(512).default(''),record:z.string().trim().max(100).default(''),macro:z.string().trim().max(100).default(''),macroEdit:z.string().trim().max(100).default(''),macroAfter:z.string().max(512).default('')}).parse(query);
@@ -93,10 +93,11 @@ async function queueRequesterReply(context,ticket,noteIndex,session){
   await OutboxEvent.create([{eventId:publicId('evt'),...currentTraceFields(),type:'support.ticket_reply',aggregateType:'support_ticket',aggregatePublicId:ticket.publicId,payload:{ticketPublicId:ticket.publicId,country:ticket.country,noteIndex,bodyHash:digest(note.message),senderUserId:String(context.actor._id),senderTokenVersion:context.actor.security.tokenVersion}}],{session});
   if(ticket.userId)await Notification.create([{publicId:publicId('ntf'),userId:ticket.userId,country:ticket.country,type:'support_reply',title:'Your support request has an update',body:'Open your saved support conversation to read the reply.',href:'/support'}],{session});
 }
-export async function mutateSupportTicket(request,id,body={}, {workspace=true}={}){
+export async function mutateSupportTicket(request,id,body={}, {workspace=true,assertSource=null}={}){
   const input=z.object({action:z.enum(['claim','release','transfer','update','reply','status','reopen']),version,recipient:z.string().trim().max(100).optional(),priority:z.enum(PRIORITIES).optional(),queue:z.enum(SUPPORT_QUEUES).optional(),status:z.enum(SUPPORT_TICKET_STATUSES).optional(),message:z.string().trim().max(2000).default(''),internal:z.union([z.boolean(),z.enum(['true','false','1','0','on'])]).optional(),macroId:z.string().trim().max(100).default(''),macroVersion:version.optional()}).parse(body);
   const result=await transaction(async session=>{
     const context=await supportAccess(request,{session,workspace,country:''}),ticket=await scopedTicket(context,id,session);assertVersion(ticket,input.version);if(ticket.mergedIntoPublicId)throw new AppError('This ticket was merged. Use its current conversation.',409,'SUPPORT_TICKET_MERGED');
+    if(assertSource)await assertSource(context,ticket,session);
     await fenceSupportAccess(context,session);let delivered=false;const before=ticket.status;
     if(input.action==='claim'){
       if(ticket.assignedUserId)throw new AppError('This ticket is already assigned. Its owner can transfer it.',409,'SUPPORT_TICKET_ASSIGNED');ticket.assignedUserId=context.actor._id;ticket.assignedAt=new Date();ticket.assignmentHistory.push({action:'claim',actorUserId:context.actor._id,assignedUserId:context.actor._id});if(ticket.status==='open')ticket.status='in_progress';

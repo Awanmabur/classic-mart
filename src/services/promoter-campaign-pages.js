@@ -3,12 +3,14 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
-import { AiJob, AttributionTouch, Brand, Campaign, CampaignApplication, Category, CountrySetting, Product, ProductVariant, PromoterLink, PromoterVerification, Store, StoreMember, User } from '../models/index.js';
+import { AiJob, AttributionTouch, Brand, Campaign, CampaignApplication, Category, CountrySetting, Device, Product, ProductVariant, PromoterLink, PromoterVerification, Store, StoreMember, User } from '../models/index.js';
 import { promoterAccess } from './promoter-workspace-access.js';
 import { hasPublicProductApproval } from './storefront.js';
 import { cursorScope, cursorSort, decodeCursor, pageResult, encodeCursor } from './pagination.js';
 import { marketplacePromoterCampaignPublicId } from './seller-growth.js';
 import { writeAudit } from './audit.js';
+import { currentRequestDevice } from './moderation-workspace-access.js';
+import { countryAdminPersonalAccountEligible } from './country-admin-people-actions.js';
 
 const recordId = z.string().trim().regex(/^[a-z][a-z0-9_-]{4,99}$/, 'Choose a valid record.');
 const revision = z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
@@ -254,11 +256,16 @@ export async function secureSubmitPromoterVerification(request, input) {
   const audienceSize = z.coerce.number().int().min(0).max(1_000_000_000).parse(input.audienceSize || 0), audienceLocation = text(180).parse(input.audienceLocation || '');
   return transaction(async session => {
     const access = await programmeAccess(request, session, { verified: false });
+    if (!await countryAdminPersonalAccountEligible(access.actor, 'promoter', session)) throw new AppError('A personal Promoter account is required.', 403, 'PROMOTER_WORKSPACE_FORBIDDEN');
+    const device = await currentRequestDevice(request, { userId: access.actor._id, session });
     assertVersion(access.verification, input.verificationVersion, 'Verification');
     await fenceAccess(access, session, { verification: false });
+    if (device) await fence(Device, device, session, { userId: access.actor._id, sessionHash: device.sessionHash, revokedAt: null });
     const row = access.verification || new PromoterVerification({ publicId: publicId('prv'), userId: access.actor._id, country: access.country });
     row.channels = channels; row.niches = niches; row.audienceSize = audienceSize; row.audienceLocation = audienceLocation;
     row.status = 'submitted'; row.disclosureAcceptedAt = new Date(); row.submittedAt = new Date(); row.reason = '';
+    row.assignedUserId = null; row.assignedAt = null; row.reviewedAt = null; row.reviewedByUserId = null;
+    row.appeal = { message: '' };
     row.markModified('status'); await row.save({ session });
     await writeAudit(request, 'promoter.verification_submitted', { session, actor: access.actor, targetType: 'promoter_verification', targetPublicId: row.publicId, country: access.country, metadata: { disclosureAccepted: true } });
     return row;
@@ -280,7 +287,7 @@ export async function savePromoterProfile(request, section) {
     } else if (section === 'channels') {
       const row = access.verification || new PromoterVerification({ publicId: publicId('prv'), userId: actor._id, country: access.country });
       assertVersion(access.verification, input.verificationVersion, 'Verification');
-      if (row.status === 'verified' || row.status === 'submitted') throw new AppError('Submit updated channels for review using the disclosure form.', 409, 'PROMOTER_REVIEW_REQUIRED');
+      if (['verified', 'submitted', 'appealed'].includes(row.status)) throw new AppError('Submit updated channels for review using the disclosure form.', 409, 'PROMOTER_REVIEW_REQUIRED');
       row.channels = list(input.channels, 10); row.niches = list(input.niches, 12);
       row.audienceSize = z.coerce.number().int().min(0).max(1_000_000_000).parse(input.audienceSize || 0); row.audienceLocation = text(180).parse(input.audienceLocation || '');
       await row.save({ session });
@@ -344,7 +351,8 @@ function applicationDTO(row) {
 function verificationDTO(row) {
   if (!row) return null;
   return { publicId: row.publicId, country: row.country, status: row.status, channels: row.channels, niches: row.niches, audienceSize: row.audienceSize,
-    audienceLocation: row.audienceLocation, reason: row.reason, disclosureAcceptedAt: row.disclosureAcceptedAt, submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, __v: row.__v || 0 };
+    audienceLocation: row.audienceLocation, reason: row.reason, disclosureAcceptedAt: row.disclosureAcceptedAt, submittedAt: row.submittedAt, reviewedAt: row.reviewedAt,
+    appeal: row.appeal?.submittedAt ? { message: row.appeal.message, submittedAt: row.appeal.submittedAt } : null, __v: row.__v || 0 };
 }
 function campaignDTO(campaign, application) {
   const allowed = campaign.visibility === 'public' || application?.status === 'approved';

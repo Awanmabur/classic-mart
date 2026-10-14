@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { hashToken } from '../core/crypto.js';
 import { CountrySetting, Device, PlatformGrant, User } from '../models/index.js';
 import { primaryWorkspaceFor } from '../dashboard/access.js';
+import { countryAdminAccess } from './country-admin-workspace-access.js';
 
 const scopeError = () => new AppError('This country is outside your current Moderation scope.', 403, 'MODERATION_COUNTRY_FORBIDDEN');
 const changed = () => new AppError('Moderation access changed. Reload before continuing.', 409, 'MODERATION_ACCESS_CHANGED');
@@ -24,6 +25,7 @@ export async function currentRequestDevice(request, { userId = request.user?._id
 
 /** Transaction-aware authorization reads the authoritative grants in the same snapshot. */
 export async function moderationAccess(request, { session = null, write = false, workspace = true, country } = {}) {
+  if (request.requiredOperationalWorkspace === 'admin') return countryAdminAccess(request, { session, write, country });
   if (!request.user?._id) throw new AppError('Moderation authentication is required.', 401, 'UNAUTHENTICATED');
   const actor = await User.findById(request.user._id).select('+operationalCountries').session(session);
   if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion
@@ -42,6 +44,7 @@ export async function moderationAccess(request, { session = null, write = false,
     actor.role = grant.role; actor.operationalCountries = [...grant.operationalCountries];
   }
   if (!hasPermission(actor, 'catalogue:moderate') && !hasPermission(actor, 'trust:manage')) throw new AppError('Moderation permission is required.', 403, 'MODERATION_FORBIDDEN');
+  if (request.requiredOperationalWorkspace && primaryWorkspaceFor(actor) !== request.requiredOperationalWorkspace) throw new AppError('Your operational workspace changed. Reload before continuing.', 403, 'OPERATIONAL_WORKSPACE_CHANGED');
   if (workspace && primaryWorkspaceFor(actor) !== 'moderator') throw new AppError('A Moderation account is required for this workspace.', 403, 'MODERATION_WORKSPACE_FORBIDDEN');
   if (!env.auth.simpleLogin) {
     if (!actor.emailVerifiedAt || !actor.onboardingCompletedAt) throw new AppError('Complete identity verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');

@@ -77,7 +77,7 @@ const seed = spawnSync(process.execPath, ['scripts/seed.js'], { cwd: process.cwd
 if (seed.status !== 0) throw new Error(`Audit seed failed:\n${seed.stdout}\n${seed.stderr}`);
 
 const { connectDatabase, disconnectDatabase } = await import('../src/config/db.js');
-const { hashPassword, normalizeEmail, normalizePhone } = await import('../src/core/crypto.js');
+const { hashPassword, hashToken, normalizeEmail, normalizePhone } = await import('../src/core/crypto.js');
 const { decryptSensitive } = await import('../src/core/sensitive.js');
 const { publicId } = await import('../src/core/ids.js');
 const models = await import('../src/models/index.js');
@@ -126,9 +126,11 @@ async function makeUser(role, suffix) {
 async function serviceRequest(user, overrides = {}) {
   const actor = await models.User.findById(user._id).select('+operationalCountries');
   assert.ok(actor, 'Audit service actor must still exist');
+  const sessionID = `audit-authorized-${crypto.randomUUID()}`;
+  const device = await models.Device.create({publicId:publicId('dev'),userId:actor._id,sessionHash:hashToken(sessionID),label:'Integration audit session',userAgent:'ClassicMartIntegrationAudit/1.0',ipHash:hashToken('127.0.0.18'),lastSeenAt:new Date()});
   return {
     id: publicId('req'), user: actor, country, query: {}, body: {}, ip: '127.0.0.18',
-    sessionID: `audit-authorized-${crypto.randomUUID()}`,
+    sessionID, device,
     session: { userId: String(actor._id), tokenVersion: actor.security.tokenVersion,
       ...(actor.security.mfaEnabled ? { mfaVerifiedAt: Date.now() } : {}) },
     get(name) { return String(name).toLowerCase() === 'user-agent' ? 'ClassicMartIntegrationAudit/1.0' : ''; },
@@ -140,7 +142,10 @@ function auditCheckpoint(label) { console.log(`[audit] ${label}`); }
 
 try {
 auditCheckpoint('Stages 1–7: identity, catalogue, checkout, payments, promoter attribution and logistics');
-const admin = await models.User.findOne({ role: 'super_admin' });
+let admin = await models.User.findOne({ role: 'super_admin' });
+const initialAdminMfa = await stage12Mfa.beginMfaEnrollment(admin._id, process.env.ADMIN_PASSWORD);
+await stage12Mfa.confirmMfaEnrollment(admin._id, stage12Mfa.totpCode(initialAdminMfa.secret));
+admin = await models.User.findById(admin._id);
 assert.ok(admin, 'Stage 1: seeded super admin must exist');
 const setting = await models.CountrySetting.findOne({ code: 'UG', active: true });
 assert.ok(setting, 'Stage 1: country configuration must exist');
@@ -408,7 +413,7 @@ const countryRequester = await makeUser('country_admin', 'stage9-requester');
 const countryReviewer = await makeUser('country_admin', 'stage9-reviewer');
 await assert.rejects(
   stage9.createApproval({ user: countryRequester, type: 'feature_flag', country: 'KE', targetType: 'feature_flag', targetPublicId: 'audit.cross-country', payload: { key: 'audit.cross-country', enabled: true, countries: ['KE'], roles: [], rolloutPercentage: 100 }, reason: 'Must remain in country scope' }),
-  (error) => error?.code === 'COUNTRY_SCOPE',
+  (error) => error?.status === 403 && error?.code === 'COUNTRY_ADMIN_COUNTRY_FORBIDDEN',
   'Stage 9: Country Admin must not create changes outside assigned country',
 );
 const featureApproval = await stage9.createApproval({ user: countryRequester, type: 'feature_flag', country: 'UG', targetType: 'feature_flag', targetPublicId: 'audit.stage9', payload: { key: 'audit.stage9', description: 'Stage 9 audit rollout', enabled: true, countries: ['UG'], roles: ['customer'], rolloutPercentage: 100 }, reason: 'Audit controlled rollout' });
@@ -433,7 +438,7 @@ await stage9.applyApproval(cmsRollback, countryReviewer);
 assert.equal((await models.CmsContent.findOne({ publicId: cmsV2.content.publicId })).activeVersion, cmsV1.version, 'Stage 9: approved rollback must restore earlier CMS version');
 
 const consentedCustomer = await makeUser('customer', 'marketing-consented');
-consentedCustomer.consents.marketing = true; await consentedCustomer.save();
+await models.User.updateOne({_id:consentedCustomer._id},{$set:{'consents.marketing':true}});
 const noConsentCustomer = await makeUser('customer', 'marketing-no-consent');
 const stage9Campaign = await models.MarketingCampaign.create({ publicId: publicId('mkt'), name: 'Audit consent campaign', country: 'UG', subject: 'Audit subject', body: 'Audit consent body', roles: ['customer'], createdByUserId: countryRequester._id });
 await stage9.queueConsentCampaign(stage9Campaign, countryRequester);
@@ -542,7 +547,8 @@ const discountOrder = await models.Order.findOne({ publicId: discountOrderView.i
 const discountSellerOrder = await models.SellerOrder.findOne({ orderId: discountOrder._id }).lean();
 assert.ok(discountOrder.totals.discountMinor > 0 && discountSellerOrder.discountMinor > 0, 'Seller growth: checkout and seller-order snapshots must preserve the seller-funded discount');
 
-consentedCustomer.consents.marketing = true; await consentedCustomer.save();
+const currentConsentedCustomer = await models.User.findById(consentedCustomer._id);
+currentConsentedCustomer.consents.marketing = true; await currentConsentedCustomer.save();
 await models.CustomerCatalogueState.findOneAndUpdate({ userId: consentedCustomer._id }, { $addToSet: { followedStoreIds: secondStore._id } }, { upsert: true, setDefaultsOnInsert: true });
 const broadcast = await sellerGrowth.createStoreBroadcast(sellerReq, { subject: 'Audit follower update', body: 'Consent-aware seller broadcast.' });
 await sellerGrowth.queueStoreBroadcast(sellerReq, broadcast.publicId);

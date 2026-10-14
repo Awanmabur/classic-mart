@@ -1,0 +1,22 @@
+<%
+const reportFlow = adminFlow;
+const reportPath = adminPage.id === 'admin-overview' ? '/admin/overview' : '/admin/reports';
+%>
+<section class="panel role-form-section country-admin-report-controls">
+  <div class="role-panel-head compact"><div><h2>Country reports</h2><p>Review live source records and administrative actions within your assigned markets.</p></div></div>
+  <form method="get" action="<%= reportPath %>" class="country-admin-compact-filter country-admin-queue-filter">
+    <input type="hidden" name="country" value="<%= reportFlow.context?.country || '' %>"><% if (reportFlow.filters?.search) { %><input type="hidden" name="search" value="<%= reportFlow.filters.search %>"><% } %>
+    <% if (adminPage.id !== 'admin-overview') { %><label for="countryAdminReportType">Report<select id="countryAdminReportType" name="report"><% for (const option of reportFlow.reportOptions || []) { %><option value="<%= option.value %>" <%= option.value === reportFlow.report ? 'selected' : '' %>><%= option.label %></option><% } %></select></label><% } %>
+    <label for="countryAdminReportPeriod">Period<select id="countryAdminReportPeriod" name="period"><% for (const option of reportFlow.periodOptions || []) { %><option value="<%= option.value %>" <%= option.value === reportFlow.period ? 'selected' : '' %>><%= option.label %></option><% } %></select></label>
+    <button class="primary-button" type="submit">View report</button><a class="outline-button" href="<%= reportFlow.exportHref %>">Download CSV</a>
+  </form>
+  <p class="form-intro">Operational queues show the complete current backlog. Financial totals use source country and currency. Support service levels compare recorded deadlines with public staff replies and active ticket states.</p>
+</section>
+<% if (reportFlow.report === 'summary' && reportFlow.financialGroups?.length) { %>
+<section class="panel role-form-section country-admin-financial-summary">
+  <div class="role-panel-head compact"><div><h2>Financial totals by market</h2><p>Settled payment and completed refund totals require matching balanced ledger evidence.</p></div></div>
+  <div class="role-table-wrap"><table class="role-table"><thead><tr><th>Country</th><th>Currency</th><th>Orders</th><th>Order total (minor)</th><th>Settled payments (minor)</th><th>Completed refunds (minor)</th></tr></thead><tbody>
+  <% for (const group of reportFlow.financialGroups) { %><tr><td><%= group.country %></td><td><%= group.currency %></td><td><%= group.orderCount %></td><td><%= group.orderTotalMinor %></td><td><%= group.settledPaymentMinor %></td><td><%= group.completedRefundMinor %></td></tr><% } %>
+  </tbody></table></div>
+</section>
+<% } %>

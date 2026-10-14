@@ -5,6 +5,7 @@ import { setFlash } from '../middleware/view.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { promoterPageGates, renderPromoterPage } from '../dashboard/promoter-page-view.js';
 import { promoterCampaignPage, promoterProfilePage, secureApplyToCampaign, secureCreatePromoterLink, secureBuildCampaignContentKit, secureSubmitPromoterVerification, updatePromoterLink, savePromoterProfile } from '../services/promoter-campaign-pages.js';
+import { appealCountryAdminPromoterVerification } from '../services/country-admin-people-actions.js';
 
 const router = Router();
 const gates = promoterPageGates();
@@ -20,7 +21,7 @@ async function render(request, response, mode, error = '') {
     data.draft = Object.fromEntries(Object.entries(request.body || {}).filter(([name, value]) => name !== '_csrf' && typeof value === 'string').map(([name, value]) => [name, value.slice(0, 1200)]));
     data.draftSection = request.path.split('/').at(-1);
     if (request.params.id) data.draftId = request.params.id;
-    if (mode === 'profile') data.section = ({ identity: 'profile', channels: 'business', verification: 'business', preferences: 'notifications' })[data.draftSection] || data.section;
+    if (mode === 'profile') data.section = ({ identity: 'profile', channels: 'business', verification: 'business', appeal: 'business', preferences: 'notifications' })[data.draftSection] || data.section;
   }
   return renderPromoterPage(request, response, mode === 'profile' ? 'promoter-profile' : pageId(mode), data);
 }
@@ -70,4 +71,5 @@ router.post('/promoter/links/:id/deactivate', ...gates, mutationLimit, action('l
 router.post('/promoter/content', ...gates, mutationLimit, action('content', request => secureBuildCampaignContentKit(request, request.body), 'Content kit saved using the approved campaign facts.', result => '/promoter/content?kit=' + encodeURIComponent(result.publicId)));
 for (const section of ['identity', 'channels', 'preferences']) router.post('/promoter/profile/' + section, ...gates, mutationLimit, action('profile', request => savePromoterProfile(request, section), 'Profile settings saved.', '/promoter/profile?section=' + ({ identity: 'profile', channels: 'business', preferences: 'notifications' })[section]));
 router.post('/promoter/profile/verification', ...gates, mutationLimit, action('profile', request => secureSubmitPromoterVerification(request, request.body), 'Promoter verification submitted for review.', '/promoter/profile?section=business'));
+router.post('/promoter/verification/appeal', ...gates, mutationLimit, action('profile', appealCountryAdminPromoterVerification, 'Promoter verification appeal submitted.', '/promoter/profile?section=business'));
 export default router;

@@ -187,13 +187,13 @@ export async function prepareVerificationDocument(file, verificationPublicId) {
 }
 
 
-export async function sanitizeAndStoreEvidenceImage({ file, user, country, contextType, contextPublicId, description = '', documentType = 'general', contextLinePublicId = '' }) {
+export async function sanitizeAndStoreEvidenceImage({ file, user, country, contextType, contextPublicId, description = '', documentType = 'general', contextLinePublicId = '', refundPublicId = '' }) {
   const sanitized = await sanitizeImage(file);
   const stored = await writeSanitizedImage(`evidence-${contextType}-${contextPublicId}`, sanitized);
   try {
     return await EvidenceDocument.create({
       publicId: publicId('evd'), ownerUserId: user._id, country, contextType, contextPublicId,
-      storageKey: stored.storageKey, mimeType: 'image/webp', size: sanitized.data.length, documentType, contextLinePublicId,
+      storageKey: stored.storageKey, mimeType: 'image/webp', size: sanitized.data.length, documentType, contextLinePublicId, refundPublicId,
       status: 'ready', description: String(description || '').slice(0, 300),
     });
   } catch (error) {

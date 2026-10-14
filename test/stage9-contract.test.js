@@ -39,8 +39,11 @@ test('Stage 9 loyalty referrals and consent-aware campaigns use verified server 
   const service=read('src/services/stage9.js');
   assert.match(service,/applyGrowthForPaidOrder/);
   assert.match(service,/first verified paid order|Qualified referral reward|Verified order reward/i);
-  assert.match(service,/consents\.marketing/);
-  assert.match(service,/marketing\.campaign_message/);
+  assert.match(service,/queueCurrentConsentCampaign/);
+  const campaigns=read('src/services/country-admin-growth-pages.js');
+  assert.match(campaigns,/consents\.marketing/);
+  assert.match(campaigns,/prepareMarketingCampaignDelivery/);
+  assert.match(campaigns,/marketing\.campaign_message/);
   assert.match(service,/queueDueCampaigns/);
   assert.match(read('src/services/payments.js'),/applyGrowthForPaidOrder/);
   assert.match(read('src/services/logistics.js'),/applyGrowthForPaidOrder/);

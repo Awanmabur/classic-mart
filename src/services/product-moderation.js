@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import { Product, Store, StoreMember, Category, Brand, ProductVariant, ProductMedia, StockItem, Warehouse, Notification, User, ModerationQaReview } from '../models/index.js';
 import { AppError } from '../core/errors.js';
+import { requestWithQuery } from '../core/request-scope.js';
 import { publicId } from '../core/ids.js';
 import { hasPermission } from '../core/roles.js';
 import { moderationAccess, fenceModerationAccess, assertModerationReadAccess } from './moderation-workspace-access.js';
@@ -18,7 +19,7 @@ async function context(value, id, session = null) {
   const request = requestFor(value);
   const product = await Product.findOne({ publicId: id }).session(session);
   const store = product && await Store.findById(product.storeId).session(session);
-  if (!product || !store) throw new AppError('Product not found.', 404, 'PRODUCT_NOT_FOUND');
+  if (!product || !store || (request.requiredOperationalWorkspace === 'admin' && String(product.ownerUserId) !== String(store.ownerUserId))) throw new AppError('Product not found.', 404, 'PRODUCT_NOT_FOUND');
   const access = await moderationAccess(request, { session, workspace: false, country: store.country });
   if (!hasPermission(access.actor, 'catalogue:moderate')) throw new AppError('Product review permission is required.', 403, 'MODERATION_FORBIDDEN');
   if (request.query?.country && request.query.country !== store.country) throw new AppError('Product not found.', 404, 'PRODUCT_NOT_FOUND');
@@ -35,7 +36,7 @@ export async function reviewerProductDetail(value, id) {
   const stockRows = await StockItem.find({ storeId: store._id, variantId: { $in: variants.map(row => row._id) } }).sort({ updatedAt: -1, _id: -1 }).limit(201).lean();
   const stocks = stockRows.slice(0, 200);
   const warehouses = await Warehouse.find({ storeId: store._id, _id: { $in: stocks.map(row => row.warehouseId) } }).select('name country active').limit(200).lean();
-  await assertModerationReadAccess({ ...request, query: { ...request.query, country: store.country } }, access, { workspace: false });
+  await assertModerationReadAccess(requestWithQuery(request, { country: store.country }), access, { workspace: false });
   const productData = product.toObject();
   delete productData.ownerUserId;
   return { product: productData, store: { _id: store._id, publicId: store.publicId, name: store.name, country: store.country, currency: store.currency, status: store.status }, category, brand, variants, media, stocks, stockHasMore: stockRows.length > 200, warehouses };

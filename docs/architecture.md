@@ -150,6 +150,43 @@ is reauthorized after storage reads and before sending bytes. See the
 [Moderation contracts](moderation/workspace-pages.md) for routes, tests and
 remaining deployment limits.
 
+## Country Admin entry points
+
+`/admin/overview` is the default landing page for the 16 approved Country Admin
+destinations. `/admin` follows the operator's saved connected landing preference;
+legacy `/dashboard/admin-*` aliases retain queries. The current effective
+`country_admin` role, primary Admin workspace and one active authoritative staff
+grant determine access. Verified staff identity, current Device/token,
+onboarding and configured authenticator enrollment are checked again in live
+services. Other primary workspaces, including Super Admin, do not render this UI.
+
+Six domains connect catalogue/people, commerce, growth/content, Support, reports
+and settings to actual source records. Shared core operations retain their own
+authorized callers; server-owned delegation re-enters the strict Admin boundary
+inside the actual transaction. Account, Device, grant, market and target fences
+save with required audit evidence. The owning Store, persisted programme or
+original Order determines operational country. Global and multi-market changes
+require coverage of all affected sources; shopping preferences do not move work
+or funds.
+
+Country Coupons participate in checkout's actual quote, usage reservation and
+settlement allocation after Seller offers. Messaging campaigns use durable
+outbox work and fresh consent/creator checks at delivery. Public homepage, press
+and help revisions require independent source-bound CMS approval, including
+scheduled publication and rollback. Physical return inspection and independent
+refund controls reuse actual Warehouse tasks, immutable Order allocations,
+sanitized disbursement evidence and balanced accounting. Admin Support replies
+reach the same Customer conversation at `/support` while private notes stay
+with authorized staff.
+
+Queues use 25-record keysets, full scoped totals and authorization-aware streamed
+CSV. Reports preserve separate country/currency groups and use source accounting
+and observed Support SLA rather than synthetic outcomes. Five settings tabs
+save allowed profile/preferences and control actual in-app work alerts. See the
+[Country Admin contracts](country-admin/workspace-pages.md) for all routes,
+counterparts, source controls and deployment limits. Super Admin, Business and
+the full approved Warehouse workspace continue through separate stages.
+
 ## Verification
 
 Role landing tests exercise real login, session regeneration and route access.

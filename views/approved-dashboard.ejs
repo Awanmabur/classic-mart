@@ -5,6 +5,7 @@ const promoterLive = typeof livePromoter !== 'undefined';
 const financeLive = typeof liveFinance !== 'undefined';
 const supportLive = typeof liveSupport !== 'undefined';
 const moderationLive = typeof liveModeration !== 'undefined';
+const adminLive = typeof liveAdmin !== 'undefined';
 const warehouseLive = typeof liveWarehouse !== 'undefined';
 const accountWorkspaceLive = typeof liveAccountWorkspace !== 'undefined';
 const operationalShell = liveCustomer && workspace !== 'customer';
@@ -14,12 +15,13 @@ const promoterShell = operationalShell && workspace === 'promoter';
 const financeShell = operationalShell && workspace === 'finance';
 const supportShell = operationalShell && workspace === 'support';
 const moderationShell = operationalShell && workspace === 'moderator';
-const operationalNavigation = moderationLive ? liveModeration.navigation : supportLive ? liveSupport.navigation : financeLive ? liveFinance.navigation : promoterLive ? livePromoter.navigation : warehouseLive ? liveWarehouse.navigation : sellerLive ? liveSeller.navigation : accountWorkspaceLive ? liveAccountWorkspace.navigation : [];
+const adminShell = operationalShell && workspace === 'admin';
+const operationalNavigation = adminLive ? liveAdmin.navigation : moderationLive ? liveModeration.navigation : supportLive ? liveSupport.navigation : financeLive ? liveFinance.navigation : promoterLive ? livePromoter.navigation : warehouseLive ? liveWarehouse.navigation : sellerLive ? liveSeller.navigation : accountWorkspaceLive ? liveAccountWorkspace.navigation : [];
 const operationalHome = operationalNavigation.find(item => item.id === `${workspace}-overview` && item.ready) || operationalNavigation.find(item => item.ready);
 const sellerSettings = realSeller && liveSeller.navigation.find(item => item.id === 'seller-store' && item.ready);
 const sellerAddProduct = realSeller && liveSeller.navigation.find(item => item.id === 'seller-add-product' && item.ready);
 const sellerSearch = realSeller && (liveSeller.navigation.find(item => item.id === 'seller-products' && item.ready) || liveSeller.navigation.find(item => item.id === 'seller-orders' && item.ready));
-const operationalSearch = (moderationShell && operationalNavigation.find(item => item.id === 'moderator-products' && item.ready)) || (supportShell && operationalNavigation.find(item => item.id === 'support-queue' && item.ready)) || sellerSearch || (promoterShell && operationalNavigation.find(item => item.id === 'promoter-marketplace' && item.ready)) || (financeShell && operationalNavigation.find(item => item.id === 'finance-payments' && item.ready));
+const operationalSearch = (adminShell && operationalNavigation.find(item => item.id === 'admin-products' && item.ready)) || (moderationShell && operationalNavigation.find(item => item.id === 'moderator-products' && item.ready)) || (supportShell && operationalNavigation.find(item => item.id === 'support-queue' && item.ready)) || sellerSearch || (promoterShell && operationalNavigation.find(item => item.id === 'promoter-marketplace' && item.ready)) || (financeShell && operationalNavigation.find(item => item.id === 'finance-payments' && item.ready));
 const operationalQuick = operationalNavigation.find(item => item.id === (accountWorkspaceLive ? liveAccountWorkspace.quickPage : supportShell ? 'support-queue' : financeShell ? 'finance-reconciliation' : promoterShell ? 'promoter-links' : workspace === 'warehouse' ? 'warehouse-dispatch' : workspace === 'moderator' ? 'moderator-products' : '') && item.ready);
 const operationalQuickLabel = accountWorkspaceLive ? liveAccountWorkspace.quickLabel : supportShell ? 'Ticket Queue' : financeShell ? 'Reconcile' : promoterShell ? 'Create Link' : workspace === 'warehouse' ? 'Dispatch' : 'Review Queue';
 const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.search : supportShell ? 'Search tickets, customers, orders and disputes...' : financeShell ? 'Search payments and order references...' : promoterShell ? 'Search campaigns, links and conversions...' : workspace === 'warehouse' ? 'Search inventory, orders, shipments and returns...' : 'Search products, reviews, sellers and risk cases...';
@@ -39,6 +41,7 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
   <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/session.css') %>" />
   <% if (realSeller) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/seller-fidelity.css') %>" /><% } %>
   <% if (promoterShell) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/promoter-live.css') %>" /><% } %>
+  <% if (adminLive) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/country-admin-live.css') %>" /><% } %>
   <% if (moderationShell) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/moderation-live.css') %>" /><% } %>
   <% if (supportShell) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/support-live.css') %>" /><% } %>
   <% if (financeShell) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/finance-live.css') %>" /><% } %>
@@ -46,7 +49,7 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
   <% if (sellerLive && liveSeller.overviewFlow) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/seller-overview-live.css') %>" /><% } %>
   <% if (sellerLive && !liveSeller.pageFlow && !liveSeller.overviewFlow && !liveSeller.accountFlow && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow && !liveSeller.orderFlow) { %><link rel="stylesheet" href="<%= assetUrl('/phone-country.css') %>" /><% } %>
 </head>
-<body data-dashboard-live="<%= liveCustomer %>" data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= typeof accountPage === 'undefined' ? initialPage : accountPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>" <% if (supportLive) { %>data-support-density="<%= liveSupport.preferences.density %>" data-support-idle-minutes="<%= liveSupport.preferences.idleReminderMinutes %>"<% } %> <% if (moderationLive) { %>data-moderation-density="<%= liveModeration.preferences.density %>" data-moderation-idle-minutes="<%= liveModeration.preferences.idleReminderMinutes %>"<% } %>>
+<body <% if (adminLive) { %>data-country-admin-density="<%= liveAdmin.preferences.density %>" data-country-admin-idle-minutes="<%= liveAdmin.preferences.idleReminderMinutes %>"<% } %> data-dashboard-live="<%= liveCustomer %>" data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= typeof accountPage === 'undefined' ? initialPage : accountPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>" <% if (supportLive) { %>data-support-density="<%= liveSupport.preferences.density %>" data-support-idle-minutes="<%= liveSupport.preferences.idleReminderMinutes %>"<% } %> <% if (moderationLive) { %>data-moderation-density="<%= liveModeration.preferences.density %>" data-moderation-idle-minutes="<%= liveModeration.preferences.idleReminderMinutes %>"<% } %>>
   <meta name="csrf-token" content="<%= csrfToken %>">
   <script src="<%= assetUrl('/approved-dashboard/session-entry.js') %>" <%= liveCustomer ? 'defer' : '' %>></script>
   <svg class="svg-sprite" aria-hidden="true">
@@ -93,6 +96,7 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
   </svg>
 
   <div class="app-shell">
+    <% if (adminLive) { %><%- include('partials/country-admin-header') %><% } else { %>
     <header class="topbar">
       <div class="brand-area">
         <button class="round-icon mobile-menu" id="mobileMenuBtn" aria-label="Open navigation"><svg><use href="#i-menu"></use></svg></button>
@@ -102,7 +106,7 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
       </div>
 
       <form class="search" id="searchForm" <% if (operationalShell) { %>data-dashboard-search-route="<%= operationalSearch?.href || '' %>" data-dashboard-search-key="search"<% } %>>
-        <input id="searchInput" type="search" placeholder="<%= operationalShell ? realSeller ? sellerSearch?.id === 'seller-orders' ? 'Search orders...' : 'Search products, orders and customers...' : operationalSearchLabel : 'Search products, brands and orders...' %>" <%= operationalShell && !operationalSearch ? 'disabled' : '' %> />
+        <input id="searchInput" type="search" <% if (adminShell) { %>aria-label="Search your Country Admin workspace"<% } %> placeholder="<%= operationalShell ? realSeller ? sellerSearch?.id === 'seller-orders' ? 'Search orders...' : 'Search products, orders and customers...' : operationalSearchLabel : 'Search products, brands and orders...' %>" <%= operationalShell && !operationalSearch ? 'disabled' : '' %> />
         <button type="submit" aria-label="Search" <%= operationalShell && !operationalSearch ? 'disabled' : '' %>><svg><use href="#i-search"></use></svg></button>
       </form>
 
@@ -121,11 +125,13 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
         </button>
       </div>
     </header>
+    <% } %>
 
+    <% if (adminLive) { %><%- include('partials/country-admin-sidebar') %><% } else { %>
     <aside class="sidebar" id="sidebar">
       <nav class="side-navigation">
         <% if (moderationLive || supportLive || financeLive || promoterLive || warehouseLive || sellerLive || accountWorkspaceLive) { let previousGroup = ''; for (const item of operationalNavigation) { %>
-        <% if ((realSeller || promoterShell || financeShell || supportShell || moderationShell) && item.group && item.group !== previousGroup) { previousGroup = item.group; %><span class="nav-section-label"><%= item.group %></span><% } %>
+        <% if ((realSeller || promoterShell || financeShell || supportShell || moderationShell || adminShell) && item.group && item.group !== previousGroup) { previousGroup = item.group; %><span class="nav-section-label"><%= item.group %></span><% } %>
         <% if (item.ready) { %><a class="side-link <%= initialPage === item.id ? 'active' : '' %>" href="<%= item.href %>" data-page-target="<%= item.id %>"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></a><% } else { %><button class="side-link" type="button" disabled title="Not available yet"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></button><% } %>
         <% } } else { %>
         <a class="side-link active" href="/dashboard" data-page-target="dashboard"><svg><use href="#i-grid"></use></svg><span>Dashboard</span></a>
@@ -157,12 +163,13 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
 
       <button class="logout-button" data-action="logout"><svg><use href="#i-logout"></use></svg><span>Log Out</span></button>
     </aside>
+    <% } %>
     <button class="sidebar-overlay" id="sidebarOverlay" aria-label="Close navigation"></button>
 
     <main class="dashboard page-host" id="pageHost">
 <% if (!liveCustomer) { %><div class="panel dashboard-message" role="note">Development preview: this workspace is not connected to live operations yet.</div><% } %>
 <% if (flash?.message) { %><div class="panel dashboard-message <%= flash.type==='error'?'dashboard-message-error':'' %>" role="<%= flash.type==='error'?'alert':'status' %>"><%= flash.message %></div><% } %>
-<% if (moderationLive && initialPage === 'moderator-overview') { %><%- include('partials/moderation-overview-live') %><% } else if (moderationLive && initialPage === 'moderator-settings') { %><%- include('partials/moderation-settings-live') %><% } else if (moderationLive) { %><%- include('partials/moderation-standard-live') %><% } else if (supportLive && initialPage === 'support-overview') { %><%- include('partials/support-overview-live') %><% } else if (supportLive && initialPage === 'support-settings') { %><%- include('partials/support-settings-live') %><% } else if (supportLive) { %><%- include('partials/support-standard-live') %><% } else if (financeLive && initialPage === 'finance-overview') { %><%- include('partials/finance-overview-live') %><% } else if (financeLive && initialPage === 'finance-settings') { %><%- include('partials/finance-settings-live') %><% } else if (financeLive) { %><%- include('partials/finance-standard-live') %><% } else if (promoterLive && initialPage === 'promoter-overview') { %><%- include('partials/promoter-overview-live') %><% } else if (promoterLive && initialPage === 'promoter-profile') { %><%- include('partials/promoter-profile-live') %><% } else if (promoterLive) { %><%- include('partials/promoter-standard-live') %><% } else if (warehouseLive) { %><%- include('partials/warehouse-live') %><% } else if (sellerLive && liveSeller.pageFlow) { %><%- include('partials/seller-standard-live') %><% } else if (sellerLive && liveSeller.overviewFlow) { %><%- include('partials/seller-overview-live') %><% } else if (sellerLive && liveSeller.orderFlow) { %><%- include('partials/seller-orders-live') %><% } else if (sellerLive && liveSeller.productFlow) { %><%- include('partials/seller-products-live') %><% } else if (sellerLive && liveSeller.productReviewFlow) { %><%- include('partials/product-review-live') %><% } else if (sellerLive && liveSeller.reviewFlow) { %><%- include('partials/verification-review-live') %><% } else if (sellerLive && liveSeller.verificationFlow) { %><%- include('partials/seller-verification-live') %><% } else if (sellerLive && !liveSeller.accountFlow) { %><%- include('partials/seller-store-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'shopping') { %><%- include('partials/customer-live-pages', { pageId: accountPage, pageData, walletIdempotencyKey }) %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'notifications') { %><%- include('partials/customer-live-pages', { pageId: 'notifications', pageData, walletIdempotencyKey: '' }) %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
+<% if (adminLive) { %><%- include('partials/country-admin-main') %><% } else if (moderationLive && initialPage === 'moderator-overview') { %><%- include('partials/moderation-overview-live') %><% } else if (moderationLive && initialPage === 'moderator-settings') { %><%- include('partials/moderation-settings-live') %><% } else if (moderationLive) { %><%- include('partials/moderation-standard-live') %><% } else if (supportLive && initialPage === 'support-overview') { %><%- include('partials/support-overview-live') %><% } else if (supportLive && initialPage === 'support-settings') { %><%- include('partials/support-settings-live') %><% } else if (supportLive) { %><%- include('partials/support-standard-live') %><% } else if (financeLive && initialPage === 'finance-overview') { %><%- include('partials/finance-overview-live') %><% } else if (financeLive && initialPage === 'finance-settings') { %><%- include('partials/finance-settings-live') %><% } else if (financeLive) { %><%- include('partials/finance-standard-live') %><% } else if (promoterLive && initialPage === 'promoter-overview') { %><%- include('partials/promoter-overview-live') %><% } else if (promoterLive && initialPage === 'promoter-profile') { %><%- include('partials/promoter-profile-live') %><% } else if (promoterLive) { %><%- include('partials/promoter-standard-live') %><% } else if (warehouseLive) { %><%- include('partials/warehouse-live') %><% } else if (sellerLive && liveSeller.pageFlow) { %><%- include('partials/seller-standard-live') %><% } else if (sellerLive && liveSeller.overviewFlow) { %><%- include('partials/seller-overview-live') %><% } else if (sellerLive && liveSeller.orderFlow) { %><%- include('partials/seller-orders-live') %><% } else if (sellerLive && liveSeller.productFlow) { %><%- include('partials/seller-products-live') %><% } else if (sellerLive && liveSeller.productReviewFlow) { %><%- include('partials/product-review-live') %><% } else if (sellerLive && liveSeller.reviewFlow) { %><%- include('partials/verification-review-live') %><% } else if (sellerLive && liveSeller.verificationFlow) { %><%- include('partials/seller-verification-live') %><% } else if (sellerLive && !liveSeller.accountFlow) { %><%- include('partials/seller-store-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'shopping') { %><%- include('partials/customer-live-pages', { pageId: accountPage, pageData, walletIdempotencyKey }) %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'notifications') { %><%- include('partials/customer-live-pages', { pageId: 'notifications', pageData, walletIdempotencyKey: '' }) %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
 </main>
   </div>
 
@@ -189,8 +196,8 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
   </aside>
 
   <div class="profile-menu" id="profileMenu">
-    <button data-page-target="<%= realSeller && sellerSettings ? 'seller-store' : 'profile' %>"><svg><use href="#i-user"></use></svg>Profile</button>
-    <button data-page-target="profile" data-profile-tab="security"><svg><use href="#i-shield"></use></svg>Security</button>
+    <button data-page-target="<%= adminLive ? 'admin-settings' : realSeller && sellerSettings ? 'seller-store' : 'profile' %>"><svg><use href="#i-user"></use></svg>Profile</button>
+    <button data-page-target="<%= adminLive ? 'admin-settings' : 'profile' %>" data-profile-tab="security"><svg><use href="#i-shield"></use></svg>Security</button>
     <button data-action="logout"><svg><use href="#i-logout"></use></svg>Log Out</button>
   </div>
 
@@ -199,6 +206,7 @@ const operationalSearchLabel = accountWorkspaceLive ? liveAccountWorkspace.searc
   <script src="<%= assetUrl('/approved-dashboard/script.js') %>"></script>
   <script src="<%= assetUrl('/approved-dashboard/enhancements.js') %>"></script>
   <script src="<%= assetUrl('/approved-dashboard/session-controls.js') %>"></script><% } else { %><script defer src="<%= assetUrl('/approved-dashboard/customer-live.js') %>"></script><script defer src="<%= assetUrl('/approved-dashboard/customer-navigation.js') %>"></script><% } %>
+  <% if (adminLive) { %><script defer src="<%= assetUrl('/approved-dashboard/country-admin-live.js') %>"></script><% } %>
   <% if (moderationLive) { %><script defer src="<%= assetUrl('/approved-dashboard/moderation-preferences.js') %>"></script><% } %>
   <% if (supportLive) { %><script defer src="<%= assetUrl('/approved-dashboard/support-preferences.js') %>"></script><% } %>
   <% if (sellerLive) { %><script defer src="<%= assetUrl('/approved-dashboard/seller-store-live.js') %>"></script><% } %>

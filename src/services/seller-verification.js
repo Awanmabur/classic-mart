@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import { SellerVerification, Store, StoreMember, VerificationDocument, User, Notification, ModerationQaReview } from '../models/index.js';
 import { AppError } from '../core/errors.js';
+import { requestWithQuery } from '../core/request-scope.js';
 import { publicId } from '../core/ids.js';
 import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import { hasPermission } from '../core/roles.js';
@@ -10,6 +11,7 @@ import { storeCapabilities } from './store.js';
 import { moderationAccess, fenceModerationAccess, assertModerationReadAccess } from './moderation-workspace-access.js';
 import { writeAudit } from './audit.js';
 import { queueModerationAlert } from './moderation-notifications.js';
+import { queueCountryAdminAlert } from './country-admin-notifications.js';
 import { addOutboxEvent } from './outbox.js';
 import { prepareVerificationDocument } from './media.js';
 import { deleteMediaObject } from './object-storage.js';
@@ -123,6 +125,7 @@ export async function submitSellerVerification(request) {
     const store = await Store.findById(record.storeId).session(session);
     await writeAudit(request, 'seller.verification_submitted', { session, targetType: 'seller_verification', targetPublicId: record.publicId, country: store.country });
     if (record.sellerType === 'business') await queueModerationAlert({ country: store.country, kind: 'priority', href: '/moderation/verifications?record=' + record.publicId + '&country=' + store.country }, session);
+    if (record.sellerType === 'business') await queueCountryAdminAlert({country:store.country,kind:'priority',sourceType:'seller_verification',sourcePublicId:record.publicId},session);
     await notifyOwner(store, record, session);
     return record;
   });
@@ -136,6 +139,7 @@ export async function appealSellerVerification(request) {
     record.assignedUserId = null; record.assignedAt = null; record.escalatedAt = null; record.escalationReason = '';
     record.increment(); await record.save({ session });
     await writeAudit(request, 'seller.verification_appealed', { session, targetType: 'seller_verification', targetPublicId: record.publicId });
+    await queueCountryAdminAlert({country:request.store.country,kind:'escalation',sourceType:'seller_verification',sourcePublicId:record.publicId},session);
     await notifyOwner(request.store, record, session);
     return record;
   });
@@ -147,7 +151,7 @@ export async function reviewerVerificationRecord(value, id, session = null) {
   const record = await SellerVerification.findOne({ publicId: id }).session(session);
   if (!record) throw new AppError('Verification not found.', 404, 'VERIFICATION_NOT_FOUND');
   const store = await Store.findById(record.storeId).session(session);
-  if (!store) throw new AppError('Verification not found.', 404, 'VERIFICATION_NOT_FOUND');
+  if (!store || (request.requiredOperationalWorkspace === 'admin' && String(record.userId) !== String(store.ownerUserId))) throw new AppError('Verification not found.', 404, 'VERIFICATION_NOT_FOUND');
   const access = await moderationAccess(request, { session, workspace: false, country: store.country });
   if (!hasPermission(access.actor, 'catalogue:moderate')) throw new AppError('Verification review permission is required.', 403, 'MODERATION_FORBIDDEN');
   if (request.query?.country && request.query.country !== store.country) throw new AppError('Verification not found.', 404, 'VERIFICATION_NOT_FOUND');
@@ -241,7 +245,7 @@ export async function readableVerificationDocument(value, id) {
     const access = await moderationAccess(request, { workspace: false, country: store.country });
     const record = await SellerVerification.findOne({ _id: document.verificationId, storeId: document.storeId, 'documents.mediaPublicId': document.publicId });
     if (!record || document.status === 'superseded') throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
-    await assertModerationReadAccess({ ...request, query: { ...request.query, country: store.country } }, access, { workspace: false });
+    await assertModerationReadAccess(requestWithQuery(request, { country: store.country }), access, { workspace: false });
   } else {
     const member = await StoreMember.findOne({ storeId: document.storeId, userId: user._id, status: 'active', role: { $in: ['owner', 'admin'] } });
     if (!member) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');

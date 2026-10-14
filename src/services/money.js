@@ -84,11 +84,19 @@ function proportionalParts(totalMinor, weights) {
  * reverse these persisted amounts instead of recalculating fees/discounts from
  * mutable pricing rules or a new rounding path.
  */
-export function allocateSellerLineSettlement(items, { discountMinor = 0, platformFeeMinor = 0 } = {}) {
+export function allocateSellerLineSettlement(items, { discountMinor = 0, platformFeeMinor = 0, lineDiscounts } = {}) {
   const rows = (items || []).map((item) => ({ ...item, grossMinor: Number(item.lineTotalMinor ?? item.grossMinor ?? 0) }));
   const gross = rows.map((row) => row.grossMinor);
   if (!rows.length || gross.some((value) => !Number.isSafeInteger(value) || value < 0)) throw new AppError('Seller settlement lines are invalid.', 500, 'SETTLEMENT_INVALID');
-  const discounts = proportionalParts(discountMinor, gross);
+  let discounts;
+  if (lineDiscounts === undefined) discounts = proportionalParts(discountMinor, gross);
+  else {
+    if (!Array.isArray(lineDiscounts) || lineDiscounts.length !== rows.length
+      || !Number.isSafeInteger(discountMinor) || discountMinor < 0
+      || lineDiscounts.some((amount, index) => !Number.isSafeInteger(amount) || amount < 0 || amount > gross[index])
+      || lineDiscounts.reduce((sum, amount) => sum + amount, 0) !== discountMinor) throw new AppError('Seller line discounts do not match the settlement total.', 500, 'SETTLEMENT_INVALID');
+    discounts = [...lineDiscounts];
+  }
   const paid = gross.map((value, index) => value - discounts[index]);
   const fees = proportionalParts(platformFeeMinor, paid);
   return rows.map((row, index) => ({

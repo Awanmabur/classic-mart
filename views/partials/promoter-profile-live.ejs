@@ -61,12 +61,20 @@
           <p class="form-intro" id="promoterChannelsHint">Separate channels and categories with commas. Submitting updated details sends your promoter profile for review.</p>
           <label class="check-label"><input type="checkbox" name="disclosureAccepted" required <%= ['on', 'true', '1', true].includes(channelDraft.disclosureAccepted) ? 'checked' : '' %>> I will clearly disclose sponsored and affiliate promotions.</label>
           <div class="role-create-actions">
-            <% if (!['verified', 'submitted'].includes(profileVerification.status)) { %><button class="primary-button" type="submit" formnovalidate>Save Changes</button><% } %>
+            <% if (!['verified', 'submitted', 'appealed'].includes(profileVerification.status)) { %><button class="primary-button" type="submit" formnovalidate>Save Changes</button><% } %>
             <button class="outline-button" type="submit" formaction="/promoter/profile/verification"><%= profileVerification.status === 'verified' ? 'Submit Updated Details for Review' : 'Submit for Verification' %></button>
           </div>
         </form>
         <div class="role-security-row"><span><svg><use href="#i-award"></use></svg></span><div><strong>Promoter verification</strong><small><%= profileStatusLabel(profileVerification.status) %><%= profileVerification.reason ? ' · ' + profileVerification.reason : '' %></small></div></div>
         <% if (profileVerification.status === 'submitted') { %><p class="form-intro" role="status">Your promoter profile is awaiting review. Submitting again replaces the details under review.</p><% } %>
+        <% if (profileVerification.status === 'rejected') { %>
+          <form method="post" action="/promoter/verification/appeal" class="role-create-form">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= profileVerification.__v %>">
+            <label class="role-create-field wide">Why should this decision be reviewed?<textarea name="message" rows="4" minlength="10" maxlength="1000" required><%= promoterProfile.draftSection === 'appeal' ? profileDraft.message || '' : '' %></textarea></label>
+            <div class="role-create-actions"><button class="outline-button" type="submit">Submit Appeal</button></div>
+          </form>
+        <% } %>
+        <% if (profileVerification.appeal?.submittedAt) { %><p class="form-intro" role="status"><strong>Your submitted appeal:</strong> <%= profileVerification.appeal.message %><% if (profileVerification.status === 'appealed') { %> A different administrator will review your appeal.<% } %></p><% } %>
       </section>
       <form class="panel form-panel role-settings-panel <%= profileSection === 'notifications' ? 'active' : '' %>" id="promoterCommunication" method="post" action="/promoter/profile/preferences">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= promoterProfile.version %>">

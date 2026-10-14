@@ -9,6 +9,7 @@ import { authorizeCustomerCaseActor, fenceCustomerCaseMarket } from './customer-
 import { moderationAccess, fenceModerationAccess, assertModerationReadAccess, moderationPublicContext } from './moderation-workspace-access.js';
 import { cursorScope, cursorSort, decodeCursor, pageResult } from './pagination.js';
 import { queueModerationAlert } from './moderation-notifications.js';
+import { queueCountryAdminAlert } from './country-admin-notifications.js';
 
 const SIZE = 25;
 const idValue = z.string().trim().min(4).max(100).regex(/^[A-Za-z0-9_-]+$/);
@@ -251,6 +252,7 @@ export async function disputeOwnedReview(request, reviewId, reasonOrInput, { sel
     review.publicMessages.push({ author: 'seller', message: input.reason, actorUserId: actor._id }); await review.save({ session });
     await queueTrustModerationAlert({ country: review.country, href: '/moderation/reviews?record=' + review.publicId }, session);
     await writeAudit(request, 'review.disputed', { session, actor, targetType: 'review', targetPublicId: review.publicId, country: review.country, metadata: { storePublicId: subject.store.publicId } });
+    await queueCountryAdminAlert({country:review.country,kind:'escalation',sourceType:'review',sourcePublicId:review.publicId},session);
     return review;
   });
 }
@@ -421,6 +423,10 @@ export async function moderationTrustAction(request, kind, recordId, body, { wor
     if (!doc) throw new AppError('Moderation record not found.', 404, 'MODERATION_RECORD_NOT_FOUND');
     versionCheck(doc, input.version);
     const source = await sourceFor(kind, doc, session);
+    if (request.requiredOperationalWorkspace === 'admin' && source.store
+      && !context.countries.some(market => market.code === source.store.country)) {
+      throw new AppError('The current source store is outside your country administration scope.', 403, 'COUNTRY_ADMIN_SOURCE_COUNTRY_FORBIDDEN');
+    }
     await independent(context, doc, source, session);
     if (!config.active.includes(doc.status)) throw new AppError('This record already has a recorded outcome.', 409, kind === 'reviews' ? 'REVIEW_STATE' : kind === 'cases' ? 'TRUST_CASE_STATE' : 'RISK_STATE');
     assignedToActor(doc, context.actor, !['claim', 'release'].includes(input.action) && requireClaim);

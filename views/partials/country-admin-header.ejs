@@ -1,0 +1,23 @@
+<%
+const headerCountry = liveAdmin.context?.country || '';
+const headerMember = String(user?.name || 'Member').trim().split(/\s+/)[0];
+const searchPath = ['admin-overview', 'admin-settings'].includes(adminPage.id) ? '/admin/reports' : adminPage.href;
+const searchParams = new URLSearchParams({ ...(headerCountry ? { country: headerCountry } : {}), ...(['admin-overview', 'admin-settings'].includes(adminPage.id) ? { report: 'operational' } : {}) });
+const headerSearch = searchPath + (searchParams.size ? '?' + searchParams : '');
+%>
+<header class="topbar">
+  <div class="brand-area">
+    <button class="round-icon mobile-menu" id="mobileMenuBtn" aria-label="Open navigation"><svg><use href="#i-menu"></use></svg></button>
+    <a href="/admin/overview" class="brand dashboard-brand" data-page-target="admin-overview" aria-label="Classic Mart Admin dashboard"><img class="dashboard-brand-logo" src="/approved-dashboard/assets/classic-mart-logo.png" alt="Classic Mart"></a>
+  </div>
+  <form class="search" id="searchForm" data-dashboard-search-route="<%= headerSearch %>" data-dashboard-search-key="search">
+    <input id="searchInput" type="search" aria-label="Search your Country Admin workspace" placeholder="Search users, orders, products and tickets..." maxlength="100" value="<%= adminFlow.filters?.search || '' %>">
+    <button type="submit" aria-label="Search"><svg><use href="#i-search"></use></svg></button>
+  </form>
+  <div class="top-actions">
+    <button class="ai-button" id="classicAiBtn" type="button" aria-label="Open Classic AI" title="Classic AI"><svg class="ai-sparkle-icon"><use href="#i-sparkles"></use></svg><span>Classic AI</span></button>
+    <button class="categories-button" data-page-target="admin-orders"><svg><use href="#i-shield"></use></svg><span>Operations</span></button>
+    <button class="round-icon badge-button" data-page-target="admin-support" aria-label="Support queue"><svg><use href="#i-bell"></use></svg><b class="red" id="notificationBadge"><%= liveAdmin.sidebar?.backlog?.supportTickets ?? 0 %></b></button>
+    <button class="profile-button" id="profileButton"><img src="/approved-dashboard/assets/avatar.svg" alt="<%= user?.name || 'Member' %>"><span><strong>Hi, <%= headerMember %></strong><small>Admin</small></span><svg><use href="#i-chevron-down"></use></svg></button>
+  </div>
+</header>

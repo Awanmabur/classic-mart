@@ -9,6 +9,7 @@ import { storeCapabilities } from './store.js';
 import { moderationAccess, assertModerationReadAccess } from './moderation-workspace-access.js';
 import { writeAudit } from './audit.js';
 import { queueModerationAlert } from './moderation-notifications.js';
+import { queueCountryAdminAlert } from './country-admin-notifications.js';
 import { addOutboxEvent } from './outbox.js';
 import { prepareProductImage } from './media.js';
 import { deleteMediaObject } from './object-storage.js';
@@ -85,7 +86,18 @@ async function references(input, store, session) {
   if (!category) throw new AppError('Category is unavailable in your store country.', 422, 'CATEGORY_UNAVAILABLE');
   const brand = input.brandPublicId ? await Brand.findOne({ publicId: input.brandPublicId, status: 'approved' }).session(session) : null;
   if (input.brandPublicId && !brand) throw new AppError('Brand is unavailable.', 422, 'BRAND_UNAVAILABLE');
+  // Attachments serialize with catalogue policy changes, including a newly
+  // created product that is absent from an administrator's source scan.
+  await fenceCatalogueReference(Category, category, session);
+  if (brand) await fenceCatalogueReference(Brand, brand, session);
   return { category, brand };
+}
+
+async function fenceCatalogueReference(Model, record, session) {
+  if (!session?.inTransaction()) throw new AppError('Catalogue changes require a transaction.', 500, 'CATALOGUE_TRANSACTION_REQUIRED');
+  const result = await Model.updateOne({ _id: record._id, __v: record.__v || 0 }, { $inc: { __v: 1 } }, { session, timestamps: false });
+  if (result.modifiedCount !== 1) throw new AppError('Catalogue policy changed. Reload before continuing.', 409, 'CATALOGUE_VERSION_CONFLICT');
+  record.__v = (record.__v || 0) + 1;
 }
 
 function attributesFor(category, body, { required = false } = {}) {
@@ -461,7 +473,8 @@ export async function assertSellerProductComplete(product, store, session, { med
   if (store.status !== 'verified') throw new AppError('Complete seller verification before submitting or publishing products.', 409, 'STORE_NOT_VERIFIED');
   const category = await Category.findOne({ _id: product.categoryId, ...categoryCountryScope(store) }).session(session);
   if (!category) throw new AppError('Category is unavailable in your store country.', 422, 'CATEGORY_UNAVAILABLE');
-  if (product.brandId && !await Brand.exists({ _id: product.brandId, status: 'approved' }).session(session)) throw new AppError('The selected brand is unavailable.', 422, 'BRAND_UNAVAILABLE');
+  const brand = product.brandId ? await Brand.findOne({ _id: product.brandId, status: 'approved' }).session(session) : null;
+  if (product.brandId && !brand) throw new AppError('The selected brand is unavailable.', 422, 'BRAND_UNAVAILABLE');
   if (product.countries.length !== 1 || product.countries[0] !== store.country) throw new AppError('This product must use its store country.', 422, 'PRODUCT_COUNTRY_INVALID');
   attributesFor(category, { attributes: Object.fromEntries(product.attributes || []) }, { required: true });
   inspectProductContent(product.toObject());
@@ -478,6 +491,8 @@ export async function assertSellerProductComplete(product, store, session, { med
   if (requireStock && !(available[0]?.available > 0)) throw new AppError('Add available stock to an active warehouse in your store country.', 422, 'STOCK_REQUIRED');
   product.qualityScore = calculateQualityScore({ ...product.toObject(), variantCount: variants.length, mediaCount: media.length, hasBrand: Boolean(product.brandId) });
   if (product.qualityScore < SELLER_PRODUCT_LIMITS.quality) throw new AppError('Improve the product details until quality reaches at least 45%.', 422, 'QUALITY_TOO_LOW');
+  await fenceCatalogueReference(Category, category, session);
+  if (brand) await fenceCatalogueReference(Brand, brand, session);
   return category;
 }
 
@@ -509,6 +524,7 @@ export async function transitionSellerProduct(request, action) {
     }
     await saveProduct(request, product, store, session, `catalogue.product_${product.status}`);
     if (action === 'submit' && product.moderation.riskLevel === 'high') await queueModerationAlert({ country: store.country, kind: 'priority', href: '/moderation/products?record=' + product.publicId + '&country=' + store.country }, session);
+    if (action === 'submit' && product.moderation.riskLevel === 'high') await queueCountryAdminAlert({country:store.country,kind:'priority',sourceType:'product',sourcePublicId:product.publicId},session);
     await notifyOwner(store, product, session);
     return product;
   });

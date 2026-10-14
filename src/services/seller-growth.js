@@ -9,6 +9,8 @@ import { addOutboxEvent } from './outbox.js';
 import { acceptPurchaseOrderIntoCommerce } from './business-fulfillment.js';
 import { issueQuotationDocument } from './business-documents.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
+import { assertSellerCouponCodeAvailable } from './country-coupons.js';
+import { writeAudit } from './audit.js';
 
 function activeWindowQuery(now=new Date()){return {status:'active',startsAt:{$lte:now},$or:[{endsAt:null},{endsAt:{$exists:false}},{endsAt:{$gt:now}}]};}
 
@@ -53,17 +55,30 @@ async function loadSponsoredOfferState(countryCode) {
   }
 }
 export async function createSellerPromotion(request,input){
-  const type=input.type;const productIds=[...new Set((input.productPublicIds||[]).map(String).filter(Boolean))];
-  const products=productIds.length?await Product.find({publicId:{$in:productIds},storeId:request.store._id}).lean():[];
-  if(productIds.length!==products.length)throw new AppError('Every promotion product must belong to your store.',422,'PROMOTION_PRODUCT_INVALID');
-  const discountBps=Math.max(0,Math.min(9000,Number(input.discountBps||0)));const fixed=Math.max(0,Number(input.fixedDiscountMinor||0));
-  if(['voucher','bundle','quantity_break'].includes(type)&&discountBps<=0&&fixed<=0)throw new AppError('Enter a discount for this promotion.',422,'PROMOTION_DISCOUNT_REQUIRED');
-  if(type==='voucher'&&!String(input.code||'').trim())throw new AppError('Voucher code is required.',422,'PROMOTION_CODE_REQUIRED');
-  if(productIds.length&&['voucher','bundle','quantity_break'].includes(type)){
-    const variants=await ProductVariant.find({productId:{$in:products.map(p=>p._id)},active:true}).lean();
-    for(const v of variants){const floor=Number(v.minimumPriceMinor||0);const discounted=Math.max(0,v.priceMinor-Math.max(fixed,Math.floor(v.priceMinor*discountBps/10000)));if(floor>0&&discounted<floor)throw new AppError(`Promotion would price ${v.sku} below its minimum price.`,409,'MINIMUM_PRICE_VIOLATION');}
-  }
-  try{const row=await SellerPromotion.create({publicId:publicId('spr'),storeId:request.store._id,storePublicId:request.store.publicId,country:request.store.country,currency:request.store.currency,type,name:String(input.name).trim().slice(0,140),code:String(input.code||'').trim().toUpperCase(),productPublicIds:productIds,discountBps,fixedDiscountMinor:fixed,minQuantity:Math.max(1,Number(input.minQuantity||1)),minSubtotalMinor:Math.max(0,Number(input.minSubtotalMinor||0)),disclosureText:String(input.disclosureText||'Sponsored placement.').trim().slice(0,300),startsAt:input.startsAt?new Date(input.startsAt):new Date(),endsAt:input.endsAt?new Date(input.endsAt):undefined,status:input.status==='active'?'active':'draft',createdByUserId:request.user._id});clearSponsoredOfferCache(request.store.country);return row;}catch(error){if(error?.code===11000)throw new AppError('That voucher code is already in use.',409,'PROMOTION_CODE_EXISTS');throw error;}
+  const session=await mongoose.startSession();
+  let row;
+  try {
+    const {lockSellerGrowthStore}=await import('./seller-growth-pages.js');
+    await session.withTransaction(async()=>{
+      const store=await lockSellerGrowthStore(request,'growth',session);
+      const type=input.type;const productIds=[...new Set((input.productPublicIds||[]).map(String).filter(Boolean))];
+      const products=productIds.length?await Product.find({publicId:{$in:productIds},storeId:store._id}).session(session).lean():[];
+      if(productIds.length!==products.length)throw new AppError('Every promotion product must belong to your store.',422,'PROMOTION_PRODUCT_INVALID');
+      const discountBps=Math.max(0,Math.min(9000,Number(input.discountBps||0)));const fixed=Math.max(0,Number(input.fixedDiscountMinor||0));
+      if(['voucher','bundle','quantity_break'].includes(type)&&discountBps<=0&&fixed<=0)throw new AppError('Enter a discount for this promotion.',422,'PROMOTION_DISCOUNT_REQUIRED');
+      if(type==='voucher'&&!String(input.code||'').trim())throw new AppError('Voucher code is required.',422,'PROMOTION_CODE_REQUIRED');
+      if(type==='voucher')await assertSellerCouponCodeAvailable(store,input.code,session);
+      if(productIds.length&&['voucher','bundle','quantity_break'].includes(type)){
+        const variants=await ProductVariant.find({productId:{$in:products.map(p=>p._id)},active:true}).session(session).lean();
+        for(const v of variants){const floor=Number(v.minimumPriceMinor||0);const discounted=Math.max(0,v.priceMinor-Math.max(fixed,Math.floor(v.priceMinor*discountBps/10000)));if(floor>0&&discounted<floor)throw new AppError(`Promotion would price ${v.sku} below its minimum price.`,409,'MINIMUM_PRICE_VIOLATION');}
+      }
+      [row]=await SellerPromotion.create([{publicId:publicId('spr'),storeId:store._id,storePublicId:store.publicId,country:store.country,currency:store.currency,type,name:String(input.name).trim().slice(0,140),code:String(input.code||'').trim().toUpperCase(),productPublicIds:productIds,discountBps,fixedDiscountMinor:fixed,minQuantity:Math.max(1,Number(input.minQuantity||1)),minSubtotalMinor:Math.max(0,Number(input.minSubtotalMinor||0)),disclosureText:String(input.disclosureText||'Sponsored placement.').trim().slice(0,300),startsAt:input.startsAt?new Date(input.startsAt):new Date(),endsAt:input.endsAt?new Date(input.endsAt):undefined,status:input.status==='active'?'active':'draft',createdByUserId:request.user._id}],{session});
+      const auditRequest={id:request.id||publicId('req'),user:request.user,ip:request.ip||'',get:typeof request.get==='function'?request.get.bind(request):()=>''};
+      await writeAudit(auditRequest,type==='voucher'?'seller.coupon.created':'seller.promotion.created',{targetType:'seller_promotion',targetPublicId:row.publicId,country:store.country,session,metadata:{type,storePublicId:store.publicId}});
+    });
+  } catch(error) {if(error?.code===11000)throw new AppError('That voucher code is already in use.',409,'PROMOTION_CODE_EXISTS');throw error;}
+  finally {await session.endSession();}
+  clearSponsoredOfferCache(request.store.country);return row;
 }
 
 export async function promotionMarginPreview(request,input){

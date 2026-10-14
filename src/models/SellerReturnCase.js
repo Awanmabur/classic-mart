@@ -12,4 +12,5 @@ const schema=new Schema({
 },{timestamps:true,optimisticConcurrency:true});
 schema.index({returnRequestId:1,storeId:1},{unique:true});
 schema.index({storeId:1,status:1,slaDueAt:1,createdAt:-1});
+schema.add({countryAdminEvidenceReadRevision:{type:Number,min:0,select:false}});
 export const SellerReturnCase=mongoose.model('SellerReturnCase',schema);

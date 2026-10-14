@@ -36,7 +36,7 @@ router.get('/r/:token', async (request, response, next) => { try { const { link,
 
 router.post('/api/v1/promoters/verification', ...promoterPageGates(), async (request, response, next) => { try { verifyDeferredCsrf(request); const input = z.object({ channels: z.array(z.string().trim().min(2).max(50)).min(1).max(10), niches: z.array(z.string().trim().min(2).max(50)).min(1).max(12), disclosureAccepted: z.literal(true) }).parse(request.body); response.status(201).json({ verification: await submitPromoterVerification(request, input) }); } catch (error) { next(error); } });
 
-router.post('/api/v1/admin/promoters/:id/review', requireAuth, requireVerified, adminOnly, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(500).default('') }).parse(request.body); response.json({ verification: await reviewPromoterVerification(request, request.params.id, input) }); } catch (error) { next(error); } });
+router.post('/api/v1/admin/promoters/:id/review', requireAuth, requireVerified, adminOnly, promoterMutationLimit, deferredCsrf, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), version: z.union([z.number(), z.string().regex(/^\d+$/)]).pipe(z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER)), reason: z.string().trim().max(500).default('') }).parse(request.body); response.json({ verification: await reviewPromoterVerification(request, request.params.id, input) }); } catch (error) { next(error); } });
 
 
 router.get('/api/v1/campaigns', asyncHandler(async (request, response) => {

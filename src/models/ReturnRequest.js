@@ -11,4 +11,5 @@ const schema = new Schema({
  ,financeReferral:{requestedAt:Date,requestedByUserId:{type:Schema.Types.ObjectId,ref:'User'},note:{type:String,maxlength:500,default:''}}
 },{timestamps:true,optimisticConcurrency:true});
 schema.index({userId:1,createdAt:-1});schema.index({country:1,status:1,createdAt:-1});schema.index({orderId:1,status:1});
+schema.add({countryAdminEvidenceReadRevision:{type:Number,min:0,select:false}});
 export const ReturnRequest=mongoose.model('ReturnRequest',schema);
