@@ -1,6 +1,16 @@
 import mongoose from 'mongoose';
 const { Schema }=mongoose;
 const allocationSchema=new Schema({storePublicId:{type:String,required:true,maxlength:100},productPublicId:{type:String,maxlength:100,default:''},variantPublicId:{type:String,maxlength:100,default:''},sku:{type:String,maxlength:100,default:''},costSnapshotStatus:{type:String,enum:['captured','legacy_unknown'],default:'legacy_unknown'},orderLineId:{type:String,maxlength:100,default:''},grossMinor:{type:Number,required:true,min:1},platformFeeMinor:{type:Number,min:0,default:0},sellerReceivableMinor:{type:Number,min:0,default:0}},{_id:false});
+// An operator's historical attestation is distinct from a provider outcome.
+// Ordinary saves/updates cannot replace it; the authorized service inserts it
+// once using an expected-version and missing-review transaction fence.
+const nonDisbursementReviewSchema=new Schema({
+  actorUserId:{type:Schema.Types.ObjectId,ref:'User',required:true,immutable:true},
+  reference:{type:String,required:true,minlength:4,maxlength:180,immutable:true},
+  reason:{type:String,required:true,minlength:16,maxlength:400,immutable:true},
+  recordedAt:{type:Date,required:true,immutable:true},
+  sourceVersion:{type:Number,required:true,min:0,validate:Number.isSafeInteger,immutable:true},
+},{_id:false});
 const refundSchema=new Schema({
   publicId:{type:String,required:true,unique:true,immutable:true,index:true},
   idempotencyKey:{type:String,required:true,unique:true,immutable:true,maxlength:120},
@@ -19,6 +29,7 @@ const refundSchema=new Schema({
   requestedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
   completedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
   manualReference:{type:String,maxlength:180,default:''},
+  nonDisbursementReview:{type:nonDisbursementReviewSchema,default:undefined,immutable:true},
   status:{type:String,enum:['pending','processing','completed','failed','cancelled'],default:'pending',index:true},
   completedAt:Date
 },{timestamps:true,optimisticConcurrency:true});

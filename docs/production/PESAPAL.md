@@ -60,6 +60,14 @@ Unrecognized envelopes remain unknown. Controlled fixtures validate these local
 rules; certify the actual sandbox/live protocol and settlement with configured
 Pesapal credentials before production launch.
 
+An independent Finance operator can record a no-disbursement review on an
+unresolved UNKNOWN refund from its detail page. The reference and findings form
+an immutable operator attestation after current authority, version, accounting
+and return-source checks. A missing portal record or timeout is insufficient.
+The reservation and UNKNOWN provider outcome remain intact. This action makes
+no provider request and leaves existing independent paid confirmation available
+after actual disbursement; it does not authorize a retry or cancel the refund.
+
 ## Chargebacks/reversals
 A verified Pesapal reversal opens one idempotent Chargeback and posts the exact ledger reversal. Finance reviews the case. A won case posts a recovery transaction; a lost case leaves the reversal applied. The provider reversal path must not swallow accounting failure—the provider event retries until accounting is durable.
 

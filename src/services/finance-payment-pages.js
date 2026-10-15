@@ -6,7 +6,7 @@ import { PaymentIntent, Refund, Order, ReturnRequest, Dispute } from '../models/
 import { financeAccess, assertFinanceExportAccess } from './finance-workspace-access.js';
 import { cursorScope, cursorSort, pageResult, decodeCursor } from './pagination.js';
 import { formatMinorUnits } from './catalogue.js';
-import { createRefund, completeManualRefund, verifyAndApplyPayment } from './payments.js';
+import { createRefund, completeManualRefund, recordRefundNonDisbursementReview, verifyAndApplyPayment } from './payments.js';
 import { writeAudit } from './audit.js';
 
 const PAYMENT_STATUSES = ['created','requires_action','pending','succeeded','failed','cancelled','pending_collection','refunded','partially_refunded','reversed'];
@@ -31,9 +31,12 @@ export function financePaymentDto(row) {
     remainingRefundMinor:Math.max(0,checked(row.amountMinor)-checked(row.refundReservedMinor)-checked(row.refundedMinor)),version:Number(row.__v||0),canVerify:row.provider==='pesapal'&&Boolean(row.providerTrackingId) };
 }
 function refundDto(row,order,actor) {
+  const review=row.nonDisbursementReview?.recordedAt?row.nonDisbursementReview:null;
   return {publicId:row.publicId,orderPublicId:order.publicId,country:order.country,amountMinor:row.amountMinor,currency:row.currency,provider:row.provider,status:row.status,reason:row.reason,
     createdAt:row.createdAt,completedAt:row.completedAt||null,version:Number(row.__v||0),manualReference:row.manualReference||'',returnPublicId:row.returnPublicId||'',
-    canComplete:row.status==='processing'&&['cod_manual','external_manual','pesapal'].includes(row.provider)&&String(row.requestedByUserId)!==String(actor._id)};
+    canComplete:row.status==='processing'&&['cod_manual','external_manual','pesapal'].includes(row.provider)&&String(row.requestedByUserId)!==String(actor._id),
+    canReviewNonDisbursement:row.status==='processing'&&row.provider==='pesapal'&&row.providerStatus==='UNKNOWN'&&String(row.requestedByUserId)!==String(actor._id)&&!review,
+    nonDisbursementReview:review?{reference:review.reference,reason:review.reason,recordedAt:review.recordedAt,sourceVersion:Number(review.sourceVersion)}:null};
 }
 async function scopedPayment(context,id,{session=null}={}) {
   const row=await PaymentIntent.findOne(and(context.countryScope,{publicId:id})).select(paymentFields).session(session).lean();
@@ -79,7 +82,7 @@ export async function loadFinancePaymentPage(request,pageId) {
     rows=result[0];total=Number(result[1][0]?.count||0);summary=result[2];
   }else{
     const pipeline=await refundPipeline(context,filters),cursorPipeline=await refundPipeline(context,filters,filters.after);
-    const result=await Promise.all([Refund.aggregate([...cursorPipeline,{$sort:cursorSort()},{$limit:26},{$project:{publicId:1,orderId:1,paymentIntentId:1,amountMinor:1,currency:1,provider:1,status:1,reason:1,createdAt:1,completedAt:1,requestedByUserId:1,completedByUserId:1,manualReference:1,__v:1,'scopedOrder.publicId':1,'scopedOrder.country':1}}]),Refund.aggregate([...pipeline,{$count:'count'}]),groupedRefundSummary(context,{})]);
+    const result=await Promise.all([Refund.aggregate([...cursorPipeline,{$sort:cursorSort()},{$limit:26},{$project:{publicId:1,orderId:1,paymentIntentId:1,amountMinor:1,currency:1,provider:1,providerStatus:1,status:1,reason:1,createdAt:1,completedAt:1,requestedByUserId:1,completedByUserId:1,manualReference:1,nonDisbursementReview:1,__v:1,'scopedOrder.publicId':1,'scopedOrder.country':1}}]),Refund.aggregate([...pipeline,{$count:'count'}]),groupedRefundSummary(context,{})]);
     [rows,summary]=[result[0],result[2]];total=Number(result[1][0]?.count||0);
   }
   const paged=pageResult(rows,{limit:25,total}),items=paged.items.map(row=>paymentPage?financePaymentDto(row):refundDto(row,row.scopedOrder,context.actor));
@@ -172,6 +175,14 @@ export async function requestFinanceRefund(request,body={}) {
 export async function completeFinanceRefund(request,id,body={}) {
   const context=await financeAccess(request,{country:''}),parsed=z.object({version,reference:z.string().trim().min(4).max(180)}).parse(body);
   const refund=await completeManualRefund(request,id,parsed),order=await Order.findById(refund.orderId).select('publicId country').lean();return refundDto(refund,order,context.actor);
+}
+export async function reviewFinanceRefundNonDisbursement(request,id,body={}) {
+  const context=await financeAccess(request,{country:''}),parsed=z.object({
+    version:z.union([z.number(),z.string().trim().min(1)]).pipe(version),
+    reference:z.string().trim().min(4).max(180),reason:z.string().trim().min(16).max(400),
+    terminalOutcomeConfirmed:z.union([z.literal(true),z.literal('true')]).transform(()=>true),
+  }).parse(body);
+  const refund=await recordRefundNonDisbursementReview(request,id,parsed),order=await Order.findById(refund.orderId).select('publicId country').lean();return refundDto(refund,order,context.actor);
 }
 export function financeCsvCell(value) {let text=String(value??'');if(/^[\s\u0000-\u001f]*[=+@-]/u.test(text))text="'"+text;return '"'+text.replaceAll('"','""')+'"';}
 async function csvWrite(response,cells) {if(response.destroyed)return false;if(response.write(cells.map(financeCsvCell).join(',')+'\r\n'))return true;return new Promise(resolve=>{const drained=()=>{cleanup();resolve(true);},closed=()=>{cleanup();resolve(false);},cleanup=()=>{response.off('drain',drained);response.off('close',closed);};response.once('drain',drained);response.once('close',closed);});}

@@ -8,7 +8,7 @@ import { hashToken } from '../core/crypto.js';
 import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import {
   BusinessInvoice, Chargeback, InventoryMovement, InventoryReservation, Order, PaymentIntent, ProviderEvent, PurchaseOrder, Refund, StockItem,
-  CountrySetting, Device, EvidenceDocument, LedgerAccount, LedgerTransaction, Notification, PayoutAccount, Payout, PromoterVerification, ReconciliationRun, ReturnRequest, SellerOrder, SellerReturnCase, Shipment, Store, StoreMember, User, Warehouse, WarehouseTask,
+  CountrySetting, Device, EvidenceDocument, FinancialDocument, LedgerAccount, LedgerTransaction, Notification, PayoutAccount, Payout, PromoterVerification, ReconciliationRun, ReturnRequest, SellerOrder, SellerReturnCase, Shipment, Store, StoreMember, User, Warehouse, WarehouseTask,
 } from '../models/index.js';
 import { ensureLedgerAccount, postLedgerTransaction, accountBalanceMinor, sellerSettlementBreakdown, proportionalSettlementSlice } from './money.js';
 import { orderAccessQuery } from './order-access.js';
@@ -679,6 +679,81 @@ export async function createRefund(request,input){
   const message='Pesapal rejected the refund request.';
   await failRefundAndReleaseReservation(refund._id,{providerStatus:'500',providerMessage:message,failureMessage:message,request});
   throw new AppError(message,409,'PESAPAL_REFUND_REJECTED');
+}
+
+async function fenceRefundReviewReturnSources(returned,order,session) {
+  for(const item of returned.items){
+    const task=await WarehouseTask.findOne({publicId:item.warehouseTaskPublicId,type:'return_inspection',status:'completed',returnRequestId:returned._id,orderId:order._id,returnOrderLineId:item.orderLineId,storeId:item.storeId,variantId:item.variantId,quantity:item.quantity,'result.disposition':item.stockDisposition}).session(session).lean();
+    const warehouse=task?await Warehouse.findOne({_id:task.warehouseId,country:returned.country,storeId:item.storeId}).session(session).lean():null;
+    if(!task||!warehouse)throw new AppError('The inspected return source changed.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
+    const taskFence=await WarehouseTask.updateOne({_id:task._id,__v:task.__v||0,status:'completed',type:'return_inspection',quantity:item.quantity,'result.disposition':item.stockDisposition},{$inc:{__v:1}},{session});
+    const warehouseFence=await Warehouse.updateOne({_id:warehouse._id,__v:warehouse.__v||0,country:returned.country,storeId:item.storeId},{$inc:{__v:1}},{session});
+    if(taskFence.modifiedCount!==1||warehouseFence.modifiedCount!==1)throw new AppError('The inspected return source changed.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
+    if(returned.returnMethod==='dropoff'){
+      const receipt=await EvidenceDocument.findOne({publicId:item.intakeEvidencePublicId,ownerUserId:item.intakeReceivedByUserId,country:returned.country,contextType:'return',contextPublicId:returned.publicId,contextLinePublicId:item.orderLineId,documentType:'return_receipt',status:'ready'}).session(session).lean();
+      if(!receipt)throw new AppError('The return receipt changed.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
+      const receiptFence=await EvidenceDocument.updateOne({_id:receipt._id,__v:receipt.__v||0,status:'ready',contextType:'return',contextPublicId:returned.publicId,contextLinePublicId:item.orderLineId,country:returned.country},{$inc:{refundEvidenceReadRevision:1}},{session});
+      if(receiptFence.modifiedCount!==1)throw new AppError('The return receipt changed.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
+    }
+  }
+  if(returned.returnMethod==='pickup'){
+    const shipment=await Shipment.findOne({publicId:returned.returnShipmentPublicId,returnRequestId:returned._id,orderId:order._id,country:returned.country,kind:'return',status:'delivered',deliveredAt:mongoose.trusted({$type:'date'}),'proof.reference':'verified'}).session(session).lean();
+    if(!shipment)throw new AppError('The return pickup proof changed.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
+    const shipmentFence=await Shipment.updateOne({_id:shipment._id,__v:shipment.__v||0,status:'delivered','proof.reference':'verified'},{$inc:{__v:1}},{session});
+    if(shipmentFence.modifiedCount!==1)throw new AppError('The return pickup proof changed.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
+  }
+  const returnFence=await ReturnRequest.updateOne({_id:returned._id,__v:returned.__v||0,status:'refund_processing',refundPublicId:returned.refundPublicId},{$inc:{__v:1}},{session});
+  if(returnFence.modifiedCount!==1)throw new AppError('The inspected return changed. Reload before recording its review.',409,'RETURN_REFUND_VERSION_CONFLICT');
+}
+
+/** Record an independent attestation; it cannot establish or change a provider outcome. */
+export async function recordRefundNonDisbursementReview(request,refundPublicId,{version,reference,reason,terminalOutcomeConfirmed}={}) {
+  if(request.requiredOperationalWorkspace&&request.requiredOperationalWorkspace!=='finance')throw new AppError('Record this review from the Finance workspace.',403,'REFUND_NON_DISBURSEMENT_WORKSPACE_FORBIDDEN');
+  if(!Number.isSafeInteger(version)||version<0)throw new AppError('Provide the current refund version.',422,'REFUND_VERSION_INVALID');
+  if(typeof reference!=='string'||reference.trim().length<4||reference.trim().length>180)throw new AppError('Enter the independently verified provider outcome reference.',422,'REFUND_REFERENCE_REQUIRED');
+  if(typeof reason!=='string'||reason.trim().length<16||reason.trim().length>400)throw new AppError('Explain the verified final outcome in 16 to 400 characters.',422,'REFUND_REVIEW_REASON_REQUIRED');
+  if(terminalOutcomeConfirmed!==true)throw new AppError('Confirm that the provider evidence states a final outcome with no completed, accepted or pending disbursement. A missing portal record or timeout is insufficient.',422,'REFUND_TERMINAL_OUTCOME_CONFIRMATION_REQUIRED');
+  const cleanReference=reference.trim(),cleanReason=reason.trim(),session=await mongoose.startSession();let result;
+  try{await session.withTransaction(async()=>{
+    const refund=await Refund.findOne({publicId:refundPublicId}).session(session);
+    if(!refund)throw new AppError('Refund not found.',404,'REFUND_NOT_FOUND');
+    const order=await Order.findById(refund.orderId).session(session);
+    if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
+    const access=await financeAccess(request,{session,write:true,workspace:true,country:order.country});
+    if(String(refund.requestedByUserId||'')===String(access.actor._id))throw new AppError('A different finance operator must independently review this provider outcome.',403,'FOUR_EYES_REQUIRED');
+    const intent=await PaymentIntent.findById(refund.paymentIntentId).session(session);
+    if(!intent||String(intent.orderId)!==String(order._id)||intent.orderPublicId!==order.publicId||intent.country!==order.country||intent.currency!==order.totals.currency||refund.currency!==order.totals.currency||intent.provider!==PAYMENT_PROVIDER||refund.provider!==PAYMENT_PROVIDER)throw new AppError('Refund accounting references do not match.',409,'REFUND_ACCOUNTING_MISMATCH');
+    if(refund.nonDisbursementReview!==undefined){
+      const saved=refund.nonDisbursementReview;
+      if(!saved||String(saved.actorUserId)!==String(access.actor._id)||saved.sourceVersion!==version||saved.reference!==cleanReference||saved.reason!==cleanReason)throw new AppError('A different review is already recorded for this refund.',409,'REFUND_REVIEW_CONFLICT');
+      result=refund;return;
+    }
+    if(refund.status!=='processing'||refund.providerStatus!=='UNKNOWN')throw new AppError('Only an unresolved unknown Pesapal refund can receive this review.',409,'REFUND_REVIEW_STATE_CONFLICT');
+    if(Number(refund.__v||0)!==version)throw new AppError('The refund changed. Reload before recording its review.',409,'REFUND_VERSION_CONFLICT');
+    if(!Number.isSafeInteger(refund.amountMinor)||refund.amountMinor<=0)throw new AppError('Refund accounting amount is invalid.',409,'REFUND_ACCOUNTING_MISMATCH');
+    await assertRefundCounterConsistency(intent,session);
+    if(await LedgerTransaction.exists({$or:[{idempotencyKey:`refund:${refund.publicId}`},{referenceType:'refund',referencePublicId:refund.publicId}]}).session(session)||await FinancialDocument.exists({type:'refund_credit_note',$or:[{refundId:refund._id},{refundPublicId:refund.publicId}]}).session(session))throw new AppError('This refund has recorded completion evidence. Reconcile its accounting before reviewing another outcome.',409,'REFUND_ACCOUNTING_MISMATCH');
+    if(refund.returnRequestId||refund.returnPublicId){
+      if(!refund.returnRequestId||!refund.returnPublicId)throw new AppError('The return refund binding is incomplete.',409,'RETURN_REFUND_BINDING_CONFLICT');
+      const returned=await ReturnRequest.findOne({_id:refund.returnRequestId,publicId:refund.returnPublicId,orderId:order._id,orderPublicId:order.publicId,country:order.country,userId:order.userId,refundPublicId:refund.publicId}).session(session);
+      if(!returned)throw new AppError('The refund is no longer bound to its inspected return.',409,'RETURN_REFUND_BINDING_CONFLICT');
+      const snapshot=await inspectedReturnSnapshot(returned,order,session,['refund_processing']);
+      if(snapshot.amountMinor!==refund.amountMinor||JSON.stringify(refundAllocationSnapshot(snapshot.allocations))!==JSON.stringify(refundAllocationSnapshot(refund.allocations)))throw new AppError('The reserved refund no longer matches its inspected returned goods.',409,'RETURN_REFUND_ALLOCATION_MISMATCH');
+      await fenceRefundReviewReturnSources(returned,order,session);
+    }else if(await ReturnRequest.exists({refundPublicId:refund.publicId}).session(session))throw new AppError('This historical return refund needs an authoritative immutable return binding before review.',409,'RETURN_REFUND_BINDING_REQUIRED');
+    // Version-only writes fence concurrent accounting/source changes without
+    // moving funds or changing the order, payment or inspected goods states.
+    const intentFence=await PaymentIntent.updateOne({_id:intent._id,__v:intent.__v||0,refundReservedMinor:intent.refundReservedMinor,refundedMinor:intent.refundedMinor},{$inc:{__v:1}},{session});
+    const orderFence=await Order.updateOne({_id:order._id,__v:order.__v||0},{$inc:{__v:1}},{session});
+    if(intentFence.modifiedCount!==1||orderFence.modifiedCount!==1)throw new AppError('The refund accounting records changed. Reload before recording its review.',409,'REFUND_VERSION_CONFLICT');
+    // The explicit immutable override is confined to the guarded first insert.
+    // This attestation deliberately leaves UNKNOWN and the full hold intact.
+    const reviewed=await Refund.findOneAndUpdate({_id:refund._id,__v:version,status:'processing',provider:PAYMENT_PROVIDER,providerStatus:'UNKNOWN',nonDisbursementReview:{$exists:false}},{$set:{nonDisbursementReview:{actorUserId:access.actor._id,reference:cleanReference,reason:cleanReason,recordedAt:new Date(),sourceVersion:version}},$inc:{__v:1}},{session,returnDocument:'after',runValidators:true,overwriteImmutable:true});
+    if(!reviewed)throw new AppError('The refund changed. Reload before recording its review.',409,'REFUND_VERSION_CONFLICT');
+    await writeAudit(request,'finance.refund_non_disbursement_review_recorded',{actor:access.actor,targetType:'refund',targetPublicId:refund.publicId,country:order.country,metadata:{reference:cleanReference,reason:cleanReason,sourceVersion:version,reservationRetained:true,providerOutcomeUnchanged:true},session});
+    await queueFinanceAlert({country:order.country,kind:'escalation',href:'/finance/refunds?record='+encodeURIComponent(refund.publicId)},session);
+    result=reviewed;
+  });return result;}finally{await session.endSession();}
 }
 
 export async function completeManualRefund(request,refundPublicId,{reference,version}){

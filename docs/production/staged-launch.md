@@ -86,6 +86,14 @@ dispatch or a validated business rejection releases the reservation. A different
 authorized Finance operator confirms actual disbursement with its reference;
 acceptance alone never posts a completed refund to the ledger.
 
+For an unresolved UNKNOWN Pesapal refund, a different Finance operator can record
+an independent no-payment review from the existing refund detail page. Verify
+final provider evidence with no paid, accepted or pending refund; a timeout or
+missing portal record is insufficient. The immutable reference/findings and
+audit are an operator attestation. The full amount stays reserved, and the
+existing independent completion action remains available after actual payment.
+This review does not cancel the refund, release its hold or send a provider call.
+
 Store settings recheck and fence current account/session and membership
 authority within the transaction. MFA enrollment requires an active account
 whose factor is still disabled. Eligible accounts must prove their existing

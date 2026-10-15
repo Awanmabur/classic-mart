@@ -31,6 +31,23 @@
   <% } else if (paymentFlow.pageId === 'finance-refunds' && selectedFinanceRecord.status === 'processing') { %>
     <p class="wide form-intro">A different finance operator must confirm this refund after verifying its disbursement.</p>
   <% } %>
+  <% if (paymentFlow.pageId === 'finance-refunds' && selectedFinanceRecord.nonDisbursementReview) { const review = selectedFinanceRecord.nonDisbursementReview; %>
+    <div class="role-form-grid">
+      <div><span>No-payment review recorded</span><strong><%= formatDate(review.recordedAt) %></strong></div>
+      <div><span>External verification reference</span><strong><%= review.reference %></strong></div>
+      <p class="wide form-intro"><%= review.reason %></p>
+      <% if (selectedFinanceRecord.status === 'processing') { %><p class="wide form-intro">This independent review has been recorded. The full refund amount remains reserved; it cannot be released or resubmitted through this review. Confirm completion only after verifying actual payment.</p><% } %>
+    </div>
+  <% } else if (paymentFlow.pageId === 'finance-refunds' && selectedFinanceRecord.canReviewNonDisbursement) { %>
+    <form method="post" action="/finance/refunds/<%= encodeURIComponent(selectedFinanceRecord.publicId) %>/review-no-payment" class="role-form-grid dashboard-form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedFinanceRecord.version %>">
+      <label><span>External verification reference</span><input name="reference" minlength="4" maxlength="180" required autocomplete="off"></label>
+      <label class="wide"><span>Independent evidence that no refund was paid</span><textarea name="reason" minlength="16" maxlength="400" required rows="3"></textarea></label>
+      <p class="wide form-intro">Check final provider evidence confirming no payment and no pending refund. A missing portal record or timeout is not proof. This review keeps the full refund amount reserved until actual payment is independently confirmed; it does not release funds or submit another refund.</p>
+      <label class="wide seller-verification-declaration"><input type="checkbox" name="terminalOutcomeConfirmed" value="true" required><span>I independently verified final provider evidence showing no payment and no pending refund.</span></label>
+      <div class="wide"><button class="primary-button" type="submit">Record no-payment review</button></div>
+    </form>
+  <% } %>
 </section>
 <% } %>
 <% for (const referredCase of paymentFlow.referredDisputes || []) { %>
