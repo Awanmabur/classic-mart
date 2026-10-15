@@ -77,6 +77,20 @@ Production and CLI connections with automatic indexing disabled also disable
 automatic collection creation. Apply the reviewed schema migration before
 starting a new release; planning alone creates no collections.
 
+Refund submission persists a reserved processing record before contacting
+Pesapal. Gateway/transport failures, unreadable or contradictory responses and
+post-submission save failures retain that reservation. Replaying the same key
+does not resubmit; a new key cannot reuse the held balance. Review the original
+transaction in Pesapal before further disbursement. Only a proven failure before
+dispatch or a validated business rejection releases the reservation. A different
+authorized Finance operator confirms actual disbursement with its reference;
+acceptance alone never posts a completed refund to the ledger.
+
+Store settings recheck and fence current account/session and membership
+authority within the transaction. MFA enrollment requires an active account
+whose factor is still disabled. Eligible accounts must prove their existing
+factor during explicit disable before enrolling a replacement.
+
 Publish your reviewed catalogue, prices and physical stock. Bootstrap creates no
 marketplace inventory; a data-marker check does not verify that inventory exists.
 

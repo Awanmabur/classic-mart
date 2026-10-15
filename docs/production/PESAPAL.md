@@ -45,6 +45,21 @@ Checkout validates cart + stock
 ## Refunds
 Classic Mart atomically reserves refundable value before contacting a provider. Pesapal refund support is constrained by provider rules; unsupported additional/partial cases use an explicit `external_manual` workflow and a different finance operator must confirm the external reference. Refund completion posts the ledger reversal, updates exact order-line refunded counters and issues an immutable credit note in one transaction.
 
+Before dispatch, the refund is durably recorded as processing with an unknown
+outcome. A gateway error, timeout, empty/malformed/contradictory reply or a failed
+local save after dispatch retains its full reservation. Same-key replay never
+submits again, and a different key cannot reuse the held balance. Check the
+original transaction in the merchant portal; an independent authorized Finance
+operator confirms actual disbursement through the existing completion workflow.
+Only a proven pre-dispatch failure or a consistent supported business rejection
+releases the reservation. Provider response text is excluded from public errors.
+
+The adapter's supported business envelope uses status `200` for acceptance and
+`500` for rejection over successful HTTP, with absent or consistent error data.
+Unrecognized envelopes remain unknown. Controlled fixtures validate these local
+rules; certify the actual sandbox/live protocol and settlement with configured
+Pesapal credentials before production launch.
+
 ## Chargebacks/reversals
 A verified Pesapal reversal opens one idempotent Chargeback and posts the exact ledger reversal. Finance reviews the case. A won case posts a recovery transaction; a lost case leaves the reversal applied. The provider reversal path must not swallow accounting failure—the provider event retries until accounting is durable.
 

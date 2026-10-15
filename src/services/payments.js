@@ -611,11 +611,13 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
     }
     const reservedIntent=await PaymentIntent.findOneAndUpdate({_id:intent._id,refundReservedMinor:reservedRefundMinor,refundedMinor,$expr:{$lte:[{$add:[{$ifNull:['$refundReservedMinor',0]},{$ifNull:['$refundedMinor',0]},amount]},'$amountMinor']}},{$inc:{refundReservedMinor:amount,__v:1}},{session,returnDocument:'after'});
     if(!reservedIntent)throw new AppError('Another refund changed the remaining refundable balance. Reload and retry with the current balance.',409,'REFUND_RESERVATION_CONFLICT');
-    const docs=await Refund.create([{publicId:publicId('rfd'),idempotencyKey,orderId:order._id,paymentIntentId:intent._id,...(returned?{returnRequestId:returned._id,returnPublicId:returned.publicId}:{}),amountMinor:amount,currency:order.totals.currency,reason:reason.trim(),allocations:cleanAllocations,provider,requestedByUserId:request.user?._id,status:provider===PAYMENT_PROVIDER?'pending':'processing'}],{session});
+    // Reserve into a reconcilable state in this transaction itself. A crash or
+    // later persistence failure must not strand the hold in an uncompletable state.
+    const docs=await Refund.create([{publicId:publicId('rfd'),idempotencyKey,orderId:order._id,paymentIntentId:intent._id,...(returned?{returnRequestId:returned._id,returnPublicId:returned.publicId}:{}),amountMinor:amount,currency:order.totals.currency,reason:reason.trim(),allocations:cleanAllocations,provider,requestedByUserId:request.user?._id,status:'processing',...(provider===PAYMENT_PROVIDER?{providerStatus:'UNKNOWN',providerMessage:'Pesapal refund submission outcome is unknown. Do not resubmit; reconcile in the Pesapal merchant portal.'}:{})}],{session});
     if(returned){returned.refundPublicId=docs[0].publicId;returned.status='refund_processing';returned.timeline.push({type:'return.refund_reserved',message:`Refund ${docs[0].publicId} reserved after the inspected return review. Disbursement is awaiting confirmation.`,actorUserId:access.actor._id});await returned.save({session});}
     await writeAudit(request,'finance.refund_reserved',{actor:access.actor,targetType:'refund',targetPublicId:docs[0].publicId,country:order.country,metadata:{amountMinor:amount,currency:order.totals.currency,provider},session});
     await queueFinanceAlert({country:order.country,kind:'priority',href:'/finance/refunds?record='+encodeURIComponent(docs[0].publicId)},session);
-    order.refundState=provider===PAYMENT_PROVIDER?'pending':'processing';
+    order.refundState='processing';
     if(order.cancellationState==='requested')order.cancellationState='processing';
     syncLegacyOrderStatus(order);await order.save({session});
     result={refund:docs[0],order,intent:reservedIntent,existing:false};
@@ -642,7 +644,7 @@ async function persistRefundSubmission(request,refundLike) {
 }
 
 export async function createRefund(request,input){
-  const {refund,order,intent,existing}=await reserveRefund(request,input);
+  let {refund,order,intent,existing}=await reserveRefund(request,input);
   // Wallet completion is local and ledger-idempotent. Resume it after a rolled
   // back accounting attempt; never repeat an external provider submission.
   if(existing&&(refund.provider!=='wallet'||refund.status!=='processing'))return refund;
@@ -652,18 +654,31 @@ export async function createRefund(request,input){
     return Refund.findById(refund._id);
   }
   if(refund.provider!=='pesapal')return refund;
-  try{
-    if(request.requiredOperationalWorkspace==='admin')await financeAccess(request,{workspace:false,country:order.country});
-    const payload=await requestPesapalRefund({confirmationCode:intent.providerConfirmationCode,amount:major(refund.amountMinor,refund.currency),username:request.user?.name||request.user?.email||'Classic Mart Finance',remarks:refund.reason});
-    refund.providerRefundId=String(intent.providerConfirmationCode);refund.providerStatus=String(payload?.status||'');refund.providerMessage=String(payload?.message||'').slice(0,400);
-    if(String(payload?.status)==='200'||Number(payload?.error)===200){refund.status='processing';return await persistRefundSubmission(request,refund);}
-    const message=refund.providerMessage||'Pesapal rejected the refund request.';await failRefundAndReleaseReservation(refund._id,{providerStatus:refund.providerStatus||'REJECTED',providerMessage:message,failureMessage:message,request});throw new AppError(message,409,'PESAPAL_REFUND_REJECTED');
-  }catch(error){
-    if(error?.code==='PESAPAL_REFUND_REJECTED')throw error;
-    if(request.requiredOperationalWorkspace==='admin'&&(!error?.ambiguous||[401,403].includes(error.status))&&error?.code!=='PESAPAL_REQUEST_FAILED')throw error;
-    if(error?.ambiguous){refund.status='processing';refund.providerStatus='UNKNOWN';refund.providerMessage='Pesapal refund submission outcome is unknown. Do not resubmit; reconcile in the Pesapal merchant portal.';return await persistRefundSubmission(request,refund);}
-    const message=String(error.message||'Pesapal refund failed.').slice(0,400);await failRefundAndReleaseReservation(refund._id,{providerStatus:'REJECTED',providerMessage:message,failureMessage:message,request});throw error;
+  async function persistSubmission(){
+    try{refund=await persistRefundSubmission(request,refund);return refund;}
+    catch(error){
+      if(error instanceof AppError)throw error;
+      throw new AppError('The refund reservation is retained. Reconcile its actual provider outcome before any further disbursement.',503,'REFUND_SUBMISSION_RECONCILIATION_REQUIRED');
+    }
   }
+  // Persist the uncertain state before dispatch. If saving the provider reply
+  // later fails, independent Finance can reconcile this processing record;
+  // an idempotent replay can never issue a second external refund.
+  refund.status='processing';refund.providerStatus='UNKNOWN';refund.providerMessage='Pesapal refund submission outcome is unknown. Do not resubmit; reconcile in the Pesapal merchant portal.';
+  await persistSubmission();
+  let payload;
+  try{
+    payload=await requestPesapalRefund({confirmationCode:intent.providerConfirmationCode,amount:major(refund.amountMinor,refund.currency),username:request.user?.name||request.user?.email||'Classic Mart Finance',remarks:refund.reason});
+  }catch(error){
+    if(!error?.refundNotSubmitted)return refund;
+    const message='Pesapal refund was not submitted. Check the payment provider configuration.';
+    await failRefundAndReleaseReservation(refund._id,{providerStatus:'NOT_SUBMITTED',providerMessage:message,failureMessage:message,request});throw error;
+  }
+  refund.providerRefundId=String(intent.providerConfirmationCode);refund.providerStatus=String(payload.status);refund.providerMessage=String(payload.message||'').slice(0,400);
+  if(String(payload.status)==='200')return persistSubmission();
+  const message='Pesapal rejected the refund request.';
+  await failRefundAndReleaseReservation(refund._id,{providerStatus:'500',providerMessage:message,failureMessage:message,request});
+  throw new AppError(message,409,'PESAPAL_REFUND_REJECTED');
 }
 
 export async function completeManualRefund(request,refundPublicId,{reference,version}){

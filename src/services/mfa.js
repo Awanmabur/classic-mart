@@ -51,12 +51,36 @@ function verifyTotpAgainstSecret(secret,code,{window=1,time=Date.now()}={}){
 
 export function mfaRequiredForUser(user,required=true){return Boolean(required&&user&&PRIVILEGED_MFA_ROLES.has(user.role));}
 
+function assertInitialEnrollmentAllowed(user){
+  if(!user||user.status!=='active')throw new AppError('This account is unavailable.',403,'ACCOUNT_UNAVAILABLE');
+  if(user.security?.mfaEnabled)throw new AppError('Authenticator MFA is already enabled. Use your existing factor to disable it before starting new setup.',409,'MFA_ALREADY_ENABLED');
+}
+
+function enrollmentFence(user){
+  // Enrollment must not revive a revoked password/session proof or replace a
+  // factor activated after the initial read. Match the actual pending secret,
+  // too: raw administrative writes may not increment the document version.
+  // Hydrated legacy defaults represent missing stored fields, so preserve that
+  // distinction instead of accepting a concurrent explicit false/zero write.
+  const missingEnabled=user.security.mfaEnabled===false&&user.$isDefault('security.mfaEnabled');
+  const missingVersion=user.security.tokenVersion===0&&user.$isDefault('security.tokenVersion');
+  return {_id:user._id,status:'active','security.mfaEnabled':missingEnabled?{$exists:false}:false,
+    'security.tokenVersion':missingVersion?{$exists:false}:user.security.tokenVersion,__v:user.__v===undefined?{$exists:false}:user.__v,
+    'security.mfaPendingSecretEncrypted':user.security.mfaPendingSecretEncrypted===undefined?{$exists:false}:user.security.mfaPendingSecretEncrypted};
+}
+
+function enrollmentChanged(){
+  return new AppError('Authenticator setup changed. Reload your security settings and start again.',409,'MFA_ENROLLMENT_CHANGED');
+}
+
 export async function beginMfaEnrollment(userId,password){
   const user=await User.findById(userId).select('+passwordHash +security.mfaPendingSecretEncrypted');
-  if(!user||!(await verifyPassword(user.passwordHash,String(password||''))))throw new AppError('The current password is incorrect.',422,'INVALID_CURRENT_PASSWORD');
+  assertInitialEnrollmentAllowed(user);
+  if(!(await verifyPassword(user.passwordHash,String(password||''))))throw new AppError('The current password is incorrect.',422,'INVALID_CURRENT_PASSWORD');
   const secret=base32Encode(crypto.randomBytes(20));
-  user.security.mfaPendingSecretEncrypted=encryptSensitive(secret);
-  await user.save();
+  const result=await User.updateOne({...enrollmentFence(user),passwordHash:user.passwordHash},
+    {$set:{'security.mfaPendingSecretEncrypted':encryptSensitive(secret)},$inc:{__v:1}});
+  if(result.modifiedCount!==1)throw enrollmentChanged();
   return mfaEnrollmentDetails(user,secret);
 }
 
@@ -69,28 +93,28 @@ function mfaEnrollmentDetails(user,secret){
 
 export async function pendingMfaEnrollment(userId){
   const user=await User.findById(userId).select('+security.mfaPendingSecretEncrypted');
-  if(!user?.security?.mfaPendingSecretEncrypted)return null;
+  if(!user||user.status!=='active'||user.security?.mfaEnabled||!user.security?.mfaPendingSecretEncrypted)return null;
   return mfaEnrollmentDetails(user,decryptSensitive(user.security.mfaPendingSecretEncrypted));
 }
 
 export async function confirmMfaEnrollment(userId,code,currentDevicePublicId=''){
   const user=await User.findById(userId).select('+security.mfaPendingSecretEncrypted +security.mfaSecretEncrypted +security.mfaRecoveryCodeHashes +security.mfaLastCounter');
-  if(!user?.security?.mfaPendingSecretEncrypted)throw new AppError('Start authenticator setup first.',409,'MFA_SETUP_REQUIRED');
+  assertInitialEnrollmentAllowed(user);
+  if(!user.security?.mfaPendingSecretEncrypted)throw new AppError('Start authenticator setup first.',409,'MFA_SETUP_REQUIRED');
   const secret=decryptSensitive(user.security.mfaPendingSecretEncrypted);
   const counter=verifyTotpAgainstSecret(secret,code,{window:1});
   if(counter===null)throw new AppError('The authenticator code is invalid.',422,'MFA_CODE_INVALID');
   const codes=recoveryCodes();
-  user.security.mfaEnabled=true;
-  user.security.mfaSecretEncrypted=encryptSensitive(secret);
-  user.security.mfaPendingSecretEncrypted=undefined;
-  user.security.mfaRecoveryCodeHashes=codes.map(recoveryHash);
-  user.security.mfaLastCounter=counter;
-  user.security.mfaEnrolledAt=new Date();
-  user.security.mfaRecoveryGeneratedAt=new Date();
-  user.security.tokenVersion+=1;
-  await user.save();
-  await Device.updateMany({userId:user._id,revokedAt:null,...(currentDevicePublicId?{publicId:{$ne:currentDevicePublicId}}:{})},{$set:{revokedAt:new Date(),revokedReason:'mfa_enabled'}});
-  return {user,codes};
+  const now=new Date();
+  const updated=await User.findOneAndUpdate(enrollmentFence(user),{
+    $set:{'security.mfaEnabled':true,'security.mfaSecretEncrypted':encryptSensitive(secret),
+      'security.mfaRecoveryCodeHashes':codes.map(recoveryHash),'security.mfaLastCounter':counter,
+      'security.mfaEnrolledAt':now,'security.mfaRecoveryGeneratedAt':now},
+    $unset:{'security.mfaPendingSecretEncrypted':1},$inc:{'security.tokenVersion':1,__v:1},
+  },{returnDocument:'after'}).select('+security.mfaSecretEncrypted +security.mfaRecoveryCodeHashes +security.mfaLastCounter');
+  if(!updated)throw enrollmentChanged();
+  await Device.updateMany({userId:updated._id,revokedAt:null,...(currentDevicePublicId?{publicId:{$ne:currentDevicePublicId}}:{})},{$set:{revokedAt:new Date(),revokedReason:'mfa_enabled'}});
+  return {user:updated,codes};
 }
 
 export async function verifyMfa(userId,token){

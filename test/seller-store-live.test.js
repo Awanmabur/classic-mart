@@ -47,6 +47,9 @@ test('seller store settings persist through authenticated forms, reject stale ed
     assert.ok(pending?.secret);
     await agent.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: csrf((await agent.get('/account/security')).text) }).expect(302);
     assert.equal((await User.findById(user._id)).security.mfaEnabled, true);
+    // Enrollment revokes the previous token version; direct service calls must
+    // carry the same refreshed identity as the authenticated browser session.
+    Object.assign(user, await User.findById(user._id));
   }
   try {
     // Importing the application registers all models and automatically starts
