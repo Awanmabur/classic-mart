@@ -168,9 +168,9 @@ and keyboard focus, native country selection, the closed calling code and
 forced-colours focus visibility.
 The authentication focus assertion reads the pill that actually draws the
 indicator, rather than requiring another outline inside it. All strict Axe
-rules and catalogue focus assertions remain enabled: the original sorting
-control reset has no visible keyboard indicator, so that assertion remains a
-known original-design limitation rather than a passing compliance claim.
+rules and catalogue focus assertions remained enabled: the original sorting
+control reset had no visible keyboard indicator at that checkpoint. The scoped
+15 October repair below resolves that focus failure.
 
 Original homepage behaviour is restored too: the hero advances every 5.6
 seconds and promotional-card effects repeat. Both pause while used, when the
@@ -195,8 +195,15 @@ enrolment contrast assertion and its parent result, three stale source
 contracts, and a warehouse test interrupted by a fatal restart of the isolated
 MongoDB server. The affected account/source checks subsequently passed their
 20-test run; warehouse operations subsequently passed ten checks with no
-failures or skips. The strict enrolment contrast assertion remains failing.
+failures or skips. The strict enrolment contrast assertion was still failing at
+that historical checkpoint; the approved 15 October seller fix is recorded above.
 Critical desktop/mobile browser flows passed thirteen checks with three
 intentional project-specific skips. Project/import, security, frontend and
 functionality checks passed. No real messaging or payment provider calls were
 made, and the complete strict suite is not reported as passing.
+
+On 2026-10-15 the catalogue sort selector gained the same keyboard-only soft
+orange shadow used by existing catalogue inputs. The unchanged desktop/mobile
+query, price and sort focus regression failed twice before the fix and passed
+both cases afterward. Default control borders, geometry and fills retain their
+approved values. See [access migration and focus verification](production/2026-10-15-access-migration.md).

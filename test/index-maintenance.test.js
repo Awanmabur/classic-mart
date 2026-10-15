@@ -28,7 +28,8 @@ test('expiry fields use exactly one TTL schema index and db setup reconciles leg
   assert.match(helper,/authorization failures are never converted into a destructive/);
 
   const db=read('src/config/db.js');
-  assert.match(db,/connectWithRetry\(\{ autoIndex = !env\.isProduction \} = \{\}\)/);
+  assert.match(db,/connectWithRetry\(\{ autoIndex = !env\.isProduction, autoCreate = autoIndex \} = \{\}\)/);
+  assert.match(db,/mongoose\.connect\(env\.mongoUri,\s*\{\s*autoIndex,\s*(?:\/\/[^\n]*\n\s*)*autoCreate,/);
 
   const seed=read('scripts/seed.js');
   assert.match(seed,/connectDatabase\(\{ autoIndex: false \}\)/);

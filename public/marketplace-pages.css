@@ -104,6 +104,7 @@
 .mobile-filter-trigger img { width: 12px; }
 .catalog-view-controls label { min-height: 40px; border: 1px solid #dfe3e7; border-radius: 999px; padding: 0 5px 0 13px; display: flex; align-items: center; gap: 7px; color: #7b8490; font-size: 8.5px; }
 .catalog-view-controls select { min-height: 30px; border: 0; padding: 0 8px; outline: 0; background: #f4f5f7; color: #4f5967; font-size: 9px; font-weight: 800; }
+.catalog-view-controls select:focus-visible { box-shadow: 0 0 0 3px rgba(255,101,0,.1); }
 .view-mode-button { width: 39px; height: 39px; border: 1px solid #dfe3e7; display: grid; place-items: center; background: #fff; cursor: pointer; }
 .view-mode-button img { width: 13px; opacity: .65; }
 .view-mode-button.active { border-color: var(--orange); background: var(--orange-soft); }

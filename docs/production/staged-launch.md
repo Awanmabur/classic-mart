@@ -66,6 +66,17 @@ NODE_ENV=production npm run production:data-check
 NODE_ENV=production npm run media:r2:check
 ```
 
+`migrate:apply` upgrades genuine unmanaged legacy staff; it is not a renewal
+workflow. Missing current access on managed accounts, any prior grant history,
+or inactive accounts require reconciliation. The CLI reports public IDs/reasons
+under `result.platformGrants.reconciliation` (at most 100 samples with accurate
+totals) and returns exit 2 when certification is blocked. Review those identities
+through authenticated staff provisioning/approval before retrying. Current
+grant bounds remain authoritative; a stale account role cannot renew them.
+Production and CLI connections with automatic indexing disabled also disable
+automatic collection creation. Apply the reviewed schema migration before
+starting a new release; planning alone creates no collections.
+
 Publish your reviewed catalogue, prices and physical stock. Bootstrap creates no
 marketplace inventory; a data-marker check does not verify that inventory exists.
 
