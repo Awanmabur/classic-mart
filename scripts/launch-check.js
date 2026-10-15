@@ -4,6 +4,7 @@ import { env } from '../src/config/env.js';
 import { launchReadiness } from '../src/services/launch.js';
 import mongoose from 'mongoose';
 import { ensureMediaStorageReady } from '../src/services/object-storage.js';
+import { scanUpload } from '../src/services/malware.js';
 const configFailures=[];
 const developmentDataChecks=[
   ['users',{$or:[{publicId:/^usr_demo_/},{emailNormalized:/@classicmart\.local$/i}]}],
@@ -17,6 +18,7 @@ if(!env.security.privilegedMfaRequired)configFailures.push('PRIVILEGED_MFA_REQUI
 if(env.security.siem.mode==='off')configFailures.push('SIEM_MODE is off');
 if(!env.pesapal.notificationId)configFailures.push('PESAPAL_IPN_ID is not configured');
 if(!env.security.idsEnabled||!env.security.ipsEnabled)configFailures.push('IDS/IPS must be enabled');
+await scanUpload(Buffer.from('Classic Mart launch scanner readiness probe.\n'));
 await ensureMediaStorageReady();
 await connectDatabase();
 try{

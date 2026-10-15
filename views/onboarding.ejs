@@ -19,7 +19,7 @@
       <div class="role-step-label"><span>Secure account setup</span><div><i class="active"></i><i class="active"></i><i></i></div></div>
     </header>
     <section class="role-onboarding-card">
-      <form action="<%= sellerStart ? '/onboarding/seller' : '/onboarding' %>" class="server-onboarding-form" method="post">
+      <form action="<%= sellerStart ? '/onboarding/seller' : '/onboarding' %>" class="server-onboarding-form<%= sellerStart ? ' seller-enrollment-form' : '' %>" method="post">
         <input name="_csrf" type="hidden" value="<%= csrfToken %>"/>
         <% if (sellerStart) { %><input name="role" type="hidden" value="seller"/><input name="confirmSeller" type="hidden" value="on"/><input name="version" type="hidden" value="<%= values.version %>"/><% } %>
         <div class="role-heading">

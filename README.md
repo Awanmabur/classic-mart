@@ -5,8 +5,8 @@ Current staged dashboard checkpoint: **v2.13.74 — approved role workspaces**.
 The current cleanup, restored image/button styling and staged launch controls are
 documented in [staged launch operations](docs/production/staged-launch.md).
 Production sign-off still requires configured real services and current evidence.
-See the [current verification record](docs/production/2026-10-14-cleanup-verification.md)
-for passing checks and the remaining colour-contrast/container/provider blockers.
+See the [current verification record](docs/production/2026-10-15-runtime-followup.md)
+for the seller contrast fix, runtime hardening and remaining launch requirements.
 
 Classic Mart is a server-authoritative multi-vendor marketplace built with Node.js 24, Express 5, EJS, MongoDB, Redis, Pesapal and Cloudflare R2. The approved **Unified Role Dashboard — Polished Final 19** design is connected one workspace at a time to the existing marketplace backend.
 

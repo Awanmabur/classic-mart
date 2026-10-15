@@ -45,6 +45,18 @@ For Gmail, use an app password with account two-step verification and TLS SMTP
 actual inbox/SMS delivery must be tested with the configured account and sender.
 The SMS provider is eSMS Africa; there is no Twilio fallback.
 
+Run `npm run mail:verify` and `npm run sms:verify` with credentials supplied only
+through the environment. These commands verify SMTP TLS/authentication and eSMS
+authentication/available credit without sending an email or SMS. They do not
+verify actual message delivery; complete that separately with the configured
+account, approved sender and intended test recipient.
+
+Keep ClamAV definitions current. Local scanning rejects databases older than its
+native two-day limit; private-daemon scanning validates loaded signature metadata
+before sending each upload and treats unknown timezone conservatively. Consult
+the full configuration guide in the source release for those exact bounds.
+`launch:check` requires a harmless scanner probe to pass before launch sign-off.
+
 ```sh
 npm ci
 NODE_ENV=production npm run migrate:plan

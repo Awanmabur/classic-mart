@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { cleanRuntimeScripts } from '../scripts/runtime-package.js';
 
 const read = (file) => fs.readFileSync(file, 'utf8');
 
@@ -102,9 +103,8 @@ test('development command is stable by default and watch mode is opt-in', () => 
   const pkg = JSON.parse(read('package.json'));
   assert.equal(pkg.scripts.dev, 'node src/server.js');
   assert.equal(pkg.scripts['dev:watch'], 'node --watch src/server.js');
-  const builder = read('scripts/build-clean-app-release.js');
-  assert.match(builder, /dev:'node src\/server\.js'/);
-  assert.match(builder, /'dev:watch':'node --watch src\/server\.js'/);
+  assert.equal(cleanRuntimeScripts.dev, 'node src/server.js');
+  assert.equal(cleanRuntimeScripts['dev:watch'], 'node --watch src/server.js');
 });
 
 test('storefront cache serves recently stale catalogue immediately while one refresh runs', () => {

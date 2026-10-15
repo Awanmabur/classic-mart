@@ -15,7 +15,7 @@ This production package contains no development database bootstrap, reset toolin
 4. Live Pesapal API 3.0 merchant key/secret with `PESAPAL_SANDBOX=false`. The first HTTPS deploy may start without `PESAPAL_IPN_ID`; checkout remains fail-closed until you register `BASE_URL/webhooks/pesapal`, store the returned IPN ID, and redeploy.
 5. SMTP credentials for transactional email.
 6. eSMS Africa live credentials for phone verification.
-7. ClamAV scanning for untrusted uploads. The production Docker image includes `clamscan` and refreshes virus definitions during image build, so the default Render launch does not require a separate ClamAV service.
+7. ClamAV scanning for untrusted uploads. The production Docker image includes `clamscan` and fetches signed definitions during image build. Keep definitions current through frequent rebuilds or a managed, continuously updated private `clamd` service; build-time freshness does not last indefinitely. Uploads reject stale definitions. See the scanner freshness requirements in the operating guide.
 8. Private Cloudflare R2 bucket for marketplace media. Production requires `MEDIA_STORAGE_DRIVER=r2`, the Cloudflare S3 endpoint, bucket name, Access Key ID and Secret Access Key. Keep the bucket private; do not enable `r2.dev` or public access for this launch because KYC/evidence shares the storage boundary.
 9. Durable mounted filesystem at `PERSISTENT_STORAGE_ROOT` for temporary exports/privacy files only. Marketplace uploads are stored in R2. On Render, mount `/var/data` and use `/var/data/classic-mart` as the root for those temporary operational files.
 10. SIEM endpoint/collector and the Stage 12 launch-evidence controls required by `npm run launch:check`.
@@ -30,6 +30,28 @@ Render does not mount a service disk during `preDeployCommand`. Classic Mart the
 The first deploy requires `ADMIN_PASSWORD`. It does not require `PESAPAL_IPN_ID`, which is intentionally configured after the public HTTPS endpoint exists. After confirming Super Admin login, remove only `ADMIN_PASSWORD` from the Render environment; future deploys can rerun the bootstrap safely because the existing administrator is detected.
 
 Do not upload the local `storage`, `.classic-mart`, `.env`, test data, or the development seed media to Render. The production artifact excludes them.
+
+Builds behind a trusted TLS-inspection proxy can supply its verified CA through
+BuildKit without embedding it in the image. Set `BUILD_SHA` to the full reviewed
+Git commit before running:
+
+```bash
+docker build --pull --no-cache --secret id=build_ca,src=/absolute/path/to/trusted-ca.pem --build-arg BUILD_SHA="$BUILD_SHA" -t classic-mart .
+```
+
+The optional CA applies only to dependency installation; normal builds use
+Node's default trust. Never disable certificate or package-integrity checks.
+Scanner definition downloads still require separately permitted official
+ClamAV access and verified signatures.
+
+Definition refresh builds must bypass the cached definition layer, including
+when rebuilding the same commit. CI uses `--no-cache`; `--pull` alone does not
+refresh definitions when the base image is unchanged. On Render use **Clear
+build cache & deploy** for the scheduled refresh, unless its changing build
+arguments have separately been verified. The runtime `RENDER_GIT_COMMIT`
+fallback identifies code; it cannot invalidate Docker's build cache. Schedule
+refreshes before the two-day scanner age limit, or use continuously updated
+private `clamd`.
 
 ## Cloudflare R2 media storage
 

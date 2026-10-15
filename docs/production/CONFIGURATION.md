@@ -1,6 +1,6 @@
 # Production Configuration Reference
 
-Classic Mart is configured through environment variables. **Never put production secrets in source control, release ZIPs, screenshots, tickets or documentation.** The sanitized release contains `.env.example` only.
+Classic Mart is configured through environment variables. **Never put production secrets in source control, release ZIPs, screenshots, tickets or documentation.** Releases contain configuration templates, not populated runtime environment files.
 
 ## Runtime and public URL
 
@@ -23,11 +23,11 @@ Production requires a MongoDB deployment that supports multi-document transactio
 | `MONGO_URI` | Explicit transaction-capable URI |
 | `AUDIT_MONGO_URI` | Optional isolated audit DB URI; otherwise audit derives a guarded `*-audit-test` DB |
 
-Before launch run `npm run db:verify`. The application must not be deployed against standalone MongoDB because payment, refund, delivery, B2B and ledger transitions rely on transactions.
+From the source or clean package, run `npm run db:verify` before launch. That engineering command is deliberately absent from the production ZIP and Docker image; their startup validates transaction-capable MongoDB directly. The application must not be deployed against standalone MongoDB because payment, refund, delivery, B2B and ledger transitions rely on transactions.
 
 ## Redis
 
-`REDIS_URL` is optional for the application contract because Mongo-backed sessions are supported. Production Redis is recommended for distributed session/runtime state and must be treated as non-authoritative: commerce truth remains in MongoDB.
+`REDIS_URL` is mandatory in production for shared sessions and atomic distributed rate limits. Startup and readiness fail closed when it is unavailable. Development can omit Redis and use its local fallback stores. Redis is non-authoritative for commerce: orders, payment state and ledgers remain in MongoDB.
 
 ## Cryptographic/security secrets
 
@@ -87,6 +87,20 @@ CLAMAV_PORT=3310
 ```
 
 `clamscan` is supported when the executable is available. Uploaded public images are decoded/re-encoded; sensitive evidence/KYB files remain private and authorization-controlled.
+
+Keep signed definitions updated continuously, or rebuild the local-scanner image
+frequently. Each `clamscan` upload uses its native two-day CVD freshness check.
+For `clamd`, each upload first checks the loaded database with `VERSION`; missing,
+malformed or stale metadata blocks the upload before any file bytes are sent.
+The daemon reports a local timestamp without a timezone. The application uses
+a conservative 14-hour uncertainty allowance, so a reported timestamp older
+than roughly 34 hours is rejected to keep its oldest possible age within 48
+hours. This may reject an uncertain database earlier than its real expiry.
+Use a private, access-controlled daemon; its protocol is not encrypted by this
+application. Version lookup and upload share one 15-second deadline and bounded
+responses. `launch:check` also scans a harmless readiness probe with the actual
+configured engine. This is separate from clean/EICAR certification with real
+signed definitions; a protocol fixture is not that certification.
 
 ## Classic AI
 

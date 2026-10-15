@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { rewriteRuntimePackage } from './runtime-package.js';
 
 const root = process.cwd();
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -10,7 +11,7 @@ const outRoot = path.join(root, 'dist');
 const folderName = `classic-mart-v${version}-production`;
 const stage = path.join(outRoot, folderName);
 const zipPath = path.join(outRoot, `${folderName}.zip`);
-const allow = ['package.json','package-lock.json','Dockerfile','.dockerignore','.env.production.example','PRODUCTION_SETUP.md','docs/production/staged-launch.md','render.yaml','src','public','views','scripts/run-production.js','scripts/bootstrap-production.js','scripts/migrate-production.js','scripts/pesapal-register-ipn.js','scripts/launch-check.js','scripts/check-production-data.js','scripts/deploy-smoke.js','scripts/backup-drill.js','scripts/check-r2.js','scripts/launch-evidence.js','scripts/staff-access.js','scripts/operator-input.js'];
+const allow = ['package.json','package-lock.json','Dockerfile','.dockerignore','.env.production.example','PRODUCTION_SETUP.md','docs/production/staged-launch.md','render.yaml','src','public','views','scripts/runtime-package.js','scripts/run-production.js','scripts/bootstrap-production.js','scripts/migrate-production.js','scripts/pesapal-register-ipn.js','scripts/launch-check.js','scripts/check-production-data.js','scripts/deploy-smoke.js','scripts/backup-drill.js','scripts/check-r2.js','scripts/verify-mail.js','scripts/verify-sms.js','scripts/launch-evidence.js','scripts/staff-access.js','scripts/operator-input.js'];
 const forbiddenExact = new Set(['test','tests','.github','.env.example','scripts/ensure-local-mongo.js','scripts/stop-local-mongo.js','scripts/reset-local.js','scripts/fetch-seed-product-images.js','scripts/seed.js','scripts/seed-starter-catalogue.js','src/config/starter-catalogue.js','scripts/seed-initial-catalogue.js','src/config/initial-catalogue.js','src/core/local-mongo.js','public/assets/products','public/dashboard-assets','dashboard-preview','playwright.config.js','CLEAN_MANIFEST.json','PRODUCTION_MANIFEST.json','RELEASE_MANIFEST.json',
   'public/approved-dashboard/script.js','public/approved-dashboard/role-workspaces.js','public/approved-dashboard/enhancements.js','public/approved-dashboard/session-controls.js']);
 const forbiddenNames = new Set(['.env','.git','node_modules','.classic-mart','storage','logs','artifacts','dist','coverage']);
@@ -41,29 +42,7 @@ function sha(file){return crypto.createHash('sha256').update(fs.readFileSync(fil
 
 fs.rmSync(stage,{recursive:true,force:true});fs.mkdirSync(stage,{recursive:true});
 for(const rel of allow)copy(rel);
-const stagedPackagePath=path.join(stage,'package.json');
-const stagedPackage=JSON.parse(fs.readFileSync(stagedPackagePath,'utf8'));
-delete stagedPackage.devDependencies;
-stagedPackage.scripts={
-  start:'node scripts/run-production.js',
-  worker:'node src/worker.js',
-  'bootstrap:production':'node scripts/bootstrap-production.js',
-  'production:data-check':'node scripts/check-production-data.js',
-  'migrate:plan':'node scripts/migrate-production.js',
-  'migrate:apply':'node scripts/migrate-production.js --apply',
-  'pesapal:register-ipn':'node scripts/pesapal-register-ipn.js',
-  'launch:check':'node scripts/launch-check.js',
-  'deploy:smoke':'node scripts/deploy-smoke.js',
-  'backup:drill':'node scripts/backup-drill.js',
-  'media:r2:check':'node scripts/check-r2.js',
-  'launch:evidence':'node scripts/launch-evidence.js',
-  'staff:access':'node scripts/staff-access.js'
-};
-fs.writeFileSync(stagedPackagePath,JSON.stringify(stagedPackage,null,2)+'\n');
-const stagedLockPath=path.join(stage,'package-lock.json');
-const stagedLock=JSON.parse(fs.readFileSync(stagedLockPath,'utf8'));
-if(stagedLock.packages?.['']) delete stagedLock.packages[''].devDependencies;
-fs.writeFileSync(stagedLockPath,JSON.stringify(stagedLock,null,2)+'\n');
+rewriteRuntimePackage(stage, 'production');
 const files=walk(stage);
 const bad=[];const secrets=[];const forbiddenRuntimeContent=[];
 for(const file of files){

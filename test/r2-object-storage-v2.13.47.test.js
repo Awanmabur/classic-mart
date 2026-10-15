@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { productionRuntimeScripts } from '../scripts/runtime-package.js';
 
 const read=(file)=>fs.readFileSync(new URL(`../${file}`,import.meta.url),'utf8');
 
@@ -95,5 +96,5 @@ test('release exposes a dedicated R2 readiness command for deployment verificati
   assert.match(check,/ensureMediaStorageReady/);
   assert.match(check,/Cloudflare R2 media storage is ready/);
   assert.match(builder,/scripts\/check-r2\.js/);
-  assert.match(builder,/'media:r2:check':'node scripts\/check-r2\.js'/);
+  assert.equal(productionRuntimeScripts['media:r2:check'], 'node scripts/check-r2.js');
 });

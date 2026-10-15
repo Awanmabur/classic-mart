@@ -143,6 +143,13 @@ those scanned states. The existing strict WCAG tests intentionally still fail
 these findings; no audit rules or assertions were suppressed. This correction
 does not claim AA compliance or a passing complete release gate.
 
+On 2026-10-15 the user approved the existing darker orange specifically for the
+seller-enrolment form's two small heading labels and submit button. Those scoped
+controls now use `#b94b00` (about 5.16:1 with white); the full ten-entry seller
+registration/enrolment regression and its strict 390/1366px scan pass. The
+marketing/dashboard palette and the other public accessibility limitations
+above remain. See [runtime follow-up](production/2026-10-15-runtime-followup.md).
+
 The clean Customer release on 2026-10-11 removes the appended navy outlines
 instead of replacing them with extra coloured outlines. Home and catalogue
 search, newsletter and sorting controls return to their original input resets.

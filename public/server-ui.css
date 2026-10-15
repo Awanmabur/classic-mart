@@ -35,6 +35,15 @@
   padding: 42px;
 }
 
+/* Seller enrolment uses the approved darker orange for readable small labels. */
+.seller-enrollment-form .role-heading > span {
+  color: #b94b00;
+}
+
+.seller-enrollment-form .role-next {
+  background: #b94b00;
+}
+
 .server-role-actions {
   margin-top: 24px;
   display: flex;

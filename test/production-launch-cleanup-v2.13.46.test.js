@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { productionRuntimeScripts } from '../scripts/runtime-package.js';
 
 const read=(file)=>fs.readFileSync(new URL(`../${file}`,import.meta.url),'utf8');
 
@@ -63,8 +64,7 @@ test('production release builder excludes development and demo tooling',()=>{
   }
   assert.match(builder,/\.env\.production\.example/);
   assert.equal(pkg.scripts['release:production'],'node scripts/build-production-release.js');
-  assert.match(builder,/stagedPackage\.scripts=\{/);
-  assert.match(builder,/delete stagedPackage\.devDependencies/);
+  assert.match(builder,/rewriteRuntimePackage\(stage, 'production'\)/);
   assert.match(read('Dockerfile'),/npm ci --omit=dev/);
 });
 
@@ -82,7 +82,7 @@ test('production launch supervises web and worker in one service when mounted st
   assert.match(supervisor,/SIGINT/);
   assert.match(docker,/CMD \["node", "scripts\/run-production\.js"\]/);
   assert.match(builder,/scripts\/run-production\.js/);
-  assert.match(builder,/start:'node scripts\/run-production\.js'/);
+  assert.equal(productionRuntimeScripts.start, 'node scripts/run-production.js');
 });
 
 test('production web and worker verify durable storage is writable before connecting',()=>{
@@ -143,6 +143,8 @@ test('production Docker image carries its own malware scanner for same-day launc
   const prod=read('.env.production.example');
   assert.match(docker,/apt-get install[\s\S]*clamav/);
   assert.match(docker,/freshclam/);
+  assert.ok(docker.indexOf('ARG BUILD_SHA=') < docker.indexOf('RUN freshclam'), 'new release SHA must invalidate the definitions layer');
+  assert.match(read('.github/workflows/ci.yml'),/docker build --pull --no-cache/);
   assert.match(prod,/^MALWARE_SCAN_MODE=clamscan$/m);
   assert.match(prod,/^CLAMAV_PATH=\/usr\/bin\/clamscan$/m);
   assert.doesNotMatch(prod,/^CLAMAV_HOST=/m);

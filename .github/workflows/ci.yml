@@ -88,7 +88,7 @@ jobs:
         env: *testenv
       - name: Build production container image
         run: |
-          docker build --pull --build-arg BUILD_SHA=${{ github.sha }} -t classic-mart:${{ github.sha }} .
+          docker build --pull --no-cache --build-arg BUILD_SHA=${{ github.sha }} -t classic-mart:${{ github.sha }} .
           docker image inspect classic-mart:${{ github.sha }} --format '{{.Id}}' > artifacts/container-image-id.txt
       - name: Scan production container for HIGH/CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0

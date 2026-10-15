@@ -4,6 +4,10 @@ This record covers the current cleanup and hardening checkpoint on
 `approved-dashboard-ui`. It supersedes older Customer-only and uniform-photo
 repair descriptions. It does **not** certify a completed production launch.
 
+The later [runtime hardening follow-up](2026-10-15-runtime-followup.md) records
+the approved seller-enrolment contrast fix and subsequent runtime changes.
+The test counts and archive hashes below belong to this earlier checkpoint.
+
 ## Implementation
 
 - Removed 27 confirmed obsolete files, totaling 470,090 bytes, and the empty

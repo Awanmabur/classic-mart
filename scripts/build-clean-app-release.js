@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { rewriteRuntimePackage } from './runtime-package.js';
 
 const root = process.cwd();
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -14,9 +15,9 @@ const zipPath = path.join(outRoot, `${folderName}.zip`);
 const allow = [
   'package.json','package-lock.json','Dockerfile','.dockerignore','.env.example','.env.production.example',
   'README.md','PRODUCTION_SETUP.md','docs/production/staged-launch.md','render.yaml','src','public','views',
-  'scripts/run-production.js','scripts/bootstrap-production.js','scripts/migrate-production.js',
+  'scripts/runtime-package.js','scripts/run-production.js','scripts/bootstrap-production.js','scripts/migrate-production.js',
   'scripts/pesapal-register-ipn.js','scripts/launch-check.js','scripts/check-production-data.js',
-  'scripts/deploy-smoke.js','scripts/backup-drill.js','scripts/check-r2.js','scripts/verify-mongo.js',
+  'scripts/deploy-smoke.js','scripts/backup-drill.js','scripts/check-r2.js','scripts/verify-mail.js','scripts/verify-sms.js','scripts/verify-mongo.js',
   'scripts/seed-initial-catalogue.js','scripts/reset-admin-password.js','scripts/launch-evidence.js','scripts/staff-access.js','scripts/operator-input.js'
 ];
 
@@ -76,38 +77,7 @@ for (const required of ['scripts/seed-initial-catalogue.js','src/config/initial-
   if (!fs.existsSync(path.join(stage, required))) throw new Error(`Clean app artifact is missing required initial catalogue setup file: ${required}`);
 }
 
-const stagedPackagePath=path.join(stage,'package.json');
-const stagedPackage=JSON.parse(fs.readFileSync(stagedPackagePath,'utf8'));
-delete stagedPackage.devDependencies;
-stagedPackage.scripts={
-  dev:'node src/server.js','dev:watch':'node --watch src/server.js',
-  start:'node src/server.js',
-  worker:'node src/worker.js',
-  'db:verify':'node scripts/verify-mongo.js',
-  'media:r2:check':'node scripts/check-r2.js',
-  'seed:initial':'node scripts/seed-initial-catalogue.js',
-  'setup:external':'npm run db:verify && npm run media:r2:check && npm run seed:initial',
-  'db:setup':'npm run setup:external',
-  'db:seed':'npm run seed:initial',
-  'admin:reset-password':'node scripts/reset-admin-password.js',
-  'bootstrap:production':'node scripts/bootstrap-production.js',
-  'production:data-check':'node scripts/check-production-data.js',
-  'migrate:plan':'node scripts/migrate-production.js',
-  'migrate:apply':'node scripts/migrate-production.js --apply',
-  'pesapal:register-ipn':'node scripts/pesapal-register-ipn.js',
-  'launch:check':'node scripts/launch-check.js',
-  'deploy:smoke':'node scripts/deploy-smoke.js',
-  'backup:drill':'node scripts/backup-drill.js',
-  'start:production':'node scripts/run-production.js',
-  'launch:evidence':'node scripts/launch-evidence.js',
-  'staff:access':'node scripts/staff-access.js'
-};
-fs.writeFileSync(stagedPackagePath,JSON.stringify(stagedPackage,null,2)+'\n');
-
-const stagedLockPath=path.join(stage,'package-lock.json');
-const stagedLock=JSON.parse(fs.readFileSync(stagedLockPath,'utf8'));
-if(stagedLock.packages?.['']) delete stagedLock.packages[''].devDependencies;
-fs.writeFileSync(stagedLockPath,JSON.stringify(stagedLock,null,2)+'\n');
+rewriteRuntimePackage(stage, 'clean');
 
 const files=walk(stage);
 const bad=[]; const secrets=[];

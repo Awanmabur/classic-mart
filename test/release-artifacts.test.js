@@ -25,9 +25,11 @@ function isolatedSource() {
     'public/approved-dashboard/customer-live.js', 'public/approved-dashboard/session-entry.js',
     'public/approved-dashboard/assets/avatar.png', 'public/assets/products/sample.svg',
     'scripts/run-production.js', 'scripts/check-r2.js', 'scripts/launch-evidence.js', 'scripts/staff-access.js', 'scripts/operator-input.js',
+    'scripts/verify-mail.js', 'scripts/verify-sms.js',
     'scripts/seed-initial-catalogue.js', 'scripts/seed.js', 'scripts/ensure-local-mongo.js',
     'test/reference.test.js', 'tests/e2e/reference.spec.js', '.github/workflows/ci.yml']) write(relative);
   for (const name of prototypes) write(`public/approved-dashboard/${name}`);
+  write('scripts/runtime-package.js', fs.readFileSync(path.join(root, 'scripts/runtime-package.js')));
   write('dashboard-preview/final19/index.html', '<main>Approved reference</main>\n');
   write('dashboard-preview/final19/assets/avatar.png', 'original image bytes');
   write('DASHBOARD_PREVIEW.md', 'Preview instructions\n');
@@ -68,7 +70,8 @@ test('production release contains live assets and launch operations while exclud
   const stage = build(directory, 'build-production-release.js', '-production');
   for (const relative of ['public/approved-dashboard/customer-live.js', 'public/approved-dashboard/session-entry.js',
     'public/approved-dashboard/assets/avatar.png', 'scripts/check-r2.js', 'scripts/launch-evidence.js',
-    'scripts/staff-access.js', 'scripts/operator-input.js', 'docs/production/staged-launch.md']) assert.ok(exists(stage, relative), relative);
+    'scripts/staff-access.js', 'scripts/operator-input.js', 'scripts/verify-mail.js', 'scripts/verify-sms.js', 'scripts/runtime-package.js',
+    'docs/production/staged-launch.md']) assert.ok(exists(stage, relative), relative);
   for (const relative of ['dashboard-preview', 'test', 'tests', '.github', '.env', '.env.example',
     'src/core/local-mongo.js', 'src/config/initial-catalogue.js', 'public/assets/products',
     'scripts/seed-initial-catalogue.js', 'scripts/seed.js', 'CLEAN_MANIFEST.json', 'RELEASE_MANIFEST.json',
@@ -77,6 +80,8 @@ test('production release contains live assets and launch operations while exclud
   assert.equal(pkg.devDependencies, undefined);
   assert.equal(pkg.scripts['launch:evidence'], 'node scripts/launch-evidence.js');
   assert.equal(pkg.scripts['staff:access'], 'node scripts/staff-access.js');
+  assert.equal(pkg.scripts['mail:verify'], 'node scripts/verify-mail.js');
+  assert.equal(pkg.scripts['sms:verify'], 'node scripts/verify-sms.js');
   assert.equal(pkg.scripts.test, undefined);
   const manifest = JSON.parse(fs.readFileSync(path.join(stage, 'PRODUCTION_MANIFEST.json'), 'utf8'));
   assert.equal(manifest.kind, 'production');
@@ -88,12 +93,15 @@ test('clean app release preserves deliberate catalogue setup without shipping pr
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const stage = build(directory, 'build-clean-app-release.js', '-clean');
   for (const relative of ['scripts/seed-initial-catalogue.js', 'src/config/initial-catalogue.js',
-    'scripts/launch-evidence.js', 'scripts/check-r2.js', 'scripts/staff-access.js', 'scripts/operator-input.js', 'docs/production/staged-launch.md']) assert.ok(exists(stage, relative), relative);
+    'scripts/launch-evidence.js', 'scripts/check-r2.js', 'scripts/staff-access.js', 'scripts/operator-input.js',
+    'scripts/verify-mail.js', 'scripts/verify-sms.js', 'scripts/runtime-package.js', 'docs/production/staged-launch.md']) assert.ok(exists(stage, relative), relative);
   for (const relative of ['dashboard-preview', 'test', 'tests', '.github', '.env', 'src/core/local-mongo.js',
     'scripts/seed.js', 'PRODUCTION_MANIFEST.json', 'RELEASE_MANIFEST.json',
     ...prototypes.map(name => `public/approved-dashboard/${name}`)]) assert.equal(exists(stage, relative), false, relative);
   const pkg = JSON.parse(fs.readFileSync(path.join(stage, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts['launch:evidence'], 'node scripts/launch-evidence.js');
   assert.equal(pkg.scripts['staff:access'], 'node scripts/staff-access.js');
+  assert.equal(pkg.scripts['mail:verify'], 'node scripts/verify-mail.js');
+  assert.equal(pkg.scripts['sms:verify'], 'node scripts/verify-sms.js');
   assert.equal(pkg.devDependencies, undefined);
 });
