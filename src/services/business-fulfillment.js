@@ -7,6 +7,9 @@ import {
   BusinessBudget,
   BusinessInvoice,
   BusinessOrganization,
+  Category,
+  Brand,
+  EvidenceDocument,
   InventoryMovement,
   InventoryReservation,
   Order,
@@ -14,15 +17,23 @@ import {
   ProductVariant,
   ProcurementRequest,
   PurchaseOrder,
+  QuoteRequest,
   SellerOrder,
   Shipment,
   StockItem,
   Store,
+  Warehouse,
 } from '../models/index.js';
 import { addOutboxEvent } from './outbox.js';
 import { allocateSellerLineSettlement, ensureLedgerAccount, postLedgerTransaction, sellerSettlementBreakdown } from './money.js';
 import { ensureShipmentForOrder } from './logistics.js';
 import { issueDeliveryNoteDocument, issueTaxInvoiceDocument } from './business-documents.js';
+import { businessAccess, businessSame, fenceBusinessAccess, fenceBusinessRecord } from './business-access.js';
+import { businessCommercialPolicy, equalBusinessPolicy } from './business-policy.js';
+import { sellerBusinessAccess } from './seller-business-access.js';
+import { assertBusinessVersion } from './business-operations.js';
+import { writeAudit } from './audit.js';
+import { hasPublicProductApproval } from './storefront.js';
 
 function maskTaxId(encrypted) {
   if (!encrypted) return '';
@@ -77,8 +88,17 @@ async function reserveOrCommitLine({ po, line, lineKey, actorUserId, immediate, 
     countries: po.country,
   }).session(session);
   if (!product) throw new AppError(`Product ${line.productPublicId} is no longer sellable.`, 409, 'B2B_PRODUCT_UNAVAILABLE');
-
-  const stockRows = await StockItem.find({ storeId: po.storeId, variantId: variant._id }).sort({ createdAt: 1 }).session(session);
+  const category=await Category.findOne({_id:product.categoryId,active:true,$or:[{countries:mongoose.trusted({$size:0})},{countries:po.country}]}).session(session);
+  const brand=product.brandId?await Brand.findOne({_id:product.brandId,status:'approved'}).session(session):null;
+  const store=await Store.findOne({_id:po.storeId,status:'verified',country:po.country,currency:po.currency}).session(session);
+  if(!category||!store||(product.brandId&&!brand)||!hasPublicProductApproval(product,category,store)||!Number.isSafeInteger(line.unitMinor)||line.unitMinor<Math.max(1,Number(variant.minimumPriceMinor||0)))throw new AppError('The supplier SKU, publication or approved minimum price changed.',409,'B2B_VARIANT_UNAVAILABLE');
+  await fenceBusinessRecord(ProductVariant, variant, session, { active: true, currency: po.currency, sku: line.sku });
+  await fenceBusinessRecord(Product, product, session, { status: 'published', storeId: po.storeId });
+  await fenceBusinessRecord(Category,category,session,{active:true});
+  if(brand)await fenceBusinessRecord(Brand,brand,session,{status:'approved'});
+  const warehouses=await Warehouse.find({storeId:po.storeId,country:po.country,active:true}).session(session);
+  for(const warehouse of warehouses)await fenceBusinessRecord(Warehouse,warehouse,session,{storeId:po.storeId,country:po.country,active:true});
+  const stockRows = await StockItem.find({ storeId: po.storeId, variantId: variant._id,warehouseId:mongoose.trusted({$in:warehouses.map(row=>row._id)}) }).sort({ createdAt: 1,_id:1 }).session(session);
   let remaining = Number(line.quantity);
   const allocations = [];
   for (const snapshot of stockRows) {
@@ -91,6 +111,8 @@ async function reserveOrCommitLine({ po, line, lineKey, actorUserId, immediate, 
       {
         _id: snapshot._id,
         storeId: po.storeId,
+        warehouseId: snapshot.warehouseId,
+        variantId: variant._id,
         $expr: { $gte: [{ $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }, quantity] },
       },
       update,
@@ -219,23 +241,50 @@ export async function ageBusinessInvoices(now = new Date(), { limit = 250 } = {}
   return { checked: rows.length, overdue };
 }
 
-export async function acceptPurchaseOrderIntoCommerce({ request, purchaseOrderPublicId }) {
+export async function acceptPurchaseOrderIntoCommerce({ request, purchaseOrderPublicId, expectedVersion }) {
   const session = await mongoose.startSession();
   let result;
   try {
     await session.withTransaction(async () => {
-      const po = await PurchaseOrder.findOne({ publicId: purchaseOrderPublicId, storeId: request.store._id, status: 'issued' }).session(session);
+      const supplier = await sellerBusinessAccess(request, { session, write: true });
+      const po = await PurchaseOrder.findOne({ publicId: purchaseOrderPublicId, storeId: supplier.store._id, status: 'issued' }).session(session);
       if (!po) throw new AppError('Issued purchase order not found.', 404, 'PURCHASE_ORDER_NOT_FOUND');
+      if (!Number.isInteger(expectedVersion) || expectedVersion < 0) throw new AppError('Reload this purchase order before accepting it.', 409, 'BUSINESS_VERSION_CONFLICT');
+      assertBusinessVersion(po, expectedVersion);
+      const policy = businessCommercialPolicy(po.commercialPolicy);
+      const procurement = await ProcurementRequest.findOne({ _id: po.procurementRequestId, organizationId: po.organizationId,
+        status: mongoose.trusted({ $in: ['approved','partially_ordered','ordered'] }), closedAt: null }).session(session);
+      const quote = await QuoteRequest.findOne({ _id: po.quoteRequestId, organizationId: po.organizationId, procurementRequestId: po.procurementRequestId,
+        storeId: po.storeId, country: po.country, currency: po.currency, status: 'accepted' }).session(session);
+      if (!procurement || !quote || !procurement.approvedAt || !procurement.approvedByUserId
+        || businessSame(procurement.requesterUserId, procurement.approvedByUserId)
+        || !equalBusinessPolicy(policy, procurement.commercialPolicy)
+        || policy.taxBps !== po.taxBps || policy.policyVersion !== po.taxPolicyVersion
+        || procurement.taxBps !== po.taxBps || procurement.taxPolicyVersion !== po.taxPolicyVersion
+        || po.items.length !== quote.items.length || po.totalMinor !== quote.offeredTotalMinor
+        || po.items.some(line => { const source = quote.items.find(item => item.variantPublicId === line.variantPublicId);
+          return !source || source.productPublicId !== line.productPublicId || source.sku !== line.sku || source.quantity !== line.quantity
+            || source.offeredUnitMinor !== line.unitMinor || source.offeredLineMinor !== line.lineMinor; })) {
+        throw new AppError('The purchase order does not match its independently reviewed procurement and seller quotation.',409,'BUSINESS_POLICY_REVIEW_REQUIRED');
+      }
       const org = await BusinessOrganization.findById(po.organizationId).select('+taxIdEncrypted').session(session);
       if (!org || org.status !== 'active') throw new AppError('Business organization is not active.', 409, 'BUSINESS_ORG_UNAVAILABLE');
       const store = await Store.findOne({ _id: po.storeId, status: 'verified', country: po.country }).session(session);
       if (!store) throw new AppError('Seller store is no longer verified.', 409, 'STORE_NOT_VERIFIED');
+      if (po.issuerTokenVersion === undefined) throw new AppError('The buyer must review and reissue this purchase order.',409,'BUSINESS_ISSUER_UNAVAILABLE');
+      const issuer = await businessAccess({ user: { _id: po.issuedByUserId, security: { tokenVersion: po.issuerTokenVersion } }, get: () => '', ip: '' },
+        { session, capability: 'po', organizationPublicId: org.publicId });
+      await fenceBusinessAccess(issuer, session);
+      await fenceBusinessRecord(ProcurementRequest, procurement, session, { status: procurement.status, closedAt: null });
+      await fenceBusinessRecord(QuoteRequest, quote, session, { status: 'accepted', revision: quote.revision });
       if (po.currency !== org.currency || po.currency !== store.currency) throw new AppError('Purchase-order currency no longer matches buyer and seller.', 409, 'B2B_CURRENCY_MISMATCH');
       const immediate = po.paymentTerms !== 'credit';
       if (!immediate) {
-        if (!org.invoiceTermsApproved || org.invoiceTermsDays <= 0 || org.creditLimitMinor <= 0) throw new AppError('Business credit terms are no longer approved.', 409, 'BUSINESS_CREDIT_NOT_APPROVED');
+        if (!org.invoiceTermsApproved || !org.creditApprovedAt || !org.creditApprovedByUserId || businessSame(org.creditApprovedByUserId,org.creditRequestedByUserId)
+          || org.invoiceTermsDays !== po.invoiceTermsDays || org.invoiceTermsDays <= 0 || org.creditLimitMinor <= 0) throw new AppError('Business credit terms are no longer independently approved.', 409, 'BUSINESS_CREDIT_NOT_APPROVED');
         const outstanding = await outstandingCreditMinor(org._id, session);
-        if (outstanding + po.totalMinor > org.creditLimitMinor) throw new AppError('Business credit limit is no longer sufficient for this purchase order.', 409, 'BUSINESS_CREDIT_LIMIT');
+        const issued = await PurchaseOrder.find({ organizationId:org._id,paymentTerms:'credit',status:'issued' }).select('totalMinor').session(session).lean();
+        if (outstanding + issued.reduce((sum,row)=>sum+row.totalMinor,0) > org.creditLimitMinor) throw new AppError('Business credit limit is no longer sufficient for this purchase order.', 409, 'BUSINESS_CREDIT_LIMIT');
       }
       const billTo = invoiceAddress(org, 'billing');
       const shipTo = invoiceAddress(org, 'delivery');
@@ -270,7 +319,7 @@ export async function acceptPurchaseOrderIntoCommerce({ request, purchaseOrderPu
         totals: { subtotalMinor: po.subtotalMinor, shippingMinor: 0, discountMinor: 0, taxMinor: po.taxMinor, totalMinor: po.totalMinor, currency: po.currency },
         items: orderItems,
         sellerOrderPublicIds: [],
-        policySnapshot: { returnWindowDays: 30, policyVersion: '2026-09-b2b', platformFeeBps: 500, taxBps: po.taxBps },
+        policySnapshot: policy,
         timeline: [{ type: 'business.po_accepted', message: `Seller accepted business purchase order ${po.poNumber}.` }],
         reservationExpiresAt: reservationExpiry,
       }], { session });
@@ -335,6 +384,8 @@ export async function acceptPurchaseOrderIntoCommerce({ request, purchaseOrderPu
       await syncProcurementStatus(po.procurementRequestId, session);
       await addOutboxEvent({ type: 'business.purchase_order.accepted', aggregateType: 'purchase_order', aggregatePublicId: po.publicId, payload: { orderPublicId: order.publicId, invoicePublicId: invoice.publicId, paymentTerms: po.paymentTerms } }, session);
       if (!immediate) await ensureShipmentForOrder(order, request.user._id, session);
+      await writeAudit(request, 'seller.business.purchase_order.accepted', { actor: supplier.actor, targetType: 'purchase_order', targetPublicId: po.publicId,
+        country: po.country, metadata: { orderPublicId: order.publicId, invoicePublicId: invoice.publicId, paymentTerms: po.paymentTerms }, session });
       result = { po, order, invoice, sellerOrder };
     });
     return result;
@@ -343,13 +394,26 @@ export async function acceptPurchaseOrderIntoCommerce({ request, purchaseOrderPu
   }
 }
 
-export async function recordBusinessDelivery({ orderId, actorUserId, session }) {
+export async function recordBusinessDelivery({ orderId, actorUserId, session, request = null }) {
+  if (!session?.inTransaction()) throw new AppError('Business delivery requires the shipment transaction.',500,'BUSINESS_TRANSACTION_REQUIRED');
   const order = await Order.findById(orderId).session(session);
   if (!order?.businessOrganizationId || !order.businessInvoiceId) return null;
   const invoice = await BusinessInvoice.findById(order.businessInvoiceId).session(session);
   const po = order.purchaseOrderId ? await PurchaseOrder.findById(order.purchaseOrderId).session(session) : null;
   if (!invoice) throw new AppError('Business invoice is missing for delivered order.', 409, 'BUSINESS_INVOICE_MISSING');
+  const shipment=await Shipment.findOne({orderId:order._id,orderPublicId:order.publicId,country:order.country,'cod.currency':order.totals.currency,kind:'outbound',status:'delivered',deliveredAt:mongoose.trusted({$type:'date'}),
+    'proof.type':mongoose.trusted({$in:['otp','photo','signature','qr']}),'proof.recordedAt':mongoose.trusted({$type:'date'})}).session(session);
+  const proofAfter=shipment?new Date(Math.max(new Date(shipment.assignedAt||0).getTime(),new Date(shipment.pickedUpAt||0).getTime(),...(shipment.timeline||[]).filter(row=>['failed','rescheduled'].includes(row.type)).map(row=>new Date(row.at).getTime()))):new Date(0);
+  const evidence=shipment?.deliveryUserId&&shipment.proofEvidenceDocumentIds?.length?await EvidenceDocument.findOne({_id:mongoose.trusted({$in:shipment.proofEvidenceDocumentIds}),ownerUserId:shipment.deliveryUserId,country:order.country,contextType:'delivery_job',contextPublicId:shipment.publicId,status:'ready',documentType:'delivery_photo',createdAt:mongoose.trusted({$gt:proofAfter,$lte:shipment.deliveredAt})}).select('_id +storageKey').session(session).lean():null;
+  if (!shipment || !shipment.assignedAt || !shipment.pickedUpAt || !evidence?.storageKey || shipment.proof.reference!=='verified' || !po || !businessSame(invoice.orderId,order._id) || !businessSame(invoice.purchaseOrderId,po._id)
+    || !businessSame(po.organizationId,order.businessOrganizationId) || !businessSame(invoice.organizationId,order.businessOrganizationId)
+    || po.orderPublicId!==order.publicId || po.invoicePublicId!==invoice.publicId || invoice.orderPublicId!==order.publicId
+    || invoice.totalMinor!==order.totals.totalMinor || invoice.currency!==order.totals.currency || !equalBusinessPolicy(po.commercialPolicy,order.policySnapshot)) {
+    throw new AppError('Verified shipment proof and matching business commercial records are required.',409,'BUSINESS_DELIVERY_PROOF_REQUIRED');
+  }
   if (order.fulfillmentState === 'delivered' && invoice.deliveredAt) return invoice;
+  const proofFence=await EvidenceDocument.updateOne({_id:evidence._id,status:'ready',ownerUserId:shipment.deliveryUserId,contextType:'delivery_job',contextPublicId:shipment.publicId,documentType:'delivery_photo'},{$inc:{moderationEvidenceReadRevision:1}},{session});
+  if(proofFence.modifiedCount!==1)throw new AppError('The delivery evidence changed during reconciliation.',409,'BUSINESS_DELIVERY_PROOF_REQUIRED');
   const now = new Date();
   order.fulfillmentState = 'delivered';
   for (const item of order.items) item.deliveredQuantity = Math.max(Number(item.deliveredQuantity || 0), Number(item.quantity || 0));
@@ -388,15 +452,16 @@ export async function recordBusinessDelivery({ orderId, actorUserId, session }) 
     if (po.procurementRequestId) {
       const procurement = await (await import('../models/ProcurementRequest.js')).ProcurementRequest.findById(po.procurementRequestId).session(session);
       if (procurement?.budgetId) {
-        const approved = Math.max(0, Number(po.approvedAmountMinor || po.totalMinor || 0));
-        const budget = await BusinessBudget.findOneAndUpdate({ _id: procurement.budgetId, committedMinor: { $gte: approved } }, { $inc: { committedMinor: -approved, spentMinor: Number(po.totalMinor || 0) } }, { session, returnDocument: 'after' });
+        const approved = Number(po.approvedAmountMinor);
+        if(!Number.isSafeInteger(approved)||approved<po.totalMinor)throw new AppError('The reviewed business commitment is invalid.',409,'BUDGET_SETTLEMENT_CONFLICT');
+        const budget = await BusinessBudget.findOneAndUpdate({ _id: procurement.budgetId, organizationId:po.organizationId,currency:po.currency,committedMinor: { $gte: approved } }, { $inc: { committedMinor: -approved, spentMinor: Number(po.totalMinor || 0),__v:1 } }, { session, returnDocument: 'after' });
         if (!budget) throw new AppError('Business budget settlement could not be recorded safely.', 409, 'BUDGET_SETTLEMENT_CONFLICT');
       }
     }
   }
   await order.save({ session });
   await invoice.save({ session });
-  const shipment=await Shipment.findOne({orderId:order._id,kind:'outbound',status:'delivered'}).session(session);
   await issueDeliveryNoteDocument({order,invoice,purchaseOrder:po,shipment,issuedByUserId:actorUserId,session});
+  await writeAudit(request || {user:{_id:actorUserId},get:()=>'',ip:''},'business.delivery.reconciled',{targetType:'purchase_order',targetPublicId:po.publicId,country:po.country,metadata:{orderPublicId:order.publicId,invoicePublicId:invoice.publicId,shipmentPublicId:shipment.publicId},session});
   return invoice;
 }

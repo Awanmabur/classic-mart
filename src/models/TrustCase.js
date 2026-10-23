@@ -20,5 +20,8 @@ schema.index({ country: 1, assignedUserId: 1, status: 1, createdAt: -1, _id: -1 
 schema.add({ qaReviewId: { type: Schema.Types.ObjectId, ref: 'ModerationQaReview', immutable: true }, qaReviewPublicId: { type: String, maxlength: 100, immutable: true }, decisionByUserId: { type: Schema.Types.ObjectId, ref: 'User' }, decisionAt: Date, appealCount: { type: Number, default: 0, min: 0 }, appealOriginalDecisionByUserId: { type: Schema.Types.ObjectId, ref: 'User' }, appealMessage: { type: String, maxlength: 1000, default: '' }, publicMessages: { type: [publicMessage], default: [] } });
 schema.index({qaReviewId:1},{unique:true,sparse:true});
 schema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
+const sellerResponse = new Schema({ action: { type: String, enum: ['response', 'correction', 'appeal', 'evidence'], required: true }, message: { type: String, maxlength: 2000, default: '' }, actorUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true }, evidenceDocumentIds: { type: [Schema.Types.ObjectId], ref: 'EvidenceDocument', default: [] }, at: { type: Date, default: Date.now } }, { _id: false });
+schema.add({ sellerResponses: { type: [sellerResponse], default: [] }, sellerEvidenceDocumentIds: { type: [Schema.Types.ObjectId], ref: 'EvidenceDocument', default: [] }, sellerAppealCount: { type: Number, min: 0, default: 0 }, sellerAppealedAt: Date });
+schema.index({ storeId: 1, createdAt: -1, _id: -1 });
 
 export const TrustCase=mongoose.model('TrustCase',schema);

@@ -12,6 +12,7 @@ import { getCountry } from '../services/country.js';
 import { getStorefront, publishedProduct } from '../services/storefront.js';
 import { addCartItem, cartView, clearCart, getOrCreateCart, placeOrder, removeCartItem, reviewCheckout, setCartItemQuantity } from '../services/checkout.js';
 import { initiatePayment } from '../services/payments.js';
+import { checkoutContactSchema } from '../services/checkout-contact.js';
 import { adjustStock } from '../services/inventory.js';
 import { assertSellerOrderAccess, sellerOrderList, sellerOrderDetail, transitionSellerOrder } from '../services/seller-orders.js';
 import { orderDisplayStatus } from '../services/order-state.js';
@@ -29,8 +30,9 @@ const mobileLoginSchema = z.object({ identity: z.string().trim().min(3).max(254)
 const pushSchema = z.object({ platform: z.enum(['web','android','ios']), token: z.string().trim().min(12).max(4096), label: z.string().trim().max(120).optional() });
 const cartAddSchema = z.object({ productId: z.string().min(3).max(120), variantId: z.string().max(120).optional(), quantity: z.coerce.number().int().min(1).max(99) });
 const cartQtySchema = z.object({ quantity: z.coerce.number().int().min(0).max(99) });
-const checkoutSchema = z.object({ city: z.string().trim().max(120).default(''), deliveryMethod: z.enum(['standard','express','pickup']), paymentMethod: z.enum(['card','mobile','cod','wallet']), pickupPointId: z.string().trim().max(120).default('') });
-const orderSchema = z.object({ checkoutId: z.string().min(8).max(160), idempotencyKey: z.string().min(8).max(120), deliveryMethod: z.enum(['standard','express','pickup']), paymentMethod: z.enum(['card','mobile','cod','wallet']), pickupPointId: z.string().trim().max(120).default(''), contact: z.object({ fullName: z.string().trim().min(2).max(120), email: z.string().email().max(254), phone: z.string().trim().min(6).max(32), address: z.string().trim().min(2).max(240), city: z.string().trim().min(2).max(120), country: z.string().trim().min(2).max(80), note: z.string().trim().max(500).default('') }) });
+const checkoutSchema = z.object({ city: z.string().trim().max(120).default(''), deliveryMethod: z.enum(['standard','express','pickup']), paymentMethod: z.enum(['card','mobile','cod','wallet']), pickupPointId: z.string().trim().max(120).default(''), contact: checkoutContactSchema,
+  rewardPublicId: z.string().trim().max(120).default(''), addressPublicId: z.string().trim().max(120).default(''), addressVersion: z.coerce.number().int().nonnegative().optional() });
+const orderSchema = checkoutSchema.extend({ checkoutId: z.string().min(8).max(160), idempotencyKey: z.string().min(8).max(120) });
 
 function apiEnvelope(response, payload, status = 200, cache = 'private, no-store') {
   response.set('Cache-Control', cache);
@@ -82,7 +84,7 @@ router.patch('/api/v1/mobile/cart/items/:variantId', asyncHandler(async (req, re
 router.delete('/api/v1/mobile/cart/items/:variantId', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); return apiEnvelope(res, { cart: await removeCartItem(serviceRequest, req.params.variantId) }); }));
 router.delete('/api/v1/mobile/cart', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); return apiEnvelope(res, { cart: await clearCart(serviceRequest) }); }));
 router.post('/api/v1/mobile/checkout/review', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); const review = await reviewCheckout(serviceRequest, checkoutSchema.parse(req.body)); await persistMobileCheckout(req, serviceRequest); return apiEnvelope(res, { review }); }));
-router.post('/api/v1/mobile/orders', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); const order = await placeOrder(serviceRequest, orderSchema.parse(req.body)); req.mobileSession.checkoutReview = null; req.mobileSession.markModified('checkoutReview'); await req.mobileSession.save(); return apiEnvelope(res, { order: orderPublic(order) }, 201); }));
+router.post('/api/v1/mobile/orders', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); const order = await placeOrder(serviceRequest, orderSchema.parse(req.body)); req.mobileSession.checkoutReview = null; req.mobileSession.markModified('checkoutReview'); await req.mobileSession.save(); return apiEnvelope(res, { order }, 201); }));
 router.get('/api/v1/mobile/orders', asyncHandler(async (req, res) => { const limit = pageLimit(req.query.limit); const base = { userId: req.mobileUser._id }; const query = await anchorFilter(Order, base, req.query.after); const rows = await Order.find(query).sort({ _id: -1 }).limit(limit).lean(); return apiEnvelope(res, { data: rows.map(orderPublic), page: pageMeta(rows, limit) }); }));
 router.get('/api/v1/mobile/orders/:id', asyncHandler(async (req, res) => { const row = await Order.findOne({ publicId: req.params.id, userId: req.mobileUser._id }).lean(); if (!row) throw new AppError('Order not found.', 404, 'ORDER_NOT_FOUND'); return apiEnvelope(res, { order: orderPublic(row) }); }));
 router.post('/api/v1/mobile/orders/:id/payment-intents', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); const payment = await initiatePayment(serviceRequest, { orderId: req.params.id, idempotencyKey: String(req.body.idempotencyKey || '') }); return apiEnvelope(res, { payment }, 201); }));

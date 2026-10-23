@@ -8,5 +8,7 @@ schema.add({
  resolution:{decision:{type:String,enum:['','customer_service','no_action','refund_confirmed','exchange_confirmed'],default:''},summary:{type:String,maxlength:1000,default:''},resolvedByUserId:{type:Schema.Types.ObjectId,ref:'User'},resolvedAt:Date},
 });
 schema.index({country:1,status:1,priority:1,createdAt:-1});
+schema.add({'escalation.specialistReferralPublicId':{type:String,maxlength:100,default:''}});
+schema.add({moderationEvidenceReadRevision:{type:Number,min:0,select:false}});
 schema.index({userId:1,createdAt:-1});
 export const Dispute=mongoose.model('Dispute',schema);

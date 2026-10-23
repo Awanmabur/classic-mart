@@ -61,7 +61,7 @@
     <% for (const plan of growth.plans) { %>
       <h3><%= plan.name %> · <%= formatMoney(plan.priceMinor, growth.currency) %> / <%= growthLabel(plan.cadence) %></h3>
       <% if (plan.description) { %><p class="form-intro"><%= plan.description %></p><% } %>
-      <% if (plan.features.length) { %><ul><% for (const feature of plan.features) { %><li><%= feature %></li><% } %></ul><% } %>
+      <% if (plan.entitlements) { %><p class="form-intro"><%= plan.entitlements.productLimit %> products · <%= plan.entitlements.seatLimit %> team seats · <%= plan.entitlements.campaignLimit %> campaigns · <%= plan.entitlements.analyticsDays %> days of analytics · Exports <%= plan.entitlements.analyticsExport ? 'included' : 'unavailable' %></p><% } %><% if (plan.features.length) { %><ul><% for (const feature of plan.features) { %><li><%= feature %></li><% } %></ul><% } %>
     <% } %>
     <% if (growth.pendingRequests) { %><p class="form-intro" role="status">A plan change is awaiting review. Follow its decision in your request history.</p><% } else if (growth.plans.length) { %>
       <form class="role-create-form" method="post" action="/seller/subscription/requests">
@@ -71,6 +71,7 @@
       </form>
     <% } %>
   </section>
+  <%- include('seller-subscription-billing') %>
   <section class="panel role-form-section" id="sellerSubscriptionHistory">
     <div class="role-panel-head compact"><div><span class="eyebrow">History</span><h2>Enrollment and Request History</h2></div></div>
     <% if (growth.enrollment) { %><h3><%= growth.enrollment.planName %></h3><p class="form-intro"><%= growthLabel(growth.enrollment.status) %> · <%= formatMoney(growth.enrollment.priceMinor, growth.currency) %><% if (growth.enrollment.currentPeriodEndsAt) { %> · Period ends <%= formatDate(growth.enrollment.currentPeriodEndsAt) %><% } %></p><% if (growth.enrollment.features.length) { %><ul><% for (const feature of growth.enrollment.features) { %><li><%= feature %></li><% } %></ul><% } %><% } else { %><p class="form-intro">No current seller enrollment is recorded for this store.</p><% } %>

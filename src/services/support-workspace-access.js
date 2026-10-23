@@ -19,7 +19,7 @@ export async function supportAccess(request, { session = null, write = false, wo
     || (request.session?.tokenVersion !== undefined && actor.security.tokenVersion !== request.session.tokenVersion)) {
     throw new AppError('Your Support account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   }
-  const device = request.requiredOperationalWorkspace ? await currentRequestDevice(request, { userId: actor._id, session }) : null;
+  const device = await currentRequestDevice(request, { userId: actor._id, session });
   const storedRole = actor.role, now = new Date();
   let grant = null;
   if (actor.platformAccessManagedAt) {

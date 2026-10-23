@@ -4,7 +4,7 @@ import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import { env } from '../config/env.js';
 import { hasPermission } from '../core/roles.js';
-import { User, PlatformGrant, Warehouse, WarehouseTask, WarehouseWave, StockItem, InventoryDiscrepancy,
+import { User, Device, CountrySetting, PlatformGrant, Warehouse, WarehouseTask, WarehouseWave, StockItem, InventoryDiscrepancy,
   Parcel, Store, OperationAction, Order, SellerOrder, Notification } from '../models/index.js';
 import { operationalCountryScope, warehouseScopesFor } from './authorization.js';
 import { createWarehouseTask, claimWarehouseTask, releaseWarehouseTask, executeWarehouseTask,
@@ -14,6 +14,7 @@ import { writeAudit } from './audit.js';
 import { refreshOrderLifecycle } from './order-state.js';
 import { addOutboxEvent } from './outbox.js';
 import { queueWebhookEvent } from './stage11.js';
+import { currentRequestDevice } from './country-admin-workspace-access.js';
 
 const ROLES = ['warehouse', 'country_admin', 'super_admin'];
 const same = (left, right) => String(left || '') === String(right || '');
@@ -45,12 +46,13 @@ function version(value) {
 export async function assertWarehouseAccess(request, { mutation = false, session = null } = {}) {
   if (!request.user?._id) throw new AppError('Sign in to access warehouse operations.', 401, 'UNAUTHENTICATED');
   const actor = await User.findById(request.user._id)
-    .select('publicId name role status country platformAccessManagedAt security.tokenVersion security.mfaEnabled +operationalCountries').session(session);
+    .select('publicId name role status country emailVerifiedAt phoneVerifiedAt onboardingCompletedAt platformAccessManagedAt security.tokenVersion security.mfaEnabled +operationalCountries').session(session);
   if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion ||
     (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) {
     throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   }
   const storedRole = actor.role;
+  const device = await currentRequestDevice(request, { userId: actor._id, session });
   let grant = null;
   const now = new Date();
   if (actor.platformAccessManagedAt) {
@@ -60,25 +62,38 @@ export async function assertWarehouseAccess(request, { mutation = false, session
     grant = grants[0] || null;
     actor.authorizationContext = { platformManaged: true, activePlatformGrants: grants };
     actor.role = grant?.role || 'customer';
+    if(grant)actor.operationalCountries=[...grant.operationalCountries];
   }
   if (!ROLES.includes(actor.role) && !hasPermission(actor, 'warehouse:manage')) throw new AppError('Warehouse operations access is required.', 403, 'WAREHOUSE_PERMISSION_DENIED');
   if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) {
     throw new AppError('Enable multi-factor authentication before using warehouse operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
   }
+  if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) throw new AppError('Complete verification and onboarding before using warehouse operations.', 403, 'ACCOUNT_UNAVAILABLE');
   const warehouseScopes = grant?.warehouseScopes?.length ? [...grant.warehouseScopes] : warehouseScopesFor(actor);
-  const scope = { active: true, ...operationalCountryScope(actor), ...(warehouseScopes.length ? { publicId: { $in: warehouseScopes } } : {}) };
+  const authorizedCountry = operationalCountryScope(actor);
+  const countries = await CountrySetting.find({ active: true, ...(authorizedCountry.country ? { code: authorizedCountry.country } : {}) }).select('code currency timeZone __v').session(session).lean();
+  if (!countries.length || countries.some(row => !row.currency || !row.timeZone)) throw new AppError('Warehouse market configuration is unavailable.', 409, 'WAREHOUSE_COUNTRY_UNAVAILABLE');
+  const scope = { active: true, country: { $in: countries.map(row => row.code) }, ...(warehouseScopes.length ? { publicId: { $in: warehouseScopes } } : {}) };
   if (mutation) {
     if (!session) throw new AppError('Warehouse writes require a transaction.', 500, 'WAREHOUSE_TRANSACTION_REQUIRED');
-    const accountFence = await User.updateOne({ _id: actor._id, status: 'active', role: storedRole, 'security.tokenVersion': actor.security.tokenVersion },
+    const accountFence = await User.updateOne({ _id: actor._id, __v: actor.__v || 0, status: 'active', role: storedRole, 'security.tokenVersion': actor.security.tokenVersion },
       { $inc: { __v: 1 } }, { session });
     if (accountFence.matchedCount !== 1) throw new AppError('Your access changed. Reload before continuing.', 403, 'ACCOUNT_UNAVAILABLE');
     if (grant) {
-      const grantFence = await PlatformGrant.updateOne({ _id: grant._id, status: 'active', role: grant.role,
+      const grantFence = await PlatformGrant.updateOne({ _id: grant._id, __v: grant.__v || 0, status: 'active', role: grant.role,
         startsAt: { $lte: now }, expiresAt: { $gt: now } }, { $inc: { __v: 1 } }, { session });
       if (grantFence.matchedCount !== 1) throw new AppError('Your warehouse grant is unavailable.', 403, 'WAREHOUSE_PERMISSION_DENIED');
     }
+    if (device) {
+      const result = await Device.updateOne({ _id: device._id, __v: device.__v || 0, userId: actor._id, revokedAt: null, sessionHash: device.sessionHash }, { $inc: { __v: 1 } }, { session });
+      if (result.modifiedCount !== 1) throw new AppError('Your warehouse session changed.', 403, 'ACCOUNT_UNAVAILABLE');
+    }
+    for (const market of countries) {
+      const result = await CountrySetting.updateOne({ _id: market._id, __v: market.__v || 0, active: true, code: market.code, currency: market.currency, timeZone: market.timeZone }, { $inc: { __v: 1 } }, { session });
+      if (result.modifiedCount !== 1) throw new AppError('Warehouse market configuration changed.', 409, 'WAREHOUSE_COUNTRY_UNAVAILABLE');
+    }
   }
-  return { actor, grant, scope, supervisor: ['country_admin', 'super_admin'].includes(actor.role) };
+  return { actor, grant, device, countries, scope, supervisor: ['country_admin', 'super_admin'].includes(actor.role) };
 }
 
 async function warehouseFor(access, publicIdValue, session) {

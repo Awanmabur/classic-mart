@@ -10,7 +10,7 @@ import {
   BusinessInvoice, Chargeback, InventoryMovement, InventoryReservation, Order, PaymentIntent, ProviderEvent, PurchaseOrder, Refund, StockItem,
   CountrySetting, Device, EvidenceDocument, FinancialDocument, LedgerAccount, LedgerTransaction, Notification, PayoutAccount, Payout, PromoterVerification, ReconciliationRun, ReturnRequest, SellerOrder, SellerReturnCase, Shipment, Store, StoreMember, User, Warehouse, WarehouseTask,
 } from '../models/index.js';
-import { ensureLedgerAccount, postLedgerTransaction, accountBalanceMinor, sellerSettlementBreakdown, proportionalSettlementSlice } from './money.js';
+import { ensureLedgerAccount, postLedgerTransaction, accountBalanceMinor, sellerSettlementBreakdown, proportionalSettlementSlice, refundSettlementSlice, sellerLineFinancialHash, orderFundingLedgerEntries } from './money.js';
 import { orderAccessQuery } from './order-access.js';
 import { refreshOrderLifecycle, syncLegacyOrderStatus } from './order-state.js';
 import { getPesapalTransactionStatus, requestPesapalRefund, submitPesapalOrder } from './pesapal.js';
@@ -22,6 +22,10 @@ import { financeAccess } from './finance-workspace-access.js';
 import { queueFinanceAlert } from './finance-notifications.js';
 import { writeAudit } from './audit.js';
 import { completeReconciliationHistory } from './reconciliation-history.js';
+import { consumeOrderReward, restoreOrderRewardAfterRefund } from './customer-rewards.js';
+import { reverseGrowthForRefund } from './loyalty.js';
+import { currentCustomerAccess } from './customer-access.js';
+import { sellerOperationsAccess } from './seller-operations-access.js';
 
 export const PAYMENT_PROVIDER = 'pesapal';
 const factors = { UGX: 1, RWF: 1, JPY: 1, KRW: 1 };
@@ -60,7 +64,8 @@ function paymentView(intent) {
 export { paymentView };
 
 export async function getPaymentIntentForOrder(request,orderId){
-  const order=await Order.findOne(mongoose.trusted(orderAccessQuery(request,orderId))).lean();
+  let order=await Order.findOne({publicId:orderId,businessOrganizationId:mongoose.trusted({$exists:true,$ne:null})});
+  if(order){const {authorizeBusinessOrderPayment}=await import('./business-payments.js');order=await authorizeBusinessOrderPayment(request,order);}else order=await Order.findOne(mongoose.trusted(orderAccessQuery(request,orderId))).lean();
   if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
   const intent=await PaymentIntent.findOne({orderId:order._id}).sort({createdAt:-1}).lean();
   return {order,intent};
@@ -102,8 +107,9 @@ async function createWalletIntent(order,idempotencyKey){
   }
 }
 
-export async function initiatePayment(request,{orderId,idempotencyKey}){
-  const order=await Order.findOne(mongoose.trusted(orderAccessQuery(request,orderId,{requiredLevel:'mutate'})));
+export async function initiatePayment(request,{orderId,idempotencyKey,businessInvoicePublicId}){
+  let order=await Order.findOne({publicId:orderId,businessOrganizationId:mongoose.trusted({$exists:true,$ne:null})});
+  if(order){const {authorizeBusinessOrderPayment}=await import('./business-payments.js');order=await authorizeBusinessOrderPayment(request,order,{businessInvoicePublicId,paymentStart:false});}else if(!businessInvoicePublicId)order=await Order.findOne(mongoose.trusted(orderAccessQuery(request,orderId,{requiredLevel:'mutate'})));
   if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
   const prior=await PaymentIntent.findOne({orderId:order._id,idempotencyKey});
   if(prior){
@@ -115,12 +121,13 @@ export async function initiatePayment(request,{orderId,idempotencyKey}){
     }
     if(order.paymentMethod==='wallet'&&prior.provider==='wallet'&&prior.status==='created'&&['unpaid','pending','failed'].includes(order.paymentState)){
       if(!request.user?._id||!order.userId||String(order.userId)!==String(request.user._id))throw new AppError('Classic Wallet requires the signed-in customer who owns the order.',403,'WALLET_ORDER_SCOPE');
-      await commitOrderInventoryAndMoney(order,prior,{wallet:true});
+      await commitOrderInventoryAndMoney(order,prior,{wallet:true,walletRequest:request});
       return paymentView(await PaymentIntent.findById(prior._id));
     }
     await reconcileAuthorizedShipment(order,prior);
     return paymentView(prior);
   }
+  if(order.businessOrganizationId){const {authorizeBusinessOrderPayment}=await import('./business-payments.js');order=await authorizeBusinessOrderPayment(request,order,{businessInvoicePublicId,paymentStart:true});}
   const creditInvoicePayable=order.paymentMethod==='credit_terms'&&order.paymentState==='credit_due';
   if(!['unpaid','pending','failed'].includes(order.paymentState)&&!creditInvoicePayable)throw new AppError('This order cannot start another payment.',409,'ORDER_PAYMENT_STATE');
   if(!creditInvoicePayable&&order.reservationExpiresAt<=new Date())throw new AppError('The stock reservation expired. Create the order again.',409,'RESERVATION_EXPIRED');
@@ -129,7 +136,7 @@ export async function initiatePayment(request,{orderId,idempotencyKey}){
     if(!request.user?._id||!order.userId||String(order.userId)!==String(request.user._id))throw new AppError('Classic Wallet requires the signed-in customer who owns the order.',403,'WALLET_ORDER_SCOPE');
     const intent=await createWalletIntent(order,idempotencyKey);
     if(intent.status==='succeeded')return paymentView(intent);
-    await commitOrderInventoryAndMoney(order,intent,{wallet:true});
+    await commitOrderInventoryAndMoney(order,intent,{wallet:true,walletRequest:request});
     return paymentView(await PaymentIntent.findById(intent._id));
   }
 
@@ -214,12 +221,13 @@ async function reconcileAuthorizedShipment(orderLike,intentLike){
   });}finally{await session.endSession();}
 }
 
-async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wallet=false,providerTrackingId='',providerConfirmationCode='',providerPaymentMethod='',financeRequest=null,financeCountry=''}={}){
+async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wallet=false,walletRequest=null,providerTrackingId='',providerConfirmationCode='',providerPaymentMethod='',financeRequest=null,financeCountry=''}={}){
   const session=await mongoose.startSession();
   try{await session.withTransaction(async()=>{
     const order=await Order.findById(orderLike._id).session(session);
     const intent=await PaymentIntent.findById(intentLike._id).session(session);
     if(!order||!intent)return;
+    if(wallet){const actor=await currentCustomerAccess(walletRequest,{session,write:true});if(String(order.userId)!==String(actor._id))throw new AppError('The wallet payment does not belong to your account.',403,'WALLET_FORBIDDEN');}
     if(financeRequest)await financeAccess(financeRequest,{session,write:true,workspace:false,country:financeCountry||order.country});
     if(String(intent.orderId)!==String(order._id)||intent.orderPublicId!==order.publicId||intent.country!==order.country||intent.currency!==order.totals.currency)throw new AppError('Payment order references do not match.',409,'PAYMENT_ORDER_MISMATCH');
     if(!cod&&!wallet&&await Chargeback.exists({paymentIntentId:intent._id,status:{$in:['open','reviewing','lost']}}).session(session))throw new AppError('This reversed payment requires independent chargeback review before recovery.',409,'CHARGEBACK_REVIEW_REQUIRED');
@@ -255,7 +263,10 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
     if(wallet){
       const customer=order.userId?await User.findById(order.userId).select('publicId country currency').session(session).lean():null;
       if(!customer)throw new AppError('Classic Wallet customer record is missing.',409,'WALLET_CUSTOMER_MISSING');
-      if(String(customer.country||'').toUpperCase()!==String(order.country||'').toUpperCase()||String(customer.currency||'').toUpperCase()!==String(order.totals.currency||'').toUpperCase())throw new AppError('Classic Wallet currency or country does not match this order.',409,'WALLET_CURRENCY_MISMATCH');
+      const market=await CountrySetting.findOne({code:order.country,currency:order.totals.currency,active:true}).session(session).lean();
+      if(!market)throw new AppError('The wallet marketplace or currency is unavailable.',409,'WALLET_CURRENCY_MISMATCH');
+      const marketFence=await CountrySetting.updateOne({_id:market._id,__v:market.__v||0,active:true,currency:market.currency},{$inc:{__v:1}},{session});
+      if(marketFence.modifiedCount!==1)throw new AppError('The wallet marketplace changed. Refresh and retry.',409,'WALLET_CURRENCY_MISMATCH');
       walletAccount=await ensureLedgerAccount({code:'customer_wallet',type:'liability',ownerType:'customer',ownerId:customer._id,ownerPublicId:customer.publicId,country:order.country,currency:order.totals.currency},session);
       const available=await accountBalanceMinor(walletAccount._id,session);
       if(available<Number(order.totals.totalMinor||0))throw new AppError('Classic Wallet balance is insufficient for this order.',409,'WALLET_BALANCE_INSUFFICIENT');
@@ -279,6 +290,8 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
       const clearing=wallet?null:await ensureLedgerAccount({code:'provider_clearing',type:'asset',ownerType:'provider',ownerPublicId:PAYMENT_PROVIDER,country:order.country,currency:order.totals.currency},session);
       const entries=wallet?[{account:walletAccount,debitMinor:order.totals.totalMinor,creditMinor:0,memo:'Classic Wallet customer payment'}]:[{account:clearing,debitMinor:order.totals.totalMinor,creditMinor:0,memo:'Verified Pesapal customer payment'}];
       const sellerOrders=await SellerOrder.find({orderId:order._id}).session(session).lean();
+      const {funding,entries:fundingEntries}=await orderFundingLedgerEntries(order,sellerOrders,session);entries.push(...fundingEntries);
+      await consumeOrderReward(order,session);
       let platformFeeTotal=0;
       for(const sellerOrder of sellerOrders){
         const settlement=sellerSettlementBreakdown(sellerOrder);platformFeeTotal+=settlement.platformFeeMinor;
@@ -286,7 +299,7 @@ async function commitOrderInventoryAndMoney(orderLike,intentLike,{cod=false,wall
         const payable=await ensureLedgerAccount({code:'seller_payable',type:'liability',ownerType:'store',ownerId:store?._id,ownerPublicId:sellerOrder.storePublicId,country:order.country,currency:order.totals.currency},session);
         if(settlement.sellerPayableMinor>0)entries.push({account:payable,debitMinor:0,creditMinor:settlement.sellerPayableMinor,memo:`Seller payable net of discount and marketplace fee for ${order.publicId}`});
       }
-      const platformRevenueMinor=platformFeeTotal+Number(order.totals.shippingMinor||0);
+      const platformRevenueMinor=platformFeeTotal+funding.grossShippingMinor;
       if(platformRevenueMinor>0){const revenue=await ensureLedgerAccount({code:'platform_revenue',type:'revenue',ownerType:'platform',ownerPublicId:'classic-mart',country:order.country,currency:order.totals.currency},session);entries.push({account:revenue,debitMinor:0,creditMinor:platformRevenueMinor,memo:'Marketplace fees and delivery revenue'});}
       if(order.totals.taxMinor>0){const tax=await ensureLedgerAccount({code:'tax_payable',type:'liability',ownerType:'platform',ownerPublicId:'classic-mart',country:order.country,currency:order.totals.currency},session);entries.push({account:tax,debitMinor:0,creditMinor:order.totals.taxMinor,memo:'Collected marketplace tax liability'});}
       await postLedgerTransaction({idempotencyKey:`payment:${intent.publicId}`,referenceType:'payment',referencePublicId:intent.publicId,currency:order.totals.currency,country:order.country,description:wallet?`Classic Wallet payment for ${order.publicId}`:`Pesapal payment for ${order.publicId}`,entries},session);
@@ -476,7 +489,7 @@ async function failRefundAndReleaseReservation(refundId,{providerStatus='REJECTE
   });return failed;}finally{await session.endSession();}
 }
 
-async function refundActorAccess(request,order,session,{write=false,financeRequired=false}={}){
+async function refundActorAccess(request,order,session,{write=false,financeRequired=false,completedCancellation=false}={}){
   const actor=request.user?._id?await User.findById(request.user._id).select('+operationalCountries').session(session):null;
   if(actor&&(!['active'].includes(actor.status)||actor.security.tokenVersion!==request.user.security?.tokenVersion||(request.session?.tokenVersion!==undefined&&actor.security.tokenVersion!==request.session.tokenVersion)))throw new AppError('Your account or session is unavailable.',403,'ACCOUNT_UNAVAILABLE');
   if(actor)await hydratePlatformAuthorization(actor);
@@ -485,9 +498,90 @@ async function refundActorAccess(request,order,session,{write=false,financeRequi
   const ownedByUser=Boolean(actor&&order.userId&&String(order.userId)===String(actor._id));
   const ownedByGuest=Boolean(!request.user?._id&&request.session?.cartKey&&order.sessionKey===request.session.cartKey);
   if(!ownedByUser&&!ownedByGuest)throw new AppError('You cannot refund this order.',403,'ORDER_SCOPE');
-  if(order.fulfillmentState!=='cancelled'||order.cancellationState!=='processing'||!order.cancellation?.requestedAt)throw new AppError('Customer refunds require an authorized pre-fulfilment cancellation.',403,'REFUND_CANCELLATION_REQUIRED');
+  if(order.fulfillmentState!=='cancelled'||!order.cancellation?.requestedAt||!(order.cancellationState==='processing'||completedCancellation&&order.cancellationState==='cancelled'&&order.paymentState==='refunded'&&order.refundState==='complete'))throw new AppError('Customer refunds require an authorized pre-fulfilment cancellation.',403,'REFUND_CANCELLATION_REQUIRED');
   if(write&&actor){const fenced=await User.updateOne({_id:actor._id,status:'active',__v:actor.__v||0,'security.tokenVersion':actor.security.tokenVersion},{$inc:{__v:1}},{session});if(fenced.modifiedCount!==1)throw new AppError('Your account changed. Retry with a current session.',409,'ACCOUNT_CHANGED');}
   return {actor,finance:false};
+}
+
+const cancellationSettlementHash=value=>crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const ledgerFinancialSnapshot=ledger=>({publicId:ledger.publicId,idempotencyKey:ledger.idempotencyKey,
+  referenceType:ledger.referenceType,referencePublicId:ledger.referencePublicId,country:ledger.country,currency:ledger.currency,
+  entries:ledger.entries.map(row=>({accountId:String(row.accountId),accountPublicId:row.accountPublicId,
+    debitMinor:Number(row.debitMinor),creditMinor:Number(row.creditMinor)})).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))});
+
+async function assertCancellationSettlementAccess(request,order,session,{ownerRequired=true,completed=false}={}) {
+  if(ownerRequired){
+    const actor=await currentCustomerAccess(request,{session,write:true});
+    if(!order.userId||String(actor._id)!==String(order.userId))throw new AppError('Cancellation settlement belongs to the current customer.',403,'REFUND_CANCELLATION_REQUIRED');
+  }
+  if(order.fulfillmentState!=='cancelled'||!order.cancellation?.requestedAt||!order.cancellation?.inventoryRestoredAt
+    ||!(order.cancellationState==='processing'||completed&&order.cancellationState==='cancelled'&&order.paymentState==='refunded'&&order.refundState==='complete')
+    ||(order.items||[]).some(row=>Number(row.deliveredQuantity||0)>0||Number(row.returnedQuantity||0)>0)) {
+    throw new AppError('Remaining settlement requires a frozen pre-fulfilment cancellation.',409,'REFUND_CANCELLATION_REQUIRED');
+  }
+  const shipments=await Shipment.find({orderId:order._id,kind:'outbound'}).session(session).lean();
+  if(shipments.some(row=>row.status!=='cancelled'||row.pickedUpAt||row.deliveredAt))throw new AppError('Carrier custody prevents a remaining cancellation settlement.',409,'REFUND_CANCELLATION_REQUIRED');
+}
+
+/** Invert only the exposure still present in the original immutable posting. */
+async function remainingCancellationSettlement(order,intent,session,{refundId=null,amountMinor,expected=null}={}) {
+  const activeQuery={paymentIntentId:intent._id,status:{$in:['pending','processing']},...(refundId?{_id:{$ne:refundId}}:{})};
+  if(await Refund.exists(activeQuery).session(session))throw new AppError('Finish the reserved refund before cancelling the remaining settlement.',409,'REFUND_CANCELLATION_RESERVED');
+  const completed=await Refund.find({paymentIntentId:intent._id,status:'completed',...(refundId?{_id:{$ne:refundId}}:{})}).sort({publicId:1}).session(session).lean();
+  const completedCash=completed.reduce((sum,row)=>sum+Number(row.amountMinor),0),remainingCash=Number(intent.amountMinor)-completedCash;
+  if(Number(intent.amountMinor)!==Number(order.totals.totalMinor)||!Number.isSafeInteger(completedCash)||remainingCash!==amountMinor||remainingCash<=0)throw new AppError('Remaining cancellation cash does not match the original payment.',409,'REFUND_CANCELLATION_SETTLEMENT_INVALID');
+  let originals;
+  if(intent.provider==='cod'){
+    const shipments=await Shipment.find({orderId:order._id,kind:'outbound'}).select('publicId').session(session).lean();
+    originals=await LedgerTransaction.find({idempotencyKey:{$in:shipments.map(row=>`cod:${row.publicId}`)},referenceType:'cod_reconciliation'}).session(session).lean();
+  }else originals=await LedgerTransaction.find({idempotencyKey:`payment:${intent.publicId}`,referenceType:'payment',referencePublicId:intent.publicId}).session(session).lean();
+  if(originals.length!==1)throw new AppError('The original immutable payment settlement is missing or ambiguous.',409,'REFUND_ORIGINAL_SETTLEMENT_MISSING');
+  const original=originals[0],net=new Map(),originalNet=new Map(),ledgers=[original],lineage=[];
+  for(const prior of completed){
+    if(String(prior.orderId)!==String(order._id)||prior.currency!==order.totals.currency||!Number.isSafeInteger(prior.amountMinor)||prior.amountMinor<=0)throw new AppError('Completed refund lineage does not match the order.',409,'REFUND_CANCELLATION_SETTLEMENT_INVALID');
+    const ledger=await LedgerTransaction.findOne({idempotencyKey:`refund:${prior.publicId}`,referenceType:'refund',referencePublicId:prior.publicId}).session(session).lean();
+    if(!ledger)throw new AppError('A completed refund has no immutable accounting evidence.',409,'REFUND_ORIGINAL_SETTLEMENT_MISSING');
+    ledgers.push(ledger);lineage.push({refundPublicId:prior.publicId,amountMinor:prior.amountMinor,ledgerPublicId:ledger.publicId,ledgerHash:cancellationSettlementHash(ledgerFinancialSnapshot(ledger))});
+  }
+  const accountIds=[...new Set(ledgers.flatMap(ledger=>ledger.entries.map(row=>String(row.accountId))))];
+  const accounts=await LedgerAccount.find({_id:{$in:accountIds}}).session(session),byId=new Map(accounts.map(row=>[String(row._id),row]));
+  const customer=intent.provider==='wallet'?await User.findById(order.userId).select('publicId').session(session).lean():null;
+  const isCash=account=>intent.provider==='wallet'?account.code==='customer_wallet'&&account.type==='liability'&&account.ownerType==='customer'
+    &&String(account.ownerId)===String(order.userId)&&account.ownerPublicId===customer?.publicId
+    :account.code===(intent.provider==='cod'?'cod_clearing':'provider_clearing')&&account.type==='asset'
+      &&account.ownerType===(intent.provider==='cod'?'platform':'provider')&&account.ownerPublicId===(intent.provider==='cod'?'classic-mart':PAYMENT_PROVIDER);
+  let originalCash=0,originalFunding=0;
+  for(const [index,ledger] of ledgers.entries()){
+    if(ledger.country!==order.country||ledger.currency!==order.totals.currency)throw new AppError('Settlement lineage has a different market.',409,'REFUND_CANCELLATION_SETTLEMENT_INVALID');
+    let debit=0,credit=0,ledgerCash=0;
+    for(const row of ledger.entries){
+      const account=byId.get(String(row.accountId)),d=Number(row.debitMinor),c=Number(row.creditMinor),key=String(row.accountId);
+      if(!account||account.publicId!==row.accountPublicId||account.country!==order.country||account.currency!==order.totals.currency
+        ||![d,c].every(value=>Number.isSafeInteger(value)&&value>=0)||(d===0)===(c===0))throw new AppError('Settlement lineage has invalid immutable entries.',409,'REFUND_CANCELLATION_SETTLEMENT_INVALID');
+      debit+=d;credit+=c;net.set(key,(net.get(key)||0)+d-c);
+      if(index===0){
+        originalNet.set(key,(originalNet.get(key)||0)+d-c);
+        if(d>0){if(isCash(account))originalCash+=d;else if(account.code==='platform_rewards_expense'&&account.type==='expense'&&account.ownerType==='platform'&&account.ownerPublicId==='classic-mart')originalFunding+=d;
+          else throw new AppError('Original payment contains an unsupported funding source.',409,'REFUND_CANCELLATION_SETTLEMENT_INVALID');}
+      }else if(isCash(account))ledgerCash+=c-d;
+    }
+    if(!Number.isSafeInteger(debit)||debit<=0||debit!==credit||index>0&&ledgerCash!==Number(completed[index-1].amountMinor))throw new AppError('Settlement lineage does not conserve its confirmed refund cash.',409,'REFUND_CANCELLATION_SETTLEMENT_INVALID');
+  }
+  if(originalCash!==Number(intent.amountMinor)||originalFunding!==Number(order.fundingSnapshot?.totalMinor||0))throw new AppError('Original payment cash and reward funding do not match.',409,'REFUND_CANCELLATION_SETTLEMENT_INVALID');
+  const entries=[];let remainingCashExposure=0;
+  for(const [key,value] of net){
+    const originalValue=originalNet.get(key),account=byId.get(key);
+    if(!Number.isSafeInteger(value)||originalValue===undefined||originalValue===0||originalValue>0&&(value<0||value>originalValue)||originalValue<0&&(value>0||value<originalValue))throw new AppError('Refund history exceeds an original settlement contribution.',409,'REFUND_CANCELLATION_SETTLEMENT_INVALID');
+    if(isCash(account))remainingCashExposure+=value;
+    if(value)entries.push({account,debitMinor:value<0?-value:0,creditMinor:value>0?value:0,memo:`Remaining reversal of ${original.publicId}`});
+  }
+  if(remainingCashExposure!==amountMinor)throw new AppError('Remaining settlement cash does not match the cancellation refund.',409,'REFUND_CANCELLATION_SETTLEMENT_INVALID');
+  const snapshot={originalLedgerPublicId:original.publicId,originalLedgerHash:cancellationSettlementHash(ledgerFinancialSnapshot(original)),completedRefunds:lineage};
+  snapshot.sourceHash=cancellationSettlementHash({orderId:String(order._id),paymentIntentId:String(intent._id),country:order.country,currency:order.totals.currency,
+    amountMinor,totals:{subtotalMinor:Number(order.totals.subtotalMinor),discountMinor:Number(order.totals.discountMinor),shippingMinor:Number(order.totals.shippingMinor),taxMinor:Number(order.totals.taxMinor),totalMinor:Number(order.totals.totalMinor)},fundingMinor:originalFunding,...snapshot});
+  if(expected&&(expected.sourceHash!==snapshot.sourceHash||expected.originalLedgerPublicId!==snapshot.originalLedgerPublicId||expected.originalLedgerHash!==snapshot.originalLedgerHash
+    ||JSON.stringify((expected.completedRefunds||[]).map(row=>({refundPublicId:row.refundPublicId,amountMinor:Number(row.amountMinor),ledgerPublicId:row.ledgerPublicId,ledgerHash:row.ledgerHash})))!==JSON.stringify(lineage)))throw new AppError('The immutable cancellation settlement source changed.',409,'REFUND_CANCELLATION_SOURCE_CHANGED');
+  return {snapshot,entries};
 }
 
 const refundAllocationSnapshot=rows=>rows.map(row=>({storePublicId:String(row.storePublicId||''),productPublicId:String(row.productPublicId||''),orderLineId:String(row.orderLineId||''),grossMinor:Number(row.grossMinor)})).sort((a,b)=>(a.storePublicId+':'+a.orderLineId).localeCompare(b.storePublicId+':'+b.orderLineId));
@@ -497,9 +591,9 @@ async function inspectedReturnSnapshot(returnRequest,order,session,statuses){
 }
 
 function assertAdminIndependentReturnActor(request,returned,actor) {
-  if(request.requiredOperationalWorkspace!=='admin')return;
-  if(!returned)throw new AppError('Country Admin refunds require an inspected return.',409,'RETURN_REFUND_BINDING_REQUIRED');
-  if([returned.inspection?.inspectedByUserId,returned.financeReferral?.requestedByUserId].some(value=>value&&String(value)===String(actor._id)))
+  if(!returned){if(request.requiredOperationalWorkspace==='admin')throw new AppError('Country Admin refunds require an inspected return.',409,'RETURN_REFUND_BINDING_REQUIRED');return;}
+  if([returned.inspection?.inspectedByUserId,returned.financeReferral?.requestedByUserId,
+    returned.resolutionChange?.proposedByUserId,returned.resolutionChange?.respondedByUserId].some(value=>value&&String(value)===String(actor._id)))
     throw new AppError('A different operator must independently review the inspected return refund.',403,'FOUR_EYES_REQUIRED');
 }
 
@@ -538,9 +632,10 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
   const session=await mongoose.startSession();let result;
   try{await session.withTransaction(async()=>{
     const order=await Order.findOne({publicId:orderId}).session(session);if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');
-    const access=await refundActorAccess(request,order,session,{write:true,financeRequired:Boolean(returnPublicId)});
-    if(!access.finance&&idempotencyKey!==`cancel:${order.publicId}`)throw new AppError('Customer refund keys must match the authorized cancellation.',403,'REFUND_CANCELLATION_REQUIRED');
     const existing=await Refund.findOne({idempotencyKey}).session(session);
+    const completedCancellation=Boolean(existing&&existing.status==='completed'&&existing.idempotencyKey===`cancel:${order.publicId}`&&String(existing.orderId)===String(order._id));
+    const access=await refundActorAccess(request,order,session,{write:true,financeRequired:Boolean(returnPublicId),completedCancellation});
+    if(!access.finance&&idempotencyKey!==`cancel:${order.publicId}`)throw new AppError('Customer refund keys must match the authorized cancellation.',403,'REFUND_CANCELLATION_REQUIRED');
     let returned=null,returnSnapshot=null;
     if(returnPublicId){
       returned=await ReturnRequest.findOne({publicId:returnPublicId,orderId:order._id,orderPublicId:order.publicId,country:order.country,userId:order.userId}).session(session);
@@ -562,7 +657,13 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
       const requestedAllocations=allocations.map(row=>({storePublicId:row.storePublicId,orderLineId:row.orderLineId,grossMinor:row.grossMinor})).sort((a,b)=>(a.storePublicId+':'+a.orderLineId).localeCompare(b.storePublicId+':'+b.orderLineId));
       const savedAllocations=(existing.allocations||[]).map(row=>({storePublicId:row.storePublicId,orderLineId:row.orderLineId,grossMinor:row.grossMinor})).sort((a,b)=>(a.storePublicId+':'+a.orderLineId).localeCompare(b.storePublicId+':'+b.orderLineId));
       if(String(existing.orderId)!==String(order._id)||String(existing.requestedByUserId||'')!==String(access.actor?._id||'')||existing.reason!==reason.trim()||(amountMinor!==undefined&&existing.amountMinor!==amountMinor)||JSON.stringify(requestedAllocations)!==JSON.stringify(savedAllocations)||Boolean(existing.returnRequestId)!==Boolean(returnPublicId))throw new AppError('This request key already identifies another refund.',409,'REFUND_IDEMPOTENCY_CONFLICT');
-      result={refund:existing,order,intent:await PaymentIntent.findById(existing.paymentIntentId).session(session),existing:true};return;
+      const savedIntent=await PaymentIntent.findById(existing.paymentIntentId).session(session);
+      if(existing.settlementMode==='cancellation_remainder'){
+        if(amountMinor!==undefined||allocations.length||returnPublicId||idempotencyKey!==`cancel:${order.publicId}`||!existing.cancellationSettlement||!savedIntent)throw new AppError('Cancellation settlement must retain its original request and source.',409,'REFUND_CANCELLATION_SOURCE_CHANGED');
+        await assertCancellationSettlementAccess(request,order,session,{completed:completedCancellation});
+        await remainingCancellationSettlement(order,savedIntent,session,{refundId:existing._id,amountMinor:existing.amountMinor,expected:existing.cancellationSettlement});
+      }
+      result={refund:existing,order,intent:savedIntent,existing:true};return;
     }
     if(!['paid','partially_refunded','refunded'].includes(order.paymentState))throw new AppError('Only a verified paid order can be refunded.',409,'REFUND_ORDER_STATE');
     const intent=await PaymentIntent.findOne({orderId:order._id,orderPublicId:order.publicId,country:order.country,currency:order.totals.currency,status:{$in:['succeeded','partially_refunded','refunded']}}).sort({paidAt:-1}).session(session);
@@ -574,7 +675,14 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
     const counters=await assertRefundCounterConsistency(intent,session);
     const reservedRefundMinor=counters.reserved,refundedMinor=counters.completed,capturedMinor=counters.captured;
     const available=Math.max(0,capturedMinor-reservedRefundMinor-refundedMinor),amount=amountMinor??available;if(!Number.isSafeInteger(amount)||amount<=0||amount>available)throw new AppError('The refund exceeds the remaining refundable balance.',409,'REFUND_EXHAUSTED');
-    if((!Array.isArray(allocations)||!allocations.length)&&(reservedRefundMinor>0||refundedMinor>0||amount<capturedMinor))throw new AppError('Partial or follow-up refunds require explicit immutable order-line allocations.',422,'PARTIAL_REFUND_ALLOCATION_REQUIRED');
+    const cancellationRemainder=amountMinor===undefined&&!allocations.length&&!returnPublicId&&idempotencyKey===`cancel:${order.publicId}`;
+    let cancellationSettlement;
+    if(cancellationRemainder){
+      if(reservedRefundMinor!==0)throw new AppError('Finish the reserved refund before cancelling the remaining settlement.',409,'REFUND_CANCELLATION_RESERVED');
+      await assertCancellationSettlementAccess(request,order,session);
+      cancellationSettlement=(await remainingCancellationSettlement(order,intent,session,{amountMinor:amount})).snapshot;
+    }
+    if(!cancellationRemainder&&(!Array.isArray(allocations)||!allocations.length)&&(reservedRefundMinor>0||refundedMinor>0||amount<capturedMinor))throw new AppError('Partial or follow-up refunds require explicit immutable order-line allocations.',422,'PARTIAL_REFUND_ALLOCATION_REQUIRED');
     const cleanAllocations=[];let allocationTotal=0;
     const requestedAllocations=Array.isArray(allocations)?allocations:[];
     if(requestedAllocations.length){
@@ -586,7 +694,7 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
           if(line.orderLineId)sellerLineById.set(key,line);
         }
       }
-      const priorRefunds=await Refund.find({orderId:order._id,status:{$in:['pending','processing','completed']},'allocations.0':{$exists:true}}).select('allocations').session(session).lean();
+      const priorRefunds=await Refund.find({orderId:order._id,status:{$in:['pending','processing','completed']},'allocations.0':{$exists:true}}).select('allocations status').session(session).lean();
       const priorByLine=new Map();
       for(const prior of priorRefunds){for(const allocation of prior.allocations||[]){const key=`${allocation.storePublicId}:${allocation.orderLineId}`;priorByLine.set(key,(priorByLine.get(key)||0)+Number(allocation.grossMinor||0));}}
       for(const raw of requestedAllocations){
@@ -595,11 +703,12 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
         const purchased=order.items.some(item=>item.storePublicId===storePublicId&&(!productPublicId||item.productPublicId===productPublicId)&&String(item.linePublicId||'')===orderLineId);
         if(!purchased)throw new AppError('Refund allocation does not belong to this order.',422,'REFUND_ALLOCATION_INVALID');
         const key=`${storePublicId}:${orderLineId}`,line=sellerLineById.get(key);
-        if(!line||![line.customerPaidMinor,line.platformFeeMinor,line.sellerReceivableMinor].every(value=>Number.isSafeInteger(Number(value))&&Number(value)>=0)||Number(line.platformFeeMinor)+Number(line.sellerReceivableMinor)!==Number(line.customerPaidMinor))throw new AppError('Immutable seller settlement snapshot is missing or invalid. Run the production migration before refunding this order.',409,'SELLER_SETTLEMENT_SNAPSHOT_MISSING');
+        if(!line)throw new AppError('Immutable seller settlement snapshot is missing. Run the production migration before refunding this order.',409,'SELLER_SETTLEMENT_SNAPSHOT_MISSING');
         const consumed=Number(priorByLine.get(key)||0),base=Number(line.customerPaidMinor||0);
         if(base<=0||consumed+grossMinor>base)throw new AppError('Refund allocation exceeds the remaining paid amount for this order line.',409,'REFUND_ALLOCATION_EXHAUSTED');
-        const platformFeeMinor=proportionalSettlementSlice(Number(line.platformFeeMinor||0),consumed,grossMinor,base),sellerReceivableMinor=grossMinor-platformFeeMinor;
-        cleanAllocations.push({storePublicId,productPublicId,variantPublicId:String(line.variantPublicId||''),sku:String(line.sku||''),costSnapshotStatus:String(line.costSnapshotStatus||'legacy_unknown'),orderLineId,grossMinor,platformFeeMinor,sellerReceivableMinor});allocationTotal+=grossMinor;priorByLine.set(key,consumed+grossMinor);
+        if(Number(line.platformContributionMinor||0)>0&&priorRefunds.some(prior=>prior.status!=='completed'&&(prior.allocations||[]).some(allocation=>allocation.storePublicId===storePublicId&&allocation.orderLineId===orderLineId)))throw new AppError('Finish the reserved refund for this funded line before creating another.',409,'REFUND_LINE_RESERVED');
+        const slice=refundSettlementSlice(line,consumed,grossMinor);
+        cleanAllocations.push({storePublicId,productPublicId,variantPublicId:String(line.variantPublicId||''),sku:String(line.sku||''),costSnapshotStatus:String(line.costSnapshotStatus||'legacy_unknown'),orderLineId,...slice,sourceHash:sellerLineFinancialHash(line)});allocationTotal+=grossMinor;priorByLine.set(key,consumed+grossMinor);
       }
     }
     if(cleanAllocations.length&&allocationTotal!==amount)throw new AppError('Refund allocations must equal the refund amount.',422,'REFUND_ALLOCATION_TOTAL');
@@ -613,7 +722,7 @@ async function reserveRefund(request,{orderId,amountMinor,reason,idempotencyKey,
     if(!reservedIntent)throw new AppError('Another refund changed the remaining refundable balance. Reload and retry with the current balance.',409,'REFUND_RESERVATION_CONFLICT');
     // Reserve into a reconcilable state in this transaction itself. A crash or
     // later persistence failure must not strand the hold in an uncompletable state.
-    const docs=await Refund.create([{publicId:publicId('rfd'),idempotencyKey,orderId:order._id,paymentIntentId:intent._id,...(returned?{returnRequestId:returned._id,returnPublicId:returned.publicId}:{}),amountMinor:amount,currency:order.totals.currency,reason:reason.trim(),allocations:cleanAllocations,provider,requestedByUserId:request.user?._id,status:'processing',...(provider===PAYMENT_PROVIDER?{providerStatus:'UNKNOWN',providerMessage:'Pesapal refund submission outcome is unknown. Do not resubmit; reconcile in the Pesapal merchant portal.'}:{})}],{session});
+    const docs=await Refund.create([{publicId:publicId('rfd'),idempotencyKey,orderId:order._id,paymentIntentId:intent._id,...(returned?{returnRequestId:returned._id,returnPublicId:returned.publicId}:{}),amountMinor:amount,currency:order.totals.currency,reason:reason.trim(),allocations:cleanAllocations,...(cancellationRemainder?{settlementMode:'cancellation_remainder',cancellationSettlement}:{}),provider,requestedByUserId:request.user?._id,status:'processing',...(provider===PAYMENT_PROVIDER?{providerStatus:'UNKNOWN',providerMessage:'Pesapal refund submission outcome is unknown. Do not resubmit; reconcile in the Pesapal merchant portal.'}:{})}],{session});
     if(returned){returned.refundPublicId=docs[0].publicId;returned.status='refund_processing';returned.timeline.push({type:'return.refund_reserved',message:`Refund ${docs[0].publicId} reserved after the inspected return review. Disbursement is awaiting confirmation.`,actorUserId:access.actor._id});await returned.save({session});}
     await writeAudit(request,'finance.refund_reserved',{actor:access.actor,targetType:'refund',targetPublicId:docs[0].publicId,country:order.country,metadata:{amountMinor:amount,currency:order.totals.currency,provider},session});
     await queueFinanceAlert({country:order.country,kind:'priority',href:'/finance/refunds?record='+encodeURIComponent(docs[0].publicId)},session);
@@ -775,7 +884,8 @@ async function postRefundLedger(orderLike,refundLike,intentLike,{request,manual=
     const order=await Order.findById(orderLike._id).session(session),loadedIntent=await PaymentIntent.findById(intentLike._id).session(session),refund=await Refund.findById(refundLike._id).session(session);
     if(!order||!loadedIntent||!refund)throw new AppError('Refund accounting records are incomplete.',409,'REFUND_ACCOUNTING_MISSING');
     if(!request)throw new AppError('Refund accounting requires an authorized actor.',403,'UNAUTHENTICATED');
-    const access=await refundActorAccess(request,order,session,{write:true,financeRequired:manual});
+    const access=await refundActorAccess(request,order,session,{write:true,financeRequired:manual,
+      completedCancellation:refund.settlementMode==='cancellation_remainder'&&refund.status==='completed'});
     if(String(refund.paymentIntentId)!==String(loadedIntent._id)||String(loadedIntent.orderId)!==String(order._id)||loadedIntent.orderPublicId!==order.publicId||loadedIntent.country!==order.country||loadedIntent.currency!==order.totals.currency||refund.currency!==order.totals.currency)throw new AppError('Refund accounting references do not match.',409,'REFUND_ACCOUNTING_MISMATCH');
     if(manual&&String(refund.requestedByUserId)===String(access.actor._id))throw new AppError('A different finance operator must confirm refund disbursement.',403,'FOUR_EYES_REQUIRED');
     let returnRequest=null;
@@ -795,6 +905,12 @@ async function postRefundLedger(orderLike,refundLike,intentLike,{request,manual=
       const fenced=await EvidenceDocument.updateOne({_id:evidence._id,__v:evidence.__v||0,ownerUserId:access.actor._id,country:order.country,contextType:'return',contextPublicId:returnRequest.publicId,refundPublicId:refund.publicId,documentType:'refund_disbursement',status:'ready'},{$inc:{refundEvidenceReadRevision:1}},{session});
       if(fenced.modifiedCount!==1)throw new AppError('Refund disbursement evidence changed. Reload before completing it.',409,'REFUND_EVIDENCE_CHANGED');
     }
+    let cancellationEntries=null;
+    if(refund.settlementMode==='cancellation_remainder'){
+      if(refund.idempotencyKey!==`cancel:${order.publicId}`||refund.returnRequestId||refund.returnPublicId||refund.allocations?.length||!refund.cancellationSettlement)throw new AppError('Cancellation settlement has invalid immutable source binding.',409,'REFUND_CANCELLATION_SOURCE_CHANGED');
+      await assertCancellationSettlementAccess(request,order,session,{ownerRequired:!access.finance,completed:refund.status==='completed'});
+      cancellationEntries=(await remainingCancellationSettlement(order,loadedIntent,session,{refundId:refund._id,amountMinor:refund.amountMinor,expected:refund.cancellationSettlement})).entries;
+    }else if(refund.cancellationSettlement)throw new AppError('Cancellation settlement mode does not match its source binding.',409,'REFUND_CANCELLATION_SOURCE_CHANGED');
     if(await LedgerTransaction.exists({idempotencyKey:`refund:${refundLike.publicId}`}).session(session)){
       if(refund.status!=='completed')throw new AppError('Refund outcome and recorded accounting do not match. Reconcile this case before continuing.',409,'REFUND_ACCOUNTING_MISMATCH');
       if(manual&&(refund.manualReference!==refundLike.manualReference||String(refund.completedByUserId)!==String(access.actor._id)))throw new AppError('This refund was completed with different evidence.',409,'REFUND_COMPLETION_CONFLICT');
@@ -814,17 +930,23 @@ async function postRefundLedger(orderLike,refundLike,intentLike,{request,manual=
     }
     const sellerOrders=await SellerOrder.find({orderId:order._id}).session(session).lean(),byStore=new Map(sellerOrders.map(row=>[row.storePublicId,row]));const entries=[],affectedStores=new Set();
     const allocations=Array.isArray(refund.allocations)?refund.allocations.filter(row=>Number(row.grossMinor)>0):[];
-    if(allocations.length){
+    if(cancellationEntries){
+      entries.push(...cancellationEntries);
+    }else if(allocations.length){
       let debitTotal=0;
       for(const allocation of allocations){
         const row=byStore.get(allocation.storePublicId);if(!row)throw new AppError('Refund allocation store is not part of the order.',409,'REFUND_ALLOCATION_INVALID');
-        const gross=Number(allocation.grossMinor||0),feeShare=Number(allocation.platformFeeMinor||0),sellerShare=Number(allocation.sellerReceivableMinor||0);
-        if(!allocation.orderLineId||![gross,feeShare,sellerShare].every(Number.isSafeInteger)||gross<=0||feeShare<0||sellerShare<0||feeShare+sellerShare!==gross)throw new AppError('Refund settlement allocation is missing or invalid.',409,'REFUND_SETTLEMENT_SNAPSHOT_MISSING');
+        const gross=Number(allocation.grossMinor||0),feeShare=Number(allocation.platformFeeMinor||0),sellerShare=Number(allocation.sellerReceivableMinor||0),fundingShare=Number(allocation.platformContributionMinor||0);
+        const sourceLine=(row.items||[]).find(line=>line.orderLineId===allocation.orderLineId);
+        if(fundingShare>0||Number(sourceLine?.platformContributionMinor||0)>0){const slice=refundSettlementSlice(sourceLine,Number(allocation.sourceCashOffsetMinor||0),gross);if(allocation.sourceHash!==sellerLineFinancialHash(sourceLine)||['platformContributionMinor','platformFeeMinor','sellerReceivableMinor'].some(field=>Number(allocation[field]||0)!==slice[field]))throw new AppError('Refund funding source changed or its immutable allocation is invalid.',409,'REFUND_SETTLEMENT_SNAPSHOT_MISSING');}
+        if(!allocation.orderLineId||![gross,feeShare,sellerShare,fundingShare].every(Number.isSafeInteger)||gross<=0||feeShare<0||sellerShare<0||fundingShare<0||feeShare+sellerShare!==gross+fundingShare)throw new AppError('Refund settlement allocation is missing or invalid.',409,'REFUND_SETTLEMENT_SNAPSHOT_MISSING');
         affectedStores.add(allocation.storePublicId);
         if(sellerShare>0){const account=await ensureLedgerAccount({code:'seller_payable',type:'liability',ownerType:'store',ownerPublicId:allocation.storePublicId,country:order.country,currency:order.totals.currency},session);entries.push({account,debitMinor:sellerShare,creditMinor:0,memo:`Refund exact seller receivable reversal for ${allocation.storePublicId}/${allocation.orderLineId}`});debitTotal+=sellerShare;}
         if(feeShare>0){const revenue=await ensureLedgerAccount({code:'platform_revenue',type:'revenue',ownerType:'platform',ownerPublicId:'classic-mart',country:order.country,currency:order.totals.currency},session);entries.push({account:revenue,debitMinor:feeShare,creditMinor:0,memo:`Refund exact marketplace fee reversal for ${allocation.orderLineId}`});debitTotal+=feeShare;}
       }
-      if(debitTotal!==Number(refund.amountMinor))throw new AppError('Refund settlement allocation does not balance to the refund amount.',409,'REFUND_ALLOCATION_TOTAL');
+      const fundingTotal=allocations.reduce((sum,row)=>sum+Number(row.platformContributionMinor||0),0);
+      if(fundingTotal>0){const expense=await ensureLedgerAccount({code:'platform_rewards_expense',type:'expense',ownerType:'platform',ownerPublicId:'classic-mart',country:order.country,currency:order.totals.currency},session);entries.push({account:expense,debitMinor:0,creditMinor:fundingTotal,memo:'Reverse exact original reward funding for returned goods'});}
+      if(debitTotal!==Number(refund.amountMinor)+fundingTotal)throw new AppError('Refund settlement allocation does not balance to the refund amount.',409,'REFUND_ALLOCATION_TOTAL');
     }else{
       // An allocation-free refund is permitted only for the untouched full captured amount.
       // Reverse the immutable original ledger transaction entry-for-entry; never reconstruct
@@ -835,21 +957,23 @@ async function postRefundLedger(orderLike,refundLike,intentLike,{request,manual=
         if(shipment)original=await LedgerTransaction.findOne({idempotencyKey:`cod:${shipment.publicId}`,referenceType:'cod_reconciliation'}).session(session).lean();
       }else original=await LedgerTransaction.findOne({idempotencyKey:`payment:${intent.publicId}`,referenceType:'payment'}).session(session).lean();
       if(!original)throw new AppError('Original immutable payment settlement is missing; reconcile the payment before refunding.',409,'REFUND_ORIGINAL_SETTLEMENT_MISSING');
-      const originalCredits=original.entries.filter(row=>Number(row.creditMinor||0)>0),originalCreditTotal=originalCredits.reduce((sum,row)=>sum+Number(row.creditMinor||0),0);
-      if(Number(refund.amountMinor)!==originalCreditTotal)throw new AppError('Allocation-free refund must reverse the complete original settlement.',409,'REFUND_FULL_SETTLEMENT_REQUIRED');
-      const accounts=await LedgerAccount.find({_id:{$in:originalCredits.map(row=>row.accountId)}}).session(session),accountById=new Map(accounts.map(row=>[String(row._id),row]));
-      for(const row of originalCredits){const account=accountById.get(String(row.accountId));if(!account)throw new AppError('Original settlement ledger account is missing.',409,'REFUND_ORIGINAL_SETTLEMENT_MISSING');entries.push({account,debitMinor:Number(row.creditMinor||0),creditMinor:0,memo:`Exact reversal of ${original.publicId}`});}
+      const originalCredits=original.entries.filter(row=>Number(row.creditMinor||0)>0),originalCreditTotal=originalCredits.reduce((sum,row)=>sum+Number(row.creditMinor||0),0),fundingMinor=Number(order.fundingSnapshot?.totalMinor||0);
+      if(Number(refund.amountMinor)!==Number(order.totals.totalMinor)||originalCreditTotal!==Number(refund.amountMinor)+fundingMinor||original.country!==order.country||original.currency!==order.totals.currency)throw new AppError('Allocation-free refund must reverse the complete original settlement.',409,'REFUND_FULL_SETTLEMENT_REQUIRED');
+      const accounts=await LedgerAccount.find({_id:{$in:original.entries.map(row=>row.accountId)}}).session(session),accountById=new Map(accounts.map(row=>[String(row._id),row]));
+      let fundingReversed=0,cashDebit=0;
+      for(const row of original.entries){const account=accountById.get(String(row.accountId));if(!account||account.country!==order.country||account.currency!==order.totals.currency)throw new AppError('Original settlement ledger account is missing.',409,'REFUND_ORIGINAL_SETTLEMENT_MISSING');if(Number(row.creditMinor)>0)entries.push({account,debitMinor:Number(row.creditMinor),creditMinor:0,memo:`Exact reversal of ${original.publicId}`});else if(account.code==='platform_rewards_expense'){fundingReversed+=Number(row.debitMinor);entries.push({account,debitMinor:0,creditMinor:Number(row.debitMinor),memo:`Exact reward funding reversal of ${original.publicId}`});}else cashDebit+=Number(row.debitMinor||0);}
+      if(fundingReversed!==fundingMinor||cashDebit!==Number(refund.amountMinor))throw new AppError('Original payment cash and subsidy evidence do not match.',409,'REFUND_ORIGINAL_SETTLEMENT_MISSING');
     }
-    if(intent.provider==='wallet'){
+    if(!cancellationEntries&&intent.provider==='wallet'){
       const customer=order.userId?await User.findById(order.userId).select('publicId').session(session).lean():null;if(!customer)throw new AppError('Classic Wallet customer record is missing.',409,'WALLET_CUSTOMER_MISSING');
       const wallet=await ensureLedgerAccount({code:'customer_wallet',type:'liability',ownerType:'customer',ownerId:order.userId,ownerPublicId:customer.publicId,country:order.country,currency:order.totals.currency},session);entries.push({account:wallet,debitMinor:0,creditMinor:refund.amountMinor,memo:'Classic Wallet refund credit'});
-    }else{
+    }else if(!cancellationEntries){
       const clearing=await ensureLedgerAccount({code:intent.provider==='cod'?'cod_clearing':'provider_clearing',type:'asset',ownerType:intent.provider==='cod'?'platform':'provider',ownerPublicId:intent.provider==='cod'?'classic-mart':PAYMENT_PROVIDER,country:order.country,currency:order.totals.currency},session);entries.push({account:clearing,debitMinor:0,creditMinor:refund.amountMinor,memo:intent.provider==='cod'?'COD refund disbursed':'Customer refund'});
     }
     await postLedgerTransaction({idempotencyKey:`refund:${refund.publicId}`,referenceType:'refund',referencePublicId:refund.publicId,currency:refund.currency,country:order.country,description:`Refund for ${order.publicId}`,entries},session);
     await writeAudit(request,'finance.refund_completed',{actor:access.actor,targetType:'refund',targetPublicId:refund.publicId,country:order.country,metadata:{amountMinor:refund.amountMinor,currency:refund.currency,manual},session});
     const previous=await Refund.aggregate([{$match:{orderId:order._id,status:'completed',_id:{$ne:refund._id}}},{$group:{_id:null,total:{$sum:'$amountMinor'}}}]).session(session);const completedMinor=Number(previous[0]?.total||0)+refund.amountMinor,fully=completedMinor>=order.totals.totalMinor;
-    intent.status=fully?'refunded':'partially_refunded';order.paymentState=fully?'refunded':'partially_refunded';order.refundState=fully?'complete':'partial';if(order.fulfillmentState==='cancelled'&&order.cancellation?.requestedAt)order.cancellationState='cancelled';syncLegacyOrderStatus(order);await intent.save({session});order.timeline.push({type:'refund.completed',message:`Refund ${refund.publicId} completed.`});
+    intent.status=fully?'refunded':'partially_refunded';order.paymentState=fully?'refunded':'partially_refunded';order.refundState=fully?'complete':'partial';if(fully&&order.fulfillmentState==='cancelled'&&order.cancellation?.requestedAt)order.cancellationState='cancelled';syncLegacyOrderStatus(order);await intent.save({session});order.timeline.push({type:'refund.completed',message:`Refund ${refund.publicId} completed.`});
     if(fully||!allocations.length)await SellerOrder.updateMany({orderId:order._id},{$set:{status:fully?'refunded':'partially_refunded'},$push:{timeline:{type:'refund.completed',message:`Refund ${refund.publicId} applied to marketplace order.`}}},{session});else if(affectedStores.size)await SellerOrder.updateMany({orderId:order._id,storePublicId:{$in:[...affectedStores]}},{$set:{status:'partially_refunded'},$push:{timeline:{type:'refund.completed',message:`Item refund ${refund.publicId} applied to this seller order.`}}},{session});
     if(returnRequest){
       for(const returned of returnRequest.items||[]){const line=order.items.find(item=>String(item.linePublicId)===String(returned.orderLineId));if(!line)throw new AppError('Refunded return references a missing order line.',409,'REFUND_ORDER_LINE_MISSING');const next=Number(line.refundedQuantity||0)+Number(returned.quantity||0);if(next>Number(line.returnedQuantity||0))throw new AppError('Refunded quantity exceeds physically returned quantity.',409,'REFUND_QUANTITY_CONFLICT');line.refundedQuantity=next;}
@@ -860,7 +984,9 @@ async function postRefundLedger(orderLike,refundLike,intentLike,{request,manual=
     }
     const { reverseOrderCommissions }=await import('./promoters.js');await reverseOrderCommissions(order,refund,session);
     const { issueRefundCreditNote }=await import('./financial-documents.js');await issueRefundCreditNote(order,refund,intent,session);
-    await refund.save({session});await order.save({session});await refreshOrderLifecycle(order._id,{session});
+    await refund.save({session});await order.save({session});
+    await reverseGrowthForRefund(order,refund,session);await restoreOrderRewardAfterRefund(order,intent,session);
+    await refreshOrderLifecycle(order._id,{session});
   });}finally{await session.endSession();}
 }
 
@@ -905,7 +1031,7 @@ export async function payoutOwnerContext(request,{preferredStorePublicId='',stri
     const actor=await promoterPayoutActor(request),market=await pinnedPromoterMarket(actor);
     return{ownerType:'promoter',ownerUserId:actor._id,ownerPublicId:String(actor._id),ownerStoreId:null,ownerStorePublicId:'',...market,availableStores:[]};
   }
-  if(!storeContext&&request.user?.role==='delivery')return{ownerType:'delivery',ownerUserId:request.user._id,ownerPublicId:String(request.user._id),ownerStoreId:null,ownerStorePublicId:'',country:request.user.country,currency:request.user.currency,availableStores:[]};
+  if(!storeContext&&request.user?.role==='delivery'){const {deliveryAccess}=await import('./delivery-workspace-access.js');const {actor,market}=await deliveryAccess(request,{approved:true});return{ownerType:'delivery',ownerUserId:actor._id,ownerPublicId:String(actor._id),ownerStoreId:null,ownerStorePublicId:'',country:market.code,currency:market.currency,availableStores:[]};}
   const accesses=(await sellerStoreAccesses(request.user)).filter(row=>['owner','admin','finance'].includes(row.role));
   if(!accesses.length)throw new AppError('Seller owner, admin or finance access is required.',403,'PAYOUT_OWNER_REQUIRED');
   if(!env.auth.simpleLogin&&env.security.privilegedMfaRequired){
@@ -916,6 +1042,7 @@ export async function payoutOwnerContext(request,{preferredStorePublicId='',stri
   let selected=requested?accesses.find(row=>row.store.publicId===requested):null;
   if(requested&&!selected&&(strictPreferred||storeContext))throw new AppError('Selected seller finance workspace is unavailable.',403,'PAYOUT_WORKSPACE_FORBIDDEN');
   selected ||= accesses[0];
+  await sellerOperationsAccess(request,'finance',{storePublicId:selected.store.publicId});
   if(request.session)request.session.activeStorePublicId=selected.store.publicId;
   const availableStores=accesses.map(row=>({publicId:row.store.publicId,name:row.store.name,country:row.store.country,currency:row.store.currency,status:row.store.status,role:row.role}));
   return{ownerType:'store',ownerUserId:selected.store.ownerUserId,ownerPublicId:selected.store.publicId,ownerStoreId:selected.store._id,ownerStorePublicId:selected.store.publicId,country:selected.store.country,currency:selected.store.currency,store:selected.store,membership:selected.membership,availableStores};
@@ -1120,7 +1247,14 @@ export async function revealPayoutDestination(request,payoutPublicId) {
 export async function savePayoutAccount(request,{method,label,destination}){
   const owner=await payoutOwnerContext(request);
   const document=market=>({publicId:publicId('poa'),ownerUserId:owner.ownerUserId,ownerStoreId:owner.ownerStoreId||undefined,ownerStorePublicId:owner.ownerStorePublicId||'',ownerType:owner.ownerType==='store'?'seller':owner.ownerType,country:market.country,currency:market.currency,method,label,destinationEncrypted:encryptSensitive(JSON.stringify(destination)),status:'pending'});
-  if(owner.ownerType!=='promoter'){const [account]=await PayoutAccount.create([document(owner)]);return publicPayoutAccount(account);}
+  if(owner.ownerType==='delivery'){return payoutTransaction(async session=>{const {deliveryAccess}=await import('./delivery-workspace-access.js');const {actor,market}=await deliveryAccess(request,{session,write:true,approved:true});if(String(actor._id)!==String(owner.ownerUserId)||market.code!==owner.country||market.currency!==owner.currency)throw new AppError('Your delivery market changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');const [account]=await PayoutAccount.create([document({country:market.code,currency:market.currency})],{session});return publicPayoutAccount(account);});}
+  if(owner.ownerType==='store'){return payoutTransaction(async session=>{
+    const {actor,store}=await sellerOperationsAccess(request,'finance',{session,write:true,storePublicId:owner.ownerPublicId});
+    if(String(store.ownerUserId)!==String(owner.ownerUserId)||store.country!==owner.country||store.currency!==owner.currency)throw new AppError('Your store payout authority changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');
+    const [account]=await PayoutAccount.create([document(owner)],{session});
+    await writeAudit(request,'seller.payout_destination_created',{actor,targetType:'payout_account',targetPublicId:account.publicId,country:owner.country,session});
+    return publicPayoutAccount(account);
+  });}
   const session=await mongoose.startSession();let account;
   try{await session.withTransaction(async()=>{
     const actor=await promoterPayoutActor(request,session),market=await pinnedPromoterMarket(actor,{session,write:true});
@@ -1131,7 +1265,7 @@ export async function savePayoutAccount(request,{method,label,destination}){
   return publicPayoutAccount(account);
 }
 export async function payoutAccountsForRequest(request){const owner=await payoutOwnerContext(request),query=owner.ownerType==='store'?{ownerStoreId:owner.ownerStoreId,ownerType:'seller'}:{ownerUserId:owner.ownerUserId,ownerType:owner.ownerType,country:owner.country,currency:owner.currency};const accounts=await PayoutAccount.find(mongoose.trusted(query)).select('publicId ownerType country currency method label status verifiedAt createdAt').sort({createdAt:-1}).lean();return accounts.map(publicPayoutAccount);}
-export async function payoutsForRequest(request,{cursor='',limit=50,withPage=false}={}){const owner=await payoutOwnerContext(request);let query;if(owner.ownerType==='store')query={ownerStoreId:owner.ownerStoreId};else{const accountScope={ownerUserId:owner.ownerUserId,ownerType:owner.ownerType};if(owner.ownerType==='promoter')Object.assign(accountScope,{country:owner.country,currency:owner.currency});const accountIds=await PayoutAccount.find(accountScope).distinct('_id');query={payoutAccountId:{$in:accountIds}};if(owner.ownerType==='promoter')Object.assign(query,{ownerUserId:owner.ownerUserId,ownerStoreId:{$exists:false},currency:owner.currency});}const size=Math.min(100,Math.max(10,Number(limit)||50));const [rows,total]=await Promise.all([Payout.find(mongoose.trusted(cursorScope(query,cursor))).sort(cursorSort()).limit(size+1).lean(),Payout.countDocuments(mongoose.trusted(query))]);const page=pageResult(rows,{limit:size,total});return withPage?page:page.items;}
+export async function payoutsForRequest(request,{cursor='',limit=50,withPage=false}={}){const owner=await payoutOwnerContext(request);let query;if(owner.ownerType==='store')query={ownerStoreId:owner.ownerStoreId};else{const accountScope={ownerUserId:owner.ownerUserId,ownerType:owner.ownerType};if(['promoter','delivery'].includes(owner.ownerType))Object.assign(accountScope,{country:owner.country,currency:owner.currency});const accountIds=await PayoutAccount.find(accountScope).distinct('_id');query={payoutAccountId:{$in:accountIds}};if(['promoter','delivery'].includes(owner.ownerType))Object.assign(query,{ownerUserId:owner.ownerUserId,ownerStoreId:{$exists:false},currency:owner.currency});}const size=Math.min(100,Math.max(10,Number(limit)||50));const [rows,total]=await Promise.all([Payout.find(mongoose.trusted(cursorScope(query,cursor))).sort(cursorSort()).limit(size+1).lean(),Payout.countDocuments(mongoose.trusted(query))]);const page=pageResult(rows,{limit:size,total});return withPage?page:page.items;}
 export async function requestPayout(request, { payoutAccountId, amountMinor, idempotencyKey }) {
   if (!Number.isSafeInteger(amountMinor) || amountMinor < 1) throw new AppError('Payout amount must be a positive supported whole number.', 422, 'PAYOUT_AMOUNT_INVALID');
   if (typeof payoutAccountId !== 'string' || payoutAccountId.length < 4 || payoutAccountId.length > 100
@@ -1150,6 +1284,8 @@ export async function requestPayout(request, { payoutAccountId, amountMinor, ide
         throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
       }
       if (owner.ownerType === 'store') {
+        const current=await sellerOperationsAccess(request,'finance',{session,write:true,storePublicId:owner.ownerPublicId});
+        if(String(current.store.ownerUserId)!==String(owner.ownerUserId)||current.store.country!==owner.country||current.store.currency!==owner.currency)throw new AppError('Your store payout authority changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');
         if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) {
           throw new AppError('Authenticator enrollment is required for store payouts.', 403, 'MFA_ENROLLMENT_REQUIRED');
         }
@@ -1169,6 +1305,8 @@ export async function requestPayout(request, { payoutAccountId, amountMinor, ide
       } else if (owner.ownerType === 'promoter') {
         const promoter=await promoterPayoutActor(request,session),market=await pinnedPromoterMarket(promoter,{session,write:true});
         if(market.country!==owner.country||market.currency!==owner.currency)throw new AppError('Your programme market changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');
+      } else if(owner.ownerType==='delivery'){
+        const {deliveryAccess}=await import('./delivery-workspace-access.js');const {actor:fresh,market}=await deliveryAccess(request,{session,write:true,approved:true});if(String(fresh._id)!==String(owner.ownerUserId)||market.code!==owner.country||market.currency!==owner.currency)throw new AppError('Your delivery market changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');
       } else if (actor.role !== owner.ownerType || actor.country !== owner.country || actor.currency !== owner.currency) {
         throw new AppError('Your payout account context changed. Refresh and retry.', 409, 'PAYOUT_OWNER_CHANGED');
       }

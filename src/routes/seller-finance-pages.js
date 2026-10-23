@@ -16,7 +16,7 @@ function reportingPeriod(request) {
   if (query.getAll('period').length > 1 || [...query.keys()].some(key => /^period(?:\[|\.)/u.test(key))) {
     throw new AppError('Select one supported reporting period.', 422, 'SELLER_PERIOD_INVALID');
   }
-  const period = query.get('period') || '7months';
+  const period = query.get('period') || '30days';
   if (!periods.has(period)) throw new AppError('Select one supported reporting period.', 422, 'SELLER_PERIOD_INVALID');
   return period;
 }
@@ -81,7 +81,7 @@ router.get('/seller/analytics', ...sellerPageGates('analytics'), asyncHandler(as
   renderSellerPage(request, response, 'seller-analytics', await loadSellerAnalyticsPage(request, { period: reportingPeriod(request) }))));
 router.get('/dashboard/seller-analytics', ...sellerPageGates('analytics'), (request, response) => response.redirect(308, '/seller/analytics' + new URL(request.originalUrl, 'http://localhost').search));
 router.get('/seller/analytics/summary.csv', ...sellerPageGates('analytics'), asyncHandler(async (request, response) => {
-  const page = await loadSellerAnalyticsPage(request, { period: reportingPeriod(request) });
+  const page = await loadSellerAnalyticsPage(request, { period: reportingPeriod(request), export: true });
   const rows = [['Store', 'Country', 'Currency', 'Time zone', 'Period start', 'Period end'],
     [page.store.name, page.store.country, page.currency, page.timeZone, page.range.start.toISOString(), page.range.end.toISOString()],
     ['Metric', 'Value'], ...Object.entries(page.analytics),

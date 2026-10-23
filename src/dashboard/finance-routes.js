@@ -1,4 +1,5 @@
 export const FINANCE_LIVE_ROUTES = Object.freeze({
+  'finance-order-cases': '/finance/order-cases',
   'finance-overview': '/finance/overview',
   'finance-payments': '/finance/payments',
   'finance-refunds': '/finance/refunds',

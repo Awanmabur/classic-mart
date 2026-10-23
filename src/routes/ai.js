@@ -18,6 +18,7 @@ import {
 } from '../services/ai.js';
 import { describeImage } from '../services/ai-provider.js';
 import { scanUpload } from '../services/malware.js';
+import { assertOptionalProcessing } from '../services/optional-processing.js';
 import { writeAudit } from '../services/audit.js';
 import { createApproval } from '../services/stage9.js';
 import { assertOperationalCountry, operationalCountriesFor, operationalCountryScope } from '../services/authorization.js';
@@ -43,7 +44,7 @@ router.post('/api/v1/ai/feedback',aiLimit,async(req,res,next)=>{try{const input=
 
 router.post('/ask-classic/feedback',noStore,aiLimit,async(req,res,next)=>{try{const input=z.object({usageId:z.string().min(4).max(120),rating:z.enum(['helpful','not_helpful','incorrect','unsafe']),comment:z.string().trim().max(1000).optional().default('')}).parse(req.body);await submitAiFeedback(req,input);setFlash(req,'success','Thanks. Your AI feedback was recorded for evaluation.');res.redirect('/ask-classic');}catch(e){next(e);}});
 
-router.get('/api/v1/ai/search',aiLimit,async(req,res,next)=>{try{const input=z.object({q:z.string().trim().min(1).max(120),category:z.string().max(100).optional().default(''),brand:z.string().max(100).optional().default(''),seller:z.string().max(100).optional().default('')}).parse(req.query);res.json(await hybridSearch(req.country,{query:input.q,category:input.category,brand:input.brand,seller:input.seller,limit:40}));}catch(e){next(e);}});
+router.get('/api/v1/ai/search',aiLimit,async(req,res,next)=>{try{if(req.user)await assertOptionalProcessing(req.user._id);const input=z.object({q:z.string().trim().min(1).max(120),category:z.string().max(100).optional().default(''),brand:z.string().max(100).optional().default(''),seller:z.string().max(100).optional().default('')}).parse(req.query);res.json(await hybridSearch(req.country,{query:input.q,category:input.category,brand:input.brand,seller:input.seller,limit:40}));}catch(e){next(e);}});
 
 router.get('/api/v1/ai/products/:id/similar',aiLimit,async(req,res,next)=>{try{res.json({products:await similarProducts(req.country,req.params.id,{limit:12})});}catch(e){next(e);}});
 
@@ -51,6 +52,6 @@ router.get('/api/v1/ai/recommendations',aiLimit,async(req,res,next)=>{try{res.se
 
 router.get('/api/v1/ai/products/:id/review-summary',aiLimit,async(req,res,next)=>{try{res.json({summary:await latestReviewSummary(req.country,req.params.id)});}catch(e){next(e);}});
 
-router.post('/ask-classic/visual',noStore,aiLimit,requireAiFeature('classic_ai.ask'),imageUpload,async(req,res,next)=>{try{verifyDeferredCsrf(req);if(!req.file?.buffer)throw new AppError('Choose a product image.',422,'AI_IMAGE_REQUIRED');await scanUpload(req.file.buffer);const normalized=await sharp(req.file.buffer,{failOn:'warning',limitInputPixels:25_000_000}).rotate().resize({width:768,height:768,fit:'inside',withoutEnlargement:true}).jpeg({quality:80}).toBuffer();const described=await describeImage({dataUrl:`data:image/jpeg;base64,${normalized.toString('base64')}`,instructions:'Describe only visible product/category/style/material/color/function details useful for shopping search.',country:req.country.code,role:req.user?.role||'customer'});const results=await hybridSearch(req.country,{query:described.text,limit:16});const recommendations=await recommendationsFor(req,{limit:8});res.render('ask-classic',{result:null,recommendations,visualResults:results.products,question:`Visual search: ${described.text}`});}catch(e){next(e);}});
+router.post('/ask-classic/visual',noStore,aiLimit,requireAiFeature('classic_ai.ask'),imageUpload,async(req,res,next)=>{try{verifyDeferredCsrf(req);if(req.user)await assertOptionalProcessing(req.user._id);if(!req.file?.buffer)throw new AppError('Choose a product image.',422,'AI_IMAGE_REQUIRED');await scanUpload(req.file.buffer);const normalized=await sharp(req.file.buffer,{failOn:'warning',limitInputPixels:25_000_000}).rotate().resize({width:768,height:768,fit:'inside',withoutEnlargement:true}).jpeg({quality:80}).toBuffer();const described=await describeImage({dataUrl:`data:image/jpeg;base64,${normalized.toString('base64')}`,instructions:'Describe only visible product/category/style/material/color/function details useful for shopping search.',country:req.country.code,role:req.user?.role||'customer'});const results=await hybridSearch(req.country,{query:described.text,limit:16});const recommendations=await recommendationsFor(req,{limit:8});res.render('ask-classic',{result:null,recommendations,visualResults:results.products,question:`Visual search: ${described.text}`});}catch(e){next(e);}});
 
 export default router;

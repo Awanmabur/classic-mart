@@ -18,6 +18,8 @@ import { calculateQualityScore, inspectProductContent } from './catalogue.js';
 import { assertStockState } from './inventory.js';
 import { productSchema, variantSchema, mediaMetadataSchema, stockAdjustmentSchema, warehouseSchema } from '../validation/catalogue.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
+import { sellerOperationsAccess } from './seller-operations-access.js';
+import { assertSellerCapacity } from './seller-entitlements.js';
 
 export const SELLER_PRODUCT_LIMITS = Object.freeze({ variants: 50, media: 10, minimumMedia: 3, quality: 45, warehouses: 200 });
 const revision = z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
@@ -30,14 +32,10 @@ const key = value => String(value);
 const can = (capabilities, name) => capabilities.has('*') || capabilities.has(name);
 
 async function sellerAccess(request, session = null, { fulfilment = false } = {}) {
-  const member = await StoreMember.findOne({ storeId: request.store._id, userId: request.user._id, status: 'active' }).session(session);
-  const capabilities = storeCapabilities(member?.role);
-  if (!can(capabilities, 'catalogue') || (fulfilment && !can(capabilities, 'fulfilment'))) throw new AppError('Your store role cannot perform this action.', 403, 'STORE_PERMISSION_DENIED');
-  const user = await User.exists({ _id: request.user._id, status: 'active', 'security.tokenVersion': request.user.security?.tokenVersion ?? -1 }).session(session);
-  if (!user) throw new AppError('Your account is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
-  const store = await Store.findById(request.store._id).session(session);
-  if (!store || !['pending_verification', 'verified'].includes(store.status)) throw new AppError('This store is locked.', 409, 'STORE_LOCKED');
-  return { store, capabilities };
+  const context = await sellerOperationsAccess(request, 'catalogue', { session, write: Boolean(session?.inTransaction()) });
+  const capabilities = storeCapabilities(context.member.role);
+  if (fulfilment && !can(capabilities, 'fulfilment')) throw new AppError('Your store role cannot perform this action.', 403, 'STORE_PERMISSION_DENIED');
+  return { store: context.store, capabilities };
 }
 
 function assertRevision(product, expected) {
@@ -243,6 +241,7 @@ export async function sellerProductDetail(request, publicProductId = request.par
 export async function createSellerProduct(request) {
   return transaction(async session => {
     const { store } = await sellerAccess(request, session);
+    await assertSellerCapacity(store, 'products', { session });
     const input = productInput(request.body, store);
     const firstVariant = variantInput(request.body, store, { first: true });
     const { category, brand } = await references(input, store, session);
@@ -501,6 +500,7 @@ export async function transitionSellerProduct(request, action) {
   if (!['submit', 'publish', 'archive', 'draft'].includes(action)) throw new AppError('Product action is invalid.', 422, 'PRODUCT_ACTION_INVALID');
   return transaction(async session => {
     const { product, store } = await ownedProduct(request, session, { version });
+    if (['submit', 'publish'].includes(action) || action === 'draft' && product.status === 'archived') await assertSellerCapacity(store, 'products', { session, excludeId: product._id });
     if (action === 'submit') {
       if (!editable.has(product.status)) throw new AppError('The product cannot be submitted in its current state.', 409, 'PRODUCT_LOCKED');
       const category = await assertSellerProductComplete(product, store, session);

@@ -139,7 +139,11 @@ export { MarketplaceConversation } from './MarketplaceConversation.js';
 export { SubscriptionEnrollment } from './SubscriptionEnrollment.js';
 
 export { SubscriptionChangeRequest } from './SubscriptionChangeRequest.js';
+export { StoreTeamInvitation } from './StoreTeamInvitation.js';
+export { SubscriptionCharge } from './SubscriptionCharge.js';
 
 export { WalletTopUp } from './WalletTopUp.js';
 export { FinanceDigest } from './FinanceDigest.js';
 export { SupportDigest } from './SupportDigest.js';
+
+export { CustomerReward } from './CustomerReward.js';

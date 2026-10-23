@@ -96,6 +96,8 @@ const orderSchema = new Schema(
     refundState: { type: String, enum: ['none','pending','processing','partial','complete'], default: 'none', index: true },
     contact: { type: addressSchema, required: true },
     totals: { type: moneySchema, required: true },
+    fundingSnapshot: { type: new Schema({ rewardPublicId:{type:String,default:''},rewardGoodsMinor:{type:Number,min:0,default:0},rewardShippingMinor:{type:Number,min:0,default:0},clubShippingMinor:{type:Number,min:0,default:0},totalMinor:{type:Number,min:0,default:0},grossShippingMinor:{type:Number,min:0,default:0} },{_id:false}), default:undefined, immutable:true },
+    loyaltySnapshot: { type:new Schema({enabled:{type:Boolean,default:false},pointsPer1000Minor:{type:Number,min:0,default:0},multiplierBps:{type:Number,min:10000,default:10000},eligibleMinor:{type:Number,min:0,default:0},tier:{type:String,default:'classic'},trialRewardPublicId:{type:String,default:''}},{_id:false}), default:undefined, immutable:true },
     items: { type: [orderItemSchema], required: true, validate: value => value.length > 0 },
     couponPublicIds: { type: [String], default: [], immutable: true },
     couponApplications: { type: [{ publicId: String, discountMinor: Number, allocations: [{ storePublicId: String, discountMinor: Number }], lineAllocations: [{ orderLineId: { type: String, required: true }, storePublicId: { type: String, required: true }, productPublicId: { type: String, required: true }, variantPublicId: { type: String, required: true }, discountMinor: { type: Number, min: 0, required: true } }] }], default: [], immutable: true },

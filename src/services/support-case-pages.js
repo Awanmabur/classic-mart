@@ -1,3 +1,4 @@
+import { refundSettlementSlice, sellerLineFinancialHash } from './money.js';
 import mongoose from 'mongoose';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
@@ -5,7 +6,7 @@ import { publicId } from '../core/ids.js';
 import { env } from '../config/env.js';
 import { hasPermission } from '../core/roles.js';
 import { ReturnRequest, Dispute, Order, SellerReturnCase, EvidenceDocument, User, Notification,
-  SupportTicket, Warehouse, WarehouseTask, StockItem, Shipment, Refund, PlatformGrant, CountrySetting } from '../models/index.js';
+  SupportTicket, Warehouse, WarehouseTask, StockItem, Shipment, Refund, PlatformGrant, CountrySetting , SellerOrder } from '../models/index.js';
 import { supportAccess, fenceSupportAccess, assertSupportReadAccess, supportPublicContext } from './support-workspace-access.js';
 import { decideReturn, inspectReturn, markReturnReceived, createExchangeReplacement } from './trust.js';
 import { createWarehouseTask } from './logistics.js';
@@ -16,6 +17,11 @@ import { writeAudit } from './audit.js';
 import { queueFinanceAlert } from './finance-notifications.js';
 import { sanitizeAndStoreEvidenceImage } from './media.js';
 import { queueSupportAlert } from './support-notifications.js';
+import { assertWarehouseAccess } from './warehouse-operations.js';
+import { SpecialistReferral } from '../models/SpecialistReferral.js';
+import { createSpecialistReferral, supportSpecialistHistory } from './specialist-order-cases.js';
+import { assertAcceptedReturnRefundSource, hasVerifiedOrderRefund, returnPickupReceipt } from './return-resolution-source.js';
+import { currentCustomerAccess } from './customer-access.js';
 
 const id = z.string().trim().regex(/^[a-z][a-z0-9_-]{4,99}$/, 'Choose a valid case record.');
 const version = z.union([z.number(), z.string().regex(/^\d+$/)]).pipe(z.coerce.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER));
@@ -50,6 +56,7 @@ function returnDto(row, currency, selected=false) {
     returnMethod:row.returnMethod,amountMinor:(row.items||[]).reduce((sum,item)=>sum+Number(item.requestedRefundMinor||0),0),createdAt:row.createdAt,eligibleUntil:row.eligibleUntil,version:Number(row.__v||0)};
   if(!selected)return dto;
   return {...dto,details:row.details,policyVersion:row.policyVersion,refundPublicId:row.refundPublicId||'',replacementOrderPublicId:row.replacementOrderPublicId||'',returnShipmentPublicId:row.returnShipmentPublicId||'',
+    resolutionChange:row.resolutionChange?.publicId?{publicId:row.resolutionChange.publicId,status:row.resolutionChange.status,reason:row.resolutionChange.reason,amountMinor:row.resolutionChange.amountMinor,currency:row.resolutionChange.currency,expiresAt:row.resolutionChange.expiresAt}:null,
     inspection:row.inspection?{condition:row.inspection.condition,notes:row.inspection.notes,inspectedAt:row.inspection.inspectedAt}:null,
     financeReferral:row.financeReferral?.requestedAt?{requestedAt:row.financeReferral.requestedAt,note:row.financeReferral.note}:null,
     items:(row.items||[]).map(item=>({orderLineId:item.orderLineId,title:item.title,sku:item.sku,quantity:item.quantity,requestedRefundMinor:item.requestedRefundMinor,
@@ -80,6 +87,10 @@ export async function loadSupportCasePage(request,pageId) {
   const query={country:context.country,search:filter.search,status:filter.status};let selected=null;
   if(filter.record){const [doc]=await Model.aggregate([...all,{$match:{publicId:filter.record}},{$limit:1}]);if(!doc)throw new AppError('Case record not found.',404,'SUPPORT_CASE_NOT_FOUND');
     selected=returns?returnDto(doc,doc.order.totals.currency,true):await disputeDto(doc,context.actor,true);selected.evidence=await evidenceFor(doc,returns?'return':'dispute');
+    if(!returns){
+      selected.specialistReferrals=await supportSpecialistHistory(doc);
+      selected.orderStores=[...new Set(doc.order.items.map(item=>item.storePublicId))].filter(Boolean).map(value=>({publicId:value}));
+    }
     if(returns){
       selected.sellerCases=await SellerReturnCase.find({returnRequestId:doc._id,country:doc.country,orderPublicId:doc.orderPublicId}).select('publicId storePublicId status responseMessage evidenceDocumentIds').lean();
       selected.sellerCases=await Promise.all(selected.sellerCases.map(async row=>({publicId:row.publicId,storePublicId:row.storePublicId,status:row.status,responseMessage:row.responseMessage||'',evidence:await evidenceFor({...row,country:doc.country},'seller_return')})));
@@ -156,12 +167,16 @@ export async function returnFinancialAllocations({returnRequest:row,order,sessio
     const warehouse=task?await Warehouse.exists({_id:task.warehouseId,country:row.country,storeId:item.storeId}).session(session):null;
     if(seen.has(item.orderLineId)||!original||!same(original.storeId,item.storeId)||original.storePublicId!==item.storePublicId||!same(original.productId,item.productId)||!same(original.variantId,item.variantId)||original.productPublicId!==item.productPublicId||original.returnedQuantity<item.quantity||!warehouse||item.warehouseInspectionStatus!=='completed'||item.inspectedQuantity!==item.quantity||!item.warehouseInspectedAt||!item.warehouseInspectedByUserId||task.result?.disposition!==item.stockDisposition||!Number.isSafeInteger(item.requestedRefundMinor)||item.requestedRefundMinor<0)throw new AppError('Finance refund lines must match completed exact warehouse inspections and received order goods.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
     if(row.returnMethod==='dropoff'&&!await EvidenceDocument.exists({publicId:item.intakeEvidencePublicId,country:row.country,contextType:'return',contextPublicId:row.publicId,contextLinePublicId:item.orderLineId,documentType:'return_receipt',status:'ready',ownerUserId:item.intakeReceivedByUserId}).session(session))throw new AppError('Recorded drop-off receipt evidence is unavailable.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
+    const sellerOrder=await SellerOrder.findOne({orderId:order._id,storePublicId:item.storePublicId}).session(session).lean(),settlement=sellerOrder?.items?.find(line=>line.orderLineId===item.orderLineId);
+    if(Number(settlement?.platformContributionMinor||0)>0){const frozen=item.financeAllocation,slice=frozen&&refundSettlementSlice(settlement,Number(frozen.sourceCashOffsetMinor),item.requestedRefundMinor);if(!frozen||frozen.sourceHash!==sellerLineFinancialHash(settlement)||['grossMinor','platformContributionMinor','platformFeeMinor','sellerReceivableMinor'].some(field=>Number(frozen[field])!==slice[field]))throw new AppError('Funded return financial snapshot is missing or invalid.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');}
     seen.add(item.orderLineId);amountMinor+=item.requestedRefundMinor;if(!Number.isSafeInteger(amountMinor)||amountMinor>2_000_000_000)throw new AppError('Return financial amount is invalid.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
     if(item.requestedRefundMinor>0)allocations.push({storePublicId:item.storePublicId,productPublicId:item.productPublicId,orderLineId:item.orderLineId,grossMinor:item.requestedRefundMinor});
   }
-  if(row.returnMethod==='pickup'&&!await Shipment.exists({publicId:row.returnShipmentPublicId,returnRequestId:row._id,orderId:order._id,country:row.country,kind:'return',status:'delivered',deliveredAt:mongoose.trusted({$type:'date'}),'proof.reference':'verified'}).session(session))throw new AppError('Verified return delivery is unavailable.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
+  if(row.returnMethod==='pickup')await returnPickupReceipt(row,order,{session});
   if(!allocations.length||amountMinor<=0)throw new AppError('No paid returned goods are available for refund.',409,'RETURN_FINANCE_SNAPSHOT_INVALID');
-  return {amountMinor,allocations};
+  const financial={amountMinor,allocations};
+  await assertAcceptedReturnRefundSource(row,order,financial,{session});
+  return financial;
 }
 export async function referSupportReturnToFinance(request,caseId,body) {
   const parsed=z.object({version,note:z.string().trim().min(10).max(500)}).parse(body);
@@ -178,7 +193,10 @@ async function disputeMutation(request,caseId,parsed,operation) {
   return transact(request,async(context,session)=>{const {row,order}=await caseRecord(Dispute,context,caseId,session);checkVersion(row,parsed.version);
     if(closed.includes(row.status))throw new AppError('This case is finalized. A requester appeal is required to reopen it.',409,'DISPUTE_STATE');
     if(row.events.length>=998)throw new AppError('This case reached its conversation limit. Contact a supervisor for its next step.',409,'DISPUTE_THREAD_LIMIT');
-    await fenceSupportAccess(context,session);await operation(context,row,order,session);row.increment();await row.save({session});return {publicId:row.publicId,status:row.status,version:row.__v};});
+    await fenceSupportAccess(context,session);
+    const orderFence=await Order.updateOne({_id:order._id,__v:order.__v||0,userId:row.userId,country:row.country},{$inc:{__v:1}},{session});if(orderFence.modifiedCount!==1)throw conflict();
+    order.__v=Number(order.__v||0)+1;
+    await operation(context,row,order,session);row.increment();await row.save({session});return {publicId:row.publicId,status:row.status,version:row.__v};});
 }
 function assertIndependentAppealReviewer(row,actorId) {
   const appeal=(row.events||[]).filter(event=>event.type==='dispute.appealed').at(-1);
@@ -213,13 +231,14 @@ export async function reviewSupportDispute(request,caseId,body) {
   });
 }
 export async function escalateSupportDispute(request,caseId,body) {
-  const parsed=z.object({version,department:z.enum(['finance','delivery','moderation','seller','support']),reason:z.string().trim().min(20).max(1000),message:z.string().trim().min(10).max(1000)}).parse(body);
+  const parsed=z.object({version,department:z.enum(['finance','delivery','moderation','seller','support']),reason:z.string().trim().min(20).max(1000),message:z.string().trim().min(10).max(1000),storePublicId:id.optional(),sellerMessage:z.string().trim().max(1000).optional()}).parse(body);
   return disputeMutation(request,caseId,parsed,async(context,row,order,session)=>{assignedToActor(context,row);if(!row.review?.reviewedAt)throw new AppError('Record the case review before a departmental handoff.',409,'DISPUTE_REVIEW_REQUIRED');
     if(row.escalation?.department===parsed.department&&row.escalation?.referralTicketPublicId)throw new AppError('This departmental handoff is already recorded.',409,'DISPUTE_ALREADY_ESCALATED');
     const [ticket]=await SupportTicket.create([{publicId:publicId('tkt'),userId:row.userId,orderId:order._id,orderPublicId:order.publicId,country:row.country,category:parsed.department==='finance'?'payment':parsed.department==='delivery'?'delivery':parsed.department==='seller'||parsed.department==='moderation'?'seller':'other',
       subject:`Order case ${row.publicId}`.slice(0,180),priority:row.priority,queue:parsed.department==='finance'?'payments':parsed.department==='delivery'?'delivery':parsed.department==='seller'||parsed.department==='moderation'?'seller':'general',status:'escalated',
       createdByUserId:context.actor._id,source:'staff',slaDueAt:new Date(Date.now()+(row.priority==='urgent'?4:row.priority==='high'?12:48)*3600_000),notes:[{message:parsed.reason,internal:true,actorUserId:context.actor._id}],workflowHistory:[{action:'created',actorUserId:context.actor._id,toStatus:'escalated',note:`Saved ${parsed.department} referral for ${row.publicId}.`}]}],{session});
     row.status='investigating';row.escalation={department:parsed.department,reason:parsed.reason,escalatedAt:new Date(),escalatedByUserId:context.actor._id,referralTicketPublicId:ticket.publicId};
+    await createSpecialistReferral(request,context,row,order,ticket,parsed,session);
     row.events.push({type:'dispute.escalated',message:`Saved ${parsed.department} referral ${ticket.publicId}.`,visibility:'internal',actorUserId:context.actor._id});
     await queueSupportAlert({country:row.country,kind:'escalation',href:'/support/escalations?record='+encodeURIComponent(row.publicId)},session);
     if(parsed.department==='finance')await queueFinanceAlert({country:row.country,kind:'escalation',href:'/finance/payments?search='+encodeURIComponent(row.orderPublicId)+'&country='+row.country},session);
@@ -229,7 +248,8 @@ export async function escalateSupportDispute(request,caseId,body) {
 export async function resolveSupportDispute(request,caseId,body) {
   const parsed=z.object({version,decision:z.enum(['customer_service','no_action','refund_confirmed','exchange_confirmed']),summary:z.string().trim().min(20).max(1000)}).parse(body);
   return disputeMutation(request,caseId,parsed,async(context,row,order,session)=>{assignedToActor(context,row);if(!row.review?.reviewedAt)throw new AppError('Record a review before resolving this case.',409,'DISPUTE_REVIEW_REQUIRED');
-    if(parsed.decision==='refund_confirmed'&&!await Refund.exists({orderId:order._id,currency:order.totals.currency,status:'completed',completedAt:mongoose.trusted({$type:'date'})}).session(session))throw new AppError('Finance has not confirmed a completed refund for this order.',409,'DISPUTE_REFUND_UNCONFIRMED');
+    if(await SpecialistReferral.exists({disputeId:row._id,status:{$in:['pending','claimed']}}).session(session))throw new AppError('Read the specialist response before resolving this referred case.',409,'DISPUTE_SPECIALIST_RESPONSE_REQUIRED');
+    if(parsed.decision==='refund_confirmed'&&!await hasVerifiedOrderRefund(order,session))throw new AppError('Finance has not confirmed a refund with matching original-payment accounting for this order.',409,'DISPUTE_REFUND_UNCONFIRMED');
     if(parsed.decision==='exchange_confirmed'&&!await ReturnRequest.exists({orderId:order._id,country:row.country,status:'exchanged',replacementOrderPublicId:mongoose.trusted({$type:'string',$ne:''})}).session(session))throw new AppError('No committed exchange replacement is recorded for this order.',409,'DISPUTE_EXCHANGE_UNCONFIRMED');
     row.status=parsed.decision==='no_action'?'rejected':'resolved';row.resolvedAt=new Date();row.resolution={decision:parsed.decision,summary:parsed.summary,resolvedByUserId:context.actor._id,resolvedAt:row.resolvedAt};
     await customerMessage(context,row,parsed.summary,session);await disputeAudit(request,context,row,'support.dispute_resolved',session);
@@ -239,8 +259,7 @@ export async function resolveSupportDispute(request,caseId,body) {
 export async function replyToOwnedDispute(request,caseId,body) {
   const parsed=z.object({version,message:z.string().trim().min(10).max(1000)}).parse(body),session=await mongoose.startSession();let result;
   try{await session.withTransaction(async()=>{
-    const actor=await User.findById(request.user?._id).session(session);
-    if(!actor||actor.status!=='active'||actor.security.tokenVersion!==request.user?.security?.tokenVersion||request.session?.tokenVersion!==undefined&&actor.security.tokenVersion!==request.session.tokenVersion||!env.auth.simpleLogin&&(!actor.emailVerifiedAt||!actor.onboardingCompletedAt))throw new AppError('Your verified account or session is unavailable.',403,'ACCOUNT_UNAVAILABLE');
+    const actor=await currentCustomerAccess(request,{session,write:true});
     const row=await Dispute.findOne({publicId:id.parse(caseId),userId:actor._id}).session(session);if(!row)throw new AppError('Order case not found.',404,'DISPUTE_NOT_FOUND');checkVersion(row,parsed.version);
     if(closed.includes(row.status))throw new AppError('Appeal the completed decision before adding an investigation reply.',409,'DISPUTE_STATE');
     if(row.events.length>=1000)throw new AppError('This case reached its message limit. Contact Support for the next step.',409,'DISPUTE_THREAD_LIMIT');
@@ -248,7 +267,6 @@ export async function replyToOwnedDispute(request,caseId,body) {
     const market=await CountrySetting.findOne({code:row.country,active:true,currency:order.totals.currency}).session(session).lean();if(!market)throw new AppError('The original case market is unavailable.',409,'SUPPORT_MARKET_UNAVAILABLE');
     const marketFence=await CountrySetting.updateOne({_id:market._id,active:true,__v:market.__v||0,currency:market.currency,timeZone:market.timeZone},{$inc:{__v:1}},{session});if(marketFence.modifiedCount!==1)throw new AppError('The case market changed. Reload before replying.',409,'SUPPORT_MARKET_CHANGED');
     const orderFence=await Order.updateOne({_id:order._id,userId:actor._id,country:row.country,__v:order.__v||0},{$inc:{__v:1}},{session});if(orderFence.modifiedCount!==1)throw new AppError('The original order changed. Reload before replying.',409,'SUPPORT_CASE_ORDER_CHANGED');
-    const fenced=await User.updateOne({_id:actor._id,status:'active',__v:actor.__v||0,'security.tokenVersion':actor.security.tokenVersion},{$inc:{__v:1}},{session});if(fenced.modifiedCount!==1)throw new AppError('Your account changed. Reload before replying.',409,'ACCOUNT_UNAVAILABLE');
     row.events.push({type:'dispute.customer_reply',message:parsed.message,visibility:'customer',actorUserId:actor._id});if(row.status==='awaiting_customer')row.status='investigating';row.increment();await row.save({session});
     await queueSupportAlert({country:row.country,kind:'priority',href:'/support/escalations?record='+encodeURIComponent(row.publicId)},session);
     await writeAudit(request,'customer.dispute_reply',{actor,targetType:'dispute',targetPublicId:row.publicId,country:row.country,session});
@@ -258,28 +276,7 @@ export async function replyToOwnedDispute(request,caseId,body) {
 
 /** Physical drop-off receipt is recorded by the receiving warehouse, never inferred by Support. */
 async function warehouseIntakeAccess(request,{session=null,mutation=false}={}) {
-  if(!request.user?._id)throw new AppError('Warehouse authentication is required.',401,'UNAUTHENTICATED');
-  const actor=await User.findById(request.user._id).select('+operationalCountries').session(session);
-  if(!actor||actor.status!=='active'||actor.security.tokenVersion!==request.user.security?.tokenVersion||request.session?.tokenVersion!==undefined&&request.session.tokenVersion!==actor.security.tokenVersion)throw new AppError('Your warehouse account or session is unavailable.',403,'ACCOUNT_UNAVAILABLE');
-  const storedRole=actor.role,now=new Date();let grant=null;
-  if(actor.platformAccessManagedAt){const grants=await PlatformGrant.find({userId:actor._id,status:'active',startsAt:mongoose.trusted({$lte:now}),expiresAt:mongoose.trusted({$gt:now})}).limit(2).session(session).lean();
-    if(grants.length!==1)throw new AppError('Current warehouse authorization is unavailable.',403,'WAREHOUSE_PERMISSION_DENIED');grant=grants[0];
-    Object.defineProperty(actor,'authorizationContext',{value:{platformManaged:true,activePlatformGrants:[grant]},configurable:true});actor.role=grant.role;actor.operationalCountries=[...grant.operationalCountries];}
-  if(!['warehouse','country_admin','super_admin'].includes(actor.role)&&!hasPermission(actor,'warehouse:manage'))throw new AppError('Only an authorized receiving warehouse can record physical intake.',403,'WAREHOUSE_PERMISSION_DENIED');
-  if(!env.auth.simpleLogin&&(!actor.emailVerifiedAt||!actor.onboardingCompletedAt||env.security.privilegedMfaRequired&&!actor.security.mfaEnabled))throw new AppError('Complete verification, onboarding and required authenticator enrollment before warehouse receipt.',403,'ACCOUNT_UNAVAILABLE');
-  const codes=grant?.operationalCountries|| (actor.role==='super_admin'?['*']:actor.operationalCountries?.length?actor.operationalCountries:[actor.country]);
-  if(!codes.length||codes.some(code=>code!=='*'&&!/^[A-Z]{2}$/.test(code))||codes.includes('*')&&actor.role!=='super_admin')throw new AppError('Warehouse country authorization is unavailable.',403,'WAREHOUSE_PERMISSION_DENIED');
-  const countries=await CountrySetting.find({active:true,...(codes.includes('*')?{}:{code:mongoose.trusted({$in:codes})})}).select('code currency timeZone __v').session(session).lean();
-  if(!countries.length)throw new AppError('Warehouse markets are unavailable.',409,'WAREHOUSE_COUNTRY_UNAVAILABLE');
-  const warehouseScopes=grant?.warehouseScopes||actor.roleProfile?.warehouseScopes||[];
-  const scope={active:true,country:mongoose.trusted({$in:countries.map(country=>country.code)}),...(warehouseScopes.length?{publicId:mongoose.trusted({$in:warehouseScopes})}:{})};
-  if(mutation){
-    if(!session?.inTransaction())throw new AppError('Return intake requires a transaction.',500,'WAREHOUSE_TRANSACTION_REQUIRED');
-    const account=await User.updateOne({_id:actor._id,status:'active',role:storedRole,__v:actor.__v||0,'security.tokenVersion':actor.security.tokenVersion},{$inc:{__v:1}},{session});if(account.modifiedCount!==1)throw new AppError('Warehouse authorization changed. Reload before receipt.',409,'WAREHOUSE_ACCESS_CHANGED');
-    if(grant){const claimed=await PlatformGrant.updateOne({_id:grant._id,__v:grant.__v||0,status:'active',role:grant.role,startsAt:mongoose.trusted({$lte:now}),expiresAt:mongoose.trusted({$gt:now})},{$inc:{__v:1}},{session});if(claimed.modifiedCount!==1)throw new AppError('Warehouse authorization changed. Reload before receipt.',409,'WAREHOUSE_ACCESS_CHANGED');}
-    for(const country of countries){const claimed=await CountrySetting.updateOne({_id:country._id,active:true,__v:country.__v||0,currency:country.currency,timeZone:country.timeZone},{$inc:{__v:1}},{session});if(claimed.modifiedCount!==1)throw new AppError('Warehouse market configuration changed.',409,'WAREHOUSE_ACCESS_CHANGED');}
-  }
-  return {actor,scope,countries,grant};
+  return assertWarehouseAccess(request,{session,mutation});
 }
 export async function warehouseReturnReceiptEvidenceRecord(request,evidenceId) {
   const access=await warehouseIntakeAccess(request);

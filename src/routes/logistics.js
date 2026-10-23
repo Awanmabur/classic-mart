@@ -1,79 +1,72 @@
+import mongoose from 'mongoose';
 import { Router } from 'express';
-import { routeForPage } from '../dashboard/registry.js';
+import { z } from 'zod';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
-import { DeliveryException, DeliveryOffer, DeliveryProfile, EvidenceDocument, OperationAction, Order, ReconciliationRun, Shipment, ShippingZone } from '../models/index.js';
-import { requireAuth, requireOnboarding, requirePermission, requireVerified } from '../middleware/auth.js';
+import { DeliveryProfile, Shipment, ShippingZone } from '../models/index.js';
+import { requireAuth, requireOnboarding, requireVerified } from '../middleware/auth.js';
 import { noStore } from '../middleware/request.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
+import rateLimit from '../middleware/rate-limit.js';
 import { setFlash } from '../middleware/view.js';
 import { dashboardLanding } from '../dashboard/landing.js';
+import { primaryWorkspaceFor } from '../dashboard/access.js';
 import { writeAudit } from '../services/audit.js';
-import { acceptDeliveryOffer, ensureShipmentForOrder, offerShipment, recordCodHandover, reconcileCod, reconcileCodBatch, resolveDeliveryException, transitionShipment } from '../services/logistics.js';
-import { sanitizeAndStoreEvidenceImage, uploadVerificationImage } from '../services/media.js';
-import { assertOperationalCountry, operationalCountryScope } from '../services/authorization.js';
-import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
+import { reconcileCod, reconcileCodBatch } from '../services/logistics.js';
+import { countryAdminAccess } from '../services/country-admin-workspace-access.js';
+import { financeAccess } from '../services/finance-workspace-access.js';
+import { createWarehouseShipment } from '../services/delivery-workspace.js';
 
-const router=Router();
-function countryScope(request){return operationalCountryScope(request.user,'country');}
-router.use('/delivery',noStore,requireAuth,requireVerified,requireOnboarding,requirePermission('delivery:manage'));
-router.use('/operations/logistics',noStore,requireAuth,requireVerified,requireOnboarding,(req,res,next)=>{
- if(['super_admin','country_admin','warehouse','finance'].includes(req.user.role)) return next();
- return next(new AppError('Logistics operations permission required.',403,'FORBIDDEN'));
+const router = Router();
+const mutationLimit = rateLimit({ scope: 'logistics:write', windowMs: 15 * 60_000, limit: 100, standardHeaders: 'draft-8', legacyHeaders: false });
+router.use('/operations/logistics', noStore, requireAuth, requireVerified, requireOnboarding, mutationLimit);
+// Carrier custody and Warehouse reviews have one implementation in delivery.js.
+// Retain only operational shipment repair, market configuration and Finance
+// reconciliation. Every write rebuilds current database authority.
+router.post('/operations/logistics/orders/:publicId/shipment', asyncHandler(async (request, response) => {
+  verifyDeferredCsrf(request);
+  await createWarehouseShipment(request);
+  response.redirect(303, '/warehouse/deliveries');
+}));
+const zoneInput = z.object({
+  country: z.string().trim().regex(/^[A-Z]{2}$/), currency: z.string().trim().regex(/^[A-Z]{3}$/), name: z.string().trim().min(2).max(120),
+  cities: z.string().trim().min(2).max(1800).transform(value => [...new Set(value.split(',').map(city => city.trim()).filter(Boolean))])
+    .refine(value => value.length > 0 && value.length <= 30 && value.every(city => city.length <= 60), 'Choose up to 30 cities.'),
+  standardFeeMinor: z.coerce.number().int().min(0).max(2_000_000_000), expressFeeMinor: z.coerce.number().int().min(0).max(2_000_000_000),
+  standardSlaHours: z.coerce.number().int().min(1).max(720).default(120), expressSlaHours: z.coerce.number().int().min(1).max(720).default(48),
 });
-const adminLogisticsOnly=(req,_res,next)=>['super_admin','country_admin'].includes(req.user.role)?next():next(new AppError('Country logistics administration permission required.',403,'FORBIDDEN'));
-const warehouseOpsOnly=(req,_res,next)=>['super_admin','country_admin','warehouse'].includes(req.user.role)?next():next(new AppError('Warehouse operations permission required.',403,'FORBIDDEN'));
-const financeLogisticsOnly=(req,_res,next)=>['super_admin','country_admin','finance'].includes(req.user.role)?next():next(new AppError('Finance reconciliation permission required.',403,'FORBIDDEN'));
-function upload(middleware){return(req,res,next)=>middleware(req,res,error=>{if(error)return next(error);try{verifyDeferredCsrf(req);return next();}catch(csrfError){return next(csrfError);}});}
-function maskPhone(value){const clean=String(value||'').replace(/\s+/g,'');if(clean.length<=4)return '••••';return `${'•'.repeat(Math.min(8,Math.max(4,clean.length-4)))}${clean.slice(-4)}`;}
-function navigationUrl(contact){const query=[contact?.address,contact?.city,contact?.country].filter(Boolean).join(', ');return query?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`:'';}
-router.get('/delivery', (_request, response) => response.redirect(routeForPage('warehouse-overview')));
-router.post('/delivery/profile',asyncHandler(async(req,res)=>{
- const transport=String(req.body.transport||''); if(!['bicycle','motorcycle','car','van','truck','other'].includes(transport))throw new AppError('Choose a valid transport mode.',422,'TRANSPORT_INVALID');
- const areas=String(req.body.serviceAreas||'').split(',').map(v=>v.trim()).filter(Boolean).slice(0,30);const profile=await DeliveryProfile.findOne({userId:req.user._id});if(!profile)throw new AppError('Delivery profile not found.',404,'DELIVERY_NOT_FOUND');
- profile.transport=transport;profile.vehicleLabel=String(req.body.vehicleLabel||'').trim().slice(0,120);profile.serviceAreas=areas;profile.available=false;profile.verificationStatus='draft';
- if(String(req.body.action||'save')==='submit'){const evidence=await EvidenceDocument.find({contextType:'delivery_verification',contextPublicId:profile.publicId,status:'ready'}).select('documentType').lean();const types=new Set(evidence.map(doc=>doc.documentType));if(!types.has('identity'))throw new AppError('Upload an identity verification image before submitting.',422,'DELIVERY_IDENTITY_REQUIRED');if(transport!=='bicycle'&&!types.has('vehicle')&&!types.has('permit'))throw new AppError('Upload a vehicle or driving-permit verification image before submitting.',422,'DELIVERY_VEHICLE_DOCUMENT_REQUIRED');profile.verificationStatus='submitted';profile.reviewReason='';}
- await profile.save();setFlash(req,'success',profile.verificationStatus==='submitted'?'Delivery profile submitted for verification.':'Delivery profile saved.'); res.redirect('/delivery');
+router.post('/operations/logistics/zones', asyncHandler(async (request, response) => {
+  verifyDeferredCsrf(request);
+  const input = zoneInput.parse(request.body), session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const access = await countryAdminAccess(request, { session, write: true, workspace: false, country: input.country });
+      if (access.market?.currency !== input.currency) throw new AppError('Choose the configured market currency.', 422, 'DELIVERY_CURRENCY_INVALID');
+      const [zone] = await ShippingZone.create([{ publicId: publicId('zon'), ...input }], { session });
+      await writeAudit(request, 'logistics.shipping_zone_created', { actor: access.actor, targetType: 'shipping_zone', targetPublicId: zone.publicId, country: input.country, session });
+    });
+  } finally { await session.endSession(); }
+  response.redirect(303, dashboardLanding(request.user));
 }));
-router.post('/delivery/profile/evidence',upload(uploadVerificationImage),asyncHandler(async(req,res)=>{const profile=await DeliveryProfile.findOne({userId:req.user._id});if(!profile)throw new AppError('Delivery profile not found.',404,'DELIVERY_NOT_FOUND');const documentType=String(req.body.documentType||'');if(!['identity','vehicle','permit'].includes(documentType))throw new AppError('Choose a valid verification document type.',422,'DELIVERY_DOCUMENT_TYPE_INVALID');await sanitizeAndStoreEvidenceImage({file:req.file,user:req.user,country:profile.country,contextType:'delivery_verification',contextPublicId:profile.publicId,documentType,description:String(req.body.description||documentType).slice(0,300)});if(profile.verificationStatus!=='approved')profile.verificationStatus='draft';profile.available=false;await profile.save();setFlash(req,'success','Verification image uploaded securely.');res.redirect('/delivery');}));
-router.post('/delivery/availability',asyncHandler(async(req,res)=>{
- const profile=await DeliveryProfile.findOne({userId:req.user._id}); if(!profile||profile.verificationStatus!=='approved')throw new AppError('Approved delivery verification is required.',409,'DELIVERY_NOT_APPROVED'); profile.available=String(req.body.available)==='true';await profile.save();res.redirect('/delivery');
+function financeRequest(request) { request.requiredOperationalWorkspace = primaryWorkspaceFor(request.user); }
+router.post('/operations/logistics/shipments/:publicId/reconcile-cod', asyncHandler(async (request, response) => {
+  verifyDeferredCsrf(request); financeRequest(request);
+  const shipment = await Shipment.findOne({ publicId: request.params.publicId });
+  if (!shipment) throw new AppError('Shipment not found.', 404, 'SHIPMENT_NOT_FOUND');
+  await reconcileCod({ shipment, request });
+  response.redirect(303, dashboardLanding(request.user));
 }));
-router.post('/delivery/offers/:publicId/accept',asyncHandler(async(req,res)=>{
- const profile=await DeliveryProfile.findOne({userId:req.user._id,verificationStatus:'approved',available:true});if(!profile)throw new AppError('You must be approved and available.',409,'DELIVERY_NOT_AVAILABLE');
- const offer=await DeliveryOffer.findOne({publicId:req.params.publicId,deliveryUserId:req.user._id,country:profile.country,status:'offered'});if(!offer)throw new AppError('Delivery offer not found.',404,'OFFER_NOT_FOUND');
- const shipment=await acceptDeliveryOffer({offer,actorUserId:req.user._id});await writeAudit(req,'delivery.assignment_accepted',{targetType:'shipment',targetPublicId:shipment.publicId});res.redirect('/delivery');
+router.post('/operations/logistics/cod-reconciliation', asyncHandler(async (request, response) => {
+  verifyDeferredCsrf(request); financeRequest(request);
+  const input = z.object({ deliveryProfileId: z.string().trim().min(5).max(100), businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    country: z.string().regex(/^[A-Z]{2}$/).optional(), currency: z.string().regex(/^[A-Z]{3}$/), declaredAmountMinor: z.coerce.number().int().nonnegative().safe() }).parse(request.body);
+  const profile = await DeliveryProfile.findOne({ publicId: input.deliveryProfileId, verificationStatus: 'approved' });
+  if (!profile) throw new AppError('Approved delivery partner not found.', 404, 'DELIVERY_NOT_FOUND');
+  if (input.country && input.country !== profile.country) throw new AppError('Select the delivery partner’s market.', 422, 'COD_CURRENCY_INVALID');
+  await financeAccess(request, { workspace: false, country: profile.country });
+  await reconcileCodBatch({ country: profile.country, deliveryUserId: profile.userId, businessDate: input.businessDate,
+    currency: input.currency, declaredAmountMinor: input.declaredAmountMinor, request });
+  setFlash(request, 'success', 'Driver/day COD batch reconciled to the ledger.');
+  response.redirect(303, dashboardLanding(request.user));
 }));
-
-router.post('/delivery/jobs/:publicId/evidence',upload(uploadVerificationImage),asyncHandler(async(req,res)=>{
- const profile=await DeliveryProfile.findOne({userId:req.user._id}).select('country').lean();if(!profile)throw new AppError('Delivery profile not found.',404,'DELIVERY_NOT_FOUND');const shipment=await Shipment.findOne({publicId:req.params.publicId,deliveryUserId:req.user._id,country:profile.country});if(!shipment)throw new AppError('Assigned shipment not found.',404,'SHIPMENT_NOT_FOUND');
- const documentType=String(req.body.documentType||'');if(!['delivery_photo','delivery_signature','failed_attempt','address_exception'].includes(documentType))throw new AppError('Choose a valid delivery evidence type.',422,'DELIVERY_EVIDENCE_TYPE_INVALID');const evidence=await sanitizeAndStoreEvidenceImage({file:req.file,user:req.user,country:shipment.country,contextType:'delivery_job',contextPublicId:shipment.publicId,documentType,description:String(req.body.description||documentType).slice(0,300)});if(['failed_attempt','address_exception'].includes(documentType)){const type=documentType==='address_exception'?'address_exception':'failed_delivery';await DeliveryException.findOneAndUpdate({shipmentId:shipment._id,type,status:{$in:['open','investigating']}},{$addToSet:{evidenceDocumentIds:evidence._id},$push:{timeline:{type:'evidence_added',message:'Delivery partner added photo evidence.',actorUserId:req.user._id}}},{sort:{createdAt:-1}});}await writeAudit(req,'delivery.evidence_uploaded',{targetType:'shipment',targetPublicId:shipment.publicId,country:shipment.country,metadata:{evidencePublicId:evidence.publicId,documentType}});setFlash(req,'success','Delivery evidence uploaded securely.');res.redirect('/delivery');
-}));
-router.post('/delivery/jobs/:publicId/cod-handover',upload(uploadVerificationImage),asyncHandler(async(req,res)=>{
- const declaredAmountMinor=Number(req.body.declaredAmountMinor);if(!Number.isSafeInteger(declaredAmountMinor)||declaredAmountMinor<0)throw new AppError('COD handover amount must be a non-negative whole minor-unit amount.',422,'COD_HANDOVER_AMOUNT_INVALID');
- const profile=await DeliveryProfile.findOne({userId:req.user._id}).select('country').lean();if(!profile)throw new AppError('Delivery profile not found.',404,'DELIVERY_NOT_FOUND');const shipment=await Shipment.findOne({publicId:req.params.publicId,deliveryUserId:req.user._id,country:profile.country});if(!shipment)throw new AppError('Assigned shipment not found.',404,'SHIPMENT_NOT_FOUND');const evidence=await sanitizeAndStoreEvidenceImage({file:req.file,user:req.user,country:shipment.country,contextType:'delivery_job',contextPublicId:shipment.publicId,documentType:'cod_handover',description:'COD cash handover receipt'});const outcome=await recordCodHandover({shipment,actorUserId:req.user._id,declaredAmountMinor,evidenceDocumentId:evidence._id});await writeAudit(req,outcome.mismatch?'delivery.cod_handover_mismatch':'delivery.cod_handover_recorded',{targetType:'shipment',targetPublicId:shipment.publicId,country:shipment.country,metadata:{declaredAmountMinor,evidencePublicId:evidence.publicId,exceptionPublicId:outcome.exception?.publicId||''}});setFlash(req,outcome.mismatch?(outcome.corrected?'success':'error'):'success',outcome.mismatch?(outcome.corrected?'COD handover corrected. A supervisor must close the existing mismatch case before finance reconciliation.':'COD amount mismatch recorded and escalated for investigation. Do not hand over or retry money outside the reconciliation workflow.'):'COD handover receipt recorded. Finance can now reconcile this shipment.');res.redirect('/delivery');
-}));
-for(const action of ['picked_up','in_transit','delivered','failed','rescheduled','return_to_sender','returned']){
- router.post(`/delivery/jobs/:publicId/${action}`,asyncHandler(async(req,res)=>{const profile=await DeliveryProfile.findOne({userId:req.user._id}).select('country').lean();if(!profile)throw new AppError('Delivery profile not found.',404,'DELIVERY_NOT_FOUND');const shipment=await Shipment.findOne({publicId:req.params.publicId,deliveryUserId:req.user._id,country:profile.country}).select('+pickupCodeHash +deliveryCodeHash');if(!shipment)throw new AppError('Assigned shipment not found.',404,'SHIPMENT_NOT_FOUND');await transitionShipment({shipment,nextStatus:action,actorUserId:req.user._id,proofCode:String(req.body.proofCode||''),reason:String(req.body.reason||''),reasonCode:String(req.body.reasonCode||'other'),rescheduledFor:req.body.rescheduledFor});res.redirect('/delivery');}));
-}
-
-router.post('/operations/logistics/delivery/:publicId/review',adminLogisticsOnly,asyncHandler(async(req,res)=>{const profile=await DeliveryProfile.findOne({publicId:req.params.publicId,...countryScope(req),verificationStatus:'submitted'});if(!profile)throw new AppError('Submitted delivery profile not found.',404,'DELIVERY_NOT_FOUND');const decision=String(req.body.decision||'');if(!['approve','reject'].includes(decision))throw new AppError('Choose approve or reject.',422,'DELIVERY_REVIEW_INVALID');if(decision==='approve'){const evidence=await EvidenceDocument.find({contextType:'delivery_verification',contextPublicId:profile.publicId,status:'ready'}).select('documentType').lean();const types=new Set(evidence.map(doc=>doc.documentType));if(!types.has('identity'))throw new AppError('Identity evidence is required before approval.',409,'DELIVERY_IDENTITY_REQUIRED');if(profile.transport!=='bicycle'&&!types.has('vehicle')&&!types.has('permit'))throw new AppError('Vehicle or permit evidence is required before approval.',409,'DELIVERY_VEHICLE_DOCUMENT_REQUIRED');}profile.verificationStatus=decision==='approve'?'approved':'rejected';profile.codEnabled=decision==='approve'&&String(req.body.codEnabled)==='true';profile.reviewReason=String(req.body.reason||'').trim().slice(0,500);if(decision==='reject'&&!profile.reviewReason)throw new AppError('A rejection reason is required.',422,'DELIVERY_REVIEW_REASON_REQUIRED');profile.approvedAt=decision==='approve'?new Date():undefined;profile.reviewedAt=new Date();profile.reviewedByUserId=req.user._id;profile.available=false;await profile.save();await writeAudit(req,`delivery.profile_${decision==='approve'?'approved':'rejected'}`,{targetType:'delivery_profile',targetPublicId:profile.publicId});res.redirect(routeForPage('warehouse-overview'));}));
-router.post('/operations/logistics/shipments/:publicId/offer',adminLogisticsOnly,asyncHandler(async(req,res)=>{const shipment=await Shipment.findOne({publicId:req.params.publicId,...countryScope(req)});if(!shipment)throw new AppError('Shipment not found.',404,'SHIPMENT_NOT_FOUND');const profile=await DeliveryProfile.findOne({publicId:String(req.body.deliveryProfileId||''),verificationStatus:'approved',available:true,...countryScope(req)});if(!profile)throw new AppError('Approved available delivery partner not found.',404,'DELIVERY_NOT_FOUND');if(shipment.cod?.required&&!profile.codEnabled)throw new AppError('This delivery partner is not approved to collect COD.',409,'DELIVERY_COD_NOT_ALLOWED');await offerShipment({shipment,deliveryUserId:profile.userId,earningMinor:Math.max(0,Number(req.body.earningMinor||0)),currency:String(shipment.cod?.currency||req.user.currency).toUpperCase(),actorUserId:req.user._id});res.redirect(routeForPage('warehouse-overview'));}));
-router.post('/operations/logistics/orders/:publicId/shipment',adminLogisticsOnly,asyncHandler(async(req,res)=>{const order=await Order.findOne({publicId:req.params.publicId,...countryScope(req)});if(!order)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');await ensureShipmentForOrder(order,req.user._id);res.redirect(routeForPage('warehouse-overview'));}));
-router.post('/operations/logistics/zones',adminLogisticsOnly,asyncHandler(async(req,res)=>{const country=String(req.body.country||'').trim().toUpperCase();if(!country)throw new AppError('Country is required.',422,'COUNTRY_REQUIRED');if(req.user.role!=='super_admin')assertOperationalCountry(req.user,country);const currency=String(req.body.currency||req.user.currency).toUpperCase();await ShippingZone.create({publicId:publicId('zon'),country,name:String(req.body.name||'').trim(),cities:String(req.body.cities||'').split(',').map(v=>v.trim()).filter(Boolean),standardFeeMinor:Number(req.body.standardFeeMinor||0),expressFeeMinor:Number(req.body.expressFeeMinor||0),currency,standardSlaHours:Number(req.body.standardSlaHours||120),expressSlaHours:Number(req.body.expressSlaHours||48)});res.redirect(routeForPage('warehouse-overview'));}));
-
-router.post('/operations/logistics/exceptions/:publicId/resolve',adminLogisticsOnly,asyncHandler(async(req,res)=>{const exception=await DeliveryException.findOne({publicId:req.params.publicId,...countryScope(req),status:{$in:['open','investigating']}});if(!exception)throw new AppError('Open delivery exception not found.',404,'DELIVERY_EXCEPTION_NOT_FOUND');const updated=await resolveDeliveryException({exceptionPublicId:exception.publicId,actorUserId:req.user._id,decision:String(req.body.decision||''),resolutionNote:String(req.body.resolutionNote||'')});await writeAudit(req,`delivery.exception_${updated.status}`,{targetType:'delivery_exception',targetPublicId:updated.publicId,country:updated.country,metadata:{type:updated.type,shipmentPublicId:updated.shipmentPublicId}});setFlash(req,'success',`Delivery exception ${updated.publicId} marked ${updated.status}.`);res.redirect(routeForPage('warehouse-overview'));}));
-router.post('/operations/logistics/shipments/:publicId/reconcile-cod',financeLogisticsOnly,asyncHandler(async(req,res)=>{verifyDeferredCsrf(req);const shipment=await Shipment.findOne({publicId:req.params.publicId,...countryScope(req)});if(!shipment)throw new AppError('Shipment not found.',404,'SHIPMENT_NOT_FOUND');await reconcileCod({shipment,actorUserId:req.user._id,request:req});res.redirect(dashboardLanding(req.user));}));
-router.post('/operations/logistics/cod-reconciliation',financeLogisticsOnly,asyncHandler(async(req,res)=>{verifyDeferredCsrf(req);const profile=await DeliveryProfile.findOne({publicId:String(req.body.deliveryProfileId||''),...countryScope(req),verificationStatus:'approved'});if(!profile)throw new AppError('Approved delivery partner not found.',404,'DELIVERY_NOT_FOUND');await reconcileCodBatch({country:profile.country,deliveryUserId:profile.userId,businessDate:String(req.body.businessDate||''),currency:String(req.body.currency||'').toUpperCase(),declaredAmountMinor:Number(req.body.declaredAmountMinor),actorUserId:req.user._id,request:req});setFlash(req,'success','Driver/day COD batch reconciled to the ledger.');res.redirect(dashboardLanding(req.user));}));
-
-router.post('/api/v1/delivery/actions',noStore,requireAuth,requireVerified,requireOnboarding,requirePermission('delivery:manage'),asyncHandler(async(req,res)=>{
- const input=req.body||{};const clientActionId=String(input.clientActionId||'').trim();const action=String(input.action||'').trim();const shipmentId=String(input.shipmentId||'').trim();
- if(!/^[A-Za-z0-9._:-]{8,120}$/.test(clientActionId)||!['picked_up','in_transit','delivered','failed','rescheduled','return_to_sender','returned'].includes(action)||shipmentId.length<4)throw new AppError('Offline action payload is invalid.',422,'ACTION_INVALID');
- const existing=await OperationAction.findOne({userId:req.user._id,clientActionId}).lean();if(existing)return res.json({action:existing,duplicate:true});
- const profile=await DeliveryProfile.findOne({userId:req.user._id}).select('country').lean();if(!profile)throw new AppError('Delivery profile not found.',404,'DELIVERY_NOT_FOUND');
- const shipment=await Shipment.findOne({publicId:shipmentId,deliveryUserId:req.user._id,country:profile.country}).select('+pickupCodeHash +deliveryCodeHash');if(!shipment)throw new AppError('Assigned shipment not found.',404,'SHIPMENT_NOT_FOUND');
- let record;try{record=await OperationAction.create({publicId:publicId('opa'),clientActionId,userId:req.user._id,country:shipment.country,action,targetPublicId:shipmentId,status:'processing'});}catch(error){if(error?.code===11000){const duplicate=await OperationAction.findOne({userId:req.user._id,clientActionId}).lean();return res.json({action:duplicate,duplicate:true});}throw error;}
- try{const updated=await transitionShipment({shipment,nextStatus:action,actorUserId:req.user._id,proofCode:String(input.proofCode||''),reason:String(input.reason||''),reasonCode:String(input.reasonCode||'other'),rescheduledFor:input.rescheduledFor});record.status='completed';record.result={shipmentStatus:updated.status};await record.save();res.json({action:record,shipment:{publicId:updated.publicId,status:updated.status}});}catch(error){record.status='failed';record.error=String(error.message||'Action failed').slice(0,400);await record.save();throw error;}
-}));
-
 export default router;

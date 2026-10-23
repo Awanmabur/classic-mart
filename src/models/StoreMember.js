@@ -10,6 +10,9 @@ const schema = new Schema({
   status: { type: String, enum: ['invited','active','revoked'], default: 'invited', index: true },
   invitedByUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   invitedAt: { type: Date, default: Date.now }, acceptedAt: Date, revokedAt: Date,
+  invitationId: { type: Schema.Types.ObjectId, ref: 'StoreTeamInvitation' },
+  lastChangedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
+  permissionVersion: { type: Number, default: 0, min: 0, validate: Number.isSafeInteger },
 }, { timestamps: true, optimisticConcurrency: true });
 
 schema.index({ storeId: 1, userId: 1 }, { unique: true });

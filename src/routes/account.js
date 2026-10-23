@@ -6,7 +6,7 @@ import { PUBLIC_ACCOUNT_TYPES, publicAccountType, assertPublicRegistrationOpen }
 import { z } from 'zod';
 import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler, AppError } from '../core/errors.js';
-import { normalizePhone } from '../core/crypto.js';
+import { normalizePhone, verifyPassword } from '../core/crypto.js';
 import { Device, Order, PrivacyRequest, PromoterContactRequest, SellerContactRequest, StoreMember, User } from '../models/index.js';
 import { requireAuth, requireVerified } from '../middleware/auth.js';
 import { noStore } from '../middleware/request.js';
@@ -15,10 +15,12 @@ import { writeAudit } from '../services/audit.js';
 import { enrollCustomerAsSeller, sellerEnrollmentPreview } from '../services/seller-enrollment.js';
 import { getCountries, getCountry } from '../services/country.js';
 import { changePassword } from '../services/auth.js';
-import { beginMfaEnrollment, confirmMfaEnrollment, disableMfa, mfaRequiredForUser, pendingMfaEnrollment, regenerateRecoveryCodes } from '../services/mfa.js';
+import { beginMfaEnrollment, confirmMfaEnrollment, disableMfa, mfaRequiredForUser, pendingMfaEnrollment, regenerateRecoveryCodes, verifyMfa } from '../services/mfa.js';
+import { currentCustomerAccess, customerTransaction } from '../services/customer-access.js';
 import { writeSecurityEvent } from '../services/security.js';
 import { env } from '../config/env.js';
-import { createPrivacyRequest, privacyExportPayload } from '../services/privacy.js';
+import { cancelPrivacyRequest, createPrivacyRequest, privacyExportPayload } from '../services/privacy.js';
+import { assertOptionalProcessing } from '../services/optional-processing.js';
 import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 import {
   onboardingSchema,
@@ -226,8 +228,17 @@ router.get('/account/orders', (_request, response) => response.redirect('/orders
 
 router.get('/account/privacy',asyncHandler(async(request,response)=>{const size=50,base={userId:request.user._id};const [rows,total]=await Promise.all([PrivacyRequest.find(cursorScope(base,request.query.after)).sort(cursorSort()).limit(size+1).lean(),PrivacyRequest.countDocuments(base)]);const page=pageResult(rows,{limit:size,total});response.set('Cache-Control','private, no-store');response.render('approved-dashboard', { ...await accountWorkspaceView(request,'privacy'),requests:page.items,queuePage:page.page});}));
 router.post('/account/privacy/request',asyncHandler(async(request,response)=>{const input=z.object({type:z.enum(['export','deletion','correction','restriction','consent_withdrawal']),password:z.string().min(1).max(200),details:z.string().trim().max(2000).optional().default('')}).parse(request.body);const doc=await createPrivacyRequest(request,input);await writeAudit(request,'privacy.request_created',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country,metadata:{type:doc.type}});setFlash(request,'success',doc.type==='export'?'Your verified export request is queued.':'Your privacy request was recorded.');response.redirect('/account/privacy');}));
-router.post('/account/privacy/:id/cancel',asyncHandler(async(request,response)=>{const doc=await PrivacyRequest.findOne({publicId:request.params.id,userId:request.user._id,status:{$in:['requested','blocked']}});if(!doc)throw new AppError('Cancelable privacy request not found.',404,'PRIVACY_REQUEST_NOT_FOUND');doc.status='cancelled';doc.completedAt=new Date();await doc.save();await writeAudit(request,'privacy.request_cancelled',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country});setFlash(request,'success','Privacy request cancelled.');response.redirect('/account/privacy');}));
-router.get('/account/privacy/:id/download',asyncHandler(async(request,response)=>{const doc=await PrivacyRequest.findOne({publicId:request.params.id,userId:request.user._id,type:'export',status:'ready'}).select('+storageKey');if(!doc)throw new AppError('Privacy export not found.',404,'PRIVACY_EXPORT_NOT_FOUND');const payload=await privacyExportPayload(doc);await writeAudit(request,'privacy.export_downloaded',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country});response.set('Cache-Control','private, no-store');response.set('Content-Disposition',`attachment; filename="classic-mart-data-${doc.publicId}.json"`);response.type('application/json').send(payload);}));
+router.post('/account/privacy/:id/cancel',asyncHandler(async(request,response)=>{await cancelPrivacyRequest(request,request.params.id);setFlash(request,'success','Privacy request cancelled.');response.redirect('/account/privacy');}));
+router.get('/account/privacy/:id/download',asyncHandler(async(request,response)=>{
+  const actor=await currentCustomerAccess(request);
+  const doc=await PrivacyRequest.findOne({publicId:request.params.id,userId:actor._id,type:'export',status:'ready'}).select('+storageKey');
+  if(!doc)throw new AppError('Privacy export not found.',404,'PRIVACY_EXPORT_NOT_FOUND');
+  const payload=await privacyExportPayload(doc,{request});
+  await writeAudit(request,'privacy.export_downloaded',{targetType:'privacy_request',targetPublicId:doc.publicId,country:doc.country});
+  await currentCustomerAccess(request);
+  if(!await PrivacyRequest.exists({_id:doc._id,userId:actor._id,type:'export',status:'ready',storageKey:doc.storageKey,expiresAt:{$gt:new Date()},'legalHold.active':{$ne:true}}))throw new AppError('Privacy export is not available.',404,'PRIVACY_EXPORT_NOT_READY');
+  response.set('Cache-Control','private, no-store');response.set('Content-Disposition',`attachment; filename="classic-mart-data-${doc.publicId}.json"`);response.type('application/json').send(payload);
+}));
 
 router.get(
   '/account/messages',
@@ -264,22 +275,6 @@ router.post(
 
 
 
-router.post('/account/store-invitations/:publicId/accept', asyncHandler(async (request, response) => {
-  const invitation = await StoreMember.findOne({ publicId: request.params.publicId, userId: request.user._id, status: 'invited' }).populate('storeId');
-  if (!invitation?.storeId || invitation.storeId.status === 'closed') throw new AppError('Store invitation is no longer available.', 404, 'STORE_INVITATION_NOT_FOUND');
-  invitation.status = 'active'; invitation.acceptedAt = new Date(); await invitation.save();
-  await writeAudit(request, 'seller.staff_invitation_accepted', { targetType: 'store_member', targetPublicId: invitation.publicId });
-  setFlash(request, 'success', `You now have ${invitation.role} access to ${invitation.storeId.name}.`);
-  response.redirect('/account/profile');
-}));
-
-router.post('/account/store-invitations/:publicId/reject', asyncHandler(async (request, response) => {
-  const invitation = await StoreMember.findOne({ publicId: request.params.publicId, userId: request.user._id, status: 'invited' });
-  if (!invitation) throw new AppError('Store invitation was not found.', 404, 'STORE_INVITATION_NOT_FOUND');
-  invitation.status = 'revoked'; invitation.revokedAt = new Date(); await invitation.save();
-  await writeAudit(request, 'seller.staff_invitation_rejected', { targetType: 'store_member', targetPublicId: invitation.publicId });
-  setFlash(request, 'success', 'Store invitation declined.'); response.redirect('/account/profile');
-}));
 
 router.post(
   '/account/preferences/low-data',
@@ -302,36 +297,30 @@ router.post(
     try {
       const input = profileSchema.parse(request.body);
       const phoneNormalized = normalizePhone(input.phone);
-      const duplicate = await User.exists({
-        _id: { $ne: request.user._id },
-        phoneNormalized,
-      });
-      if (duplicate) {
-        throw new AppError(
-          'That phone number is already in use.',
-          409,
-          'PHONE_IN_USE',
-        );
-      }
       const country = await getCountry(input.country);
-      const phoneChanged = phoneNormalized !== normalizePhone(request.user.phone);
-      request.user.name = input.name;
-      request.user.phone = input.phone;
-      request.user.phoneNormalized = phoneNormalized;
-      if (phoneChanged) request.user.phoneVerifiedAt = null;
-      request.user.shoppingCountry = country.code;
-      request.user.currency = country.currency;
-      request.user.locale = input.locale;
-      request.user.timeZone = country.timeZone;
-      request.user.consents.marketing = Boolean(input.marketing);
-      request.user.consents.recordedAt = new Date();
-      await request.user.save();
-      setFlash(request, 'success', 'Your profile was updated.');
-      await writeAudit(request, 'account.profile_updated', {
-        targetType: 'user',
-        targetPublicId: request.user.publicId,
-        metadata: { phoneChanged, shoppingCountry: country.code },
+      const { actor, phoneChanged } = await customerTransaction(async session => {
+        const actor = await currentCustomerAccess(request, { session, write: true });
+        const duplicate = await User.exists({ _id: { $ne: actor._id }, phoneNormalized }).session(session);
+        if (duplicate) throw new AppError('That phone number is already in use.', 409, 'PHONE_IN_USE');
+        const phoneChanged = phoneNormalized !== normalizePhone(actor.phone);
+        actor.name = input.name;
+        actor.phone = input.phone;
+        actor.phoneNormalized = phoneNormalized;
+        if (phoneChanged) actor.phoneVerifiedAt = null;
+        actor.shoppingCountry = country.code;
+        actor.currency = country.currency;
+        actor.locale = input.locale;
+        actor.timeZone = country.timeZone;
+        if (input.marketing) await assertOptionalProcessing(actor._id, { session });
+        actor.consents.marketing = Boolean(input.marketing);
+        actor.consents.recordedAt = new Date();
+        await actor.save({ session });
+        await writeAudit(request, 'account.profile_updated', { session, targetType: 'user',
+          targetPublicId: actor.publicId, metadata: { phoneChanged, shoppingCountry: country.code } });
+        return { actor, phoneChanged };
       });
+      request.user = actor;
+      setFlash(request, 'success', 'Your profile was updated.');
       if (phoneChanged) {
         setFlash(request, 'info', 'Verify your new phone number to continue using protected account features.');
         return response.redirect('/verify-phone');
@@ -364,6 +353,7 @@ router.post('/account/mfa/confirm', mfaMutationLimit, asyncHandler(async (reques
   try {
     const { user, codes } = await confirmMfaEnrollment(request.user._id, request.body.code, request.device.publicId);
     request.session.tokenVersion = user.security.tokenVersion;
+    request.session.mfaVerifiedAt = Date.now();
     request.user.security.mfaEnabled = true;
     request.user.security.mfaEnrolledAt = user.security.mfaEnrolledAt;
     request.session.mfaRecoveryCodes = codes;
@@ -380,6 +370,7 @@ router.post('/account/mfa/recovery-codes', mfaMutationLimit, asyncHandler(async 
   try {
     const codes = await regenerateRecoveryCodes(request.user._id, request.body.currentPassword, request.body.code);
     request.session.mfaRecoveryCodes = codes;
+    request.session.mfaVerifiedAt = Date.now();
     await writeAudit(request, 'account.mfa_recovery_codes_regenerated', { targetType: 'user', targetPublicId: request.user.publicId });
     await writeSecurityEvent(request, 'mfa.recovery_codes_regenerated', { category: 'mfa', severity: 'medium', result: 'success' });
     setFlash(request, 'success', 'New recovery codes were generated. Previous recovery codes no longer work.');
@@ -394,11 +385,32 @@ router.post('/account/mfa/disable', mfaMutationLimit, asyncHandler(async (reques
     const user = await disableMfa(request.user._id, request.body.currentPassword, request.body.code, 'mfa_disabled', request.device.publicId);
     request.session.tokenVersion = user.security.tokenVersion;
     request.user.security.mfaEnabled = false;
+    delete request.session.mfaVerifiedAt;
     await writeAudit(request, 'account.mfa_disabled', { targetType: 'user', targetPublicId: request.user.publicId });
     await writeSecurityEvent(request, 'mfa.disabled', { category: 'mfa', severity: 'high', result: 'success' });
     setFlash(request, 'success', 'Multi-factor authentication was disabled and other sessions were revoked.');
   } catch (error) { setFlash(request, 'error', error.message); }
   response.redirect(mfaSecurityPath(continuation));
+}));
+
+router.post('/account/mfa/step-up', mfaMutationLimit, asyncHandler(async (request, response) => {
+  const { continuation } = await postedMfaContinuation(request);
+  try {
+    const input = z.object({ currentPassword: z.string().min(1).max(256), code: z.string().trim().min(6).max(32) }).parse(request.body);
+    const actor = await currentCustomerAccess(request);
+    const passwordUser = await User.findById(actor._id).select('+passwordHash');
+    if (!passwordUser || !await verifyPassword(passwordUser.passwordHash, input.currentPassword)) throw new AppError('The current password is incorrect.', 422, 'INVALID_CURRENT_PASSWORD');
+    const result = await verifyMfa(actor._id, input.code);
+    const current = await currentCustomerAccess(request);
+    if (!current.security.mfaEnabled || result.user.security.tokenVersion !== current.security.tokenVersion) throw new AppError('Your account changed. Sign in again.', 403, 'ACCOUNT_UNAVAILABLE');
+    request.session.mfaVerifiedAt = Date.now();
+    await writeAudit(request, 'account.mfa_step_up', { targetType: 'user', targetPublicId: current.publicId, metadata: { method: result.method } });
+    setFlash(request, 'success', 'Identity confirmed. You can continue to the protected action.');
+    return response.redirect(303, continuation.url);
+  } catch (error) {
+    setFlash(request, 'error', error.message);
+    return response.redirect(303, mfaSecurityPath(continuation));
+  }
 }));
 
 router.post(

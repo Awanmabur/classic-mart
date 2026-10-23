@@ -465,7 +465,7 @@ export async function moderationTrustAction(request, kind, recordId, body, { wor
     await doc.save({ session });
     await writeAudit(request, auditAction, { session, actor: context.actor, targetType: config.target, targetPublicId: doc.publicId, country: doc.country,
       metadata: { status: doc.status, action: input.action, ...(kind === 'reviews' && ['publish', 'reject'].includes(input.action) ? { decision: input.action } : {}),
-        version: doc.__v, enforcement: input.enforcement, ...(reason ? { reason } : {}), appealReview: Boolean(doc.appealCount) } });
+        version: doc.__v, enforcement: input.enforcement, ...(reason ? { reason } : {}), appealReview: Boolean(doc.appealCount || doc.sellerAppealCount) } });
     return doc;
   });
 }
@@ -501,17 +501,18 @@ function moderatorDto(row, actor) {
     subjectType: row.subjectType || '', subjectPublicId: row.subjectPublicId || '', severity: row.severity || '', score: row.score,
     verifiedPurchase: Boolean(row.verifiedPurchase), decision: row.decision || '', moderationReason: row.moderationReason || '', disputeReason: row.disputeReason || '',
     createdAt: row.createdAt, updatedAt: row.updatedAt, resolvedAt: row.resolvedAt || null, publishedAt: row.publishedAt || null,
+    sellerResponses: asArray(row.sellerResponses).map(entry => ({ action: entry.action, message: entry.message, at: entry.at })), sellerAppealCount: Number(row.sellerAppealCount || 0),
     appealMessage: row.appealMessage || '', appealCount: Number(row.appealCount || 0), qaReviewPublicId: row.qaReviewPublicId || '', reviewPublicId: row.reviewPublicId || '',
     assignmentHistory: history(row.assignmentHistory), decisionHistory: history(row.decisionHistory),
     publicMessages: asArray(row.publicMessages).map(message => ({ author: message.author, message: message.message, at: message.at })) };
 }
 async function caseEvidence(doc, session = null) {
-  const clauses = [{ ownerUserId: doc.reporterUserId, contextType: 'trust_case', contextPublicId: doc.publicId }];
+  const clauses = [{ ownerUserId: doc.reporterUserId, contextType: 'trust_case', contextPublicId: doc.publicId, documentType: { $ne: 'seller_policy_response' } }, ...asArray(doc.sellerResponses).flatMap(entry => entry.evidenceDocumentIds?.length ? [{ ownerUserId: entry.actorUserId, contextType: 'trust_case', contextPublicId: doc.publicId, documentType: 'seller_policy_response', _id: { $in: entry.evidenceDocumentIds.filter(id => asArray(doc.sellerEvidenceDocumentIds).some(value => same(value, id))) } }] : [])];
   if (doc.supportTicketId) {
     const ticket = await SupportTicket.findOne({ _id: doc.supportTicketId, publicId: doc.supportTicketPublicId, country: doc.country }).session(session);
     if (ticket?.userId) clauses.push({ ownerUserId: ticket.userId, contextType: 'support', contextPublicId: ticket.publicId, _id: mongoose.trusted({ $in: ticket.evidenceDocumentIds || [] }) });
   }
-  return EvidenceDocument.find(mongoose.trusted({ $and: [{ _id: { $in: doc.evidenceDocumentIds || [] }, country: doc.country, status: 'ready' }, { $or: clauses }] }))
+  return EvidenceDocument.find(mongoose.trusted({ $and: [{ _id: { $in: [...asArray(doc.evidenceDocumentIds), ...asArray(doc.sellerEvidenceDocumentIds)] }, country: doc.country, status: 'ready' }, { $or: clauses }] }))
     .select('publicId description mimeType createdAt').sort({ createdAt: 1, _id: 1 }).session(session).lean();
 }
 async function selectedTrustRecord(request, context, kind, id) {
@@ -585,15 +586,16 @@ export async function authorizeModerationTrustEvidence(request, evidenceId, { se
   const evidence = await EvidenceDocument.findOne({ publicId: id, status: 'ready', contextType: mongoose.trusted({ $in: ['trust_case', 'support'] }), ...context.countryScope }).select('+storageKey').session(session);
   if (!evidence) throw new AppError('Evidence not found.', 404, 'EVIDENCE_NOT_FOUND');
   if (expectedStorageKey !== undefined && evidence.storageKey !== expectedStorageKey) throw new AppError('Evidence changed while loading. Reload this document.', 409, 'MODERATION_EVIDENCE_CHANGED');
-  const doc = await TrustCase.findOne({ country: evidence.country, evidenceDocumentIds: evidence._id, ...(evidence.contextType === 'trust_case'
-    ? { publicId: evidence.contextPublicId, reporterUserId: evidence.ownerUserId } : { supportTicketPublicId: evidence.contextPublicId }) }).session(session);
+  const sellerEvidence = evidence.documentType === 'seller_policy_response';
+  const doc = await TrustCase.findOne({ country: evidence.country, ...(sellerEvidence ? { sellerEvidenceDocumentIds: evidence._id, sellerResponses: { $elemMatch: { actorUserId: evidence.ownerUserId, evidenceDocumentIds: evidence._id } } } : { evidenceDocumentIds: evidence._id }), ...(evidence.contextType === 'trust_case'
+    ? { publicId: evidence.contextPublicId, ...(!sellerEvidence ? { reporterUserId: evidence.ownerUserId } : {}) } : { supportTicketPublicId: evidence.contextPublicId }) }).session(session);
   if (!doc) throw new AppError('Evidence not found.', 404, 'EVIDENCE_NOT_FOUND');
   const source = await sourceFor('cases', doc, session);
   if (evidence.contextType === 'support' && (!source.ticket || !same(source.ticket.userId, evidence.ownerUserId) || !source.ticket.evidenceDocumentIds.some(value => same(value, evidence._id)))) throw new AppError('Evidence not found.', 404, 'EVIDENCE_NOT_FOUND');
   await independent(context, doc, source, session);
   if (write) {
     await fenceModerationAccess(context, session); await lockSource(source, session, { readOnly: true });
-    const lockedCase = await TrustCase.updateOne({ _id: doc._id, publicId: doc.publicId, country: evidence.country, evidenceDocumentIds: evidence._id, __v: doc.__v || 0 }, { $inc: { moderationEvidenceReadRevision: 1 } }, { session, timestamps: false });
+    const lockedCase = await TrustCase.updateOne({ _id: doc._id, publicId: doc.publicId, country: evidence.country, [sellerEvidence ? 'sellerEvidenceDocumentIds' : 'evidenceDocumentIds']: evidence._id, __v: doc.__v || 0 }, { $inc: { moderationEvidenceReadRevision: 1 } }, { session, timestamps: false });
     const lockedEvidence = await EvidenceDocument.updateOne({ _id: evidence._id, status: 'ready', country: evidence.country, contextType: evidence.contextType,
       contextPublicId: evidence.contextPublicId, ownerUserId: evidence.ownerUserId, storageKey: evidence.storageKey, __v: evidence.__v || 0 }, { $inc: { moderationEvidenceReadRevision: 1 } }, { session, timestamps: false });
     if (lockedCase.modifiedCount !== 1 || lockedEvidence.modifiedCount !== 1) throw new AppError('The attached evidence changed while loading.', 409, 'MODERATION_EVIDENCE_CHANGED');

@@ -47,13 +47,16 @@ async function transaction(work) {
 async function programmeAccess(request, session, { verified = true } = {}) {
   // These mutations apply their own optimistic fences after comparing client revisions.
   const access = normalizeAccess(await promoterAccess(request, { session }));
+  const device = await currentRequestDevice(request, { userId: access.actor._id, session });
+  if (request.sessionID !== undefined && !device) throw new AppError('Your current promoter device is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   if (verified && access.verification?.status !== 'verified') throw new AppError('Verified promoter account required.', 403, 'PROMOTER_VERIFICATION_REQUIRED');
-  return access;
+  return { ...access, device };
 }
 async function fenceAccess(access, session, { verification = true } = {}) {
   await fence(User, access.actor, session, { role: 'promoter', status: 'active', 'security.tokenVersion': access.actor.security.tokenVersion });
   await fence(CountrySetting, access.countrySetting, session, { active: true, currency: access.market.currency });
   if (verification && access.verification) await fence(PromoterVerification, access.verification, session, { status: access.verification.status, country: access.country });
+  if (access.device) await fence(Device, access.device, session, { userId: access.actor._id, revokedAt: null, sessionHash: access.device.sessionHash });
 }
 
 async function approvedProductRows(products, access, session = null) {
@@ -99,6 +102,7 @@ async function campaignAccess(request, campaignPublicId, input, session, { appro
   } else if (!await Store.exists({ _id: campaign.storeId, ownerUserId: campaign.ownerUserId, status: 'verified', country: access.country, currency: access.market.currency }).session(session)) {
     throw new AppError('The campaign merchant is unavailable.', 409, 'CAMPAIGN_PRODUCT_SCOPE');
   }
+  if (campaign.scope !== 'marketplace' && (!campaign.reviewedByUserId || !campaign.reviewedAt || [campaign.ownerUserId, campaign.createdByUserId, campaign.submittedByUserId].some(value => value && key(value) === key(campaign.reviewedByUserId)))) throw new AppError('An independently reviewed Seller campaign is required.', 409, 'CAMPAIGN_REVIEW_REQUIRED');
   await assertNotSelf(campaign, access, session);
   const products = await approvedProducts(campaign, access, session);
   if (campaign.scope !== 'marketplace' && (!products.length || products.length !== new Set(campaign.productPublicIds).size)) throw new AppError('The campaign products are unavailable.', 409, 'CAMPAIGN_PRODUCT_SCOPE');
@@ -161,6 +165,8 @@ export async function assertPromoterLinkDestination(request, link, campaign, { s
   const verification = actor && await PromoterVerification.findOne({ userId: actor._id, country: campaign.country, status: 'verified' }).session(session).lean();
   const application = actor && await CampaignApplication.findOne({ campaignId: campaign._id, promoterUserId: actor._id, country: campaign.country, status: 'approved' }).session(session).lean();
   if (!actor || !verification || !application) throw new AppError('This promoter programme access is unavailable.', 410, 'PROMOTER_PROGRAMME_UNAVAILABLE');
+  if (campaign.scope !== 'marketplace' && (!campaign.reviewedByUserId || !campaign.reviewedAt || !application.reviewedByUserId || !application.reviewedAt
+    || [campaign.ownerUserId, campaign.createdByUserId, campaign.submittedByUserId].some(value => value && key(value) === key(campaign.reviewedByUserId)))) throw new AppError('Independent campaign and Seller application approval are required.', 410, 'CAMPAIGN_REVIEW_REQUIRED');
   if (campaign.scope === 'marketplace' && (!campaign.systemManaged || campaign.publicId !== marketplacePromoterCampaignPublicId(campaign.country) || Number(setting.growth?.promoterCommissionBps || 0) <= 0 || Number(campaign.commissionBps) !== Number(setting.growth.promoterCommissionBps))) throw new AppError('Marketplace promoter policy changed.', 410, 'CAMPAIGN_POLICY_CHANGED');
   if (campaign.scope !== 'marketplace' && !await Store.exists({ _id: campaign.storeId, ownerUserId: campaign.ownerUserId, status: 'verified', country: campaign.country, currency: setting.currency }).session(session)) throw new AppError('The campaign merchant is unavailable.', 410, 'CAMPAIGN_PRODUCT_SCOPE');
   const access = { actor, verification, application, campaign, country: campaign.country, market: { country: campaign.country, currency: setting.currency, timeZone: setting.timeZone }, products: [] };
@@ -187,7 +193,8 @@ export async function secureApplyToCampaign(request, campaignId, note = '', inpu
     const access = await campaignAccess(request, campaignId, input, session);
     if (access.application) return access.application;
     await fenceCampaign(access, session);
-    const [application] = await CampaignApplication.create([{ publicId: publicId('cap'), campaignId: access.campaign._id, campaignPublicId: access.campaign.publicId, promoterUserId: access.actor._id, country: access.country, note: applicationNote, status: access.campaign.visibility === 'public' ? 'approved' : 'pending', ...(access.campaign.visibility === 'public' ? { reviewedAt: new Date() } : {}) }], { session });
+    const automaticallyApproved = access.campaign.scope === 'marketplace' && access.campaign.systemManaged && access.campaign.visibility === 'public';
+    const [application] = await CampaignApplication.create([{ publicId: publicId('cap'), campaignId: access.campaign._id, campaignPublicId: access.campaign.publicId, promoterUserId: access.actor._id, country: access.country, note: applicationNote, status: automaticallyApproved ? 'approved' : 'pending', ...(automaticallyApproved ? { reviewedAt: new Date() } : {}) }], { session });
     await writeAudit(request, 'promoter.campaign_applied', { session, actor: access.actor, targetType: 'campaign_application', targetPublicId: application.publicId, country: access.country, metadata: { campaignPublicId: access.campaign.publicId, status: application.status } });
     return application;
   });

@@ -31,6 +31,8 @@ import {
   searchStorefront,
 } from '../services/storefront.js';
 import { hybridSearch, recommendationsFor } from '../services/ai.js';
+import { optionalProcessingUser } from '../services/optional-processing.js';
+import { currentCustomerAccess, customerTransaction } from '../services/customer-access.js';
 import { activeSponsoredProducts } from '../services/seller-growth.js';
 import { publicPromoter, publicPromoters } from '../services/promoters.js';
 import { scanUpload } from '../services/malware.js';
@@ -98,11 +100,11 @@ function browsingSessionKey(request) {
   return request.session.catalogueKey;
 }
 
-async function stateFor(userId) {
+async function stateFor(userId, session = null) {
   return CustomerCatalogueState.findOneAndUpdate(
     { userId },
     { $setOnInsert: { userId } },
-    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true, session },
   );
 }
 
@@ -241,8 +243,9 @@ router.get('/api/v1/storefront/catalogue', async (request, response, next) => {
 router.get('/api/v1/storefront/search', async (request, response, next) => {
   try {
     const input = searchSchema.parse(request.query);
+    const optionalAllowed = !request.user || Boolean(await optionalProcessingUser(request.user._id));
     const [catalogue, customerState] = await Promise.all([
-      input.q ? hybridSearch(request.country, {
+      input.q && optionalAllowed ? hybridSearch(request.country, {
         query: input.q,
         category: input.category,
         brand: input.brand,
@@ -257,11 +260,17 @@ router.get('/api/v1/storefront/search', async (request, response, next) => {
       statePayload(request.user?._id, request.country),
     ]);
     if (!request.session.csrfToken) request.session.csrfToken = randomToken();
-    const searchEvent = await SearchEvent.create({
+    const eventInput = {
       publicId: publicId('sea'), sessionKey: browsingSessionKey(request), userId: request.user?._id,
       country: request.country.code, query: input.q, category: input.category, brand: input.brand, seller: input.seller,
       resultCount: catalogue.products.length, zeroResult: catalogue.products.length === 0,
-    });
+    };
+    const searchEvent = !optionalAllowed ? null : request.user ? await customerTransaction(async session => {
+      const actor = await currentCustomerAccess(request, { session, write: true });
+      if (!await optionalProcessingUser(actor._id, { session })) return null;
+      const [event] = await SearchEvent.create([eventInput], { session });
+      return event;
+    }) : await SearchEvent.create(eventInput);
     response.set(
       'Cache-Control',
       request.user ? 'private, no-store' : 'public, max-age=10',
@@ -270,7 +279,7 @@ router.get('/api/v1/storefront/search', async (request, response, next) => {
       ...catalogue,
       state: customerState,
       csrfToken: request.session.csrfToken,
-      searchId: searchEvent.publicId,
+      searchId: searchEvent?.publicId || null,
     });
   } catch (error) {
     next(error);
@@ -570,17 +579,17 @@ router.post(
   async (request, response, next) => {
     try {
       const { product } = await resolveProduct(request);
-      const state = await stateFor(request.user._id);
-      state.recentProducts = state.recentProducts.filter(
-        (item) => !item.productId.equals(product._id),
-      );
-      state.recentProducts.unshift({
-        productId: product._id,
-        viewedAt: new Date(),
+      const recorded = await customerTransaction(async session => {
+        const actor = await currentCustomerAccess(request, { session, write: true });
+        if (!await optionalProcessingUser(actor._id, { session })) return false;
+        const state = await stateFor(actor._id, session);
+        state.recentProducts = state.recentProducts.filter(item => !item.productId.equals(product._id));
+        state.recentProducts.unshift({ productId: product._id, viewedAt: new Date() });
+        state.recentProducts = state.recentProducts.slice(0, 50);
+        await state.save({ session });
+        return true;
       });
-      state.recentProducts = state.recentProducts.slice(0, 50);
-      await state.save();
-      response.status(201).json({ recorded: true });
+      response.status(recorded ? 201 : 200).json({ recorded });
     } catch (error) {
       next(error);
     }
@@ -710,7 +719,16 @@ router.get('/api/v1/storefront/autocomplete', async (request, response, next) =>
 router.post('/api/v1/storefront/search/:searchId/click', async (request, response, next) => {
   try {
     const productId = z.string().trim().min(4).max(100).parse(request.body.productId);
-    await SearchEvent.updateOne({ publicId: request.params.searchId, sessionKey: browsingSessionKey(request) }, { $set: { clickedProductPublicId: productId } });
+    const scope = { publicId: request.params.searchId, sessionKey: browsingSessionKey(request) };
+    if (request.user) {
+      const recorded = await customerTransaction(async session => {
+        const actor = await currentCustomerAccess(request, { session, write: true });
+        if (!await optionalProcessingUser(actor._id, { session })) return false;
+        await SearchEvent.updateOne({ ...scope, userId: actor._id }, { $set: { clickedProductPublicId: productId } }, { session });
+        return true;
+      });
+      if (!recorded) return response.json({ recorded: false });
+    } else await SearchEvent.updateOne({ ...scope, userId: null }, { $set: { clickedProductPublicId: productId } });
     response.status(204).end();
   } catch (error) { next(error); }
 });

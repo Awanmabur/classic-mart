@@ -13,6 +13,7 @@ import { financeAccess } from './finance-workspace-access.js';
 import { writeAudit } from './audit.js';
 import { getPesapalTransactionStatus } from './pesapal.js';
 import { queueFinanceAlert } from './finance-notifications.js';
+import { reverseGrowthForLostChargeback } from './loyalty.js';
 
 function payloadHash(payload) {
   return crypto.createHash('sha256').update(JSON.stringify(payload || {})).digest('hex');
@@ -256,6 +257,7 @@ export async function resolveChargeback(request, chargebackPublicId, { outcome, 
       await intent.save({ session });
       await order.save({ session });
       await chargeback.save({ session });
+      if(outcome==='lost')await reverseGrowthForLostChargeback(chargeback,session);
       await writeAudit(request,'finance.chargeback_resolved',{actor:access.actor,targetType:'chargeback',targetPublicId:chargeback.publicId,country:chargeback.country,metadata:{outcome,note:cleanNote,providerStatus},session});
       result = chargeback;
     });

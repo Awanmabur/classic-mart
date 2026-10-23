@@ -8,7 +8,8 @@ import { formatMinorUnits } from './catalogue.js';
 import { writeAudit } from './audit.js';
 
 const SIZE = 25;
-const REPORTS = ['summary', 'payments', 'refunds', 'payouts', 'ledger', 'reconciliation'];
+const REPORTS = ['summary', 'payments', 'refunds', 'payouts', 'ledger', 'reconciliation', 'exceptions'];
+const EXCEPTIONS=['all','providerEvents','staleRefunds','unknownPayouts','openDisputes','reconciliationRuns','pendingCod'];
 const RESULTS = ['all', 'success', 'denied', 'failure'];
 const VERIFIED_PAYMENT_STATES = ['succeeded', 'partially_refunded', 'refunded', 'reversed'];
 const int = value => { const number = Number(value || 0); if (!Number.isSafeInteger(number)) throw new AppError('Financial report amounts need review.', 503, 'FINANCE_REPORT_INVALID'); return number; };
@@ -24,7 +25,7 @@ function reportFilters(request, actor, pageId) {
   const preferred = actor.preferences?.financeReportingPeriod || '30days';
   const input = z.object({ country: z.string().trim().max(2).default(''), period: z.enum(['30days', '7months', 'year']).default(['30days', '7months', 'year'].includes(preferred) ? preferred : '30days'),
     report: z.enum(REPORTS).default('summary'), search: z.string().trim().max(100).default(''), q: z.string().trim().max(100).optional(),
-    status: z.enum(RESULTS).default('all'), after: z.string().max(512).default('') }).parse(request.query || {});
+    status: z.enum(RESULTS).default('all'), exception: z.enum(EXCEPTIONS).default('all'), after: z.string().max(512).default('') }).parse(request.query || {});
   if (input.after && !decodeCursor(input.after)) throw new AppError('The financial report cursor is invalid.', 422, 'FINANCE_FILTER_INVALID');
   if (pageId !== 'finance-audit' && input.status !== 'all') throw new AppError('This report does not support an audit result filter.', 422, 'FINANCE_FILTER_INVALID');
   return { ...input, search: input.q ?? input.search };
@@ -80,22 +81,33 @@ async function reportQueries(tasks, session) {
   return results;
 }
 
-async function exceptionCounts(scope, now, session = null) {
-  const allTime = { start: new Date(0), end: new Date(now.getTime() + 1) };
-  const [provider, refunds, payouts, chargebacks, reconciliations, cod, failedPayments] = await reportQueries([
-    () => ProviderEvent.aggregate([{ $match: { ...scope, status: { $in: ['failed', 'dead'] }, verifiedAt: { $type: 'date' } } }, { $group: { _id: '$country', count: { $sum: 1 } } }]).session(session),
-    () => Refund.aggregate([...refundPipeline(scope, allTime, { where: { status: 'processing', updatedAt: { $lt: new Date(now.getTime() - 2 * 60 * 60 * 1000) } } }), { $group: { _id: { country: '$country', currency: '$currency' }, count: { $sum: 1 } } }]).session(session),
-    () => Payout.aggregate([...payoutPipeline(scope, allTime, { where: { status: 'unknown' } }), { $group: { _id: { country: '$country', currency: '$currency' }, count: { $sum: 1 } } }]).session(session),
-    () => Chargeback.aggregate([{ $match: { ...scope, status: { $in: ['open', 'reviewing'] } } }, { $lookup: { from: PaymentIntent.collection.name, localField: 'paymentIntentId', foreignField: '_id', as: 'payment', pipeline: [{ $match: scope }, { $project: { publicId: 1, country: 1, currency: 1, orderId: 1, orderPublicId: 1 } }] } }, { $unwind: '$payment' },
-      { $match: { $expr: { $and: [{ $eq: ['$paymentIntentPublicId', '$payment.publicId'] }, { $eq: ['$country', '$payment.country'] }, { $eq: ['$currency', '$payment.currency'] }, { $eq: ['$orderId', '$payment.orderId'] }, { $eq: ['$orderPublicId', '$payment.orderPublicId'] }] } } }, ...orderJoin(), { $group: { _id: { country: '$country', currency: '$currency' }, count: { $sum: 1 } } }]).session(session),
-    () => ReconciliationRun.aggregate([{ $match: { ...scope, $or: [{ status: 'failed' }, { failed: { $gt: 0 } }] } }, { $group: { _id: { country: '$country', currency: { $ifNull: ['$currency', ''] } }, count: { $sum: 1 } } }]).session(session),
-    () => Shipment.aggregate([{ $match: { ...scope, kind: 'outbound', status: 'delivered', 'cod.required': true, 'cod.reconciledAt': null } }, { $set: { currency: '$cod.currency' } }, ...orderJoin(), { $group: { _id: { country: '$country', currency: '$currency' }, count: { $sum: 1 } } }]).session(session),
-    () => PaymentIntent.aggregate([...paymentPipeline(scope, allTime, { where: { status: 'failed' } }), { $group: { _id: { country: '$country', currency: '$currency' }, count: { $sum: 1 } } }]).session(session),
-  ], session);
-  const total = rows => int(rows.reduce((sum, row) => sum + int(row.count), 0));
-  return { provider, refunds, payouts, chargebacks, reconciliations, cod, failedPayments,
-    counts: { providerEvents: total(provider), staleRefunds: total(refunds), unknownPayouts: total(payouts), openDisputes: total(chargebacks), reconciliationRuns: total(reconciliations), pendingCod: total(cod), failedPayments: total(failedPayments) },
-    total: int(total(provider) + total(refunds) + total(payouts) + total(chargebacks) + total(reconciliations) + total(cod)) };
+export function financeExceptionSources(scope,now=new Date()) {
+  const allTime={start:new Date(0),end:new Date(now.getTime()+1)};
+  const sources=[
+    {kind:'providerEvents',Model:ProviderEvent,pipeline:[{$match:{...scope,status:{$in:['failed','dead']},verifiedAt:{$type:'date'}}}],destination:'/finance/reconciliation?view=events&selected='},
+    {kind:'staleRefunds',Model:Refund,pipeline:refundPipeline(scope,allTime,{where:{status:'processing',updatedAt:{$lt:new Date(now.getTime()-2*60*60*1000)}}}),destination:'/finance/refunds?record='},
+    {kind:'unknownPayouts',Model:Payout,pipeline:payoutPipeline(scope,allTime,{where:{status:'unknown'}}),destination:'/finance/payouts?record='},
+    {kind:'openDisputes',Model:Chargeback,pipeline:[{$match:{...scope,status:{$in:['open','reviewing']}}},{$lookup:{from:PaymentIntent.collection.name,localField:'paymentIntentId',foreignField:'_id',as:'payment',pipeline:[{$match:scope},{$project:{publicId:1,country:1,currency:1,orderId:1,orderPublicId:1}}]}},{$unwind:'$payment'},{$match:{$expr:{$and:[{$eq:['$paymentIntentPublicId','$payment.publicId']},{$eq:['$country','$payment.country']},{$eq:['$currency','$payment.currency']},{$eq:['$orderId','$payment.orderId']},{$eq:['$orderPublicId','$payment.orderPublicId']}]}}},...orderJoin()],destination:'/finance/disputes?selected='},
+    {kind:'reconciliationRuns',Model:ReconciliationRun,pipeline:[{$match:{...scope,$or:[{status:'failed'},{failed:{$gt:0}}]}}],destination:'/finance/reconciliation?view=runs&selected='},
+    {kind:'pendingCod',Model:Shipment,pipeline:[{$match:{...scope,kind:'outbound',status:'delivered','cod.required':true,'cod.reconciledAt':null}},{$set:{currency:'$cod.currency',amountMinor:'$cod.amountMinor'}},...orderJoin()],destination:'/finance/reconciliation?view=cod&selected='},
+  ];
+  return sources;
+}
+async function exceptionCounts(scope,now,session=null){
+  const sources=financeExceptionSources(scope,now),rows=await reportQueries(sources.map(source=>()=>source.Model.aggregate([...source.pipeline,{$group:{_id:source.kind==='providerEvents'?'$country':{country:'$country',currency:{$ifNull:['$currency','']}},count:{$sum:1}}}]).session(session)),session);
+  const total=rows=>int(rows.reduce((sum,row)=>sum+int(row.count),0)),counts={},result={};
+  sources.forEach((source,index)=>{counts[source.kind]=total(rows[index]);result[({providerEvents:'provider',staleRefunds:'refunds',unknownPayouts:'payouts',openDisputes:'chargebacks',reconciliationRuns:'reconciliations',pendingCod:'cod'})[source.kind]]=rows[index];});
+  const allTime={start:new Date(0),end:new Date(now.getTime()+1)};
+  result.failedPayments=await PaymentIntent.aggregate([...paymentPipeline(scope,allTime,{where:{status:'failed'}}),{$group:{_id:{country:'$country',currency:'$currency'},count:{$sum:1}}}]).session(session);
+  counts.failedPayments=total(result.failedPayments);
+  return {...result,counts,total:int(Object.entries(counts).filter(([key])=>key!=='failedPayments').reduce((sum,[,value])=>sum+value,0))};
+}
+function exceptionReportSource(context,query){
+  const sources=financeExceptionSources(context.countryScope,context.now||new Date()).filter(source=>query.exception==='all'||source.kind===query.exception);
+  const stages=source=>[...source.pipeline,{$project:{publicId:1,country:1,currency:{$ifNull:['$currency','']},orderPublicId:{$ifNull:['$orderPublicId','']},status:1,createdAt:1,amountMinor:{$ifNull:['$amountMinor',null]},category:{$literal:source.kind},destination:{$literal:source.destination}}}];
+  const pipeline=[...stages(sources[0]),...sources.slice(1).map(source=>({$unionWith:{coll:source.Model.collection.name,pipeline:stages(source)}}))];
+  if(query.search){const pattern=regex(query.search);pipeline.push({$match:{$or:[{publicId:pattern},{orderPublicId:pattern},{country:pattern},{currency:pattern},{category:pattern}]}});}
+  return {Model:sources[0].Model,pipeline,projection:{publicId:1,country:1,currency:1,orderPublicId:1,status:1,createdAt:1,amountMinor:1,category:1,destination:1},columns:['Exception','Category','Country','Currency','Order','Status'],map:row=>({publicId:row.publicId,country:row.country,currency:row.currency,orderPublicId:row.orderPublicId,status:row.status,createdAt:row.createdAt,amountMinor:row.amountMinor===null?null:int(row.amountMinor),category:row.category,href:row.destination+encodeURIComponent(row.publicId)+'&country='+row.country}),cells:row=>[row.publicId,label(row.category.replace(/([A-Z])/g,' $1')),row.country,row.currency||'—',row.orderPublicId||'—',label(row.status)],headers:['Exception','Category','Country','Currency','Order','Status','Amount minor','Created'],csv:row=>[row.publicId,row.category,row.country,row.currency,row.orderPublicId,row.status,row.amountMinor??'',iso(row.createdAt)]};
 }
 
 export async function financeReportSummary(context, window, now = new Date()) {
@@ -133,6 +145,7 @@ function auditPipeline(scope, window, query) {
 
 function reportSource(report, context, window, query) {
   const scope = context.countryScope, search = query.search;
+  if(report==='exceptions')return exceptionReportSource(context,query);
   if (report === 'payments') return { Model: PaymentIntent, pipeline: paymentPipeline(scope, window, { search }), projection: { publicId: 1, country: 1, currency: 1, orderPublicId: 1, provider: 1, status: 1, amountMinor: 1, refundedMinor: 1, createdAt: 1, paidAt: 1 }, columns: ['Payment', 'Country', 'Currency', 'Order', 'Provider', 'Amount', 'Status'],
     map: row => ({ publicId: row.publicId, country: row.country, currency: row.currency, orderPublicId: row.orderPublicId, provider: row.provider, status: row.status, amountMinor: int(row.amountMinor), refundedMinor: int(row.refundedMinor), createdAt: row.createdAt, paidAt: row.paidAt }), cells: row => [row.publicId, row.country, row.currency, row.orderPublicId, row.provider, money(row.amountMinor, row.currency), label(row.status)],
     headers: ['Payment', 'Country', 'Currency', 'Order', 'Provider', 'Status', 'Amount minor', 'Refunded minor', 'Created', 'Paid'], csv: row => [row.publicId, row.country, row.currency, row.orderPublicId, row.provider, row.status, int(row.amountMinor), int(row.refundedMinor), iso(row.createdAt), iso(row.paidAt)] };
@@ -173,7 +186,7 @@ async function overviewTrend(context, window) {
 export async function loadFinanceReportPage(request, pageId, { now = new Date() } = {}) {
   if (!['finance-overview', 'finance-reports', 'finance-audit'].includes(pageId)) throw new AppError('Financial report is unavailable.', 404, 'FINANCE_PAGE_NOT_FOUND');
   const access = await financeAccess(request), query = reportFilters(request, access.actor, pageId), timeZone = access.market?.timeZone || 'UTC';
-  const window = financeReportingWindow(query.period, timeZone, now), context = { ...access, countryScope: access.countryScope };
+  const window = financeReportingWindow(query.period, timeZone, now), context = { ...access, countryScope: access.countryScope,now };
   const summary = await financeReportSummary(context, window, now), groups = summary.groups;
   let items = [], rows = [], columns = summaryColumns, page = { count: 0, total: 0, hasMore: false, next: '' };
   if (pageId === 'finance-audit') {
@@ -183,7 +196,7 @@ export async function loadFinanceReportPage(request, pageId, { now = new Date() 
     rows = items.map(row => ({ id: row.requestId, cells: [iso(row.createdAt), row.country, row.action, row.targetPublicId || row.targetType, row.actorPublicId || 'System', row.result] }));
   } else if (pageId === 'finance-reports' && query.report !== 'summary') {
     const source = reportSource(query.report, context, window, query); ({ items, page } = await reportPage(source, query.after)); columns = source.columns;
-    rows = items.map(row => ({ id: row.publicId, cells: source.cells(row) }));
+    rows = items.map(row => ({ id: row.publicId, cells: source.cells(row),href:row.href }));
   } else {
     const filtered = groups.filter(row => !query.search || `${row.country} ${row.currency}`.toLowerCase().includes(query.search.toLowerCase()));
     rows = filtered.map(row => ({ id: row.country + ':' + row.currency, cells: summaryCells(row) })); page = { ...page, count: rows.length, total: rows.length };
@@ -191,17 +204,17 @@ export async function loadFinanceReportPage(request, pageId, { now = new Date() 
   const sumCount = field => int(groups.reduce((total, row) => total + row[field], 0));
   const totals = { capturedCount: sumCount('capturedCount'), refundCount: sumCount('refundCount'), payoutCount: sumCount('payoutCount'), ledgerCount: sumCount('ledgerCount') };
   const priorities = [
-    { count: summary.exceptions.unknownPayouts, text: 'payout submissions need settlement evidence', href: '/finance/payouts?status=unknown' },
-    { count: summary.exceptions.staleRefunds, text: 'refunds have been processing for over two hours', href: '/finance/refunds?status=processing' },
-    { count: summary.exceptions.providerEvents + summary.exceptions.reconciliationRuns + summary.exceptions.pendingCod, text: 'provider, reconciliation or cash collection exceptions need review', href: '/finance/reconciliation' },
-    { count: summary.exceptions.openDisputes, text: 'financial disputes need review', href: '/finance/disputes' },
+    { count: summary.exceptions.unknownPayouts, text: 'payout submissions need settlement evidence', href: '/finance/reports?report=exceptions&exception=unknownPayouts' },
+    { count: summary.exceptions.staleRefunds, text: 'refunds have been processing for over two hours', href: '/finance/reports?report=exceptions&exception=staleRefunds' },
+    { count: summary.exceptions.providerEvents + summary.exceptions.reconciliationRuns + summary.exceptions.pendingCod, text: 'provider, reconciliation or cash collection exceptions need review', href: '/finance/reports?report=exceptions' },
+    { count: summary.exceptions.openDisputes, text: 'financial disputes need review', href: '/finance/reports?report=exceptions&exception=openDisputes' },
   ].filter(row => row.count).map(row => ({ text: `${row.count} ${row.text}`, href: row.href + (access.country ? (row.href.includes('?') ? '&' : '?') + 'country=' + access.country : '') }));
   const recent = await AuditLog.find({ ...access.countryScope, action: /^finance\./ }).select('action targetPublicId country result createdAt -_id').sort(cursorSort()).limit(4).lean();
   const flow = { kind: 'reports', pageId, country: access.country, countries: access.countries.map(row => ({ code: row.code, name: row.name })), context: { country: access.country, countries: access.countries.map(row => ({ code: row.code, name: row.name })) },
     timeZone, period: query.period, report: query.report, periodOptions: [{ value: '30days', label: 'Last 30 days' }, { value: '7months', label: 'Last 7 months' }, { value: 'year', label: 'This year' }], reportOptions: REPORTS.map(value => ({ value, label: label(value) })),
-    metrics: [{ label: 'Verified captured payments', value: String(totals.capturedCount), detail: 'Confirmed payments in this period' }, { label: 'Completed refunds', value: String(totals.refundCount), detail: 'Completed money returns in this period' }, { label: 'Paid payouts', value: String(totals.payoutCount), detail: 'Settlements completed in this period' }, { label: 'Open financial exceptions', value: String(summary.exceptionCount), detail: 'Current scoped operational exceptions' }],
+    metrics: [{ label: 'Verified captured payments', value: String(totals.capturedCount), detail: 'Confirmed payments in this period' }, { label: 'Completed refunds', value: String(totals.refundCount), detail: 'Completed money returns in this period' }, { label: 'Paid payouts', value: String(totals.payoutCount), detail: 'Settlements completed in this period' }, { label: 'Open financial exceptions', value: String(summary.exceptionCount), detail: 'Current scoped operational exceptions',href:'/finance/reports?'+new URLSearchParams({country:access.country,report:'exceptions'}) }],
     groups, totals, exceptions: summary.exceptions, exceptionCount: summary.exceptionCount, columns, rows, items, page,
-    filters: { search: query.search, status: query.status, after: query.after, statuses: pageId === 'finance-audit' ? RESULTS.map(value => ({ value, label: label(value) })) : [], params: { country: access.country, period: query.period, ...(pageId === 'finance-reports' ? { report: query.report } : {}) } },
+    filters: { search: query.search, status: query.status, after: query.after, statuses: pageId === 'finance-audit' ? RESULTS.map(value => ({ value, label: label(value) })) : [], params: { country: access.country, period: query.period, ...(pageId === 'finance-reports' ? { report: query.report,exception:query.exception } : {}) } },
     insights: priorities, priorities, workflow: [{ title: 'Verify provider truth', text: 'Review unresolved provider and cash reconciliation exceptions.', href: '/finance/reconciliation' }, { title: 'Review controlled money movement', text: 'Use approvals and settlement evidence for refunds and payouts.', href: '/finance/payouts' }, { title: 'Export scoped records', text: 'Amounts stay separated by country and currency.', href: '/finance/reports' }],
     health: { label: 'Financial controls', rows: [{ label: 'Open exceptions', value: String(summary.exceptionCount) }, { label: 'Verified ledger entries', value: String(totals.ledgerCount) }], note: 'Counts reflect recorded events; they are not a security or reconciliation score.' },
     verification: { label: 'Exceptions', value: `${summary.exceptionCount} open`, detail: summary.exceptionCount ? 'Awaiting review' : 'None recorded' },
@@ -209,7 +222,7 @@ export async function loadFinanceReportPage(request, pageId, { now = new Date() 
     coverage: { title: 'Market coverage', description: 'Authorized countries and separate settlement currencies.', people: [], stats: [{ label: 'Countries', value: String(new Set(groups.map(row => row.country)).size) }, { label: 'Currency groups', value: String(groups.length) }], note: 'Cross-currency totals are not combined.', href: '/finance/reports', label: 'Open financial reports' },
     tableTitle: pageId === 'finance-audit' ? 'Finance audit records' : query.report === 'summary' ? 'Settlement summary by market' : label(query.report) + ' records',
     tableDescription: 'Only records within your current finance permissions are shown.', emptyText: 'No financial records match this view.',
-    exportHref: (pageId === 'finance-audit' ? '/finance/audit/export.csv' : '/finance/reports/export.csv') + '?' + new URLSearchParams({ country: access.country, period: query.period, report: query.report, search: query.search, ...(pageId === 'finance-audit' ? { status: query.status } : {}) }) };
+    exportHref: (pageId === 'finance-audit' ? '/finance/audit/export.csv' : '/finance/reports/export.csv') + '?' + new URLSearchParams({ country: access.country, period: query.period, report: query.report,exception:query.exception, search: query.search, ...(pageId === 'finance-audit' ? { status: query.status } : {}) }) };
   flow.sidebar = await loadFinanceSidebar(access, { now, exceptionCount: summary.exceptionCount });
   if (pageId === 'finance-overview') { flow.trend = await overviewTrend(context, window); flow.trendLabel = 'Verified captured payments'; flow.trendDescription = 'Confirmed payment counts in the selected reporting calendar.'; flow.priorityHref = priorities[0]?.href || '/finance/reconciliation'; }
   await assertFinanceExportAccess(request, access);
@@ -217,7 +230,7 @@ export async function loadFinanceReportPage(request, pageId, { now = new Date() 
 }
 
 export async function streamFinanceReportCsv(request, response, pageId, { now = new Date() } = {}) {
-  const context = await financeAccess(request), query = reportFilters(request, context.actor, pageId), window = financeReportingWindow(query.period, context.market?.timeZone || 'UTC', now);
+  const access = await financeAccess(request), context={...access,now}, query = reportFilters(request, context.actor, pageId), window = financeReportingWindow(query.period, context.market?.timeZone || 'UTC', now);
   const report = pageId === 'finance-audit' ? 'audit' : query.report;
   await writeAudit(request, 'finance.report_exported', { targetType: 'financial_report', targetPublicId: report, country: context.country || context.countries[0].code, metadata: { report, period: query.period, countryScope: context.country || context.countries.map(row => row.code) } });
   await assertFinanceExportAccess(request, context);

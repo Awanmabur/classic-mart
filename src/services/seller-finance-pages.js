@@ -1,3 +1,6 @@
+import { sellerOperationsAccess } from './seller-operations-access.js';
+import { assertSellerAnalytics } from './seller-entitlements.js';
+import { sellerOverviewWindow } from './seller-overview.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { env } from '../config/env.js';
@@ -161,14 +164,19 @@ export async function requestSellerPayout(request, body) {
   return publicPayout(payout);
 }
 
-export async function loadSellerAnalyticsPage(request, { period = '7months', now = new Date() } = {}) {
+export async function loadSellerAnalyticsPage(request, { period = '30days', now = new Date(), export: exporting = false } = {}) {
+  const context = await sellerOperationsAccess(request, 'analytics');
+  const window = sellerOverviewWindow(period, context.country.timeZone, now);
+  const entitlements = await assertSellerAnalytics(context.store, { export: exporting, from: window.start, to: now });
   const overview = await loadSellerOverview(request, { period, now });
+  const current = await sellerOperationsAccess(request, 'analytics');
+  await assertSellerAnalytics(current.store, { export: exporting, from: window.start, to: now });
   const money = value => formatMinorUnits(integer(value), overview.store.currency, request.user.locale);
   return { kind: 'analytics', pageId: 'seller-analytics', store: overview.store, currency: overview.store.currency,
     period: overview.period, timeZone: overview.timeZone, range: overview.range,
     trend: overview.trend.map(row => ({ ...row, value: row.paidMinor, display: money(row.paidMinor) })), analytics: overview.metrics,
     trendDescription: `Verified paid item sales · ${overview.store.currency} · ${overview.timeZone}`,
-    trendSummary: money(overview.metrics.paidMinor), exportHref: `/seller/analytics/summary.csv?period=${period}`,
+    trendSummary: money(overview.metrics.paidMinor), exportHref: entitlements.analyticsExport ? `/seller/analytics/summary.csv?period=${period}` : '',
     metrics: [
       { label: 'Paid item sales', value: money(overview.metrics.paidMinor), detail: 'Verified paid orders in the selected period' },
       { label: 'Completed refunds', value: money(overview.metrics.refundMinor), detail: 'Item refunds belonging to this store' },
@@ -177,13 +185,13 @@ export async function loadSellerAnalyticsPage(request, { period = '7months', now
     ],
     columns: ['Period', 'Paid item sales', 'Completed refunds', 'Net paid sales', 'Status'],
     rows: overview.trend.map(row => ({ id: row.key, cells: [row.key, money(row.paidMinor), money(row.refundMinor), money(row.netMinor), 'Recorded'] })),
-    insights: [{ text: `Reporting follows the store calendar: ${overview.timeZone}.`, href: `/seller/analytics/summary.csv?period=${period}`, label: 'Download summary' },
+    insights: [{ text: `Reporting follows the store calendar: ${overview.timeZone}.`, ...(entitlements.analyticsExport ? { href: `/seller/analytics/summary.csv?period=${period}`, label: 'Download summary' } : {}) },
       { text: overview.metrics.rating === null ? 'Your store has no published reviews yet.' : `${overview.metrics.reviews} published reviews give your store a ${overview.metrics.rating} / 5 rating.`, href: '/seller/reviews', label: 'Review feedback' }],
     health: { value: null, label: 'Store activity', rows: [{ label: 'Published products', value: String(overview.metrics.publishedProducts) },
       { label: 'Orders preparing', value: String(overview.metrics.preparation) }, { label: 'Awaiting payment', value: String(overview.metrics.awaitingPayment) }] },
     workflow: [{ title: 'Last 30 days', text: 'Compare daily sales and completed refunds.', href: '/seller/analytics?period=30days', label: 'View 30 days' },
       { title: 'Last seven months', text: 'Compare monthly sales and completed refunds.', href: '/seller/analytics?period=7months', label: 'View seven months' },
       { title: 'This calendar year', text: 'Review store results from the start of the year.', href: '/seller/analytics?period=year', label: 'View this year' }],
-    create: { label: 'Download summary', href: `/seller/analytics/summary.csv?period=${period}` },
+    ...(entitlements.analyticsExport ? { create: { label: 'Download summary', href: `/seller/analytics/summary.csv?period=${period}` } } : {}),
   };
 }

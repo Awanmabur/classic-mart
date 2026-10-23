@@ -4,6 +4,7 @@ import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
 import { hasSellerSignupIntent, loginDestination, signupDestination } from '../dashboard/landing.js';
 import { publicAccountType, assertPublicRegistrationOpen } from '../core/registration.js';
 import { hydratePlatformAuthorization } from '../services/platform-grants.js';
+import { hydrateBusinessAuthorization } from '../services/business-authorization.js';
 import { env } from '../config/env.js';
 import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler, AppError } from '../core/errors.js';
@@ -47,7 +48,6 @@ router.get('/staff/invitations/:token',requireAuth,asyncHandler(async(request,re
 }));
 router.post('/staff/invitations/:token/accept',requireAuth,asyncHandler(async(request,response)=>{
   const result=await acceptPlatformStaffInvitation(request,request.params.token);
-  await writeAudit(request,'staff.invitation_accepted',{targetType:'platform_staff_invitation',targetPublicId:result.invitation.publicId,country:result.invitation.approvalCountry,metadata:{approval:result.approval.publicId,role:result.invitation.role,countries:result.invitation.operationalCountries}});
   setFlash(request,'success','Staff invitation accepted. Privileged access remains inactive until a different administrator approves it.');
   return response.redirect('/');
 }));
@@ -163,6 +163,7 @@ router.post(
         return response.redirect('/mfa');
       }
       await establishSession(request, user, false);
+      await hydrateBusinessAuthorization({ user, session: request.session });
       rememberSellerSignup(request, user, input.next);
       await writeAudit(request, 'identity.login', {
         actor: user,
@@ -218,6 +219,8 @@ router.post('/mfa', authenticationLimit, asyncHandler(async (request, response) 
     const remember = Boolean(challenge.remember);
     delete request.session.mfaChallenge;
     await establishSession(request, user, remember);
+    request.session.mfaVerifiedAt = Date.now();
+    await hydrateBusinessAuthorization({ user, session: request.session });
     rememberSellerSignup(request, user, nextPath);
     await writeAudit(request, 'identity.login', { actor: user, targetType: 'user', targetPublicId: user.publicId, metadata: { mfa: result.method } });
     await writeSecurityEvent(request, 'mfa.challenge_succeeded', { actor: user, category: 'mfa', severity: 'low', result: 'success', metadata: { method: result.method } });

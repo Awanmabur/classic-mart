@@ -53,12 +53,12 @@ router.post('/api/v1/seller/campaigns', ...sellerCampaignGates, sellerCampaignCs
 
 router.post('/api/v1/seller/campaigns/:id/submit', ...sellerCampaignGates, sellerCampaignCsrf, async (request, response, next) => { try { response.json({ campaign: await submitCampaign(request, request.params.id) }); } catch (error) { next(error); } });
 
-router.post('/api/v1/admin/campaigns/:id/review', requireAuth, requireVerified, adminOnly, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(500).default('') }).parse(request.body); response.json({ campaign: await reviewCampaign(request, request.params.id, input) }); } catch (error) { next(error); } });
+router.post('/api/v1/admin/campaigns/:id/review', requireAuth, requireVerified, adminOnly, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().min(3).max(500), version: z.coerce.number().int().nonnegative() }).parse(request.body); response.json({ campaign: await reviewCampaign(request, request.params.id, input) }); } catch (error) { next(error); } });
 
 
 router.post('/api/v1/promoters/campaigns/:id/apply', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request, response, next) => { try { const input = z.object({ note: z.string().trim().max(1000).default('') }).parse(request.body || {}); response.status(201).json({ application: await applyToCampaign(request, request.params.id, input.note) }); } catch (error) { next(error); } });
 
-router.post('/api/v1/seller/campaign-applications/:id/review', ...sellerCampaignGates, sellerCampaignCsrf, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(500).default('') }).parse(request.body); response.json({ application: await reviewCampaignApplication(request, request.params.id, input) }); } catch (error) { next(error); } });
+router.post('/api/v1/seller/campaign-applications/:id/review', ...sellerCampaignGates, sellerCampaignCsrf, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().min(3).max(500), version: z.coerce.number().int().nonnegative() }).parse(request.body); response.json({ application: await reviewCampaignApplication(request, request.params.id, input) }); } catch (error) { next(error); } });
 
 router.post('/api/v1/promoters/coupons/redeem', async (request, response, next) => { try { const input = z.object({ code: z.string().trim().min(2).max(32) }).parse(request.body); const { link, touch } = await redeemPromoterCoupon(request, input.code); response.json({ attribution: { linkId: link.publicId, touchId: touch.publicId, status: touch.status } }); } catch (error) { next(error); } });
 

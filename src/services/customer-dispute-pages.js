@@ -2,10 +2,10 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
-import { env } from '../config/env.js';
-import { CountrySetting, Dispute, Order, SatisfactionSurvey, SupportTicket, User } from '../models/index.js';
+import { CountrySetting, Dispute, Order, SatisfactionSurvey, SupportTicket } from '../models/index.js';
 import { writeAudit } from './audit.js';
 import { queueSupportAlert } from './support-notifications.js';
+import { currentCustomerAccess } from './customer-access.js';
 
 const terminal = ['resolved', 'rejected', 'closed'];
 const recordId = z.string().trim().min(4).max(100);
@@ -51,17 +51,7 @@ async function transaction(work) {
 }
 
 async function currentOwner(request, session) {
-  if (!request.user?._id) throw new AppError('Sign in to manage your own support cases.', 403, 'ACCOUNT_UNAVAILABLE');
-  const actor = await User.findById(request.user._id).session(session);
-  if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion ||
-      request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion ||
-      !env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) {
-    throw new AppError('Your verified account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
-  }
-  const fenced = await User.updateOne({ _id: actor._id, status: 'active', __v: actor.__v || 0,
-    'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
-  if (fenced.modifiedCount !== 1) throw new AppError('Your account changed. Reload before continuing.', 409, 'ACCOUNT_ACCESS_CHANGED');
-  return actor;
+  return currentCustomerAccess(request, { session, write: true });
 }
 
 async function fenceMarket(country, session, currency) {

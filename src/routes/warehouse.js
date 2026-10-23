@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import { Router } from 'express';
 import rateLimit from '../middleware/rate-limit.js';
 import { AppError, asyncHandler } from '../core/errors.js';
@@ -17,6 +18,7 @@ import { loadWarehousePage, warehouseReportRows, warehouseParcelLabel } from '..
 import { code39Geometry } from '../dashboard/parcel-barcode.js';
 import { uploadVerificationImage } from '../services/media.js';
 import { loadWarehouseReturnIntakes, uploadWarehouseReturnIntakeEvidence, recordWarehouseReturnIntake } from '../services/support-case-pages.js';
+import { prepareWarehouseMeasuredExport, warehouseMeasuredExportRows } from '../services/warehouse-measured-reports.js';
 
 const router = Router();
 const privatePage = (_request, response, next) => { response.set('X-Robots-Tag', 'noindex, nofollow, noarchive'); next(); };
@@ -137,6 +139,20 @@ router.get('/warehouse/reports/export.csv', ...access, exportLimit, asyncHandler
   return response.type('text/csv; charset=utf-8').send(rows.map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n');
 }));
 router.get('/operations/logistics/inventory-audit.csv', ...access, (request, response) => response.redirect(308, '/warehouse/reports/export.csv' + new URL(request.originalUrl, 'http://localhost').search));
+router.get('/warehouse/reports/measured.csv', ...access, exportLimit, asyncHandler(async (request, response) => {
+  const prepared = await prepareWarehouseMeasuredExport(request);
+  response.set('Content-Disposition', 'attachment; filename="classic-mart-warehouse-' + prepared.context.filters.kind + '.csv"');
+  response.type('text/csv; charset=utf-8');
+  const columns = ['Reference', 'Country', 'Warehouse', 'Type', 'Status', 'Recorded at', 'Claimed at', 'Completed at', 'Due at', 'Task minutes', 'On time', 'Parcel', 'Carrier custody at', 'Handover minutes', 'Expected count', 'Physical count', 'Variance', 'Count measured'];
+  response.write(columns.map(csvCell).join(',') + '\r\n');
+  const date = value => value ? new Date(value).toISOString() : '';
+  for await (const row of warehouseMeasuredExportRows(request, prepared)) {
+    if (response.destroyed) break;
+    const cells = [row.publicId, row.country, row.warehouseName, row.type, row.status, date(row.recordedAt), date(row.claimedAt), date(row.completedAt), date(row.dueAt), row.durationMinutes ?? '', row.onTime === null ? '' : row.onTime ? 'yes' : 'no', row.parcelPublicId, date(row.handoverAt), row.handoverMinutes ?? '', row.expectedOnHand ?? '', row.countedOnHand ?? '', row.variance ?? '', row.type === 'counts' ? row.measuredCount ? 'yes' : 'no' : ''];
+    if (!response.write(cells.map(csvCell).join(',') + '\r\n')) await Promise.race([once(response, 'drain'), once(response, 'close')]);
+  }
+  if (!response.destroyed) response.end();
+}));
 router.get('/warehouse/parcels/:publicId/label', ...access, asyncHandler(async (request, response) => {
   const label = await warehouseParcelLabel(request);
   return response.render('parcel-label', { ...label, barcodeGeometry: code39Geometry(label.parcel.barcode) });

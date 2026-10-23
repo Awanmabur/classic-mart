@@ -10,6 +10,7 @@ import { financeAccess } from '../services/finance-workspace-access.js';
 import { PaymentIntent, WalletTopUp } from '../models/index.js';
 import { initiatePayment, getPaymentIntentForOrder, verifyAndApplyPayment, processPesapalNotification, requeueProviderEvent, createRefund, completeManualRefund, savePayoutAccount, requestPayout, submitPayout, confirmPayoutSubmission, markPayoutUnknown, reconcilePayout, reconcilePayments, rejectPayout, payoutAccountsForRequest, reviewPayoutAccount, approvePayout } from '../services/payments.js';
 import { processWalletPesapalNotification } from '../services/customer-wallet.js';
+import { processSubscriptionPesapalNotification } from '../services/seller-subscription-operations.js';
 import { reviewChargeback, resolveChargeback } from '../services/chargebacks.js';
 
 const router=Router();
@@ -39,7 +40,8 @@ async function pesapalNotification(req,res,next){try{
   const merchantRef=String(req.query.OrderMerchantReference||req.query.orderMerchantReference||body.OrderMerchantReference||body.orderMerchantReference||'').trim();
   const notificationType=String(req.query.OrderNotificationType||req.query.orderNotificationType||body.OrderNotificationType||body.orderNotificationType||'IPNCHANGE').trim()||'IPNCHANGE';
   const walletTopUp=merchantRef?await WalletTopUp.findOne({providerReference:merchantRef}).select('_id').lean():null;
-  const result=walletTopUp?await processWalletPesapalNotification(req,body,req.query||{}):await processPesapalNotification(req.rawBody||JSON.stringify(body),body,req.query||{});
+  const subscription=await processSubscriptionPesapalNotification(req,body,req.query||{});
+  const result=subscription || (walletTopUp?await processWalletPesapalNotification(req,body,req.query||{}):await processPesapalNotification(req.rawBody||JSON.stringify(body),body,req.query||{}));
   res.status(200).json({orderNotificationType:notificationType,orderTrackingId:trackingId,orderMerchantReference:merchantRef,status:200,accepted:true,duplicate:Boolean(result?.duplicate)});
 }catch(e){next(e);}}
 router.get('/webhooks/pesapal',pesapalNotification);

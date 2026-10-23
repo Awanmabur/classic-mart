@@ -1,0 +1,7 @@
+<% const proposal = returnRequest.resolutionChange; if (proposal?.status === 'proposed' && new Date(proposal.expiresAt).getTime() > Date.now()) { %>
+<div class="policy-box"><svg aria-hidden="true"><use href="#i-refresh"></use></svg><div><strong>Refund alternative for your exchange</strong><p><%= proposal.reason %></p><p><%= formatMoney(proposal.amountMinor, proposal.currency) %> to the original payment method. Accepting sends the inspected return for Finance review; it does not confirm a payment.</p>
+<form class="dashboard-form" method="post" action="/account/returns/<%= returnRequest.publicId %>/refund-proposal">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= returnRequest.version %>"><input type="hidden" name="proposalPublicId" value="<%= proposal.publicId %>"><input type="hidden" name="returnTo" value="<%= typeof proposalReturnTo !== 'undefined' ? proposalReturnTo : '/account/returns' %>">
+  <div class="card-actions"><button class="primary-button" name="decision" value="accept" type="submit">Accept refund alternative</button><button class="outline-button" name="decision" value="decline" type="submit">Keep my exchange</button></div>
+</form></div></div>
+<% } %>

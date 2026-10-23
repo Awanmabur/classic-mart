@@ -1,3 +1,5 @@
+import { inviteStoreTeamMember, updateStoreTeamMember, selectSellerWorkspace } from '../services/seller-team-pages.js';
+import { requestReviewedSellerSubscription } from '../services/seller-subscription-operations.js';
 import mongoose from 'mongoose';
 import { Router } from 'express';
 import rateLimit from '../middleware/rate-limit.js';
@@ -360,17 +362,8 @@ router.post(
   '/seller/dashboard/subscription',
   requireStoreCapability('staff'),
   asyncHandler(async (request, response) => {
-    const input = z.object({ planPublicId: z.string().trim().min(3).max(100), note: z.string().trim().max(1000).optional().default('') }).parse(request.body || {});
-    const plan = await SubscriptionPlan.findOne({ publicId: input.planPublicId, audience: 'seller', country: request.store.country, currency: request.store.currency, status: 'active' });
-    if (!plan) throw new AppError('Subscription plan is unavailable for this store.', 404, 'SUBSCRIPTION_PLAN_NOT_FOUND');
-    const existing = await SubscriptionChangeRequest.findOne({ audience: 'seller', storeId: request.store._id, status: 'requested' });
-    if (existing) throw new AppError('A subscription change is already awaiting review.', 409, 'SUBSCRIPTION_CHANGE_PENDING');
-    const row = await SubscriptionChangeRequest.create({
-      publicId: publicId('scr'), audience: 'seller', userId: request.user._id, storeId: request.store._id, storePublicId: request.store.publicId,
-      planId: plan._id, planPublicId: plan.publicId, country: request.store.country, currency: request.store.currency,
-      requestedPriceMinor: plan.priceMinor, requestedCadence: plan.cadence, note: input.note,
-    });
-    await writeAudit(request, 'seller.subscription_change_requested', { targetType: 'subscription_change_request', targetPublicId: row.publicId, metadata: { planPublicId: plan.publicId } });
+    verifyDeferredCsrf(request);
+    await requestReviewedSellerSubscription(request, request.body);
     setFlash(request, 'success', 'Subscription change request submitted. Your current plan stays unchanged until approval and payment are completed.');
     return response.redirect(routeForPage('seller-subscription'));
   }),
@@ -411,13 +404,10 @@ router.post(
   }),
 );
 
-router.post('/seller/workspace', asyncHandler(async (request, response) => {
-  const storePublicId = String(request.body.storePublicId || '').trim();
-  if (!storePublicId || storePublicId.length > 100) throw new AppError('Choose a valid seller workspace.', 422, 'SELLER_WORKSPACE_INVALID');
-  const access = await getOrCreateStore(request.user, { preferredStorePublicId: storePublicId, strictPreferred: true });
-  if (request.session) request.session.activeStorePublicId = access.store.publicId;
-  await writeAudit(request, 'seller.workspace.selected', { targetType: 'store', targetPublicId: access.store.publicId, country: access.store.country });
-  response.redirect('/seller/products');
+router.post('/seller/workspace', workflowLimiter, asyncHandler(async (request, response) => {
+  verifyDeferredCsrf(request);
+  const result = await selectSellerWorkspace(request, request.body);
+  return response.redirect(result.landing);
 }));
 
 router.get(
@@ -682,35 +672,15 @@ router.post(
 
 
 
-router.get('/seller/staff', asyncHandler(async (request, response) => {
-  const members = await StoreMember.find({ storeId: request.store._id }).populate('userId','name email role status').sort({ createdAt: 1 }).lean();
-  return renderWorkspace(request, response, { section: 'staff', members });
-}));
-
+router.get('/seller/staff', (_request, response) => response.redirect(308, '/seller/team'));
 router.post('/seller/staff', workflowLimiter, asyncHandler(async (request, response) => {
-  const emailNormalized = normalizeEmail(String(request.body.email || ''));
-  const role = String(request.body.role || '');
-  if (!['admin','catalogue','fulfilment','finance','support'].includes(role)) throw new AppError('Choose a valid store staff role.', 422, 'STORE_ROLE_INVALID');
-  const user = await User.findOne({ emailNormalized, status: 'active', emailVerifiedAt: { $ne: null } });
-  if (!user) throw new AppError('That verified Classic Mart account was not found. Ask the person to create and verify an account first.', 404, 'STAFF_USER_NOT_FOUND');
-  if (user._id.equals(request.store.ownerUserId)) throw new AppError('The store owner already has full access.', 409, 'STAFF_ALREADY_OWNER');
-  if (await Store.exists({ ownerUserId: user._id })) throw new AppError('A seller-store owner cannot be added as staff to another store in this release.', 409, 'STAFF_OWNS_STORE');
-  const member = await StoreMember.findOneAndUpdate(
-    { storeId: request.store._id, userId: user._id },
-    { $set: { role, status: 'invited', invitedByUserId: request.user._id, invitedAt: new Date(), acceptedAt: null, revokedAt: null }, $setOnInsert: { publicId: publicId('stm') } },
-    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
-  );
-  await writeAudit(request, 'seller.staff_invited', { targetType: 'store_member', targetPublicId: member.publicId, metadata: { role } });
-  setFlash(request, 'success', 'Staff invitation created. The user can accept it from their dashboard.');
-  response.redirect('/seller/staff');
+  verifyDeferredCsrf(request); await inviteStoreTeamMember(request, request.body);
+  setFlash(request, 'success', 'Invitation recorded. The recipient must explicitly accept.');
+  return response.redirect('/seller/team');
 }));
-
 router.post('/seller/staff/:publicId/revoke', workflowLimiter, asyncHandler(async (request, response) => {
-  const member = await StoreMember.findOne({ publicId: request.params.publicId, storeId: request.store._id, role: { $ne: 'owner' } });
-  if (!member) throw new AppError('Store staff member not found.', 404, 'STORE_MEMBER_NOT_FOUND');
-  member.status = 'revoked'; member.revokedAt = new Date(); await member.save();
-  await writeAudit(request, 'seller.staff_revoked', { targetType: 'store_member', targetPublicId: member.publicId });
-  setFlash(request, 'success', 'Store access revoked.'); response.redirect('/seller/staff');
+  verifyDeferredCsrf(request); await updateStoreTeamMember(request, request.params.publicId, { ...request.body, action: 'revoke' });
+  setFlash(request, 'success', 'Store access revoked.'); return response.redirect('/seller/team');
 }));
 
 router.get('/seller/returns', asyncHandler(async (request, response) => {

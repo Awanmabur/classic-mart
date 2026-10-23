@@ -40,6 +40,8 @@
   let displayCurrency = 'UGX';
   let catalog = [];
   let csrfToken = '';
+  let savedAddresses = [];
+  let profileLoaded = false;
 
   function productById(id) {
     const productId = String(id);
@@ -327,6 +329,44 @@
     // Checkout personal data is collected only by the server-authoritative checkout flow, never browser storage.
   }
 
+  function contactData(data = checkoutData()) {
+    return { fullName: data.name, email: data.email, phone: data.phone, address: data.address, city: data.city, country: data.country, note: data.note };
+  }
+
+  function addressSource() {
+    const address = savedAddresses.find(row => row.id === $('#checkoutSavedAddress')?.value);
+    return address ? { addressPublicId: address.id, addressVersion: address.version } : {};
+  }
+
+  function fillSavedAddress(address) {
+    if (!address) return;
+    for (const [field, key] of [['Name', 'fullName'], ['Phone', 'phone'], ['Address', 'address'], ['City', 'city'], ['Note', 'note']]) {
+      const input = $('#checkout' + field);
+      if (input) input.value = address[key] || '';
+    }
+  }
+
+  async function loadCheckoutProfile() {
+    if (profileLoaded) return;
+    const response = await fetch('/checkout/profile', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || 'Your checkout details could not be loaded.');
+    savedAddresses = data.addresses || [];
+    for (const [field, key] of [['Name', 'fullName'], ['Email', 'email'], ['Phone', 'phone']]) {
+      const input = $('#checkout' + field);
+      if (input && !input.value) input.value = data.contact?.[key] || '';
+    }
+    const select = $('#checkoutSavedAddress');
+    select.innerHTML = '<option value="">Enter a new address</option>' + savedAddresses.map(row => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.label)} — ${escapeHtml(row.city)}</option>`).join('');
+    $('#savedAddressField').hidden = !savedAddresses.length;
+    const address = savedAddresses.find(row => row.isDefault);
+    if (address) { select.value = address.id; fillSavedAddress(address); }
+    const rewards = data.rewards || [];
+    $('#checkoutReward').innerHTML = '<option value="">Save rewards for later</option>' + rewards.map(row => `<option value="${escapeHtml(row.publicId)}">${escapeHtml(row.label)}</option>`).join('');
+    $('#checkoutRewardField').hidden = !rewards.length;
+    profileLoaded = true;
+  }
+
   async function loadCheckoutOptions() {
     const city = $('#checkoutCity')?.value?.trim() || '';
     try {
@@ -387,29 +427,23 @@
     const save = event.target.closest('[data-save-later]');
     if (save) {
       const id = save.dataset.saveLater;
-      const productId = save.dataset.productId || productById(id).id;
-      const response = await fetch(
-        `/api/v1/storefront/wishlist/${encodeURIComponent(productId)}`,
-        {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            Accept: 'application/json',
-            'x-csrf-token': csrfToken,
-          },
-        },
-      );
-      if (response.status === 401) {
-        location.href = `/login?next=${encodeURIComponent('/cart')}`;
-        return;
-      }
-      if (response.ok) {
-        await removeItem(id, false);
-        showToast('Item saved to your wishlist');
-      } else {
+      save.disabled = true;
+      try {
+        if (window.ClassicMartCart?.ready) await window.ClassicMartCart.ready;
+        const response = await fetch('/api/v1/customer/cart/move-to-wishlist', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-csrf-token': window.ClassicMartCart?.getCsrfToken?.() || csrfToken },
+          body: JSON.stringify({ variantId: id, cartVersion: window.ClassicMartCart?.getVersion?.() }),
+        });
+        if (response.status === 401) { location.href = '/login?next=' + encodeURIComponent('/cart'); return; }
         const payload = await response.json().catch(() => ({}));
-        showToast(payload.error?.message || 'Item could not be saved.');
-      }
+        if (!response.ok) throw new Error(payload.error?.message || 'Item could not be saved.');
+        await window.ClassicMartCart.refresh();
+        refreshCartFromStore();
+        checkoutReview = null;
+        showToast('Item saved to your wishlist');
+      } catch (error) { showToast(error.message); }
+      finally { save.disabled = false; }
       return;
     }
     const add = event.target.closest('[data-recommend-add]');
@@ -469,11 +503,13 @@
       showToast('Add at least one item before checkout');
       return;
     }
+    if (location.pathname !== '/checkout') { location.assign('/checkout'); return; }
     try {
       const cartResponse = await fetch('/api/v1/cart', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
       const cartData = await cartResponse.json();
       csrfToken = cartData.csrfToken || csrfToken;
       if (!cartResponse.ok || !cartData.cart?.items?.length) throw new Error('Your server cart is empty. Refresh and add the item again.');
+      await loadCheckoutProfile();
       await loadCheckoutOptions();
       setStep(2);
     } catch (error) { showToast(error.message || 'Checkout could not start.'); }
@@ -488,7 +524,8 @@
       const response = await fetch('/api/v1/checkout/review', {
         method: 'POST', credentials: 'same-origin',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
-        body: JSON.stringify({ deliveryMethod: data.delivery, paymentMethod: data.payment, city: data.city, pickupPointId: data.pickupPointId })
+        body: JSON.stringify({ deliveryMethod: data.delivery, paymentMethod: data.payment, city: data.city, pickupPointId: data.pickupPointId,
+          contact: contactData(data), rewardPublicId: $('#checkoutReward')?.value || '', ...addressSource() })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message || 'Checkout review failed.');
@@ -511,6 +548,16 @@
   document.addEventListener('change', event => {
     if (event.target.matches('input[name="delivery"], input[name="payment"]')) { checkoutReview = null; updateChoiceStyles(); }
     if (event.target.matches('#checkoutCity')) loadCheckoutOptions();
+    if (event.target.matches('#checkoutSavedAddress')) {
+      fillSavedAddress(savedAddresses.find(row => row.id === event.target.value));
+      checkoutReview = null;
+      loadCheckoutOptions();
+    }
+    if (event.target.matches('#checkoutReward, #checkoutPickupPoint')) checkoutReview = null;
+  });
+  $('#checkoutDetailsForm')?.addEventListener('input', event => {
+    checkoutReview = null;
+    if (event.target.matches('#checkoutName, #checkoutPhone, #checkoutAddress, #checkoutCity, #checkoutNote')) $('#checkoutSavedAddress').value = '';
   });
 
 
@@ -533,12 +580,16 @@
           paymentMethod: data.payment,
           city: data.city,
           pickupPointId: data.pickupPointId,
-          contact: { fullName: data.name, email: data.email, phone: data.phone, address: data.address, city: data.city, country: data.country, note: data.note }
+          contact: contactData(data),
+          rewardPublicId: $('#checkoutReward')?.value || '',
+          ...addressSource()
         })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message || 'Order could not be created.');
-      await window.ClassicMartCart?.clear?.();
+      // The order transaction consumes only its reviewed cart. A second DELETE
+      // here could erase products added in another tab after that commit.
+      await window.ClassicMartCart?.refresh?.().catch(() => {});
       const paymentKey = (crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^a-zA-Z0-9-]/g, '');
       const paymentResponse = await fetch(`/api/v1/orders/${encodeURIComponent(payload.order.id)}/payment-intents`, {
         method: 'POST', credentials: 'same-origin',
@@ -574,4 +625,12 @@
     if (empty) empty.hidden = false;
   }
   loadCatalog().catch(error => console.warn('Cart catalogue recovery:', error));
+  if (document.body.dataset.checkoutEntry === 'true') {
+    Promise.resolve(window.ClassicMartCart?.ready).then(async () => {
+      refreshCartFromStore();
+      await loadCheckoutProfile();
+      await loadCheckoutOptions();
+      if (entries().length) setStep(2);
+    }).catch(error => showToast(error.message || 'Checkout could not start.'));
+  }
 })();

@@ -41,7 +41,7 @@ const csvCell = value => {
   return '"' + text.replaceAll('"', '""') + '"';
 };
 router.get('/seller/overview/summary.csv', ...access, asyncHandler(async (request, response) => {
-  const data = await loadSellerOverview(request, { period: reportingPeriod(request) });
+  const data = await loadSellerOverview(request, { period: reportingPeriod(request), export: true });
   const rows = [['Store', 'Country', 'Currency', 'Time zone', 'Period start', 'Period end'],
     [data.store.name, data.store.country, data.store.currency, data.timeZone, data.range.start.toISOString(), data.range.end.toISOString()],
     ['Metric', 'Value'], ['Paid item sales minor', data.metrics.paidMinor], ['Completed item refunds minor', data.metrics.refundMinor],

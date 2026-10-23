@@ -9,6 +9,7 @@ const schema=new Schema({
   spendingLimitMinor:{type:Number,min:0,max:10_000_000_000,default:0},
   canApprove:{type:Boolean,default:false},
   invitedByUserId:{type:Schema.Types.ObjectId,ref:'User',required:true},
+  inviterTokenVersion:{type:Number,min:0},
   invitedAt:{type:Date,default:Date.now},acceptedAt:Date,revokedAt:Date,
 },{timestamps:true,optimisticConcurrency:true});
 schema.index({organizationId:1,userId:1},{unique:true});

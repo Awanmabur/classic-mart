@@ -10,14 +10,14 @@ export function customerRead(request, key, loader) {
   if (!cache.has(key)) cache.set(key, Promise.resolve().then(loader));
   return cache.get(key);
 }
-export const customerLoyalty = request => customerRead(request, 'loyalty', () => LoyaltyAccount.findOne({ userId: request.user._id }).lean().exec());
+export const customerLoyalty = request => customerRead(request, 'loyalty', () => LoyaltyAccount.findOne({ userId: request.user._id, country: request.country.code }).lean().exec());
 export const customerCatalogue = request => customerRead(request, 'catalogue', () => CustomerCatalogueState.findOne({ userId: request.user._id }).select('wishlistProductIds').lean().exec());
 export const customerUnread = request => customerRead(request, 'unread', () => Notification.countDocuments({ userId: request.user._id, readAt: null, $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }).exec());
 export const customerWallet = (request, includeTopUps = false) => {
-  const balance = customerRead(request, 'wallet-balance', () => customerWalletSummary(request.user, { includeTopUps: false }));
+  const balance = customerRead(request, 'wallet-balance', () => customerWalletSummary({ publicId: request.user.publicId, _id: request.user._id, country: request.country.code, currency: request.country.currency }, { includeTopUps: false }));
   if (!includeTopUps) return balance;
   return customerRead(request, 'wallet-full', async () => {
-    const [summary, topUps] = await Promise.all([balance, WalletTopUp.find({ userId: request.user._id }).sort({ createdAt: -1 }).limit(12).lean().exec()]);
+    const [summary, topUps] = await Promise.all([balance, WalletTopUp.find({ userId: request.user._id, country: request.country.code, currency: request.country.currency }).sort({ createdAt: -1, _id: -1 }).limit(12).lean().exec()]);
     return { ...summary, topUps };
   });
 };

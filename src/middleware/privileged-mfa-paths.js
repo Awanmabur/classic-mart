@@ -1,5 +1,7 @@
 export const PRIVILEGED_MFA_ROLES = Object.freeze(new Set([
   'seller',
+  'business',
+  'delivery',
   'warehouse',
   'support',
   'moderator',
@@ -8,8 +10,8 @@ export const PRIVILEGED_MFA_ROLES = Object.freeze(new Set([
   'super_admin',
 ]));
 
-const PRIVILEGED_WEB_PREFIX = /^\/(?:admin|super-admin|seller|warehouse|finance|operations|moderation|logistics|money)(?:\/|$)/;
-const PRIVILEGED_API_PREFIX = /^\/api\/v1\/(?:admin|seller|finance|operations|moderation|logistics|warehouse|support|payouts|payout-accounts)(?:\/|$)/;
+const PRIVILEGED_WEB_PREFIX = /^\/(?:admin|super|super-admin|seller|warehouse|finance|operations|moderation|logistics|money|business|delivery)(?:\/|$)/;
+const PRIVILEGED_API_PREFIX = /^\/api\/v1\/(?:admin|seller|finance|operations|moderation|logistics|warehouse|support|payouts|payout-accounts|business|delivery)(?:\/|$)/;
 
 export function requiresPrivilegedMfaForRequest(request) {
   const role = request?.user?.role;
@@ -20,7 +22,7 @@ export function requiresPrivilegedMfaForRequest(request) {
   const path = String(request?.path || '/').toLowerCase();
   if (path === '/logout' || path === '/account/security' || path.startsWith('/account/mfa/')) return false;
 
-  const operationalDashboard = /^\/dashboard\/(?:seller|admin|super|finance|support|warehouse|moderator)-/.test(path);
-  const supportWorkspace = /^\/support\/(?:overview|queue|customers|orders|returns|escalations|reviews|reports|settings|evidence)(?:\/|$)/.test(path);
+  const operationalDashboard = /^\/dashboard\/(?:seller|admin|super|finance|support|warehouse|moderator|business|delivery)-/.test(path);
+  const supportWorkspace = /^\/support\/(?:overview|queue|customers|orders|returns|escalations|reviews|reports|settings|evidence|order-case-evidence)(?:\/|$)/.test(path);
   return operationalDashboard || supportWorkspace || PRIVILEGED_WEB_PREFIX.test(path) || PRIVILEGED_API_PREFIX.test(path);
 }

@@ -16,4 +16,10 @@ export const SELLER_LIVE_ROUTES = Object.freeze({
   'seller-messages': '/seller/messages',
   'seller-store': '/seller/store',
   'seller-subscription': '/seller/subscription',
+  'seller-team': '/seller/team',
+  'seller-affiliate': '/seller/affiliate',
+  'seller-cases': '/seller/cases',
+  'seller-trust-cases': '/seller/trust-cases',
+  'seller-business-quotes': '/seller/business-quotes',
+  'seller-business-orders': '/seller/business-orders',
 });

@@ -5,6 +5,8 @@ import { hasPermission } from '../core/roles.js';
 import { env } from '../config/env.js';
 import { mfaRequiredForUser } from '../services/mfa.js';
 import { hydratePlatformAuthorization } from '../services/platform-grants.js';
+import { hydrateBusinessAuthorization } from '../services/business-authorization.js';
+import { hydrateSellerAuthorization } from '../services/seller-authorization.js';
 import { requiresPrivilegedMfaForRequest } from './privileged-mfa-paths.js';
 
 export async function loadUser(request, response, next) {
@@ -49,6 +51,8 @@ export async function loadUser(request, response, next) {
     const user = actor;
     request.user = user;
     request.device = device;
+    await hydrateBusinessAuthorization(request);
+    await hydrateSellerAuthorization(request);
     response.locals.user = user;
     return next();
   } catch (error) {

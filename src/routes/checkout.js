@@ -23,6 +23,9 @@ import {
 } from '../services/checkout.js';
 import { ensureHistoricalReceipt } from '../services/financial-documents.js';
 import { createGuestOrderChallenge, verifyGuestOrderChallenge } from '../services/guest-order-access.js';
+import { requireAuth, requireVerified, requireOnboarding } from '../middleware/auth.js';
+import { checkoutContactSchema } from '../services/checkout-contact.js';
+import { checkoutProfile } from '../services/checkout-profile.js';
 
 const router = Router();
 const trackingLimit=rateLimit({ scope: 'checkout:1',windowMs:10*60_000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
@@ -39,19 +42,26 @@ const reviewSchema = z.object({
   paymentMethod: z.enum(['card', 'mobile', 'cod', 'wallet']),
   city: z.string().trim().min(2).max(120),
   pickupPointId: z.string().trim().max(100).optional().default(''),
+  contact: checkoutContactSchema,
+  rewardPublicId: z.string().trim().max(120).default(''),
+  addressPublicId: z.string().trim().max(120).default(''),
+  addressVersion: z.coerce.number().int().nonnegative().optional(),
 });
 const orderSchema = reviewSchema.extend({
   checkoutId: z.string().trim().min(6).max(120),
   idempotencyKey: z.string().trim().min(12).max(120),
-  contact: z.object({
-    fullName: z.string().trim().min(2).max(120),
-    email: z.string().trim().email().max(254),
-    phone: z.string().trim().min(7).max(32),
-    address: z.string().trim().min(4).max(240),
-    city: z.string().trim().min(2).max(120),
-    country: z.string().trim().min(2).max(80),
-    note: z.string().trim().max(500).optional().default(''),
-  }),
+});
+const checkoutGates = [requireAuth, requireVerified, requireOnboarding];
+
+router.get('/checkout', ...checkoutGates, (request, response) => {
+  response.set({ 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex, nofollow, noarchive' });
+  response.render('cart', { checkoutEntry: true });
+});
+router.get('/checkout/profile', ...checkoutGates, async (request, response, next) => {
+  try {
+    response.set({ 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex, nofollow, noarchive' });
+    response.json(await checkoutProfile(request));
+  } catch (error) { next(error); }
 });
 
 function ensureCsrf(request) {
@@ -112,10 +122,10 @@ router.delete('/api/v1/cart/promotions/:code', async (request, response, next) =
 router.get('/api/v1/checkout/options', async (request, response, next) => {
   try { response.json(await checkoutOptions(request, String(request.query.city || ''))); } catch (error) { next(error); }
 });
-router.post('/api/v1/checkout/review', async (request, response, next) => {
+router.post('/api/v1/checkout/review', ...checkoutGates, async (request, response, next) => {
   try { response.json(await reviewCheckout(request, reviewSchema.parse(request.body))); } catch (error) { next(error); }
 });
-router.post('/api/v1/orders', async (request, response, next) => {
+router.post('/api/v1/orders', ...checkoutGates, async (request, response, next) => {
   try { response.status(201).json({ order: await placeOrder(request, orderSchema.parse(request.body)) }); } catch (error) { next(error); }
 });
 router.post('/api/v1/orders/:orderId/tracking-challenge', trackingChallengeLimit, async (request, response, next) => {

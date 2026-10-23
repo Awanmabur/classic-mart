@@ -2,7 +2,9 @@ import { ProductAlert, ProductVariant, StockItem } from '../models/index.js';
 import { releaseExpiredReservations } from './checkout.js';
 import { stage9Maintenance } from './stage9.js';
 import { stage10Maintenance } from './ai.js';
-import { processRecurringProcurement } from './business.js';
+import { processBusinessRecurrence } from './business-operations.js';
+import { processCustomerAvatarCleanup } from './customer-avatars.js';
+import { sellerSubscriptionMaintenance } from './seller-subscription-operations.js';
 import { applyDuePriceSchedules } from './seller-growth.js';
 import { processNotificationOutbox } from './outbox.js';
 import { deliverWebhookBatch, processPushOutbox, queuePushNotification } from './stage11.js';
@@ -73,10 +75,12 @@ export async function runMaintenanceCycle() {
   const alerts = await evaluateProductAlerts();
   const stage9 = await stage9Maintenance();
   const pricing = await applyDuePriceSchedules();
-  const recurringProcurement = await processRecurringProcurement();
+  const recurringProcurement = await processBusinessRecurrence();
   const businessInvoices = await ageBusinessInvoices();
   const privacy = await processPrivacyRequests();
   const privacyExpired = await expirePrivacyExports();
+  const customerAvatarCleanup = await processCustomerAvatarCleanup();
+  const sellerSubscriptions = await sellerSubscriptionMaintenance();
   const platformGrantsExpired = await expirePlatformGrants();
   const pesapal = await processPesapalEvents();
   const financeReports = await queueWeeklyFinanceReports();
@@ -89,5 +93,5 @@ export async function runMaintenanceCycle() {
   const securityRetentionResult = await securityRetention();
   let invariants=null;
   if(Date.now()-lastInvariantScanAt>=5*60_000){invariants=await scanBusinessInvariants();lastInvariantScanAt=Date.now();}
-  return { alerts, stage9, pricing, recurringProcurement, businessInvoices, privacy, privacyExpired, platformGrantsExpired, pesapal, financeReports, supportReports, notifications, stage10, webhooks, push, siem, securityRetention: securityRetentionResult, invariants };
+  return { alerts, stage9, pricing, recurringProcurement, businessInvoices, privacy, privacyExpired, customerAvatarCleanup, sellerSubscriptions, platformGrantsExpired, pesapal, financeReports, supportReports, notifications, stage10, webhooks, push, siem, securityRetention: securityRetentionResult, invariants };
 }

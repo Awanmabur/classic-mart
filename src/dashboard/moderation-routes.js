@@ -1,4 +1,5 @@
 export const MODERATION_LIVE_ROUTES = Object.freeze({
+  'moderator-order-cases': '/moderation/order-cases',
   'moderator-overview': '/moderation/overview',
   'moderator-products': '/moderation/products',
   'moderator-reviews': '/moderation/reviews',

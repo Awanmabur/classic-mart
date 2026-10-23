@@ -6,10 +6,14 @@ import { FINANCE_LIVE_ROUTES } from './finance-routes.js';
 import { MODERATION_LIVE_ROUTES } from './moderation-routes.js';
 import { SUPPORT_LIVE_ROUTES } from './support-routes.js';
 import { COUNTRY_ADMIN_LIVE_ROUTES } from './country-admin-routes.js';
+import { BUSINESS_LIVE_ROUTES, BUSINESS_PAGES } from './business-routes.js';
+import { DELIVERY_ROUTES, DELIVERY_PAGES } from './delivery-routes.js';
+import { SUPER_ADMIN_LIVE_ROUTES } from './super-admin-routes.js';
 // Classic Mart production dashboard page registry.
 // Visual labels/page structure are intentionally preserved; route targets bind the design to production server routes.
 
 export const DASHBOARD_WORKSPACES = Object.freeze({
+  delivery: { label: 'Delivery Partner', defaultPage: 'delivery-overview', search: 'Search deliveries and offers...', quickLabel: 'Job Offers', quickPage: 'delivery-offers', notificationPage: 'delivery-jobs' },
   "customer": {
     "label": "Customer",
     "defaultPage": "dashboard",
@@ -547,7 +551,8 @@ export const DASHBOARD_PAGES = Object.freeze({
       "Admin Settings",
       "Manage notification preferences, assigned workflows, profile, and session security.",
       "settings"
-    ]
+    ],
+    ["admin-order-cases", "Order Cases", "i-shield", "Operations", "Order Case Referrals", "Review source-bound Support referrals and return an independent assessment.", "specialist"]
   ],
   "seller": [
     [
@@ -702,7 +707,13 @@ export const DASHBOARD_PAGES = Object.freeze({
       "Seller Subscription",
       "Compare plans, review current benefits, billing history, and upgrade options.",
       "subscriptions"
-    ]
+    ],
+    ["seller-team", "Team", "i-user", "Configuration", "Store Team", "Invite verified team members and manage their store capabilities.", "team"],
+    ["seller-affiliate", "Affiliate Campaigns", "i-award", "Growth", "Affiliate Campaigns", "Manage independently reviewed campaigns and promoter applications.", "affiliate"],
+    ["seller-cases", "Order Cases", "i-support", "Customers", "Order Cases", "Respond to source-bound order cases and private evidence requests.", "cases"],
+    ["seller-trust-cases", "Policy Cases", "i-shield", "Customers", "Policy Cases", "Respond to policy reviews and submit private appeals.", "trust"],
+    ["seller-business-quotes", "Business Quotations", "i-bag", "Business", "Business Quotations", "Offer exact marketplace products for approved company procurement.", "business"],
+    ["seller-business-orders", "Business Orders", "i-clipboard", "Business", "Business Orders", "Confirm company purchase orders and follow real fulfilment.", "business"]
   ],
   "promoter": [
     [
@@ -922,7 +933,8 @@ export const DASHBOARD_PAGES = Object.freeze({
       "Finance Settings",
       "Manage finance notifications, review preferences, sessions, and controlled workspace settings.",
       "settings"
-    ]
+    ],
+    ["finance-order-cases", "Order Cases", "i-shield", "Operations", "Order Case Referrals", "Review source-bound Support referrals and return an independent assessment.", "specialist"]
   ],
   "support": [
     [
@@ -1088,7 +1100,9 @@ export const DASHBOARD_PAGES = Object.freeze({
       "Warehouse Settings",
       "Manage workstation preferences, notifications, profile, and secure session controls.",
       "settings"
-    ]
+    ],
+    ["warehouse-carriers", "Carriers", "i-user", "Delivery", "Carrier Verification", "Review private carrier identity and service readiness.", "carriers"],
+    ["warehouse-deliveries", "Deliveries", "i-truck", "Delivery", "Delivery Operations", "Offer source-bound delivery jobs and review custody evidence.", "deliveries"]
   ],
   "moderator": [
     [
@@ -1162,64 +1176,11 @@ export const DASHBOARD_PAGES = Object.freeze({
       "Moderation Settings",
       "Manage alerts, profile, review preferences, sessions, and account security.",
       "settings"
-    ]
+    ],
+    ["moderator-order-cases", "Order Cases", "i-shield", "Operations", "Order Case Referrals", "Review source-bound Support referrals and return an independent assessment.", "specialist"]
   ],
-  "business": [
-    [
-      "business-overview",
-      "Overview",
-      "i-grid",
-      "Business",
-      "Business Overview",
-      "Track company purchasing, supplier activity, order status, spend, and finance controls.",
-      "overview"
-    ],
-    [
-      "business-orders",
-      "Business Orders",
-      "i-clipboard",
-      "Procurement",
-      "Business Orders",
-      "Manage company purchases, approvals, delivery status, and order documents.",
-      "orders"
-    ],
-    [
-      "business-suppliers",
-      "Suppliers",
-      "i-bag",
-      "Procurement",
-      "Supplier Directory",
-      "Review approved marketplace sellers, relationship quality, and supply performance.",
-      "sellers"
-    ],
-    [
-      "business-payments",
-      "Payments",
-      "i-card",
-      "Finance",
-      "Business Payments",
-      "Track company payment activity, refunds, wallet use, and reconciliation context.",
-      "finance"
-    ],
-    [
-      "business-reports",
-      "Spend Reports",
-      "i-download",
-      "Intelligence",
-      "Spend Reports",
-      "Review procurement spend, supplier mix, order performance, and exportable finance summaries.",
-      "reports"
-    ],
-    [
-      "business-settings",
-      "Business Settings",
-      "i-user",
-      "Configuration",
-      "Business Settings",
-      "Manage company profile, notifications, sessions, and secure workspace preferences.",
-      "settings"
-    ]
-  ]
+  business: BUSINESS_PAGES,
+  delivery: DELIVERY_PAGES
 });
 
 export function pageDefinition(workspace, pageId) {
@@ -1239,6 +1200,9 @@ export function defaultPageFor(workspace) {
 }
 
 export function routeForPage(pageId) {
+  if (SUPER_ADMIN_LIVE_ROUTES[pageId]) return SUPER_ADMIN_LIVE_ROUTES[pageId];
+  if (BUSINESS_LIVE_ROUTES[pageId]) return BUSINESS_LIVE_ROUTES[pageId];
+  if (DELIVERY_ROUTES[pageId]) return DELIVERY_ROUTES[pageId];
   if (COUNTRY_ADMIN_LIVE_ROUTES[pageId]) return COUNTRY_ADMIN_LIVE_ROUTES[pageId];
   if (WAREHOUSE_ROUTES[pageId]) return WAREHOUSE_ROUTES[pageId];
   if (SELLER_LIVE_ROUTES[pageId]) return SELLER_LIVE_ROUTES[pageId];

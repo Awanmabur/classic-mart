@@ -6,6 +6,7 @@ const ROLE_TO_WORKSPACE = Object.freeze({
   business: 'business',
   seller: 'seller',
   promoter: 'promoter',
+  delivery: 'delivery',
   warehouse: 'warehouse',
   support: 'support',
   moderator: 'moderator',
@@ -19,6 +20,7 @@ const WORKSPACE_PERMISSION = Object.freeze({
   business: 'business:manage',
   seller: 'seller:manage',
   promoter: 'promoter:manage',
+  delivery: 'delivery:manage',
   warehouse: 'warehouse:manage',
   support: 'support:manage',
   moderator: 'catalogue:moderate',
@@ -35,6 +37,7 @@ const PRIMARY_WORKSPACE_PRIORITY = Object.freeze([
   'warehouse',
   'seller',
   'promoter',
+  'delivery',
   'business',
   'customer',
 ]);
@@ -46,20 +49,23 @@ function grantRoles(user) {
 
 function effectiveRoleWorkspaces(user) {
   if (!user || user.status !== 'active') return new Set();
-  if (user.role === 'super_admin') return new Set(Object.keys(DASHBOARD_WORKSPACES));
   const roles = user.authorizationContext?.platformManaged ? grantRoles(user) : [user.role];
   const workspaces = new Set(['customer']);
   for (const role of roles) {
+    if (role === 'super_admin' && !hasGlobalAdminGrant(user)) continue;
     const workspace = ROLE_TO_WORKSPACE[role];
     if (workspace) workspaces.add(workspace);
   }
+  if (user.businessMembershipContext?.active && ['customer', 'business'].includes(user.role) && !user.authorizationContext?.platformManaged) workspaces.add('business');
+  if (user.storeMembershipContext?.active && ['customer', 'seller'].includes(user.role) && !user.authorizationContext?.platformManaged) workspaces.add('seller');
   return workspaces;
 }
 
 export function canAccessWorkspace(user, workspace) {
   if (!user || user.status !== 'active' || !DASHBOARD_WORKSPACES[workspace]) return false;
-  if (user.role === 'super_admin') return true;
+  if (workspace === 'superadmin') return hasGlobalAdminGrant(user);
   if (workspace === 'customer') return hasPermission(user, 'account:read');
+  if (user.role === 'super_admin' && !hasGlobalAdminGrant(user)) return false;
 
   const workspaces = effectiveRoleWorkspaces(user);
   if (workspaces.has(workspace)) return true;
@@ -69,6 +75,10 @@ export function canAccessWorkspace(user, workspace) {
   if (workspace === 'moderator') return hasPermission(user, 'catalogue:moderate') || hasPermission(user, 'trust:manage');
   const permission = WORKSPACE_PERMISSION[workspace];
   return permission ? hasPermission(user, permission) : false;
+}
+
+function hasGlobalAdminGrant(user) {
+  return Boolean(user?.authorizationContext?.platformManaged && user.authorizationContext.activePlatformGrants?.some(grant => grant.role === 'super_admin' && grant.operationalCountries?.includes('*')));
 }
 
 export function allowedWorkspacesFor(user) {

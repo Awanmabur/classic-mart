@@ -73,40 +73,20 @@ export async function reviewPromoterVerification(request, verificationId, { deci
 }
 
 export async function createCampaign(request, input) {
-  const store = request.store || await Store.findOne({ ownerUserId: request.user._id, status: 'verified' });
-  if (!store || store.status !== 'verified') throw new AppError('Verified seller store required.', 409, 'STORE_REQUIRED');
-  const productIds = [...new Set((input.productPublicIds || []).map(value => String(value).trim()).filter(Boolean))];
-  const ownedProducts = await Product.find({ publicId: mongoose.trusted({ $in: productIds }), storeId: store._id, status: 'published', countries: store.country }).select('publicId').lean();
-  if (!productIds.length || ownedProducts.length !== productIds.length) throw new AppError('Campaign products must be published products owned by your verified store in this country.', 422, 'CAMPAIGN_PRODUCT_SCOPE');
-  return Campaign.create({
-    publicId: publicId('cmp'), ownerUserId: store.ownerUserId, storeId: store._id, country: store.country,
-    scope: 'seller', systemManaged: false, name: input.name, visibility: input.visibility, commissionBps: input.commissionBps, attributionDays: input.attributionDays,
-    allowedChannels: input.allowedChannels, facts: input.facts, productPublicIds: productIds, assets: input.assets || [],
-    disclosureText: input.disclosureText, startsAt: input.startsAt || null, endsAt: input.endsAt || null, status: 'draft', policyVersion: '2026-07',
-  });
+  const { createSellerAffiliateCampaign } = await import('./seller-affiliate-pages.js');
+  return createSellerAffiliateCampaign(request, input);
 }
 
-export async function submitCampaign(request, campaignPublicId) {
-  const query = { publicId: campaignPublicId };
-  if (request.store?._id) query.storeId = request.store._id; else query.ownerUserId = request.user._id;
-  const campaign = await Campaign.findOne(query);
+export async function submitCampaign(request, campaignPublicId, input = request.body || {}) {
+  const { transitionSellerAffiliateCampaign } = await import('./seller-affiliate-pages.js');
+  return transitionSellerAffiliateCampaign(request, campaignPublicId, { ...input, action: 'submit' });
+}
+
+export async function reviewCampaign(request, campaignPublicId, input) {
+  const { decideCountryAffiliateCampaign } = await import('./country-admin-growth-pages.js');
+  const campaign = await Campaign.findOne({ publicId: campaignPublicId }).select('country').lean();
   if (!campaign) throw new AppError('Campaign not found.', 404, 'CAMPAIGN_NOT_FOUND');
-  if (!['draft', 'rejected'].includes(campaign.status)) throw new AppError('Only a draft or rejected campaign can be submitted.', 409, 'CAMPAIGN_STATE');
-  if (!campaign.facts.length) throw new AppError('Add at least one approved factual claim before submitting.', 422, 'CAMPAIGN_FACTS_REQUIRED');
-  if (!campaign.productPublicIds.length) throw new AppError('Select at least one product for the campaign.', 422, 'CAMPAIGN_PRODUCTS_REQUIRED');
-  campaign.status = 'submitted'; campaign.submittedAt = new Date(); campaign.reviewReason = '';
-  await campaign.save(); return campaign;
-}
-
-export async function reviewCampaign(request, campaignPublicId, { decision, reason = '' }) {
-  const campaign = await Campaign.findOne({ publicId: campaignPublicId, status: 'submitted' });
-  if (!campaign) throw new AppError('Submitted campaign not found.', 404, 'CAMPAIGN_NOT_FOUND');
-  if (campaign.systemManaged || campaign.scope === 'marketplace') throw new AppError('Marketplace promoter policy is managed from country settings.', 409, 'MARKETPLACE_CAMPAIGN_MANAGED');
-  if (request.user.role !== 'super_admin') assertOperationalCountry(request.user,campaign.country,'Campaign is outside your country scope.');
-  campaign.status = decision === 'approve' ? 'active' : 'rejected';
-  campaign.reviewReason = reason; campaign.reviewedAt = new Date(); campaign.reviewedByUserId = request.user._id;
-  if (campaign.status === 'active' && !campaign.startsAt) campaign.startsAt = new Date();
-  await campaign.save(); return campaign;
+  return decideCountryAffiliateCampaign(request, campaignPublicId, { ...input, status: input.decision === 'approve' ? 'active' : 'rejected', country: campaign.country });
 }
 
 export async function applyToCampaign(request, campaignPublicId, note = '') {
@@ -114,15 +94,9 @@ export async function applyToCampaign(request, campaignPublicId, note = '') {
   return secureApplyToCampaign(request, campaignPublicId, note);
 }
 
-export async function reviewCampaignApplication(request, applicationPublicId, { decision, reason = '' }) {
-  const application = await CampaignApplication.findOne({ publicId: applicationPublicId, status: 'pending' });
-  if (!application) throw new AppError('Pending application not found.', 404, 'CAMPAIGN_APPLICATION_NOT_FOUND');
-  const campaign = await Campaign.findById(application.campaignId);
-  if (campaign?.scope === 'marketplace' || campaign?.systemManaged) throw new AppError('Marketplace promoter applications are approved automatically and cannot be seller-reviewed.', 409, 'MARKETPLACE_CAMPAIGN_MANAGED');
-  const ownsCampaign = campaign && (request.store?._id ? campaign.storeId?.equals(request.store._id) : campaign.ownerUserId?.equals(request.user._id));
-  if (!ownsCampaign) throw new AppError('Your store cannot review this application.', 403, 'FORBIDDEN');
-  application.status = decision === 'approve' ? 'approved' : 'rejected'; application.reason = reason; application.reviewedAt = new Date(); application.reviewedByUserId = request.user._id;
-  await application.save(); return application;
+export async function reviewCampaignApplication(request, applicationPublicId, input) {
+  const { decideSellerAffiliateApplication } = await import('./seller-affiliate-pages.js');
+  return decideSellerAffiliateApplication(request, applicationPublicId, input);
 }
 
 export async function createPromoterLink(request, input) {

@@ -50,9 +50,19 @@
     </form>
     <% } else if (selectedSupportCase.financeReferral && !['refunded', 'closed'].includes(selectedSupportCase.status)) { %><p class="form-intro">Finance referral saved. <%= selectedSupportCase.refundPublicId ? 'Refund record ' + selectedSupportCase.refundPublicId + ' awaits its confirmed outcome.' : 'No refund disbursement has been confirmed.' %></p><% } %>
     <% if (selectedSupportCase.status === 'exchange_pending') { %>
+    <% if (selectedSupportCase.resolutionChange?.status === 'proposed' && new Date(selectedSupportCase.resolutionChange.expiresAt).getTime() > Date.now()) { %>
+    <p class="form-intro">The buyer is reviewing refund alternative <%= selectedSupportCase.resolutionChange.publicId %>. An exchange cannot be reserved while that decision is pending.</p>
+    <% } else { %>
     <form method="post" action="/support/returns/<%= encodeURIComponent(selectedSupportCase.publicId) %>/exchange" class="role-inline-action">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>"><button class="primary-button" type="submit">Reserve exchange replacement</button>
     </form>
+    <% if (!selectedSupportCase.resolutionChange) { %><form method="post" action="/support/returns/<%= encodeURIComponent(selectedSupportCase.publicId) %>/refund-proposal" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <label class="wide"><span>Explain the refund alternative to the buyer</span><textarea name="reason" minlength="20" maxlength="1000" rows="3" required></textarea></label>
+      <p class="wide form-intro">This offers a refund for the inspected goods to their original payment. The buyer must explicitly accept before the exchange resolution changes, and Finance must verify the actual refund.</p>
+      <div class="wide"><button class="outline-button" type="submit">Offer refund alternative</button></div>
+    </form><% } else { %><p class="form-intro">Refund alternative <%= selectedSupportCase.resolutionChange.status %>. The saved buyer decision remains in the return history.</p><% } %>
+    <% } %>
     <% } %>
     <% if (selectedSupportCase.replacementOrderPublicId) { %><p class="form-intro">Saved exchange replacement: <%= selectedSupportCase.replacementOrderPublicId %>. Seller fulfilment continues from its actual reserved stock.</p><% } %>
     <% if (selectedSupportCase.timeline && selectedSupportCase.timeline.length) { %><div class="role-form-grid"><div class="wide"><span>Recorded return history</span><% for (const event of selectedSupportCase.timeline) { %><p class="form-intro"><%= event.message %></p><% } %></div></div><% } %>
@@ -76,6 +86,8 @@
       <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
       <label><span>Department</span><select name="department" required><option value="finance">Finance</option><option value="delivery">Delivery</option><option value="moderation">Moderation</option><option value="seller">Seller support</option><option value="support">Support specialist</option></select></label>
       <label class="wide"><span>Private handoff reason</span><textarea name="reason" minlength="20" maxlength="1000" rows="3" required></textarea></label>
+      <label><span>Seller store (for a seller request)</span><select name="storePublicId"><option value="">Choose an order store</option><% for (const store of selectedSupportCase.orderStores || []) { %><option value="<%= store.publicId %>"><%= store.publicId %></option><% } %></select></label>
+      <label class="wide"><span>Separate message to seller (for a seller request)</span><textarea name="sellerMessage" maxlength="1000" rows="3"></textarea><small>Private review notes and buyer evidence are withheld from the seller.</small></label>
       <label class="wide"><span>Customer update</span><textarea name="message" minlength="10" maxlength="1000" rows="3" required></textarea></label>
       <div class="wide"><button class="soft-button" type="submit">Save departmental referral</button></div>
     </form>
@@ -90,6 +102,7 @@
     <% } %>
     <% } %>
     <% if (selectedSupportCase.escalation) { %><p class="form-intro">Recorded <%= selectedSupportCase.escalation.department %> handoff: <%= selectedSupportCase.escalation.referralTicketPublicId %>.</p><% } %>
+    <% for (const referral of selectedSupportCase.specialistReferrals || []) { %><section class="role-form-grid"><div class="wide"><h3><%= referral.department %> assessment · <%= referral.status %></h3><p class="form-intro"><%= referral.publicId %></p><% if (referral.response) { %><p><%= referral.response.summary %></p><small>Specialist recommendation; verify any actual financial or delivery outcome separately.</small><% } else { %><p class="form-intro">Awaiting the receiving team’s recorded response.</p><% } %><% for (const evidence of referral.evidence || []) { %><p><a class="plain-link" href="<%= evidence.href %>"><%= evidence.description || 'Private specialist evidence' %></a></p><% } %></div></section><% } %>
     <% if (selectedSupportCase.resolution) { %><p class="form-intro">Saved resolution: <%= selectedSupportCase.resolution.summary %></p><% } %>
     <div class="role-form-grid"><div class="wide"><span>Case history</span><% for (const event of selectedSupportCase.events || []) { %><p class="form-intro"><strong><%= event.visibility === 'internal' ? 'Private review: ' : 'Customer update: ' %></strong><%= event.message %></p><% } %></div></div>
   <% } %>

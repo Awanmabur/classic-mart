@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { subscriptionTermsSchema, protectSubscriptionTerms } from './subscription-terms.js';
 const { Schema }=mongoose;
 const schema=new Schema({
   publicId:{type:String,required:true,unique:true,immutable:true,index:true},
@@ -16,6 +17,13 @@ const schema=new Schema({
   currentPeriodEndsAt:Date,
   cancelledAt:Date,
   assignedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
+  terms: { type: subscriptionTermsSchema, immutable: true },
+  subscriptionChargeId: { type: Schema.Types.ObjectId, ref: 'SubscriptionCharge', immutable: true },
+  subscriptionChargePublicId: { type: String, immutable: true },
+  periodStartsAt: { type: Date, immutable: true }, periodEndsAt: { type: Date, immutable: true },
+  cancelAtPeriodEnd: { type: Boolean, default: false }, cancellationRequestedAt: Date, reversedAt: Date,
 },{timestamps:true,optimisticConcurrency:true});
 schema.index({audience:1,userId:1,storeId:1,status:1});
+schema.index({ subscriptionChargeId: 1 }, { unique: true, sparse: true });
+protectSubscriptionTerms(schema);
 export const SubscriptionEnrollment=mongoose.model('SubscriptionEnrollment',schema);

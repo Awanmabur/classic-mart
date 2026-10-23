@@ -3,8 +3,10 @@ import { AppError } from '../core/errors.js';
 import { CountrySetting, User, Store, StoreMember, SellerOrder, Order, PaymentIntent, Refund,
   Product, Review, StockItem, Warehouse, SellerVerification } from '../models/index.js';
 import { storeCapabilities } from './store.js';
+import { sellerOperationsAccess } from './seller-operations-access.js';
+import { assertSellerAnalytics } from './seller-entitlements.js';
 
-const periodInput = z.enum(['7months', '30days', 'year']).default('7months');
+const periodInput = z.enum(['7months', '30days', 'year']).default('30days');
 const integer = value => {
   if (!Number.isSafeInteger(value)) throw new AppError('Store overview totals are invalid.', 500, 'SELLER_OVERVIEW_INVALID');
   return value;
@@ -33,7 +35,7 @@ function midnight(value, timeZone) {
 const dateKey = (value, monthly) => `${value.year}-${String(value.month).padStart(2, '0')}${monthly ? '' : '-' + String(value.day).padStart(2, '0')}`;
 
 /** All report boundaries use the configured store calendar, including DST. */
-export function sellerOverviewWindow(period = '7months', timeZone = 'UTC', now = new Date()) {
+export function sellerOverviewWindow(period = '30days', timeZone = 'UTC', now = new Date()) {
   period = periodInput.parse(period);
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw new AppError('Reporting date is unavailable.', 503, 'SELLER_CALENDAR_UNAVAILABLE');
   let today;
@@ -64,28 +66,14 @@ export function sellerOverviewWindow(period = '7months', timeZone = 'UTC', now =
 
 /** Re-check database identity and membership; never trust a supplied store or cached member. */
 async function overviewAccess(request) {
-  if (!request.user?._id || !request.store?._id) throw new AppError('Seller authentication is required.', 401, 'UNAUTHENTICATED');
-  const [actor, store, member] = await Promise.all([
-    User.findById(request.user._id).select('status security.tokenVersion').lean(),
-    Store.findById(request.store._id).lean(),
-    StoreMember.findOne({ storeId: request.store._id, userId: request.user._id, status: 'active' }).lean(),
-  ]);
-  if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion
-    || (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) {
-    throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
-  }
-  const capabilities = storeCapabilities(member?.role);
-  if (!member || (!capabilities.has('*') && !capabilities.has('staff'))) throw new AppError('Your store role cannot view this overview.', 403, 'STORE_PERMISSION_DENIED');
-  if (!store || !['pending_verification', 'verified'].includes(store.status)) throw new AppError('This store is unavailable.', 409, 'STORE_LOCKED');
-  const country = await CountrySetting.findOne({ code: store.country, active: true }).select('currency timeZone').lean();
-  if (!country || country.currency !== store.currency) throw new AppError('The store country and currency need configuration.', 409, 'SELLER_COUNTRY_UNAVAILABLE');
-  return { store, member, country };
+  return sellerOperationsAccess(request, 'staff');
 }
 
-export async function loadSellerOverview(request, { period = '7months', now = new Date() } = {}) {
+export async function loadSellerOverview(request, { period = '30days', now = new Date(), export: exporting = false } = {}) {
   period = periodInput.parse(period);
   const { store, country } = await overviewAccess(request);
   const window = sellerOverviewWindow(period, country.timeZone, now);
+  const entitlements = await assertSellerAnalytics(store, { from: window.start, to: now, export: exporting });
   const scope = { storeId: store._id, storePublicId: store.publicId, country: store.country, currency: store.currency };
   const rootJoin = [
     { $lookup: { from: Order.collection.name, localField: 'orderId', foreignField: '_id', as: 'root',
@@ -184,9 +172,11 @@ export async function loadSellerOverview(request, { period = '7months', now = ne
   ].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 3);
   const team = { total: integer(members[0]?.total[0]?.count || 0), roles: integer(members[0]?.roles[0]?.count || 0),
     people: members[0]?.people || [] };
+  const current = await overviewAccess(request);
+  await assertSellerAnalytics(current.store, { from: window.start, to: now, export: exporting });
   return {
     store: { publicId: store.publicId, name: store.name, country: store.country, currency: store.currency, status: store.status },
-    period, timeZone: window.timeZone, range: { start: window.start, end: window.end },
+    period, timeZone: window.timeZone, range: { start: window.start, end: window.end }, entitlements,
     metrics: { paidMinor, refundMinor, netSalesMinor: integer(paidMinor - refundMinor),
       orders: integer(orders[0]?.period[0]?.count || 0), publishedProducts: integer(productCounts.published || 0),
       products: integer(products.reduce((sum, row) => sum + row.count, 0)), rating: ratings[0] ? Number(ratings[0].average.toFixed(1)) : null,

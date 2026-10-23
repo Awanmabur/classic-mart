@@ -2,10 +2,11 @@ import mongoose from 'mongoose';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
-import { WalletTopUp, LedgerAccount } from '../models/index.js';
+import { WalletTopUp, LedgerAccount, CountrySetting } from '../models/index.js';
 import { accountBalanceMinor, ensureLedgerAccount, postLedgerTransaction } from './money.js';
 import { getPesapalTransactionStatus, submitPesapalOrder } from './pesapal.js';
 import { writeAudit } from './audit.js';
+import { currentCustomerAccess } from './customer-access.js';
 
 const factor = (currency) => ['UGX','RWF','JPY','KRW'].includes(String(currency||'').toUpperCase()) ? 1 : 100;
 const major = (minor,currency) => Number(minor)/factor(currency);
@@ -16,29 +17,49 @@ function statusOf(payload){return String(payload?.payment_status_description||pa
 export async function customerWalletSummary(user, { includeTopUps = true } = {}) {
   const account = await LedgerAccount.findOne({ code:'customer_wallet', ownerType:'customer', ownerPublicId:user.publicId, country:user.country, currency:user.currency, active:true }).lean();
   const balanceMinor = account ? await accountBalanceMinor(account._id, null, account.type) : 0;
-  const topUps = includeTopUps ? await WalletTopUp.find({ userId:user._id }).sort({ createdAt:-1 }).limit(12).lean() : [];
+  const topUps = includeTopUps ? await WalletTopUp.find({ userId:user._id, country:user.country, currency:user.currency }).sort({ createdAt:-1 }).limit(12).lean() : [];
   return { balanceMinor, currency:user.currency, topUps };
 }
 
 export async function createWalletTopUp(request,{amountMinor,idempotencyKey}) {
+  const actor = await currentCustomerAccess(request);
+  const market = await CountrySetting.findOne({ code: request.country?.code, currency: request.country?.currency, active: true }).lean();
+  if (!market || !market.payments?.card && !market.payments?.mobile) throw new AppError('Wallet funding is unavailable in this marketplace.', 409, 'WALLET_MARKET_UNAVAILABLE');
   const amount=Number(amountMinor);
   if(!Number.isSafeInteger(amount)||amount<=0)throw new AppError('Enter a valid top-up amount.',422,'WALLET_AMOUNT_INVALID');
-  const minimum=factor(request.user.currency)===1?1000:100;
-  const maximum=factor(request.user.currency)===1?20_000_000:2_000_000;
+  const minimum=factor(market.currency)===1?1000:100;
+  const maximum=factor(market.currency)===1?20_000_000:2_000_000;
   if(amount<minimum||amount>maximum)throw new AppError('Top-up amount is outside the allowed range.',422,'WALLET_AMOUNT_RANGE');
   const idem=String(idempotencyKey||'').trim();
   if(idem.length<12||idem.length>140)throw new AppError('Top-up request key is invalid.',422,'IDEMPOTENCY_KEY_INVALID');
   const prior=await WalletTopUp.findOne({idempotencyKey:idem,userId:request.user._id});
-  if(prior)return prior;
+  const sameRequest = row => {
+    if (row.country !== market.code || row.currency !== market.currency || row.amountMinor !== amount) throw new AppError('This funding request already belongs to a different amount or marketplace.', 409, 'WALLET_IDEMPOTENCY_CONFLICT');
+    return row;
+  };
+  if(prior)return sameRequest(prior);
   const topUpPublicId=publicId('wtu');
   let topup;
-  try{topup=await WalletTopUp.create({publicId:topUpPublicId,userId:request.user._id,userPublicId:request.user.publicId,country:request.user.country,currency:request.user.currency,amountMinor:amount,idempotencyKey:idem,providerReference:topUpPublicId});}
-  catch(error){if(error?.code===11000){const raced=await WalletTopUp.findOne({idempotencyKey:idem,userId:request.user._id});if(raced)return raced;}throw error;}
-  const names=splitName(request.user.name);
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      await currentCustomerAccess(request, { session, write: true });
+      const currentMarket = await CountrySetting.updateOne({ _id: market._id, code: market.code, currency: market.currency,
+        active: true, __v: market.__v || 0 }, { $inc: { __v: 1 } }, { session });
+      if (currentMarket.modifiedCount !== 1) throw new AppError('Marketplace funding policy changed. Refresh before trying again.', 409, 'WALLET_MARKET_CHANGED');
+      [topup] = await WalletTopUp.create([{ publicId:topUpPublicId,userId:actor._id,userPublicId:actor.publicId,
+        country:market.code,currency:market.currency,amountMinor:amount,idempotencyKey:idem,providerReference:topUpPublicId }], { session });
+    });
+  } catch(error) {
+    if(error?.code===11000){const raced=await WalletTopUp.findOne({idempotencyKey:idem,userId:actor._id});if(raced)return sameRequest(raced);}
+    throw error;
+  } finally { await session.endSession(); }
+  topup.$session(null);
+  const names=splitName(actor.name);
   try{
     const result=await submitPesapalOrder({
       id:topup.providerReference,currency:topup.currency,amount:major(topup.amountMinor,topup.currency),description:'Classic Mart wallet top-up',callback_url:`${env.baseUrl}/wallet/return`,
-      billing_address:{email_address:request.user.email,phone_number:request.user.phone,country_code:topup.country,first_name:names.firstName,last_name:names.lastName,line_1:'Classic Mart customer wallet',line_2:'',city:'',state:'',postal_code:'',zip_code:''},
+      billing_address:{email_address:actor.email,phone_number:actor.phone,country_code:topup.country,first_name:names.firstName,last_name:names.lastName,line_1:'Classic Mart customer wallet',line_2:'',city:'',state:'',postal_code:'',zip_code:''},
     });
     if(!result?.redirect_url||!result?.order_tracking_id)throw new AppError('Pesapal did not return a wallet checkout URL.',502,'PESAPAL_ORDER_INVALID');
     topup.checkoutUrl=String(result.redirect_url);topup.providerTrackingId=String(result.order_tracking_id);topup.status='requires_action';await topup.save();

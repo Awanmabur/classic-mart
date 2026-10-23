@@ -30,7 +30,7 @@ async function renderPage(request, response, page) {
       });
     }
   }
-  if (workspace !== 'customer' && (['seller', 'moderator', 'admin'].includes(workspace) || env.isProduction)) throw new AppError('This dashboard is not connected to live operations yet.', 503, 'DASHBOARD_NOT_CONNECTED');
+  if (workspace !== 'customer') throw new AppError('This operational page is unavailable.', 404, 'DASHBOARD_PAGE_NOT_FOUND');
   return response.render('approved-dashboard', {
     workspace, initialPage: page, allowedWorkspaces: allowedWorkspacesFor(request.user),
     ...(workspace === 'customer' ? await customerView(request, page) : {}),

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { chromium } from '@playwright/test';
+import sharp from 'sharp';
 
 const base = process.env.CLASSIC_MART_LIVE_BASE_URL;
 test('live approved customer UI supports signup, address submission, mobile navigation and logout in Chromium', {skip:!base}, async () => {
@@ -35,6 +36,20 @@ test('live approved customer UI supports signup, address submission, mobile navi
     await page.locator('[data-address-edit]').first().click();
     assert.equal(await page.locator('#addressForm [name="region"]').inputValue(),'Central Region');
     assert.equal(await page.locator('#addressForm [name="postalCode"]').inputValue(),'256');
+    await page.locator('#addressForm [name="address"]').fill('Updated browser delivery address');
+    await page.locator('#addressForm [name="note"]').fill('Browser delivery instruction');
+    await page.locator('#addressForm button[type="submit"]').click();
+    await page.waitForURL('**/addresses');
+    assert.match(await page.locator('[data-address-id]').first().innerText(),/Updated browser delivery address/);
+    await page.goto(base+'/profile');
+    const avatar=await sharp({create:{width:400,height:400,channels:3,background:'#ed6c16'}}).png().toBuffer();
+    await page.locator('#customerAvatarInput').setInputFiles({name:'browser-avatar.png',mimeType:'image/png',buffer:avatar});
+    await page.waitForFunction(()=>document.querySelector('#customerAvatarPreview')?.src.startsWith('blob:'));
+    await Promise.all([page.waitForNavigation(),page.locator('#profilePhotoForm button[type="submit"]').click()]);
+    assert.match(await page.locator('#customerAvatarPreview').getAttribute('src'),/^\/account\/avatar\?v=/);
+    await page.waitForFunction(()=>document.querySelector('#customerAvatarPreview')?.naturalWidth===320);
+    await Promise.all([page.waitForNavigation(),page.locator('form[action="/account/avatar/delete"] button').click()]);
+    assert.equal(await page.locator('#customerAvatarPreview').getAttribute('src'),'/approved-dashboard/assets/avatar.svg');
     await page.setViewportSize({width:390,height:844});
     await page.locator('#mobileMenuBtn').click();
     assert.equal(await page.locator('#sidebarOverlay').evaluate(el=>el.classList.contains('show')),true);

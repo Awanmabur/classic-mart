@@ -21,6 +21,7 @@ const shipmentSchema=new Schema({
  cod:{required:{type:Boolean,default:false},amountMinor:{type:Number,min:0,default:0},currency:{type:String,uppercase:true,maxlength:3,default:'UGX'},collectedMinor:{type:Number,min:0,default:0},handoverDeclaredMinor:{type:Number,min:0},handoverAt:Date,handoverByUserId:{type:Schema.Types.ObjectId,ref:'User'},handoverEvidenceDocumentId:{type:Schema.Types.ObjectId,ref:'EvidenceDocument'},mismatchExceptionPublicId:{type:String,maxlength:120,default:''},reconciledAt:Date},
  timeline:{type:[new Schema({type:{type:String,required:true,maxlength:80},message:{type:String,required:true,maxlength:240},actorUserId:{type:Schema.Types.ObjectId,ref:'User'},at:{type:Date,default:Date.now}},{_id:false})],default:[]},
 },{timestamps:true,optimisticConcurrency:true});
+shipmentSchema.add({'cod.reviewedAt':Date,'cod.reviewedByUserId':{type:Schema.Types.ObjectId,ref:'User'},'cod.reviewNote':{type:String,maxlength:500,default:''}});
 shipmentSchema.index({country:1,status:1,createdAt:-1});
 shipmentSchema.index({country:1,status:1,slaDueAt:1});
 shipmentSchema.index({deliveryUserId:1,status:1,createdAt:-1});

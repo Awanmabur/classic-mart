@@ -8,17 +8,19 @@ import { encryptSensitive } from '../core/sensitive.js';
 import {
   CountrySetting, DeliveryException, DeliveryOffer, DeliveryProfile, EvidenceDocument, InventoryDiscrepancy, InventoryMovement, InventoryReservation, Order, Parcel, PaymentIntent, PlatformGrant, ReconciliationRun, ReturnRequest, SellerOrder, SellerShipment, Shipment, ShippingZone, StockItem, Store, User, Warehouse, WarehouseTask, WarehouseWave,
 } from '../models/index.js';
-import { ensureLedgerAccount, postLedgerTransaction, sellerSettlementBreakdown } from './money.js';
+import { ensureLedgerAccount, postLedgerTransaction, sellerSettlementBreakdown, orderFundingLedgerEntries } from './money.js';
 import { refreshOrderLifecycle, syncLegacyOrderStatus } from './order-state.js';
 import { assertWarehouseScope, operationalCountryScope, warehouseScopesFor } from './authorization.js';
 import { financeAccess } from './finance-workspace-access.js';
 import { writeAudit } from './audit.js';
 import { completeReconciliationHistory } from './reconciliation-history.js';
+import { deliveryAccess, deliveryVersion } from './delivery-workspace-access.js';
+import { shipmentSource } from './delivery-source.js';
 
 const allowedTransitions = Object.freeze({
   ready: ['offered'], offered: ['assigned', 'ready'], assigned: ['picked_up', 'failed'], picked_up: ['in_transit', 'failed'],
   in_transit: ['delivered', 'failed', 'rescheduled', 'return_to_sender'], failed: ['rescheduled', 'return_to_sender'],
-  rescheduled: ['in_transit', 'failed', 'return_to_sender'], return_to_sender: ['returned'], delivered: [], returned: [],
+  rescheduled: ['picked_up', 'in_transit', 'failed', 'return_to_sender'], return_to_sender: ['returned'], delivered: [], returned: [],
 });
 export function canTransitionShipment(from, to) { return (allowedTransitions[from] || []).includes(to); }
 export function hashProofCode(value) { return crypto.createHmac('sha256', env.security.integrityKey).update(String(value)).digest('hex'); }
@@ -26,11 +28,17 @@ export function verifyProofCode(value, proofHash) { const a = Buffer.from(hashPr
 
 const ADDRESS_FAILURE_CODES=new Set(['address_not_found','address_incorrect']);
 const FAILURE_CODES=new Set(['recipient_unavailable','address_not_found','address_incorrect','recipient_refused','unsafe_location','parcel_damaged','vehicle_issue','other']);
-async function latestDeliveryEvidence(shipmentPublicId,documentTypes,session=null,after=null){
-  const filter={contextType:'delivery_job',contextPublicId:shipmentPublicId,status:'ready',documentType:{$in:documentTypes}};
+async function latestDeliveryEvidence(shipment,documentTypes,session=null,after=null){
+  const filter={contextType:'delivery_job',contextPublicId:shipment.publicId,country:shipment.country,ownerUserId:shipment.deliveryUserId,status:'ready',documentType:{$in:documentTypes}};
   if(after)filter.createdAt={$gt:after};
   let query=EvidenceDocument.find(filter).sort({createdAt:-1});
   if(session)query=query.session(session);return query.lean();
+}
+async function fenceDeliveryEvidence(shipment, evidence, session) {
+  for (const row of evidence) {
+    const result=await EvidenceDocument.updateOne({_id:row._id,status:'ready',ownerUserId:shipment.deliveryUserId,country:shipment.country,contextType:'delivery_job',contextPublicId:shipment.publicId,documentType:row.documentType},{$inc:{moderationEvidenceReadRevision:1}},{session});
+    if(result.modifiedCount!==1)throw new AppError('The private handover evidence changed. Upload current proof and retry.',409,'DELIVERY_EVIDENCE_CHANGED');
+  }
 }
 async function deliveryPolicyForOrder(order,session){
   let settingQuery=CountrySetting.findOne({code:order.country,active:true});if(session)settingQuery=settingQuery.session(session);const setting=await settingQuery.lean();
@@ -84,10 +92,12 @@ export async function ensureShipmentForOrder(order, actorUserId, session=null) {
   const owned=await mongoose.startSession();let result;try{await owned.withTransaction(async()=>{const fresh=await Order.findById(order._id).session(owned);if(!fresh)throw new AppError('Order not found.',404,'ORDER_NOT_FOUND');result=await ensureShipmentInSession(fresh,actorUserId,owned);});return result;}catch(error){if(error?.code===11000){const existing=await Shipment.findOne({orderId:order._id,kind:'outbound'});if(existing)return existing;}throw error;}finally{await owned.endSession();}
 }
 
-export async function offerShipment({ shipment, deliveryUserId, earningMinor, currency, actorUserId }) {
+export async function offerShipment({ shipment, deliveryUserId, earningMinor, currency, actorUserId, request, version }) {
   if(!Number.isSafeInteger(earningMinor)||earningMinor<0)throw new AppError('Delivery earning must be a non-negative whole amount.',422,'DELIVERY_EARNING_INVALID');
   const session=await mongoose.startSession();
   try{return await session.withTransaction(async()=>{
+    let requestAccess;
+    if(request){const {assertWarehouseAccess}=await import('./warehouse-operations.js');requestAccess=await assertWarehouseAccess(request,{mutation:true,session});actorUserId=requestAccess.actor._id;}
     const actor=await User.findOne({_id:actorUserId,status:'active'}).select('role country platformAccessManagedAt security.tokenVersion +operationalCountries').session(session).lean();
     if(!actor)throw new AppError('Active logistics operations access is required.',403,'DELIVERY_OFFER_FORBIDDEN');
     const storedRole=actor.role;let grant=null;
@@ -100,6 +110,7 @@ export async function offerShipment({ shipment, deliveryUserId, earningMinor, cu
     if(!['warehouse','country_admin','super_admin'].includes(actor.role))throw new AppError('Active logistics operations access is required.',403,'DELIVERY_OFFER_FORBIDDEN');
     const current=await Shipment.findOne({_id:shipment._id,...operationalCountryScope(actor)}).session(session);
     if(!current)throw new AppError('Shipment not found.',404,'SHIPMENT_NOT_FOUND');
+    if(request){deliveryVersion(version,current);await shipmentSource(current,{session,warehouseAccess:requestAccess,write:true});}
     if(!['ready','offered'].includes(current.status)||current.deliveryUserId)throw new AppError('Shipment cannot be offered in its current state.',409,'SHIPMENT_OFFER_STATE');
     if(warehouseScopesFor(actor).length){
       const order=await Order.findOne({_id:current.orderId,country:current.country}).select('items.reservationPublicId').session(session).lean();
@@ -111,10 +122,13 @@ export async function offerShipment({ shipment, deliveryUserId, earningMinor, cu
       if(!reservationIds.length||reservations.length!==reservationIds.length||stock.length!==new Set(reservations.map(row=>String(row.stockItemId))).size||warehouses.length!==warehouseIds.length)throw new AppError('Shipment warehouse scope cannot be verified.',403,'WAREHOUSE_SCOPE');
       for(const warehouse of warehouses)assertWarehouseScope(actor,warehouse.publicId);
     }
-    const recipient=await User.findOne({_id:deliveryUserId,status:'active',role:'delivery',country:current.country}).select('_id').session(session).lean();
+    const recipient=await User.findOne({_id:deliveryUserId,status:'active',role:'delivery',country:current.country,platformAccessManagedAt:null}).select('_id __v security.tokenVersion').session(session).lean();
     const profile=recipient?await DeliveryProfile.findOne({userId:recipient._id,country:current.country,verificationStatus:'approved',available:true}).session(session).lean():null;
     if(!profile)throw new AppError('Approved available delivery partner not found.',404,'DELIVERY_NOT_FOUND');
     if(current.cod?.required&&!profile.codEnabled)throw new AppError('This delivery partner is not approved to collect COD.',409,'DELIVERY_COD_NOT_ALLOWED');
+    const recipientFence=await User.updateOne({_id:recipient._id,__v:recipient.__v||0,status:'active',role:'delivery','security.tokenVersion':recipient.security.tokenVersion},{$inc:{__v:1}},{session});
+    const profileFence=await DeliveryProfile.updateOne({_id:profile._id,__v:profile.__v||0,verificationStatus:'approved',available:true,codEnabled:profile.codEnabled},{$inc:{__v:1}},{session});
+    if(recipientFence.modifiedCount!==1||profileFence.modifiedCount!==1)throw new AppError('Carrier availability changed. Reload and retry.',409,'DELIVERY_NOT_AVAILABLE');
     if(String(currency).toUpperCase()!==current.cod.currency)throw new AppError('Delivery earning currency must match the shipment.',422,'DELIVERY_CURRENCY_INVALID');
     // Fence authorization records so concurrent suspension or grant revocation
     // conflicts with this transaction and retries against the latest authority.
@@ -125,10 +139,10 @@ export async function offerShipment({ shipment, deliveryUserId, earningMinor, cu
     }
     const fencedActor=await User.updateOne({_id:actor._id,status:'active',role:storedRole,'security.tokenVersion':Number(actor.security?.tokenVersion||0)},{$inc:{__v:1}},{session});
     if(fencedActor.matchedCount!==1)throw new AppError('Active logistics operations access is required.',403,'DELIVERY_OFFER_FORBIDDEN');
-    const offer=await DeliveryOffer.findOneAndUpdate({shipmentId:current._id,deliveryUserId},{$set:{shipmentPublicId:current.publicId,country:current.country,earningMinor,currency:current.cod.currency,status:'offered',expiresAt:new Date(Date.now()+15*60*1000),respondedAt:null},$setOnInsert:{publicId:publicId('dof')}},{upsert:true,returnDocument:'after',session});
+    const offer=await DeliveryOffer.findOneAndUpdate({shipmentId:current._id,deliveryUserId},{$set:{shipmentPublicId:current.publicId,country:current.country,earningMinor,currency:current.cod.currency,status:'offered',expiresAt:new Date(Date.now()+15*60*1000),respondedAt:null},$inc:{__v:1},$setOnInsert:{publicId:publicId('dof')}},{upsert:true,returnDocument:'after',session});
     if(current.status==='ready'){current.status='offered';current.timeline.push({type:'offered',message:'Delivery job offered to an approved partner.',actorUserId});}
     // Always write the shipment to serialize offers against assignment/cancellation.
-    current.markModified('status');await current.save({session});return offer;
+    current.markModified('status');await current.save({session});if(request)await writeAudit(request,'warehouse.delivery_offered',{actor:requestAccess.actor,targetType:'shipment',targetPublicId:current.publicId,country:current.country,metadata:{offerPublicId:offer.publicId,deliveryUserId:String(deliveryUserId),earningMinor,currency},session});return offer;
   });}finally{await session.endSession();}
 }
 
@@ -141,39 +155,48 @@ async function postDeliveryEarning(shipment, session = null) {
   return postLedgerTransaction({idempotencyKey:`delivery-earning:${shipment.publicId}`,referenceType:'delivery_earning',referencePublicId:shipment.publicId,currency:offer.currency,country:shipment.country,description:`Delivery earning for ${shipment.publicId}`,entries:[{account:expense,debitMinor:offer.earningMinor,creditMinor:0,memo:'Delivery partner service expense'},{account:payable,debitMinor:0,creditMinor:offer.earningMinor,memo:'Delivery partner payable'}]},session);
 }
 
-export async function acceptDeliveryOffer({ offer, actorUserId }) {
+export async function acceptDeliveryOffer({ offer, actorUserId, request, version }) {
   const session = await mongoose.startSession();
   try { return await session.withTransaction(async () => {
+    if(request){const access=await deliveryAccess(request,{session,write:true,approved:true,available:true});actorUserId=access.actor._id;}
     const actor=await User.findOne({_id:actorUserId,status:'active',role:'delivery'}).select('country').session(session).lean();
     if(!actor)throw new AppError('An active delivery account is required.',403,'DELIVERY_ACTOR_INVALID');
     const profile=await DeliveryProfile.findOne({userId:actorUserId,country:actor.country,verificationStatus:'approved',available:true}).session(session).lean();
     if(!profile)throw new AppError('You must be approved and available.',403,'DELIVERY_NOT_AVAILABLE');
     const currentOffer=await DeliveryOffer.findOne({_id:offer._id,deliveryUserId:actorUserId,country:profile.country,status:'offered',expiresAt:{$gt:new Date()}}).session(session);
     if(!currentOffer)throw new AppError('This delivery offer expired or is no longer available.',409,'OFFER_UNAVAILABLE');
+    if(request)deliveryVersion(version,currentOffer);
     const currentShipment=await Shipment.findOne({_id:currentOffer.shipmentId,country:profile.country,status:'offered',deliveryUserId:null}).session(session);
     if(!currentShipment)throw new AppError('Shipment was assigned to another partner.',409,'JOB_UNAVAILABLE');
     if(currentShipment.cod?.required&&!profile.codEnabled)throw new AppError('This delivery partner is not approved to collect COD.',403,'DELIVERY_COD_NOT_ALLOWED');
-    const shipment = await Shipment.findOneAndUpdate({ _id: currentShipment._id, status: 'offered', deliveryUserId: null }, { $set: { deliveryUserId: actorUserId, status: 'assigned', assignedAt: new Date() }, $push: { timeline: { type: 'assigned', message: 'Delivery partner accepted an explicit offer.', actorUserId } } }, { returnDocument: 'after', session });
+    await shipmentSource(currentShipment,{session,write:true});
+    const shipment = await Shipment.findOneAndUpdate({ _id: currentShipment._id, status: 'offered', deliveryUserId: null }, { $set: { deliveryUserId: actorUserId, status: 'assigned', assignedAt: new Date() }, $inc: { __v: 1 }, $push: { timeline: { type: 'assigned', message: 'Delivery partner accepted an explicit offer.', actorUserId } } }, { returnDocument: 'after', session });
     if (!shipment) throw new AppError('Shipment was assigned to another partner.', 409, 'JOB_UNAVAILABLE');
     currentOffer.status = 'accepted'; currentOffer.respondedAt = new Date(); await currentOffer.save({ session });
     await DeliveryOffer.updateMany({ shipmentId: shipment._id, _id: { $ne: currentOffer._id }, status: 'offered' }, { $set: { status: 'cancelled', respondedAt: new Date() } }, { session });
-    return shipment;
+    if(request)await writeAudit(request,'delivery.assignment_accepted',{targetType:'shipment',targetPublicId:shipment.publicId,country:shipment.country,metadata:{offerPublicId:currentOffer.publicId},session});return shipment;
   }); } finally { await session.endSession(); }
 }
 
-export async function transitionShipment({ shipment, nextStatus, actorUserId, proofCode = '', reason = '', reasonCode = 'other', rescheduledFor = null }) {
+export async function transitionShipment({ shipment, nextStatus, actorUserId, proofCode = '', reason = '', reasonCode = 'other', rescheduledFor = null, request, version }) {
   const session=await mongoose.startSession();let result,rejection;
   try{await session.withTransaction(async()=>{
     // Transaction retries must discard results from the aborted attempt.
     result=null;rejection=null;
+    if(request){const access=await deliveryAccess(request,{session,write:true,approved:true});actorUserId=access.actor._id;}
     const actor=await User.findOne({_id:actorUserId,status:'active',role:'delivery'}).select('country').session(session).lean();
     if(!actor)throw new AppError('An active delivery account is required.',403,'DELIVERY_ACTOR_INVALID');
     const profile=await DeliveryProfile.findOne({userId:actorUserId,country:actor.country,verificationStatus:'approved'}).select('country codEnabled').session(session).lean();
     if(!profile)throw new AppError('Approved delivery verification is required.',403,'DELIVERY_NOT_APPROVED');
     const current=await Shipment.findOne({_id:shipment._id,deliveryUserId:actorUserId,country:profile.country}).select('+pickupCodeHash +deliveryCodeHash +pickupCodeEncrypted +deliveryCodeEncrypted').session(session);
     if(!current)throw new AppError('Shipment not found.',404,'SHIPMENT_NOT_FOUND');
+    if(request)deliveryVersion(version,current);
+    await shipmentSource(current,{session,write:true});
     if(current.cod?.required&&!profile.codEnabled)throw new AppError('This delivery account is not approved to collect COD.',403,'DELIVERY_COD_NOT_ALLOWED');
     if (!canTransitionShipment(current.status, nextStatus)) throw new AppError('Shipment status transition is not allowed.', 409, 'SHIPMENT_TRANSITION_INVALID');
+    if (['in_transit','delivered','return_to_sender','returned'].includes(nextStatus) && !current.pickedUpAt) throw new AppError('Verify physical collection before moving goods in carrier custody.',409,'DELIVERY_COLLECTION_REQUIRED');
+    if (nextStatus === 'picked_up' && current.pickedUpAt) throw new AppError('This parcel is already in carrier custody.',409,'SHIPMENT_TRANSITION_INVALID');
+    if (['return_to_sender','returned'].includes(nextStatus) && !String(reason || '').trim()) throw new AppError('Describe the physical return to sender.',422,'REASON_REQUIRED');
     if(current.proofLockedUntil&&current.proofLockedUntil>new Date())throw new AppError('Proof-code verification is temporarily locked after repeated failures.',429,'PROOF_LOCKED');
     if(current.kind==='outbound'){
       const order=await Order.findOne({_id:current.orderId,country:current.country}).session(session);
@@ -191,7 +214,7 @@ export async function transitionShipment({ shipment, nextStatus, actorUserId, pr
         if(!parcels.length||parcels.length!==current.parcelCount||parcels.some(parcel=>parcel.status!==expected))throw new AppError(nextStatus==='picked_up'?'Every seller parcel must be packed and handed over before carrier pickup.':'Every seller parcel must remain in carrier custody before delivery.',409,nextStatus==='picked_up'?'PARCEL_HANDOFF_REQUIRED':'PARCEL_DELIVERY_STATE');
       }
     }
-    const verifyField=nextStatus==='picked_up'?'pickupCodeHash':nextStatus==='delivered'?'deliveryCodeHash':'';
+    const verifyField=nextStatus==='picked_up'?'pickupCodeHash':['delivered','returned'].includes(nextStatus)?'deliveryCodeHash':'';
     if(verifyField&&!verifyProofCode(proofCode,current[verifyField])){
       const attemptsField=nextStatus==='picked_up'?'pickupProofAttempts':'deliveryProofAttempts';current[attemptsField]=Number(current[attemptsField]||0)+1;if(current[attemptsField]>=5){current.proofLockedUntil=new Date(Date.now()+15*60*1000);current[attemptsField]=0;}await current.save({session});
       // Throw after the transaction commits; throwing here would roll back the
@@ -201,24 +224,28 @@ export async function transitionShipment({ shipment, nextStatus, actorUserId, pr
     current.status = nextStatus;
     if (nextStatus === 'picked_up') { current.pickedUpAt = new Date();current.pickupProofAttempts=0;current.proofLockedUntil=null;current.pickupCodeEncrypted=''; await Parcel.updateMany({ shipmentId: current._id, status: { $in: ['packed', 'handed_over'] } }, { $set: { status: 'in_transit' }, $push: { timeline: { type: 'picked_up', message: 'Parcel picked up by delivery partner.', actorUserId } } },{session}); await SellerShipment.updateMany({rootShipmentId:current._id,status:'handed_over'},{$set:{status:'in_transit'},$push:{timeline:{type:'carrier.picked_up',message:`Consolidated carrier shipment ${current.publicId} picked up this seller shipment.`,actorUserId}}},{session}); }
     if (nextStatus === 'delivered') {
-      const proofEvidence=await latestDeliveryEvidence(current.publicId,['delivery_photo','delivery_signature'],session,current.lastAttemptAt||current.assignedAt||null);const photo=proofEvidence.find(row=>row.documentType==='delivery_photo');const signature=proofEvidence.find(row=>row.documentType==='delivery_signature');
-      if(current.proofPolicy?.deliveryPhotoRequired&&!photo)throw new AppError('Upload the required delivery proof photo before confirming delivery.',422,'DELIVERY_PHOTO_REQUIRED');
+      const evidenceAfter=new Date(Math.max(new Date(current.assignedAt||0).getTime(),new Date(current.pickedUpAt||0).getTime(),new Date(current.lastAttemptAt||0).getTime()));
+      const proofEvidence=await latestDeliveryEvidence(current,['delivery_photo','delivery_signature'],session,evidenceAfter);const photo=proofEvidence.find(row=>row.documentType==='delivery_photo');const signature=proofEvidence.find(row=>row.documentType==='delivery_signature');
+      if((request||current.proofPolicy?.deliveryPhotoRequired)&&!photo)throw new AppError('Upload the required delivery proof photo before confirming delivery.',422,'DELIVERY_PHOTO_REQUIRED');
       if(current.proofPolicy?.signatureRequired&&!signature)throw new AppError('Upload the required recipient signature before confirming delivery.',422,'DELIVERY_SIGNATURE_REQUIRED');
+      await fenceDeliveryEvidence(current,proofEvidence,session);
       current.deliveredAt = new Date();current.lastAttemptAt=current.deliveredAt;current.deliveryProofAttempts=0;current.deliveryCodeEncrypted='';current.proofLockedUntil=null;current.proof = { type: 'otp', reference: 'verified', recordedAt: new Date() };current.proofEvidenceDocumentIds=[...new Set([...(current.proofEvidenceDocumentIds||[]).map(String),...proofEvidence.map(row=>String(row._id))])];
       if (current.cod.required) current.cod.collectedMinor = current.cod.amountMinor;
       await Parcel.updateMany({ shipmentId: current._id }, { $set: { status: 'delivered' }, $push: { timeline: { type: 'delivered', message: 'Parcel delivered with verified OTP.', actorUserId } } },{session});
       await SellerShipment.updateMany({rootShipmentId:current._id},{$set:{status:'delivered',deliveredAt:current.deliveredAt},$push:{timeline:{type:'carrier.delivered',message:`Consolidated carrier shipment ${current.publicId} delivered with verified proof.`,actorUserId}}},{session});
       if(current.kind==='outbound'){
         await SellerOrder.updateMany({ orderId: current.orderId, status: { $in: ['confirmed','processing','ready'] } }, { $set: { status: 'fulfilled' }, $push: { timeline: { type: 'fulfilment.delivered', message: 'Seller parcel delivered with verified proof.' } } },{session});
-        const order=await Order.findById(current.orderId).session(session);if(order){order.fulfillmentState='delivered';for(const item of order.items)item.deliveredQuantity=Math.max(Number(item.deliveredQuantity||0),Number(item.quantity||0));order.timeline.push({type:'fulfilment.delivered',message:'Order delivered with verified proof.'});await order.save({session});if(order.businessOrganizationId){const {recordBusinessDelivery}=await import('./business-fulfillment.js');await recordBusinessDelivery({orderId:order._id,actorUserId,session});}}
-        await postDeliveryEarning(current,session);
+        // Business completion queries the persisted carrier proof in this transaction.
+        await current.save({session});
+        const order=await Order.findById(current.orderId).session(session);if(order){order.fulfillmentState='delivered';for(const item of order.items)item.deliveredQuantity=Math.max(Number(item.deliveredQuantity||0),Number(item.quantity||0));order.timeline.push({type:'fulfilment.delivered',message:'Order delivered with verified proof.'});await order.save({session});if(order.businessOrganizationId){const {recordBusinessDelivery}=await import('./business-fulfillment.js');await recordBusinessDelivery({order,orderId:order._id,actorUserId,session,request});}}
       }else if(current.kind==='return'){
         current.timeline.push({type:'return.received',message:'Returned parcel reached the seller/warehouse for inspection.',actorUserId});
       }
+      await postDeliveryEarning(current,session);
     }
     if (nextStatus === 'failed') {
       if (!reason.trim()) throw new AppError('Failed delivery requires a reason.', 422, 'REASON_REQUIRED');if(!FAILURE_CODES.has(reasonCode))throw new AppError('Choose a valid failed-delivery reason.',422,'DELIVERY_FAILURE_REASON_INVALID');
-      const documentType=ADDRESS_FAILURE_CODES.has(reasonCode)?'address_exception':'failed_attempt';const evidence=await latestDeliveryEvidence(current.publicId,[documentType],session,current.lastAttemptAt||current.assignedAt||null);const evidenceRequired=Boolean(current.proofPolicy?.failedAttemptPhotoRequired)||reasonCode==='parcel_damaged';
+      const documentType=ADDRESS_FAILURE_CODES.has(reasonCode)?'address_exception':'failed_attempt';const evidence=await latestDeliveryEvidence(current,[documentType],session,current.lastAttemptAt||current.assignedAt||null);const evidenceRequired=Boolean(current.proofPolicy?.failedAttemptPhotoRequired)||reasonCode==='parcel_damaged';
       const exception=await createDeliveryExceptionInSession({shipment:current,type:ADDRESS_FAILURE_CODES.has(reasonCode)?'address_exception':'failed_delivery',reasonCode,description:reason,evidenceRequired,evidenceDocumentIds:evidence.map(row=>row._id),actorUserId},session);
       current.failedReason = reason.trim();current.failedAttemptCount=Number(current.failedAttemptCount||0)+1;current.lastAttemptAt=new Date();current.timeline.push({type:'delivery.exception_opened',message:`Exception ${exception.publicId} opened (${reasonCode})${evidenceRequired&&!evidence.length?' · evidence pending':''}.`,actorUserId});
     }
@@ -226,9 +253,18 @@ export async function transitionShipment({ shipment, nextStatus, actorUserId, pr
       const missingEvidence=await DeliveryException.countDocuments({shipmentId:current._id,status:{$in:['open','investigating']},evidenceRequired:true,evidenceDocumentIds:{$size:0}}).session(session);
       if(missingEvidence>0)throw new AppError('Upload the required failed-attempt/address evidence before rescheduling or returning this shipment.',409,'DELIVERY_EXCEPTION_EVIDENCE_REQUIRED');
     }
-    if (nextStatus === 'rescheduled') { const date = new Date(rescheduledFor); if (!Number.isFinite(date.getTime()) || date <= new Date()) throw new AppError('Choose a future reschedule time.', 422, 'RESCHEDULE_INVALID'); current.rescheduledFor = date; }
-    if (nextStatus === 'returned') { await Parcel.updateMany({ shipmentId: current._id }, { $set: { status: 'returned' }, $push: { timeline: { type: 'returned', message: 'Parcel returned to seller/warehouse.', actorUserId } } },{session}); await SellerShipment.updateMany({rootShipmentId:current._id},{$set:{status:'returned'},$push:{timeline:{type:'carrier.returned',message:`Consolidated carrier shipment ${current.publicId} was returned.`,actorUserId}}},{session}); }
-    current.timeline.push({ type: nextStatus, message: reason || `Shipment moved to ${nextStatus.replaceAll('_', ' ')}.`, actorUserId }); await current.save({session});if(current.kind==='outbound')await refreshOrderLifecycle(current.orderId,{session});result=current;
+    if (nextStatus === 'rescheduled') { const date = new Date(rescheduledFor); if (!Number.isFinite(date.getTime()) || date <= new Date()) throw new AppError('Choose a future reschedule time.', 422, 'RESCHEDULE_INVALID'); current.rescheduledFor = date; current.lastAttemptAt = new Date(); }
+    if (nextStatus === 'return_to_sender') {
+      const receivingCode=String(crypto.randomInt(100000,1000000));current.deliveryCodeHash=hashProofCode(receivingCode);current.deliveryCodeEncrypted=encryptSensitive(receivingCode);current.deliveryProofAttempts=0;current.proofLockedUntil=null;current.lastAttemptAt=new Date();
+    }
+    if (nextStatus === 'returned') {
+      const evidence=await latestDeliveryEvidence(current,['delivery_photo'],session,current.lastAttemptAt||current.assignedAt||null);
+      if(!evidence.length)throw new AppError('Upload a private photo of the actual warehouse handover before confirming return.',422,'DELIVERY_PHOTO_REQUIRED');
+      await fenceDeliveryEvidence(current,evidence,session);
+      current.proof={type:'otp',reference:'verified',recordedAt:new Date()};current.deliveryCodeEncrypted='';current.deliveryProofAttempts=0;current.proofLockedUntil=null;current.proofEvidenceDocumentIds=evidence.map(row=>row._id);
+      await Parcel.updateMany({ shipmentId: current._id }, { $set: { status: 'returned' }, $push: { timeline: { type: 'returned', message: 'Parcel returned to seller/warehouse with receiving OTP and private handover evidence.', actorUserId } } },{session}); await SellerShipment.updateMany({rootShipmentId:current._id},{$set:{status:'returned'},$push:{timeline:{type:'carrier.returned',message:`Consolidated carrier shipment ${current.publicId} was returned with verified receiving proof.`,actorUserId}}},{session});
+    }
+    current.timeline.push({ type: nextStatus, message: reason || `Shipment moved to ${nextStatus.replaceAll('_', ' ')}.`, actorUserId }); await current.save({session});if(current.kind==='outbound')await refreshOrderLifecycle(current.orderId,{session});if(request)await writeAudit(request,'delivery.shipment_'+nextStatus,{targetType:'shipment',targetPublicId:current.publicId,country:current.country,metadata:{status:nextStatus},session});result=current;
   });if(rejection)throw rejection;return result;}finally{await session.endSession();}
 }
 
@@ -615,14 +651,17 @@ export async function executeWarehouseTask({task,actorUserId,disposition='',sess
   finally{await owned.endSession();}
 }
 
-export async function recordCodHandover({shipment,actorUserId,declaredAmountMinor,evidenceDocumentId}){
+export async function recordCodHandover({shipment,actorUserId,declaredAmountMinor,evidenceDocumentId,request,version}){
   if(!Number.isSafeInteger(declaredAmountMinor)||declaredAmountMinor<0)throw new AppError('COD handover amount must be a non-negative whole minor-unit amount.',422,'COD_HANDOVER_AMOUNT_INVALID');
   const session=await mongoose.startSession();let result;
   try{await session.withTransaction(async()=>{
+    if(request){const access=await deliveryAccess(request,{session,write:true,approved:true});actorUserId=access.actor._id;}
     const current=await Shipment.findOne({_id:shipment._id,deliveryUserId:actorUserId}).session(session);if(!current)throw new AppError('Assigned shipment not found.',404,'SHIPMENT_NOT_FOUND');
+    if(request)deliveryVersion(version,current);
     if(!current.cod.required||current.status!=='delivered')throw new AppError('Only delivered COD shipments can be handed over.',409,'COD_HANDOVER_NOT_READY');if(current.cod.reconciledAt)throw new AppError('This COD shipment is already reconciled.',409,'COD_ALREADY_RECONCILED');if(current.cod.handoverAt&&!current.cod.mismatchExceptionPublicId){result={shipment:current,mismatch:false};return;}
-    const evidence=await EvidenceDocument.findOne({_id:evidenceDocumentId,contextType:'delivery_job',contextPublicId:current.publicId,documentType:'cod_handover',status:'ready',ownerUserId:actorUserId}).session(session);if(!evidence)throw new AppError('A COD handover receipt image is required.',422,'COD_HANDOVER_RECEIPT_REQUIRED');
+    const evidence=await EvidenceDocument.findOne({_id:evidenceDocumentId,contextType:'delivery_job',contextPublicId:current.publicId,country:current.country,documentType:'cod_handover',status:'ready',ownerUserId:actorUserId,createdAt:{$gte:current.deliveredAt}}).session(session);if(!evidence)throw new AppError('A COD handover receipt image is required.',422,'COD_HANDOVER_RECEIPT_REQUIRED');
     current.cod.handoverDeclaredMinor=declaredAmountMinor;current.cod.handoverAt=new Date();current.cod.handoverByUserId=actorUserId;current.cod.handoverEvidenceDocumentId=evidence._id;
+    current.cod.reviewedAt=null;current.cod.reviewedByUserId=null;current.cod.reviewNote='';
     if(declaredAmountMinor!==Number(current.cod.collectedMinor||0)){
       let exception=null;
       if(current.cod.mismatchExceptionPublicId){
@@ -630,19 +669,25 @@ export async function recordCodHandover({shipment,actorUserId,declaredAmountMino
         if(exception){exception.observedAmountMinor=declaredAmountMinor;exception.evidenceDocumentIds.addToSet(evidence._id);exception.status='investigating';exception.timeline.push({type:'handover_corrected_but_mismatch_remains',message:'Delivery partner submitted a replacement COD handover receipt, but the declared amount still does not match.',actorUserId});await exception.save({session});}
       }
       if(!exception){exception=await createDeliveryExceptionInSession({shipment:current,type:'cod_mismatch',reasonCode:'cod_amount_mismatch',description:'Delivery partner declared a COD handover amount that does not equal the collected shipment amount.',evidenceRequired:true,evidenceDocumentIds:[evidence._id],expectedAmountMinor:Number(current.cod.collectedMinor||0),observedAmountMinor:declaredAmountMinor,currency:current.cod.currency,actorUserId},session);current.cod.mismatchExceptionPublicId=exception.publicId;}
-      current.timeline.push({type:'cod_handover_mismatch',message:`COD handover mismatch escalated as ${exception.publicId}.`,actorUserId});await current.save({session});result={shipment:current,mismatch:true,exception};return;
+      current.timeline.push({type:'cod_handover_mismatch',message:`COD handover mismatch escalated as ${exception.publicId}.`,actorUserId});await current.save({session});if(request)await writeAudit(request,'delivery.cod_handover_mismatch',{targetType:'shipment',targetPublicId:current.publicId,country:current.country,metadata:{declaredAmountMinor,evidencePublicId:evidence.publicId,exceptionPublicId:exception.publicId},session});result={shipment:current,mismatch:true,exception};return;
     }
-    current.timeline.push({type:current.cod.mismatchExceptionPublicId?'cod_handover_corrected':'cod_handover_recorded',message:current.cod.mismatchExceptionPublicId?'Delivery partner corrected the COD handover amount/evidence; supervisor resolution is still required.':'Delivery partner recorded COD cash handover with receipt evidence.',actorUserId});await current.save({session});result={shipment:current,mismatch:Boolean(current.cod.mismatchExceptionPublicId),corrected:Boolean(current.cod.mismatchExceptionPublicId)};
+    current.timeline.push({type:current.cod.mismatchExceptionPublicId?'cod_handover_corrected':'cod_handover_recorded',message:current.cod.mismatchExceptionPublicId?'Delivery partner corrected the COD handover amount/evidence; supervisor resolution is still required.':'Delivery partner recorded COD cash handover with receipt evidence.',actorUserId});await current.save({session});if(request)await writeAudit(request,'delivery.cod_handover_recorded',{targetType:'shipment',targetPublicId:current.publicId,country:current.country,metadata:{declaredAmountMinor,evidencePublicId:evidence.publicId},session});result={shipment:current,mismatch:Boolean(current.cod.mismatchExceptionPublicId),corrected:Boolean(current.cod.mismatchExceptionPublicId)};
   });return result;}finally{await session.endSession();}
 }
 
-export async function resolveDeliveryException({exceptionPublicId,actorUserId,decision,resolutionNote}){
+export async function resolveDeliveryException({exceptionPublicId,actorUserId,decision,resolutionNote,request,version}){
   if(!['resolve','dismiss'].includes(decision))throw new AppError('Choose resolve or dismiss.',422,'DELIVERY_EXCEPTION_DECISION_INVALID');
   if(String(resolutionNote||'').trim().length<3)throw new AppError('Add a resolution note.',422,'DELIVERY_EXCEPTION_NOTE_REQUIRED');
   const session=await mongoose.startSession();let resolved;
   try{await session.withTransaction(async()=>{
+    let access;if(request){const {assertWarehouseAccess}=await import('./warehouse-operations.js');access=await assertWarehouseAccess(request,{mutation:true,session});actorUserId=access.actor._id;}
     const exception=await DeliveryException.findOne({publicId:exceptionPublicId,status:{$in:['open','investigating']}}).session(session);
     if(!exception)throw new AppError('Open delivery exception not found.',404,'DELIVERY_EXCEPTION_NOT_FOUND');
+    const sourceShipment=await Shipment.findOne({_id:exception.shipmentId,publicId:exception.shipmentPublicId,country:exception.country,deliveryUserId:exception.deliveryUserId}).session(session);
+    if(!sourceShipment)throw new AppError('The exception source shipment is unavailable.',409,'DELIVERY_EXCEPTION_SOURCE_INVALID');
+    if(request){deliveryVersion(version,exception);await shipmentSource(sourceShipment,{session,warehouseAccess:access,write:true});}
+    if(String(exception.deliveryUserId)===String(actorUserId))throw new AppError('A different Warehouse operator must review this exception.',403,'FOUR_EYES_REQUIRED');
+    if(exception.type==='cod_mismatch'&&decision!=='resolve')throw new AppError('A COD mismatch must be resolved with a corrected cash receipt; it cannot be dismissed.',409,'COD_MISMATCH_UNRESOLVED');
     if(exception.type==='cod_mismatch'&&decision==='resolve'){
       const shipment=await Shipment.findById(exception.shipmentId).session(session);
       if(shipment&&shipment.cod?.mismatchExceptionPublicId===exception.publicId){
@@ -650,7 +695,7 @@ export async function resolveDeliveryException({exceptionPublicId,actorUserId,de
         shipment.cod.mismatchExceptionPublicId='';shipment.timeline.push({type:'cod_mismatch_resolved',message:`COD mismatch ${exception.publicId} resolved by an authorized supervisor.`,actorUserId});await shipment.save({session});
       }
     }
-    exception.status=decision==='resolve'?'resolved':'dismissed';exception.resolvedAt=new Date();exception.resolvedByUserId=actorUserId;exception.resolutionNote=String(resolutionNote).trim().slice(0,600);exception.timeline.push({type:exception.status,message:exception.resolutionNote,actorUserId});await exception.save({session});resolved=exception;
+    exception.status=decision==='resolve'?'resolved':'dismissed';exception.resolvedAt=new Date();exception.resolvedByUserId=actorUserId;exception.resolutionNote=String(resolutionNote).trim().slice(0,600);exception.timeline.push({type:exception.status,message:exception.resolutionNote,actorUserId});await exception.save({session});if(request)await writeAudit(request,'warehouse.delivery_exception_'+exception.status,{actor:access.actor,targetType:'delivery_exception',targetPublicId:exception.publicId,country:exception.country,metadata:{shipmentPublicId:sourceShipment.publicId},session});resolved=exception;
   });return resolved;}finally{await session.endSession();}
 }
 
@@ -668,7 +713,9 @@ export async function reconcileCod({ shipment, actorUserId, request }) {
       if (!currentShipment.cod.required || currentShipment.status !== 'delivered') throw new AppError('Only delivered COD shipments can be reconciled.', 409, 'COD_NOT_READY');
       if (currentShipment.cod.reconciledAt) { reconciledShipment = currentShipment; return; }
       if (!currentShipment.cod.handoverAt || !currentShipment.cod.handoverEvidenceDocumentId) throw new AppError('Delivery partner COD handover receipt is required before finance reconciliation.', 409, 'COD_HANDOVER_REQUIRED');
-      const evidence=await EvidenceDocument.findOne({_id:currentShipment.cod.handoverEvidenceDocumentId,contextType:'delivery_job',contextPublicId:currentShipment.publicId,documentType:'cod_handover',ownerUserId:currentShipment.cod.handoverByUserId,status:'ready'}).session(session).lean();
+      if(!currentShipment.cod.reviewedAt||!currentShipment.cod.reviewedByUserId)throw new AppError('An independent Warehouse receipt review is required before finance reconciliation.',409,'COD_WAREHOUSE_REVIEW_REQUIRED');
+      if(String(currentShipment.cod.reviewedByUserId)===String(actorUserId))throw new AppError('A different Finance operator must reconcile the Warehouse cash receipt review.',403,'FOUR_EYES_REQUIRED');
+      const evidence=await EvidenceDocument.findOne({_id:currentShipment.cod.handoverEvidenceDocumentId,contextType:'delivery_job',contextPublicId:currentShipment.publicId,country:currentShipment.country,documentType:'cod_handover',ownerUserId:currentShipment.cod.handoverByUserId,status:'ready',createdAt:{$gte:currentShipment.deliveredAt}}).session(session).lean();
       if(!evidence)throw new AppError('A ready handover receipt for this shipment is required.',409,'COD_HANDOVER_REQUIRED');
       if (currentShipment.cod.mismatchExceptionPublicId) throw new AppError('Resolve the open COD handover mismatch before reconciliation.', 409, 'COD_MISMATCH_OPEN');
       if (Number(currentShipment.cod.handoverDeclaredMinor||0) !== Number(currentShipment.cod.collectedMinor||0)) throw new AppError('COD handover amount does not match the collected amount.', 409, 'COD_HANDOVER_MISMATCH');
@@ -677,6 +724,7 @@ export async function reconcileCod({ shipment, actorUserId, request }) {
       const order = await Order.findById(currentShipment.orderId).session(session);
       if (!order) throw new AppError('COD order record is missing.', 409, 'COD_ORDER_MISSING');
       if(order.country!==currentShipment.country||order.publicId!==currentShipment.orderPublicId||order.totals.currency!==currentShipment.cod.currency||currentShipment.cod.currency!==access.market.currency)throw new AppError('COD shipment and order market no longer match.',409,'COD_PAYMENT_MISMATCH');
+      if(order.paymentMethod!=='cod'||order.totals.totalMinor!==currentShipment.cod.amountMinor)throw new AppError('COD cash must match the immutable original order total.',409,'COD_PAYMENT_MISMATCH');
       if (!['confirmed', 'paid'].includes(order.status)) throw new AppError('COD order is not ready for reconciliation.', 409, 'COD_ORDER_NOT_READY');
       const intent = await PaymentIntent.findOne({ orderId: order._id, provider: 'cod', status: 'pending_collection' }).session(session);
       if (!intent) throw new AppError('COD payment record is missing.', 409, 'COD_PAYMENT_MISSING');
@@ -685,6 +733,7 @@ export async function reconcileCod({ shipment, actorUserId, request }) {
       const clearing = await ensureLedgerAccount({ code: 'cod_clearing', type: 'asset', ownerType: 'platform', ownerPublicId: 'classic-mart', country: order.country, currency: order.totals.currency }, session);
       const entries = [{ account: clearing, debitMinor: order.totals.totalMinor, creditMinor: 0, memo: 'Reconciled COD collection' }];
       const sellerOrders = await SellerOrder.find({ orderId: order._id }).session(session).lean();
+      const {funding,entries:fundingEntries}=await orderFundingLedgerEntries(order,sellerOrders,session);entries.push(...fundingEntries);
       let platformFeeTotal = 0;
       for (const sellerOrder of sellerOrders) {
         const settlement = sellerSettlementBreakdown(sellerOrder);
@@ -693,7 +742,7 @@ export async function reconcileCod({ shipment, actorUserId, request }) {
         const payable = await ensureLedgerAccount({ code: 'seller_payable', type: 'liability', ownerType: 'store', ownerId: store?._id, ownerPublicId: sellerOrder.storePublicId, country: order.country, currency: order.totals.currency }, session);
         if (settlement.sellerPayableMinor > 0) entries.push({ account: payable, debitMinor: 0, creditMinor: settlement.sellerPayableMinor, memo: 'Seller payable net of discount and marketplace fee from COD' });
       }
-      const platformAmount = platformFeeTotal + Number(order.totals.shippingMinor || 0);
+      const platformAmount = platformFeeTotal + Number(funding.grossShippingMinor || 0);
       if (platformAmount > 0) {
         const revenue = await ensureLedgerAccount({ code: 'platform_revenue', type: 'revenue', ownerType: 'platform', ownerPublicId: 'classic-mart', country: order.country, currency: order.totals.currency }, session);
         entries.push({ account: revenue, debitMinor: 0, creditMinor: platformAmount, memo: 'COD marketplace fees and delivery revenue' });
@@ -712,6 +761,7 @@ export async function reconcileCod({ shipment, actorUserId, request }) {
       const { issuePaymentReceipt } = await import('./financial-documents.js'); await issuePaymentReceipt(order, intent, session);
       await intent.save({ session }); await order.save({ session });
       const { makeOrderCommissionsPayable } = await import('./promoters.js'); await makeOrderCommissionsPayable(order, session);
+      const {consumeOrderReward}=await import('./customer-rewards.js');await consumeOrderReward(order,session);
       const { applyGrowthForPaidOrder } = await import('./stage9.js'); await applyGrowthForPaidOrder(order, session);
       await writeAudit(request,'finance.cod_reconciled',{actor:access.actor,targetType:'shipment',targetPublicId:currentShipment.publicId,country:order.country,metadata:{orderPublicId:order.publicId,amountMinor:intent.amountMinor,currency:intent.currency},session});
       reconciledShipment = currentShipment;

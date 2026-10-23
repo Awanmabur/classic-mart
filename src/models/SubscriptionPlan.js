@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { subscriptionEntitlementsSchema } from './subscription-terms.js';
 
 const { Schema } = mongoose;
 
@@ -14,6 +15,8 @@ const subscriptionPlanSchema = new Schema(
     priceMinor: { type: Number, required: true, min: 0 },
     cadence: { type: String, required: true, enum: ['monthly', 'quarterly', 'yearly', 'one_time'] },
     features: { type: [String], default: [] },
+    entitlements: { type: subscriptionEntitlementsSchema, default: () => ({}) },
+    subscriptionReadRevision: { type: Number, min: 0, default: 0, select: false },
     sortOrder: { type: Number, min: 0, default: 100 },
     status: { type: String, enum: ['draft', 'active', 'retired'], default: 'draft', index: true },
     createdByUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },

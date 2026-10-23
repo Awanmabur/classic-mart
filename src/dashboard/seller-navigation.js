@@ -12,6 +12,8 @@ const PAGE_CAPABILITY = Object.freeze({
   'seller-returns': 'support', 'seller-customers': 'support', 'seller-reviews': 'support', 'seller-messages': 'support',
   'seller-promotions': 'growth', 'seller-coupons': 'growth',
   'seller-earnings': 'finance', 'seller-payouts': 'finance', 'seller-analytics': 'analytics',
+  'seller-team': 'staff', 'seller-affiliate': 'growth', 'seller-cases': 'support', 'seller-trust-cases': 'support',
+  'seller-business-quotes': 'finance', 'seller-business-orders': 'finance',
 });
 
 export function sellerNavigation(request) {

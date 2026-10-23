@@ -1,4 +1,5 @@
 export const COUNTRY_ADMIN_LIVE_ROUTES = Object.freeze({
+  'admin-order-cases': '/admin/order-cases',
   'admin-overview': '/admin/overview',
   'admin-seller-approvals': '/admin/seller-approvals',
   'admin-promoter-approvals': '/admin/promoter-approvals',

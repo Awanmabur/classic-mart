@@ -11,6 +11,12 @@ export function customerReturnDto(document) {
     createdAt: row.createdAt, updatedAt: row.updatedAt, version: Number(row.__v ?? row.version ?? 0),
     refundPublicId: row.refundPublicId || '', returnShipmentPublicId: row.returnShipmentPublicId || '',
     replacementOrderPublicId: row.replacementOrderPublicId || '',
+    resolutionChange: row.resolutionChange?.publicId ? {
+      publicId: row.resolutionChange.publicId, status: row.resolutionChange.status, reason: row.resolutionChange.reason,
+      amountMinor: row.resolutionChange.amountMinor, currency: row.resolutionChange.currency,
+      proposedAt: row.resolutionChange.proposedAt, expiresAt: row.resolutionChange.expiresAt,
+      respondedAt: row.resolutionChange.respondedAt || null,
+    } : null,
     financeReferral: row.financeReferral?.requestedAt ? { requestedAt: row.financeReferral.requestedAt } : null,
     inspection: row.inspection?.inspectedAt ? { condition: row.inspection.condition, inspectedAt: row.inspection.inspectedAt } : null,
     items: (row.items || []).map(item => ({ orderLineId: item.orderLineId, productPublicId: item.productPublicId,

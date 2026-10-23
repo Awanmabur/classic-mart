@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { subscriptionTermsSchema, protectSubscriptionTerms } from './subscription-terms.js';
 
 const { Schema } = mongoose;
 
@@ -20,12 +21,14 @@ const subscriptionChangeRequestSchema = new Schema(
     reviewedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     reviewedAt: Date,
     reviewReason: { type: String, trim: true, maxlength: 1000, default: '' },
+    terms: { type: subscriptionTermsSchema, immutable: true }, approvedTerms: { type: subscriptionTermsSchema }, paymentSettledAt: Date,
   },
   { timestamps: true, optimisticConcurrency: true },
 );
 
 subscriptionChangeRequestSchema.index({ audience: 1, storeId: 1, status: 1, createdAt: -1 });
 subscriptionChangeRequestSchema.index({ userId: 1, status: 1, createdAt: -1 });
+protectSubscriptionTerms(subscriptionChangeRequestSchema, ['terms', 'approvedTerms']);
 
 export const SubscriptionChangeRequest = mongoose.model(
   'SubscriptionChangeRequest',

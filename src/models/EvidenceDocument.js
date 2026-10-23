@@ -6,6 +6,9 @@ schema.add({contextLinePublicId:{type:String,maxlength:100,default:'',immutable:
 schema.add({refundPublicId:{type:String,maxlength:100,default:'',immutable:true}});
 schema.add({refundEvidenceReadRevision:{type:Number,min:0,select:false}});
 schema.path('documentType').enum('refund_disbursement');
+schema.path('documentType').enum('seller_policy_response');
+schema.path('contextType').enum('specialist_referral');
+schema.path('documentType').enum('specialist_response');
 schema.pre('validate',function validateRefundEvidenceSource(){
   if(this.documentType==='refund_disbursement'&&(!/^rfd_[a-zA-Z0-9_-]{1,95}$/.test(this.refundPublicId)||this.contextType!=='return'||this.contextLinePublicId))
     this.invalidate('refundPublicId','Refund evidence requires its exact financial source and return context.');

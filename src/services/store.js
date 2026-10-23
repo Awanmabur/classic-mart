@@ -1,6 +1,6 @@
 import { publicId, slugify } from '../core/ids.js';
 import { AppError } from '../core/errors.js';
-import { Store, StoreMember } from '../models/index.js';
+import { Store, StoreMember, User, PlatformGrant, CountrySetting } from '../models/index.js';
 
 const capabilityMap = Object.freeze({
   owner: ['*'],
@@ -21,13 +21,17 @@ async function ensureOwnerMembership(store, user) {
 }
 
 export async function sellerStoreAccesses(user) {
+  const actor = await User.findById(user?._id);
+  if (!actor || actor.status !== 'active' || !['seller', 'customer'].includes(actor.role)
+    || actor.security.tokenVersion !== user.security?.tokenVersion || actor.platformAccessManagedAt
+    || await PlatformGrant.exists({ userId: actor._id })) throw new AppError('This account cannot access a seller workspace.', 403, 'SELLER_IDENTITY_FORBIDDEN');
   const [ownedStores, memberships] = await Promise.all([
-    Store.find({ ownerUserId: user._id, status: { $ne: 'closed' } }).sort({ createdAt: 1 }).lean(),
-    StoreMember.find({ userId: user._id, status: 'active' }).sort({ acceptedAt: 1 }).lean(),
+    actor.role === 'seller' ? Store.find({ ownerUserId: actor._id, status: { $in: ['pending_verification', 'verified', 'suspended'] } }).sort({ createdAt: 1 }).lean() : [],
+    StoreMember.find({ userId: actor._id, status: 'active', acceptedAt: { $type: 'date' } }).sort({ acceptedAt: 1 }).lean(),
   ]);
   const memberStoreIds = memberships.map((row) => row.storeId);
   const memberStores = memberStoreIds.length
-    ? await Store.find({ _id: { $in: memberStoreIds }, status: { $ne: 'closed' } }).lean()
+    ? await Store.find({ _id: { $in: memberStoreIds }, status: { $in: ['pending_verification', 'verified', 'suspended'] } }).lean()
     : [];
   const membershipByStore = new Map(memberships.map((row) => [String(row.storeId), row]));
   const access = new Map();
@@ -37,7 +41,18 @@ export async function sellerStoreAccesses(user) {
     const membership = membershipByStore.get(String(store._id));
     if (membership) access.set(store.publicId, { store, role: membership.role, membership });
   }
-  return [...access.values()];
+  const rows = [...access.values()], ownerIds = rows.map(row => row.store.ownerUserId);
+  const [owners, markets, ownerGrants] = await Promise.all([
+    User.find({ _id: { $in: ownerIds }, role: 'seller', status: 'active', platformAccessManagedAt: null }).select('_id').lean(),
+    CountrySetting.find({ active: true }).select('code currency').lean(),
+    PlatformGrant.find({ userId: { $in: ownerIds } }).select('userId').lean(),
+  ]);
+  const validOwners = new Set(owners.map(row => String(row._id)));
+  return rows.filter(row => validOwners.has(String(row.store.ownerUserId))
+    && !ownerGrants.some(grant => String(grant.userId) === String(row.store.ownerUserId))
+    && markets.some(market => market.code === row.store.country && market.currency === row.store.currency)
+    && (row.role !== 'owner' || actor.role === 'seller' && String(row.store.ownerUserId) === String(actor._id))
+    && (String(row.store.ownerUserId) !== String(actor._id) || row.role === 'owner'));
 }
 
 export async function getOrCreateStore(user, { preferredStorePublicId = '', strictPreferred = false } = {}) {
@@ -70,10 +85,11 @@ export async function getOrCreateStore(user, { preferredStorePublicId = '', stri
     selected = accesses[0];
   }
 
-  const store = await Store.findById(selected.store._id);
+  const store = await Store.findOne({ _id: selected.store._id, status: { $in: ['pending_verification', 'verified', 'suspended'] } });
+  if (!store) throw new AppError('Selected seller workspace is unavailable.', 403, 'SELLER_WORKSPACE_FORBIDDEN');
   let membership = selected.membership ? await StoreMember.findById(selected.membership._id) : null;
-  if (store.ownerUserId.equals(user._id)) membership = await ensureOwnerMembership(store, user);
-  if (!membership || membership.status !== 'active') throw new AppError('Selected seller workspace membership is inactive.', 403, 'SELLER_WORKSPACE_FORBIDDEN');
+  if (user.role === 'seller' && store.ownerUserId.equals(user._id)) membership = await ensureOwnerMembership(store, user);
+  if (!membership || membership.status !== 'active' || membership.role !== 'owner' && !(membership.acceptedAt instanceof Date)) throw new AppError('Selected seller workspace membership is inactive.', 403, 'SELLER_WORKSPACE_FORBIDDEN');
   const availableStores = accesses.map((row) => ({
     publicId: row.store.publicId,
     name: row.store.name,

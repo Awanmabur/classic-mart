@@ -12,6 +12,7 @@ import { authenticate } from './auth.js';
 import { getCountry } from './country.js';
 import { writeAudit } from './audit.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
+import { assertOptionalProcessing, optionalProcessingUser } from './optional-processing.js';
 import {
   ApiClient,
   ApiIdempotency,
@@ -49,6 +50,8 @@ function pushGatewayConfigured(){return Boolean(env.stage11.pushGatewayUrl && en
 function pushSignature(timestamp,body){return crypto.createHmac('sha256',env.stage11.pushGatewaySecret).update(`${timestamp}.${body}`).digest('hex');}
 export async function queuePushNotification({userId,userPublicId='',title,body,deepLink='/'}){
   if(!userId) throw new AppError('Push notification user is required.',422,'PUSH_USER_REQUIRED');
+  const user = await assertOptionalProcessing(userId);
+  if (userPublicId && user.publicId !== userPublicId) throw new AppError('Push notification identity changed.',409,'PUSH_USER_CHANGED');
   const event=await OutboxEvent.create({eventId:publicId('evt'),type:'mobile.push',aggregateType:'user',aggregatePublicId:userPublicId||String(userId),payload:{userId:String(userId),title:String(title||'Classic Mart').slice(0,120),body:String(body||'').slice(0,500),deepLink:String(deepLink||'/').slice(0,500)}});
   return event;
 }
@@ -65,10 +68,14 @@ export async function processPushOutbox({limit=50,workerId=`push:${process.pid}`
     );
     if(!event)break;checked+=1;
     try{
+      if (!await optionalProcessingUser(event.payload?.userId)) {
+        event.status='processed';event.processedAt=new Date();event.lastError='Push cancelled: current account or privacy authorization is unavailable.';
+        event.payload={userId:event.payload?.userId,deliveryStatus:'cancelled'};event.markModified('payload');processed+=1;event.lockedBy='';event.lockedUntil=null;await event.save();continue;
+      }
       const devices=await PushDevice.find({userId:event.payload?.userId,status:'active'}).select('+tokenEncrypted').lean();
       if(!devices.length){event.status='processed';event.processedAt=new Date();event.lastError='No active push devices.';processed+=1;event.lockedBy='';event.lockedUntil=null;await event.save();continue;}
       let delivered=0;
-      for(const device of devices){const payload={platform:device.platform,token:decryptSensitive(device.tokenEncrypted),title:event.payload.title,body:event.payload.body,deepLink:event.payload.deepLink,eventId:event.eventId};const raw=JSON.stringify(payload),timestamp=Math.floor(Date.now()/1000).toString();const response=await fetch(gateway,{method:'POST',headers:{'content-type':'application/json','user-agent':'Classic-Mart-Push/1.0','x-classic-mart-event-id':event.eventId,'x-classic-mart-timestamp':timestamp,'x-classic-mart-signature':`v1=${pushSignature(timestamp,raw)}`},body:raw,redirect:'error',signal:AbortSignal.timeout(8000)});if(response.ok){delivered+=1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:0,lastSeenAt:new Date()}});}else{const failures=Number(device.failureCount||0)+1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:failures,status:failures>=5?'invalid':'active'}});}}
+      for(const device of devices){if(!await optionalProcessingUser(event.payload?.userId)||!await PushDevice.exists({_id:device._id,userId:event.payload?.userId,status:'active'}))continue;const payload={platform:device.platform,token:decryptSensitive(device.tokenEncrypted),title:event.payload.title,body:event.payload.body,deepLink:event.payload.deepLink,eventId:event.eventId};const raw=JSON.stringify(payload),timestamp=Math.floor(Date.now()/1000).toString();const response=await fetch(gateway,{method:'POST',headers:{'content-type':'application/json','user-agent':'Classic-Mart-Push/1.0','x-classic-mart-event-id':event.eventId,'x-classic-mart-timestamp':timestamp,'x-classic-mart-signature':`v1=${pushSignature(timestamp,raw)}`},body:raw,redirect:'error',signal:AbortSignal.timeout(8000)});if(response.ok){delivered+=1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:0,lastSeenAt:new Date()}});}else{const failures=Number(device.failureCount||0)+1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:failures,status:failures>=5?'invalid':'active'}});}}
       if(delivered<1)throw new Error('Push gateway did not accept any active device delivery.');event.status='processed';event.processedAt=new Date();event.lastError='';processed+=1;
     }catch(error){event.status=event.attempts>=10?'dead':'failed';event.lastError=String(error.message||error).slice(0,1000);event.availableAt=new Date(Date.now()+Math.min(60,2**Math.min(8,event.attempts))*60_000);failed+=1;}
     event.lockedBy='';event.lockedUntil=null;await event.save();
@@ -117,10 +124,25 @@ export async function authenticateMobile(request,_response,next){
 export async function revokeMobileSession(user,publicIdValue,reason='user_revoked'){const session=await MobileSession.findOne({publicId:publicIdValue,userId:user._id,revokedAt:null});if(!session)throw new AppError('Connected app session was not found.',404,'MOBILE_SESSION_NOT_FOUND');session.revokedAt=new Date();session.revokedReason=reason;await session.save();return session;}
 export async function mobileSessionsPage(user,rawCursor='',limit=50){const size=Math.max(1,Math.min(100,Number(limit)||50)),base={userId:user._id};const [rows,total]=await Promise.all([MobileSession.find(cursorScope(base,rawCursor)).select('publicId deviceName platform lastUsedAt createdAt revokedAt revokedReason').sort(cursorSort()).limit(size+1).lean(),MobileSession.countDocuments(base)]);return pageResult(rows,{limit:size,total});}
 export async function listMobileSessions(user){return (await mobileSessionsPage(user,'',100)).items;}
-export function mobileServiceRequest(request){return {user:request.mobileUser,country:request.mobileCountry,session:{cartKey:request.mobileSession.cartKey,checkoutReview:request.mobileSession.checkoutReview||null},ip:request.ip,get:request.get.bind(request),log:request.log||{warn(){}}};}
+export function mobileServiceRequest(request){return {user:request.mobileUser,mobileSession:request.mobileSession,country:request.mobileCountry,session:{userId:String(request.mobileUser._id),tokenVersion:request.mobileSession.userTokenVersion,cartKey:request.mobileSession.cartKey,checkoutReview:request.mobileSession.checkoutReview||null},ip:request.ip,get:request.get.bind(request),log:request.log||{warn(){}}};}
 export async function persistMobileCheckout(request,serviceRequest){request.mobileSession.checkoutReview=serviceRequest.session.checkoutReview||null;request.mobileSession.markModified('checkoutReview');await request.mobileSession.save();}
 
-export async function registerPushDevice(user,input){const token=String(input.token||input.endpoint||'').trim();if(token.length<12||token.length>4096)throw new AppError('Push token or endpoint is invalid.',422,'PUSH_TOKEN_INVALID');const hash=hashToken(token);return PushDevice.findOneAndUpdate({userId:user._id,tokenHash:hash},{$set:{platform:input.platform,label:String(input.label||'').slice(0,120),country:user.country,status:'active',tokenEncrypted:encryptSensitive(token),lastSeenAt:new Date(),revokedAt:null,failureCount:0},$setOnInsert:{publicId:publicId('psh')}},{upsert:true,returnDocument:'after',runValidators:true});}
+export async function registerPushDevice(user, input) {
+  const token = String(input.token || input.endpoint || '').trim();
+  if (token.length < 12 || token.length > 4096) throw new AppError('Push token or endpoint is invalid.', 422, 'PUSH_TOKEN_INVALID');
+  const session = await mongoose.startSession();
+  try {
+    let device;
+    await session.withTransaction(async () => {
+      const current = await assertOptionalProcessing(user?._id, { session });
+      if (current.security.tokenVersion !== user.security?.tokenVersion) throw new AppError('The account changed. Sign in again.', 403, 'ACCOUNT_UNAVAILABLE');
+      const fence = await User.updateOne({ _id: current._id, status: 'active', __v: current.__v || 0, 'security.tokenVersion': current.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
+      if (fence.modifiedCount !== 1) throw new AppError('The account changed. Sign in again.', 409, 'ACCOUNT_UNAVAILABLE');
+      device = await PushDevice.findOneAndUpdate({ userId: current._id, tokenHash: hashToken(token) }, { $set: { platform: input.platform, label: String(input.label || '').slice(0, 120), country: current.country, status: 'active', tokenEncrypted: encryptSensitive(token), lastSeenAt: new Date(), revokedAt: null, failureCount: 0 }, $setOnInsert: { publicId: publicId('psh') } }, { upsert: true, returnDocument: 'after', runValidators: true, session });
+    });
+    return device;
+  } finally { await session.endSession(); }
+}
 export async function revokePushDevice(user,publicIdValue){const row=await PushDevice.findOne({publicId:publicIdValue,userId:user._id,status:'active'});if(!row)throw new AppError('Push device not found.',404,'PUSH_DEVICE_NOT_FOUND');row.status='revoked';row.revokedAt=new Date();await row.save();return row;}
 export async function listPushDevices(user){return PushDevice.find({userId:user._id}).select('publicId platform label status lastSeenAt createdAt revokedAt').sort({createdAt:-1}).lean();}
 

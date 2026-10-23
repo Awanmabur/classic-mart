@@ -11,7 +11,7 @@ import {
 import { createWarehouseTask, ensureShipmentForOrder, hashProofCode } from './logistics.js';
 import { operationalCountryScope } from './authorization.js';
 import { refreshOrderLifecycle } from './order-state.js';
-import { proportionalSettlementSlice } from './money.js';
+import { proportionalSettlementSlice, refundSettlementSlice, sellerLineFinancialHash } from './money.js';
 import { createCustomerSupportTicket, createGuestSupportTicket } from './support-ticket-pages.js';
 import { supportAccess, fenceSupportAccess } from './support-workspace-access.js';
 import { writeAudit } from './audit.js';
@@ -19,6 +19,8 @@ import { z } from 'zod';
 import { createOwnedDispute, submitOwnedSatisfaction, authorizeCustomerCaseActor, fenceCustomerCaseMarket } from './customer-dispute-pages.js';
 import { queueSupportAlert } from './support-notifications.js';
 import { createOwnedVerifiedReview, disputeOwnedReview, createOwnedTrustIssue, moderateVerifiedReview, moderateTrustCase, moderateRiskSignal } from './moderation-trust-pages.js';
+import { shipmentSource } from './delivery-source.js';
+import { returnPickupReceipt } from './return-resolution-source.js';
 
 const ACTIVE_RETURN = ['requested','approved','awaiting_return','received','inspected','refund_pending','refund_processing','exchange_pending'];
 export async function createPublicSupportTicket(request,input){
@@ -63,9 +65,10 @@ export async function createReturnRequest(request,input){
       const amount=proportionalSettlementSlice(Number(sellerLine.customerPaidMinor),consumedQuantity,raw.quantity,Number(item.quantity));
       const settlementKey=`${item.storePublicId}:${item.linePublicId}`,priorRefundGross=Number(priorRefundGrossByLine.get(settlementKey)||0),paidBase=Number(sellerLine.customerPaidMinor||0);
       if(priorRefundGross+amount>paidBase)throw new AppError('Return financial impact exceeds the immutable paid amount for this order line.',409,'RETURN_SETTLEMENT_EXHAUSTED');
-      const platformFeeReversalMinor=proportionalSettlementSlice(Number(sellerLine.platformFeeMinor),priorRefundGross,amount,paidBase),sellerReceivableReversalMinor=amount-platformFeeReversalMinor;
+      const financeAllocation=amount>0?{...refundSettlementSlice(sellerLine,priorRefundGross,amount),sourceHash:sellerLineFinancialHash(sellerLine)}:undefined;
+      const platformFeeReversalMinor=Number(financeAllocation?.platformFeeMinor||0),sellerReceivableReversalMinor=Number(financeAllocation?.sellerReceivableMinor||0);
       total+=amount;item.returnReservedQuantity=Number(item.returnReservedQuantity||0)+raw.quantity;
-      requested.push({orderLineId:item.linePublicId,productId:item.productId,variantId:item.variantId,storeId:item.storeId,storePublicId:item.storePublicId,productPublicId:item.productPublicId,variantPublicId:item.variantPublicId,sku:item.sku,title:item.title,variantTitle:item.variantTitle,quantity:raw.quantity,unitPriceMinor:item.unitPriceMinor,requestedRefundMinor:amount,sellerReceivableReversalMinor,platformFeeReversalMinor});
+      requested.push({orderLineId:item.linePublicId,productId:item.productId,variantId:item.variantId,storeId:item.storeId,storePublicId:item.storePublicId,productPublicId:item.productPublicId,variantPublicId:item.variantPublicId,sku:item.sku,title:item.title,variantTitle:item.variantTitle,quantity:raw.quantity,unitPriceMinor:item.unitPriceMinor,requestedRefundMinor:amount,financeAllocation,sellerReceivableReversalMinor,platformFeeReversalMinor});
     }
     const [doc]=await ReturnRequest.create([{publicId:publicId('ret'),orderId:order._id,orderPublicId:order.publicId,userId:request.user._id,country:order.country,reason:input.reason,details:input.details,resolution:input.resolution,items:requested,returnMethod:input.returnMethod||'dropoff',dropoffPointPublicId:input.dropoffPointId||'',eligibleUntil,policyVersion:order.policySnapshot?.policyVersion||'2026-07',timeline:[{type:'return.requested',message:`Return requested for ${requested.length} exact order line(s).`,actorUserId:request.user._id}]}],{session});
     const caseByStore=new Map();for(const item of requested){const key=String(item.storeId||'');if(!key)continue;const row=caseByStore.get(key)||{storeId:item.storeId,storePublicId:item.storePublicId,items:[]};row.items.push({orderLineId:item.orderLineId,productPublicId:item.productPublicId,variantPublicId:item.variantPublicId,sku:item.sku,title:item.title,variantTitle:item.variantTitle,quantity:item.quantity,requestedRefundMinor:item.requestedRefundMinor,sellerReceivableReversalMinor:item.sellerReceivableReversalMinor,platformFeeReversalMinor:item.platformFeeReversalMinor});caseByStore.set(key,row);}if(caseByStore.size){await SellerReturnCase.create([...caseByStore.values()].map(row=>({publicId:publicId('src'),returnRequestId:doc._id,returnPublicId:doc.publicId,orderPublicId:order.publicId,storeId:row.storeId,storePublicId:row.storePublicId,country:order.country,status:'pending',slaDueAt:new Date(Date.now()+48*60*60*1000),items:row.items,timeline:[{type:'seller_return.opened',message:'Seller return case opened for the store-owned order lines.'}]})),{session});}
@@ -135,14 +138,26 @@ export async function markReturnReceived(request,returnId,raw=''){
   try{await session.withTransaction(async()=>{
     const { context, doc, order } = await scopedReturn(request,returnId,session); currentReturnVersion(doc,version);
     if (!['approved','awaiting_return'].includes(doc.status)) throw new AppError('Return is not awaiting receipt.',409,'RETURN_STATE');
-    if(doc.returnMethod==='pickup'){const shipment=await Shipment.findOne({publicId:doc.returnShipmentPublicId,returnRequestId:doc._id,kind:'return',country:doc.country,orderId:doc.orderId}).session(session);if(!shipment||shipment.status!=='delivered'||!shipment.deliveredAt||shipment.proof?.reference!=='verified')throw new AppError('The return pickup has not reached the receiving point with verified delivery proof yet.',409,'RETURN_SHIPMENT_NOT_DELIVERED');}
+    let pickup=null;
+    if(doc.returnMethod==='pickup'){
+      try{pickup=await returnPickupReceipt(doc,order,{session});}catch(error){throw new AppError('The return pickup requires its original receiving allocation, verified receiving OTP and private carrier receipt photo.',409,'RETURN_SHIPMENT_NOT_DELIVERED');}
+      const source=await shipmentSource(pickup.shipment,{session,write:true});
+      doc.__v=source.returned.__v;order.__v=source.order.__v;
+      const shipmentFence=await Shipment.updateOne({_id:pickup.shipment._id,__v:pickup.shipment.__v||0,status:'delivered','proof.reference':'verified'},{$inc:{__v:1}},{session});
+      const evidenceFence=await EvidenceDocument.updateOne({_id:pickup.photo._id,__v:pickup.photo.__v||0,status:'ready',contextPublicId:pickup.shipment.publicId,ownerUserId:pickup.shipment.deliveryUserId},{$inc:{moderationEvidenceReadRevision:1}},{session,timestamps:false});
+      if(shipmentFence.modifiedCount!==1||evidenceFence.modifiedCount!==1)throw new AppError('The pickup receipt changed. Reload before receiving the goods.',409,'RETURN_SHIPMENT_NOT_DELIVERED');
+      pickup.source=source;
+    }
     else if (doc.items.some(item=>!item.intakeReceivedAt||!item.intakeEvidencePublicId||!item.intakeWarehousePublicId)) throw new AppError('Every drop-off line requires a scoped warehouse intake and saved receipt evidence.',409,'RETURN_INTAKE_REQUIRED');
     await fenceSupportAccess(context,session);
     for(const returned of doc.items){
       const item=order.items.find(x=>String(x.linePublicId)===String(returned.orderLineId));if(!item)throw new AppError('Return order line is missing.',409,'RETURN_ORDER_LINE_MISSING');if(Number(item.returnReservedQuantity||0)<returned.quantity)throw new AppError('Return quantity reservation is inconsistent.',409,'RETURN_RESERVATION_CONFLICT');
-      const warehouseRows=await Warehouse.find({storeId:returned.storeId,country:doc.country,active:true,...(doc.returnMethod==='dropoff'?{publicId:returned.intakeWarehousePublicId}:{})}).sort({createdAt:1}).session(session);if(!warehouseRows.length)throw new AppError(`An active warehouse is required before receiving return line ${returned.sku||returned.orderLineId}.`,409,'RETURN_WAREHOUSE_REQUIRED');
+      const allocation=pickup?await InventoryReservation.findOne({publicId:item.reservationPublicId,status:'committed',storeId:item.storeId,variantId:item.variantId,quantity:item.quantity}).session(session).lean():null;
+      const committedStock=pickup?pickup.source.stock.find(row=>String(row._id)===String(allocation?.stockItemId)):null;
+      if(pickup&&!committedStock)throw new AppError('The pickup return must enter its original committed receiving warehouse.',409,'RETURN_RECEIVING_UNAVAILABLE');
+      const warehouseRows=await Warehouse.find({storeId:returned.storeId,country:doc.country,active:true,...(pickup?{_id:committedStock.warehouseId}:{publicId:returned.intakeWarehousePublicId})}).sort({createdAt:1}).session(session);if(!warehouseRows.length)throw new AppError(`An active warehouse is required before receiving return line ${returned.sku||returned.orderLineId}.`,409,'RETURN_WAREHOUSE_REQUIRED');
       if (doc.returnMethod==='dropoff' && !await EvidenceDocument.exists({publicId:returned.intakeEvidencePublicId,ownerUserId:returned.intakeReceivedByUserId,country:doc.country,contextType:'return',contextPublicId:doc.publicId,contextLinePublicId:returned.orderLineId,documentType:'return_receipt',status:'ready'}).session(session)) throw new AppError('Warehouse intake receipt evidence is unavailable.',409,'RETURN_INTAKE_REQUIRED');
-      const warehouseIds=warehouseRows.map(row=>row._id);let stock=await StockItem.findOne({storeId:returned.storeId,variantId:returned.variantId,warehouseId:mongoose.trusted({$in:warehouseIds})}).sort({createdAt:1}).session(session);if(!stock){const [created]=await StockItem.create([{publicId:publicId('stk'),storeId:returned.storeId,warehouseId:warehouseRows[0]._id,variantId:returned.variantId,onHand:0,reserved:0,damaged:0,quarantined:0,reorderPoint:0}],{session});stock=created;}
+      const warehouseIds=warehouseRows.map(row=>row._id);let stock=await StockItem.findOne({...(pickup?{_id:committedStock._id}:{}),storeId:returned.storeId,variantId:returned.variantId,warehouseId:mongoose.trusted({$in:warehouseIds})}).sort({createdAt:1}).session(session);if(!stock){if(pickup)throw new AppError('Original pickup receiving stock is unavailable.',409,'RETURN_RECEIVING_UNAVAILABLE');const [created]=await StockItem.create([{publicId:publicId('stk'),storeId:returned.storeId,warehouseId:warehouseRows[0]._id,variantId:returned.variantId,onHand:0,reserved:0,damaged:0,quarantined:0,reorderPoint:0}],{session});stock=created;}
       const task=await createWarehouseTask({sourceKey:`return-inspection:${doc.publicId}:${returned.orderLineId}`,warehouseId:stock.warehouseId,storeId:returned.storeId,orderId:order._id,returnRequestId:doc._id,returnOrderLineId:returned.orderLineId,stockItemId:stock._id,variantId:returned.variantId,type:'return_inspection',reference:doc.publicId,notes:`Inspect received return ${doc.publicId} · ${returned.sku||returned.title}`,quantity:returned.quantity},session);
       returned.warehouseTaskPublicId=task.publicId;returned.warehouseInspectionStatus='pending';item.returnReservedQuantity-=returned.quantity;item.returnedQuantity=Number(item.returnedQuantity||0)+returned.quantity;if(item.returnedQuantity>item.deliveredQuantity)throw new AppError('Returned quantity exceeds delivered quantity.',409,'RETURN_QUANTITY_CONFLICT');
     }
@@ -183,6 +198,7 @@ export async function createExchangeReplacement(request,returnId,input={}){
     }
     currentReturnVersion(doc,parsed.version);
     if(doc.status!=='exchange_pending'||doc.resolution!=='exchange')throw new AppError('Return is not ready for exchange.',409,'RETURN_STATE');
+    if(doc.resolutionChange?.status==='proposed'&&doc.resolutionChange.expiresAt>new Date())throw new AppError('Wait for the buyer to answer the refund alternative before reserving an exchange.',409,'EXCHANGE_REFUND_PROPOSAL_PENDING');
     if(!doc.inspection?.inspectedAt||doc.items.some(item=>item.warehouseInspectionStatus!=='completed'))throw new AppError('Complete authoritative receipt and inspection before exchanging goods.',409,'RETURN_WAREHOUSE_INSPECTION_REQUIRED');
     await fenceSupportAccess(context,session);
     const original=await Order.findOne({_id:doc.orderId,country:doc.country,userId:doc.userId}).session(session);

@@ -6,6 +6,8 @@ export const WAREHOUSE_ROUTES = Object.freeze({
   'warehouse-packing': '/warehouse/packing',
   'warehouse-dispatch': '/warehouse/dispatch',
   'warehouse-returns': '/warehouse/returns',
+  'warehouse-carriers': '/warehouse/carriers',
+  'warehouse-deliveries': '/warehouse/deliveries',
   'warehouse-reports': '/warehouse/reports',
   'warehouse-settings': '/warehouse/settings',
 });

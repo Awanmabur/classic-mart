@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import { cursorScope, cursorSort, decodeCursor, pageResult } from './pagination.js';
+import { businessAccess, assertBusinessReadAccess } from './business-access.js';
+import { businessCommercialPolicy } from './business-policy.js';
 import {
   BusinessDocument,
   BusinessInvoice,
@@ -48,7 +50,7 @@ async function parties({ organizationId, storeId, session }) {
   const orgQuery = BusinessOrganization.findById(organizationId).select('publicId companyName country currency billingEmail billingContactName billingPhone billingAddress billingCity');
   const storeQuery = Store.findById(storeId).select('publicId name country currency');
   if (session) { orgQuery.session(session); storeQuery.session(session); }
-  const [organization, store] = await Promise.all([orgQuery.lean(), storeQuery.lean()]);
+  const [organization, store] = session ? [await orgQuery.lean(), await storeQuery.lean()] : await Promise.all([orgQuery.lean(), storeQuery.lean()]);
   if (!organization || !store) throw new AppError('Business document parties are unavailable.', 409, 'BUSINESS_DOCUMENT_PARTIES_MISSING');
   return {
     organization,
@@ -151,6 +153,7 @@ export async function issuePurchaseOrderDocument(poLike, { session = null, issue
       paymentTerms: po.paymentTerms, invoiceTermsDays: Number(po.invoiceTermsDays || 0),
       subtotalMinor: Number(po.subtotalMinor || 0), taxBps: Number(po.taxBps || 0), taxMinor: Number(po.taxMinor || 0),
       taxPolicyVersion: po.taxPolicyVersion || 'legacy-zero-tax', totalMinor: Number(po.totalMinor || 0), currency: po.currency,
+      commercialPolicy: businessCommercialPolicy(po.commercialPolicy),
       items: lineSnapshot(po.items),
     },
   };
@@ -224,20 +227,11 @@ export async function issueDeliveryNoteDocument({ order: orderLike, invoice: inv
   });
 }
 
-export async function businessDocumentAccess(actor, documentPublicId, { activeOrganizationPublicId = '' } = {}) {
-  const memberships = await BusinessMember.find({ userId: actor._id, status: 'active' }).select('organizationId').lean();
-  const memberIds = memberships.map(row => row.organizationId);
-  const owned = await BusinessOrganization.find({ ownerUserId: actor._id, status: { $ne: 'suspended' } }).select('_id publicId').lean();
-  const allowedIds = [...new Set([...memberIds.map(String), ...owned.map(row => String(row._id))])];
-  if (!allowedIds.length) throw new AppError('Business document not found.', 404, 'BUSINESS_DOCUMENT_NOT_FOUND');
-  const query = { publicId: documentPublicId, organizationId: { $in: allowedIds } };
-  if (activeOrganizationPublicId) {
-    const org = await BusinessOrganization.findOne({ publicId: activeOrganizationPublicId, _id: { $in: allowedIds }, status: { $ne: 'suspended' } }).select('_id').lean();
-    if (!org) throw new AppError('Selected business workspace is unavailable.', 403, 'BUSINESS_WORKSPACE_FORBIDDEN');
-    query.organizationId = org._id;
-  }
-  const document = await BusinessDocument.findOne(query).lean();
+export async function businessDocumentAccess(request, documentPublicId, { activeOrganizationPublicId = '' } = {}) {
+  const context = await businessAccess(request, { ...(activeOrganizationPublicId ? {organizationPublicId:activeOrganizationPublicId}: {}) });
+  const document = await BusinessDocument.findOne({ publicId: documentPublicId, organizationId:context.org._id,country:context.org.country,currency:context.org.currency }).lean();
   if (!document) throw new AppError('Business document not found.', 404, 'BUSINESS_DOCUMENT_NOT_FOUND');
+  await assertBusinessReadAccess(request,context);
   return document;
 }
 

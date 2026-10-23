@@ -5,6 +5,7 @@ import { assertWarehouseAccess } from './warehouse-operations.js';
 import { warehouseParcelOptions } from './warehouse-parcel-options.js';
 import { cursorScope, cursorSort, decodeCursor, pageResult } from './pagination.js';
 import { hashValue } from '../core/crypto.js';
+import { loadWarehouseMeasuredReport } from './warehouse-measured-reports.js';
 
 const modes = ['overview', 'inventory', 'receiving', 'picking', 'packing', 'dispatch', 'returns', 'reports', 'settings'];
 const types = { receiving: ['receive', 'put_away'], picking: ['pick'], packing: ['pack'], dispatch: ['dispatch'], returns: ['return_inspection'] };
@@ -253,6 +254,7 @@ export async function loadWarehousePage(request, page = 'overview') {
       mine: same(row.assignedUserId?._id, scope.access.actor._id), canRelease: row.status === 'in_progress' && (scope.access.supervisor || same(row.assignedUserId?._id, scope.access.actor._id)) }));
   }
   if (mode === 'reports') {
+    flow.measured = await loadWarehouseMeasuredReport(request);
     const reportScope = movementScope(scope.ids, scope.filters);
     const [rows, count] = await Promise.all([populateMovement(InventoryMovement.find(cursorScope(reportScope, scope.filters.after))).sort(cursorSort()).limit(26).lean(), InventoryMovement.countDocuments(reportScope)]);
     const paged = pageResult(rows, { limit: 25, total: count }); flow.movements = paged.items.map(movementView); flow.page = paged.page;

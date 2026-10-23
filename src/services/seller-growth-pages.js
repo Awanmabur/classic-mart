@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { sellerOperationsAccess } from './seller-operations-access.js';
+import { requestReviewedSellerSubscription, sellerSubscriptionOperationsPage } from './seller-subscription-operations.js';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
@@ -54,33 +56,13 @@ function discountLabel(row) {
 }
 
 async function sellerAccess(request, capability, session = null) {
-  if (!request.user?._id || !request.store?._id) throw new AppError('Seller authentication is required.', 401, 'UNAUTHENTICATED');
-  const actor = await User.findById(request.user._id).select('role platformAccessManagedAt status security.tokenVersion security.mfaEnabled emailVerifiedAt onboardingCompletedAt').session(session).lean();
-  if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion || (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
-  if (!['seller', 'customer'].includes(actor.role) || actor.platformAccessManagedAt) throw new AppError('Your current workspace cannot manage seller growth.', 403, 'SELLER_WORKSPACE_REQUIRED');
-  if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) throw new AppError('Complete account verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');
-  if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) throw new AppError('Authenticator enrollment is required for store operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
-  const member = await StoreMember.findOne({ storeId: request.store._id, userId: request.user._id, status: 'active' }).session(session);
-  const capabilities = storeCapabilities(member?.role);
-  if (!member || (!capabilities.has('*') && !capabilities.has(capability))) throw new AppError('Your store staff role does not allow that action.', 403, 'STORE_PERMISSION_DENIED');
-  const store = await Store.findById(request.store._id).session(session);
-  if (!store || !['pending_verification', 'verified'].includes(store.status)) throw new AppError('This store is unavailable.', 409, 'STORE_LOCKED');
-  if (actor.role === 'customer' && (member.role === 'owner' || String(store.ownerUserId) === String(actor._id))) throw new AppError('Your current workspace cannot own seller growth.', 403, 'SELLER_WORKSPACE_REQUIRED');
-  const country = await CountrySetting.findOne({ code: store.country, active: true }).select('currency timeZone').session(session).lean();
-  if (!country || country.currency !== store.currency) throw new AppError('The store country and currency need configuration.', 409, 'SELLER_COUNTRY_UNAVAILABLE');
-  return { store, member, actor, country };
+  return sellerOperationsAccess(request, capability, { session });
 }
-
-// Write the authorized identity and membership at the mutation boundary so
-// concurrent account or membership revocation cannot authorize a stale action.
 async function lockStore(request, capability, session) {
-  const { store, member, actor } = await sellerAccess(request, capability, session);
-  await User.updateOne({ _id: actor._id, status: 'active', 'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
-  await StoreMember.updateOne({ _id: member._id, status: 'active', role: member.role }, { $inc: { __v: 1 } }, { session });
-  await Store.updateOne({ _id: store._id }, { $inc: { __v: 1 } }, { session });
-  if (store.country !== request.store.country || store.currency !== request.store.currency) throw new AppError('Your store settings changed. Refresh the page.', 409, 'SELLER_STORE_SCOPE_CHANGED');
+  const { store } = await sellerOperationsAccess(request, capability, { session, write: true });
   return store;
 }
+
 export { lockStore as lockSellerGrowthStore };
 async function transaction(work) {
   const session = await mongoose.startSession();
@@ -195,41 +177,29 @@ export async function sellerPromotionsPage(request, coupon = false) {
 }
 
 export async function requestSellerSubscription(request, raw) {
-  const input = subscriptionSchema.parse(raw);
-  return transaction(async session => {
-    // Every request writes the same store before checking pending changes. Mongo
-    // retries a competing transaction with a fresh snapshot, preventing two
-    // simultaneous requests even when they are made by different staff members.
-    const store = await lockStore(request, 'staff', session);
-    const plan = await SubscriptionPlan.findOne({ publicId: input.planPublicId, audience: 'seller', country: store.country, currency: store.currency, status: 'active' }).session(session);
-    if (!plan) throw new AppError('Subscription plan is unavailable for this store.', 404, 'SUBSCRIPTION_PLAN_NOT_FOUND');
-    if (await SubscriptionChangeRequest.exists({ audience: 'seller', storeId: store._id, status: 'requested' }).session(session)) throw new AppError('A subscription change is already awaiting review.', 409, 'SUBSCRIPTION_CHANGE_PENDING');
-    const [row] = await SubscriptionChangeRequest.create([{ publicId: publicId('scr'), audience: 'seller', userId: request.user._id, ...scope(store), storePublicId: store.publicId, planId: plan._id, planPublicId: plan.publicId, requestedPriceMinor: plan.priceMinor, requestedCadence: plan.cadence, note: input.note }], { session });
-    await writeAudit(request, 'seller.subscription_change_requested', { targetType: 'subscription_change_request', targetPublicId: row.publicId, country: store.country, session, metadata: { planPublicId: plan.publicId, storePublicId: store.publicId } });
-    return row;
-  });
+  return requestReviewedSellerSubscription(request, raw);
 }
 
 export async function sellerSubscriptionPage(request) {
-  const { store, country } = await sellerAccess(request, 'staff');
+  const { store, country } = await sellerOperationsAccess(request, 'staff', { allowSuspended: true });
   const date = value => day(value, country.timeZone);
   request.store = store;
   const base = { audience: 'seller', ...scope(store) };
   const selected = filters(request, ['requested', 'approved', 'rejected', 'cancelled']);
   const query = { ...base, ...(selected.status ? { status: selected.status } : {}), ...(selected.search ? { $or: [{ publicId: { $regex: regex(selected.search), $options: 'i' } }, { planPublicId: { $regex: regex(selected.search), $options: 'i' } }, { note: { $regex: regex(selected.search), $options: 'i' } }] } : {}) };
-  const [plans, enrollment, history, total, pending, enrollmentHistory] = await Promise.all([
-    SubscriptionPlan.find({ audience: 'seller', country: store.country, currency: store.currency, status: 'active' }).select('publicId name description priceMinor cadence features').sort({ sortOrder: 1, priceMinor: 1, _id: 1 }).lean(),
-    SubscriptionEnrollment.findOne({ ...base, status: { $in: ['trialing', 'active', 'past_due'] } }).populate({ path: 'planId', match: { audience: 'seller', country: store.country, currency: store.currency }, select: 'name features' }).sort({ createdAt: -1, _id: -1 }).lean(),
+  const [plans, enrollment, history, total, pending] = await Promise.all([
+    SubscriptionPlan.find({ audience: 'seller', country: store.country, currency: store.currency, status: 'active' }).select('publicId name description priceMinor cadence features entitlements').sort({ sortOrder: 1, priceMinor: 1, _id: 1 }).lean(),
+    SubscriptionEnrollment.findOne({ ...base, status: { $in: ['trialing', 'active'] }, startsAt: { $lte: new Date() }, $and: [{ $or: [{ currentPeriodEndsAt: { $gt: new Date() } }, { currentPeriodEndsAt: null }] }, { $or: [{ priceMinor: 0 }, { subscriptionChargeId: { $exists: true } }] }] }).populate({ path: 'planId', match: { audience: 'seller', country: store.country, currency: store.currency }, select: 'name features' }).sort({ createdAt: -1, _id: -1 }).lean(),
     SubscriptionChangeRequest.find(cursorScope(query, selected.after)).populate({ path: 'planId', match: { audience: 'seller', country: store.country, currency: store.currency }, select: 'name' }).sort(cursorSort()).limit(LIMIT + 1).lean(),
     SubscriptionChangeRequest.countDocuments(query), SubscriptionChangeRequest.countDocuments({ ...base, status: 'requested' }),
-    SubscriptionEnrollment.find(base).populate({ path: 'planId', match: { audience: 'seller', country: store.country, currency: store.currency }, select: 'name' }).sort({ createdAt: -1, _id: -1 }).limit(20).lean(),
   ]);
   const paged = pageResult(history, { limit: LIMIT, total });
-  const sanitizeEnrollment = row => row ? { publicId: row.publicId, planPublicId: row.planPublicId, planName: row.planId?.name || row.planPublicId, features: row.planId?.features || [], priceMinor: row.priceMinor, status: row.status, startsAt: row.startsAt, currentPeriodEndsAt: row.currentPeriodEndsAt, cancelledAt: row.cancelledAt } : null;
-  const changeRequests = paged.items.map(row => ({ publicId: row.publicId, planPublicId: row.planPublicId, planName: row.planId?.name || row.planPublicId, requestedPriceMinor: row.requestedPriceMinor, requestedCadence: row.requestedCadence, status: row.status, note: row.note, reviewReason: row.reviewReason, createdAt: row.createdAt, reviewedAt: row.reviewedAt }));
+  const operations = await sellerSubscriptionOperationsPage(request);
+  const sanitizeEnrollment = row => row ? { publicId: row.publicId, planPublicId: row.planPublicId, planName: row.terms?.name || row.planId?.name || row.planPublicId, features: row.terms ? Object.entries(row.terms.entitlements).map(([key, value]) => `${key}: ${value}`) : [], entitlements: row.terms?.entitlements, priceMinor: row.priceMinor, status: row.status, startsAt: row.startsAt, currentPeriodEndsAt: row.currentPeriodEndsAt, cancelledAt: row.cancelledAt } : null;
+  const changeRequests = paged.items.map(row => ({ publicId: row.publicId, planPublicId: row.planPublicId, planName: row.terms?.name || row.planId?.name || row.planPublicId, requestedPriceMinor: row.requestedPriceMinor, requestedCadence: row.requestedCadence, status: row.status, note: row.note, reviewReason: row.reviewReason, createdAt: row.createdAt, reviewedAt: row.reviewedAt }));
   const current = sanitizeEnrollment(enrollment);
   return {
-    kind: 'growth', domain: 'subscription', store: publicStore(store), country: store.country, currency: store.currency, path: '/seller/subscription', plans: plans.map(({ _id, ...plan }) => plan), enrollment: current, enrollmentHistory: enrollmentHistory.map(sanitizeEnrollment), changeRequests, pendingRequests: pending,
+    ...operations, kind: 'growth', domain: 'subscription', store: publicStore(store), country: store.country, currency: store.currency, path: '/seller/subscription', plans: plans.map(({ _id, ...plan }) => plan), enrollment: current, enrollmentHistory: [], changeRequests, pendingRequests: pending,
     filters: selected, page: paged.page, columns: ['Plan request', 'Price', 'Billing cycle', 'Requested', 'Status'],
     rows: changeRequests.map(row => ({ id: row.publicId, cells: [row.planName, money(row.requestedPriceMinor, store.currency), label(row.requestedCadence), date(row.createdAt), label(row.status)], href: `#request-${encodeURIComponent(row.publicId)}` })),
     metrics: [{ label: 'Current plan', value: current?.planName || 'No plan', detail: current ? label(current.status) : 'No enrollment recorded' }, { label: 'Plan price', value: current ? money(current.priceMinor, store.currency) : '—', detail: 'Stored enrollment price' }, { label: 'Available plans', value: String(plans.length), detail: `${store.country} · ${store.currency}` }, { label: 'Pending requests', value: String(pending), detail: 'Awaiting independent review' }],

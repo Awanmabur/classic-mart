@@ -1,9 +1,10 @@
+import { optionalProcessingUser, restrictedOptionalUserIds } from './optional-processing.js';
 import mongoose from 'mongoose';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import {
   BusinessBudget, Campaign, CountrySetting, CustomerCatalogueState, PriceSchedule, ProcurementRequest, Product, ProductVariant, PurchaseOrder, QuoteRequest,
-  SellerPromotion, StoreBroadcast, User,
+  SellerPromotion, Store, StoreBroadcast, StoreMember, User,
 } from '../models/index.js';
 import { addOutboxEvent } from './outbox.js';
 import { acceptPurchaseOrderIntoCommerce } from './business-fulfillment.js';
@@ -94,7 +95,22 @@ export async function setSellerPromotionStatus(request,id,status){const row=awai
 export async function scheduleVariantPrice(request,input){const variant=await ProductVariant.findOne({publicId:input.variantId,storeId:request.store._id,active:true});if(!variant)throw new AppError('Variant not found.',404,'VARIANT_NOT_FOUND');const minimum=Math.max(Number(variant.minimumPriceMinor||0),Number(input.minimumPriceMinor||0));const next=Number(input.newPriceMinor);if(next<minimum)throw new AppError('Scheduled price cannot be below the minimum price.',409,'MINIMUM_PRICE_VIOLATION');variant.minimumPriceMinor=minimum;if(input.costMinor!==undefined)variant.costMinor=Math.max(0,Number(input.costMinor));await variant.save();return PriceSchedule.create({publicId:publicId('psch'),storeId:request.store._id,variantId:variant._id,variantPublicId:variant.publicId,previousPriceMinor:variant.priceMinor,newPriceMinor:next,minimumPriceMinor:minimum,startsAt:new Date(input.startsAt),status:'scheduled',createdByUserId:request.user._id});}
 export async function applyDuePriceSchedules(){const due=await PriceSchedule.find({status:'scheduled',startsAt:{$lte:new Date()}}).limit(100);for(const row of due){const variant=await ProductVariant.findById(row.variantId);if(!variant){row.status='failed';row.failureReason='Variant no longer exists.';await row.save();continue;}if(row.newPriceMinor<Math.max(row.minimumPriceMinor,variant.minimumPriceMinor||0)){row.status='failed';row.failureReason='Minimum price changed before schedule execution.';await row.save();continue;}variant.priceMinor=row.newPriceMinor;variant.minimumPriceMinor=Math.max(variant.minimumPriceMinor||0,row.minimumPriceMinor);await variant.save();row.status='applied';row.appliedAt=new Date();await row.save();}}
 export async function createStoreBroadcast(request,input){const row=await StoreBroadcast.create({publicId:publicId('brd'),storeId:request.store._id,storePublicId:request.store.publicId,country:request.store.country,subject:String(input.subject).trim().slice(0,180),body:String(input.body).trim().slice(0,4000),status:'draft',createdByUserId:request.user._id});return row;}
-export async function queueStoreBroadcast(request,id){const row=await StoreBroadcast.findOne({publicId:id,storeId:request.store._id,status:'draft'});if(!row)throw new AppError('Draft broadcast not found.',404,'BROADCAST_NOT_FOUND');const states=await CustomerCatalogueState.find({followedStoreIds:request.store._id}).select('userId').lean();const ids=states.map(s=>s.userId);const users=ids.length?await User.find({_id:{$in:ids},status:'active',country:request.store.country,'consents.marketing':true}).select('publicId email country').lean():[];for(const user of users)await addOutboxEvent({type:'store.broadcast',aggregateType:'store_broadcast',aggregatePublicId:row.publicId,payload:{userPublicId:user.publicId,email:user.email,subject:row.subject,body:row.body,storePublicId:request.store.publicId,country:user.country,consentBasis:'marketing+follow'}});row.status='queued';row.recipientCount=users.length;row.queuedAt=new Date();await row.save();return row;}
+export async function queueStoreBroadcast(request,id){const row=await StoreBroadcast.findOne({publicId:id,storeId:request.store._id,status:'draft'});if(!row)throw new AppError('Draft broadcast not found.',404,'BROADCAST_NOT_FOUND');const states=await CustomerCatalogueState.find({followedStoreIds:request.store._id}).select('userId').lean();const ids=states.map(s=>s.userId);const restricted=await restrictedOptionalUserIds();const users=ids.length?await User.find({_id:{$in:ids,$nin:restricted},status:'active',country:request.store.country,'consents.marketing':true}).select('publicId email country').lean():[];for(const user of users)await addOutboxEvent({type:'store.broadcast',aggregateType:'store_broadcast',aggregatePublicId:row.publicId,payload:{userPublicId:user.publicId,email:user.email,subject:row.subject,body:row.body,storePublicId:request.store.publicId,country:user.country,consentBasis:'marketing+follow'}});row.status='queued';row.recipientCount=users.length;row.queuedAt=new Date();await row.save();return row;}
+
+/** Recheck the sender, live store, current follow and current recipient consent
+ * at dispatch. Queued contact details never remain delivery authority. */
+export async function prepareStoreBroadcastDelivery(event) {
+  const broadcast = await StoreBroadcast.findOne({ publicId: event.aggregatePublicId, status: 'queued', country: event.payload?.country }).lean();
+  if (!broadcast) return null;
+  const store = await Store.findOne({ _id: broadcast.storeId, publicId: broadcast.storePublicId, country: broadcast.country, status: 'verified' }).lean();
+  if (!store || !await User.exists({ _id: broadcast.createdByUserId, status: 'active' })) return null;
+  const sender = await StoreMember.exists({ storeId: store._id, userId: broadcast.createdByUserId, status: 'active', role: { $in: ['owner', 'admin', 'support'] } });
+  if (!sender) return null;
+  const identity = await User.findOne({ publicId: event.payload?.userPublicId, country: broadcast.country }).select('_id').lean();
+  const user = identity ? await optionalProcessingUser(identity._id, { marketing: true }) : null;
+  if (!user || !await CustomerCatalogueState.exists({ userId: user._id, followedStoreIds: store._id })) return null;
+  return { email: user.email, subject: broadcast.subject, text: broadcast.body };
+}
 export async function sellerRespondQuote(request,id,{message,offeredUnitMinor=[],validUntil}){
   const session=await mongoose.startSession();let result;
   try{await session.withTransaction(async()=>{

@@ -11,7 +11,7 @@
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
 </head>
-<body class="storefront-page checkout-page">
+<body class="storefront-page checkout-page" data-checkout-entry="<%= typeof checkoutEntry !== 'undefined' && checkoutEntry ? 'true' : 'false' %>" data-signed-in="<%= user ? 'true' : 'false' %>">
 <a class="skip-link" href="#cartContent">Skip to checkout</a><%- include("partials/storefront-header") %>
 <main class="checkout-main page-shell" id="cartContent">
 <header class="checkout-heading">
@@ -83,6 +83,7 @@
 <section class="checkout-panel-card">
 <div class="checkout-panel-head"><span>Step 2 of 3</span><div><h2 id="checkoutStepTitle">Contact &amp; delivery</h2><p>Tell us where the order should go and how to contact you.</p></div></div>
 <div class="checkout-fields-grid">
+<label class="checkout-field full" id="savedAddressField" hidden><span>Saved delivery address</span><select id="checkoutSavedAddress"><option value="">Enter a new address</option></select></label>
 <label class="checkout-field full"><span>Full name</span><input autocomplete="name" id="checkoutName" name="name" placeholder="Your full name" required="" type="text"/></label>
 <label class="checkout-field"><span>Email address</span><input autocomplete="email" id="checkoutEmail" name="email" placeholder="you@example.com" required="" type="email"/></label>
 <label class="checkout-field"><span>Phone number</span><input autocomplete="tel" id="checkoutPhone" name="phone" placeholder="e.g. +256 700 000 000" required="" type="tel"/></label>
@@ -90,6 +91,7 @@
 <label class="checkout-field"><span>City / town</span><input autocomplete="address-level2" id="checkoutCity" name="city" placeholder="Kampala" required="" type="text"/></label>
 <label class="checkout-field"><span>Country</span><select id="checkoutCountry" name="country" required><option value="<%=country?.name||'Uganda'%>"><%=country?.name||'Uganda'%></option></select></label>
 <label class="checkout-field full"><span>Delivery note <small>(optional)</small></span><textarea id="checkoutNote" name="note" placeholder="Landmark, preferred delivery time or special instructions" rows="3"></textarea></label>
+<label class="checkout-field full" id="checkoutRewardField" hidden><span>Available reward</span><select id="checkoutReward"><option value="">Save rewards for later</option></select></label>
 </div>
 </section>
 <section class="checkout-panel-card">

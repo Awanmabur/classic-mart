@@ -71,6 +71,7 @@ const userSchema = new Schema(
     emailVerifiedAt: Date,
     phoneVerifiedAt: Date,
     onboardingCompletedAt: Date,
+    rewardReadRevision: { type: Number, min: 0, default: 0, select: false },
     // Server-controlled home/operational country. Never updated from the ordinary profile form.
     country: {
       type: String,

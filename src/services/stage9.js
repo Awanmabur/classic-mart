@@ -1,3 +1,5 @@
+import { addLoyaltyPoints } from './loyalty.js';
+import { currentCustomerAccess } from './customer-access.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -8,7 +10,7 @@ import { hashToken } from '../core/crypto.js';
 import { encryptSensitive, decryptSensitive } from '../core/sensitive.js';
 import {
   AiModelRegistry, ApprovalRequest, AuditLog, CmsContent, CountrySetting, DataExport, FeatureFlag,
-  BusinessOrganization, GiftCard, Incident, LedgerTransaction, LoyaltyAccount, LoyaltyEntry, MarketingCampaign, Order,
+  BusinessOrganization, Device, GiftCard, Incident, LedgerTransaction, LoyaltyAccount, LoyaltyEntry, MarketingCampaign, MobileSession, Order,
   PaymentIntent, Payout, PayoutAccount, PlatformGrant, PromoterVerification, Referral, ReferralInvite, Refund, SearchEvent, Store, SupportTicket, User, Warehouse,
 } from '../models/index.js';
 import { addOutboxEvent } from './outbox.js';
@@ -73,20 +75,24 @@ function administrativeRequest(user, request, country) {
   return current;
 }
 export async function currentAdministrativeAuthority(user,{country='',session=null,request}={}) {
-  const context = await countryAdminAccess(administrativeRequest(user,request,country), { session, workspace:false, country });
+  const inactiveTarget=Boolean(country)&&!await CountrySetting.exists({code:country,active:true}).session(session);
+  const accessCountry=inactiveTarget?'':country;
+  const context = await countryAdminAccess(administrativeRequest(user,request,accessCountry), { session, workspace:false, country:accessCountry });
+  if(inactiveTarget&&(context.actor.role!=='super_admin'||!context.scopes.includes('*')))throw new AppError('Inactive market controls require global Super Admin authority.',403,'COUNTRY_SCOPE');
   if (!country && context.actor.role !== 'super_admin') throw new AppError('Country-scoped administrators cannot change global resources.',403,'COUNTRY_SCOPE');
   if (session) await fenceCountryAdminAccess(context,session);
   return context;
 }
-export async function createApproval({user,type,country='',targetType='',targetPublicId='',payload,reason,request}){
+export async function createApproval({user,type,country='',targetType='',targetPublicId='',payload,reason,request},{session:providedSession=null}={}){
   if(!reason||String(reason).trim().length<3)throw new AppError('A reason is required for high-risk changes.',422,'APPROVAL_REASON_REQUIRED');
   const cleanCountry=String(country||'').toUpperCase();
-  const session=await mongoose.startSession(); let created;
-  try { await session.withTransaction(async()=>{
+  const session=providedSession||await mongoose.startSession(); let created;
+  const create=async()=>{
     const context=await currentAdministrativeAuthority(user,{country:cleanCountry,session,request});
     [created]=await ApprovalRequest.create([{publicId:publicId('apr'),type,country:cleanCountry,targetType,targetPublicId,payload,reason:String(reason).trim(),requestedByUserId:context.actor._id,requesterGrantPublicId:context.grant?.publicId||'',requesterTokenVersion:context.actor.security.tokenVersion,requesterStoredRole:context.storedRole}],{session});
     await writeAudit(administrativeRequest(context.actor,request,cleanCountry),'country_admin.approval_requested',{actor:context.actor,targetType:'approval',targetPublicId:created.publicId,country:cleanCountry,session,metadata:{type}});
-  }); } finally { await session.endSession(); }
+  };
+  try { if(providedSession){if(!session.inTransaction())throw new AppError('Approval creation requires a transaction.',500,'APPROVAL_TRANSACTION_REQUIRED');await create();}else await session.withTransaction(create); } finally { if(!providedSession)await session.endSession(); }
   return created;
 }
 
@@ -105,7 +111,7 @@ function safeCountryPatch(payload={}){
     },
     growth:{
       loyaltyEnabled:Boolean(payload.loyaltyEnabled),referralEnabled:Boolean(payload.referralEnabled),giftCardsEnabled:Boolean(payload.giftCardsEnabled),
-      loyaltyPointsPer1000Minor:number(payload.loyaltyPointsPer1000Minor||1,0,10000),referralRewardPoints:number(payload.referralRewardPoints||100,0,1_000_000),promoterCommissionBps:number(payload.promoterCommissionBps??300,0,5000),
+      loyaltyPointsPer1000Minor:number(payload.loyaltyPointsPer1000Minor??1,0,10000),referralRewardPoints:number(payload.referralRewardPoints??100,0,1_000_000),promoterCommissionBps:number(payload.promoterCommissionBps??300,0,5000),
     },
   };
 }
@@ -115,7 +121,7 @@ function safeFlagPayload(payload={}){
   return {key,description:String(payload.description||'').trim().slice(0,500),enabled:Boolean(payload.enabled),countries:[...new Set((payload.countries||[]).map(v=>String(v).toUpperCase()).filter(v=>/^[A-Z]{2}$/.test(v)))],roles:[...new Set(payload.roles||[])],rolloutPercentage:Math.min(100,Math.max(0,Number(payload.rolloutPercentage??100))),startsAt:payload.startsAt?new Date(payload.startsAt):null,endsAt:payload.endsAt?new Date(payload.endsAt):null};
 }
 
-export async function applyApproval(approval,decider,{request,beforeApply,dryRun=false}={}){
+export async function applyApproval(approval,decider,{request,beforeApply,dryRun=false,decisionReason=''}={}){
   if(!approval)throw new AppError('Approval request is no longer pending.',409,'APPROVAL_STATE');
   const session=await mongoose.startSession();let result={},postCommitExportPublicId='',invalidateFeatureFlags=false;
   const dryRunRollback=new Error('Approval preview transaction rolled back.');
@@ -135,11 +141,14 @@ export async function applyApproval(approval,decider,{request,beforeApply,dryRun
       if(freshApproval.country)ensureAdminScope(decider,freshApproval.country);
       if(freshApproval.type==='country_settings'){
         const setting=await CountrySetting.findOne({code:freshApproval.country}).session(session);if(!setting)throw new AppError('Country configuration not found.',404,'COUNTRY_NOT_FOUND');
-        Object.assign(setting,safeCountryPatch(freshApproval.payload));await setting.save({session});result={country:setting.code};
+        if(freshApproval.payload.sourceDigest){const {countryPolicyDigest}=await import('./super-admin-operations.js');if(countryPolicyDigest(setting)!==freshApproval.payload.sourceDigest)throw new AppError('Country policy changed after this request.',409,'COUNTRY_POLICY_CHANGED');}
+        const patch=safeCountryPatch(freshApproval.payload);patch.growth.rewardCatalogue=freshApproval.payload.rewardCatalogue??setting.growth?.rewardCatalogue??[];patch.growth.clubBenefits=freshApproval.payload.clubBenefits??setting.growth?.clubBenefits??[];const {marketRewardCatalogue}=await import('./customer-rewards.js');marketRewardCatalogue({growth:patch.growth});Object.assign(setting,patch);await setting.save({session});result={country:setting.code};
+        if(typeof freshApproval.payload.policyVersion==='string'){setting.policyVersion=freshApproval.payload.policyVersion.slice(0,40);await setting.save({session});}
       }else if(freshApproval.type==='feature_flag'){
         const p=safeFlagPayload(freshApproval.payload);
         if(freshApproval.country&&(p.countries.length!==1||p.countries[0]!==freshApproval.country))throw new AppError('Country-scoped feature approval must target exactly its country.',403,'COUNTRY_SCOPE');
         let flag=await FeatureFlag.findOne({key:p.key}).session(session);
+        if(Object.hasOwn(freshApproval.payload,'sourceVersion')&&(flag?Number(flag.__v||0):null)!==freshApproval.payload.sourceVersion)throw new AppError('Feature rollout changed after review was requested.',409,'FEATURE_SOURCE_CHANGED');
         if(flag&&freshApproval.country){const existingCountries=flag.countries||[];if(existingCountries.length===0||existingCountries.some(code=>code!==freshApproval.country))throw new AppError('Country Admin cannot modify a global or cross-country feature flag.',403,'COUNTRY_SCOPE');}
         if(!flag)flag=new FeatureFlag({publicId:publicId('flg'),key:p.key});
         Object.assign(flag,p,{version:Number(flag.version||0)+1,lastReason:freshApproval.reason,updatedByUserId:decider._id});await flag.save({session});result={featureFlag:flag.publicId};invalidateFeatureFlags=true;
@@ -151,6 +160,7 @@ export async function applyApproval(approval,decider,{request,beforeApply,dryRun
         if(content.country!==freshApproval.country)throw new AppError('CMS approval country does not match its source.',403,'COUNTRY_SCOPE');
         if(content.country)ensureAdminScope(decider,content.country);
         const version=Number(freshApproval.payload.version);const revision=content.revisions.find(row=>row.version===version);if(!revision)throw new AppError('CMS revision not found.',404,'CMS_REVISION_NOT_FOUND');
+        if(freshApproval.payload.digest){const {cmsRevisionDigest}=await import('./country-admin-growth-pages.js');if(Number(content.__v||0)!==freshApproval.payload.sourceVersion||content.activeVersion!==freshApproval.payload.activeVersion||content.scheduledVersion||cmsRevisionDigest(revision)!==freshApproval.payload.digest)throw new AppError('Content changed after publication was requested.',409,'CMS_SOURCE_CHANGED');}
         if(String(revision.createdByUserId)===String(decider._id))throw new AppError('The revision author cannot approve publication.',403,'FOUR_EYES_REQUIRED');
         revision.approvalPublicId=freshApproval.publicId;revision.approvedByUserId=decider._id;revision.approvedAt=new Date();revision.dispatchGrantPublicId=context.grant?.publicId||`legacy:${context.storedRole}`;revision.dispatchTokenVersion=decider.security.tokenVersion;
         const scheduledFor=freshApproval.payload.scheduledFor?new Date(freshApproval.payload.scheduledFor):null;
@@ -173,10 +183,22 @@ export async function applyApproval(approval,decider,{request,beforeApply,dryRun
         if(decider.role!=='super_admin')throw new AppError('Only Super Admin can approve global AI model registry changes.',403,'FORBIDDEN');
         const model=await AiModelRegistry.findOne({publicId:freshApproval.targetPublicId}).session(session);if(!model)throw new AppError('AI model registry entry not found.',404,'AI_MODEL_NOT_FOUND');
         const p=freshApproval.payload||{};model.enabled=Boolean(p.enabled);model.priority=Math.min(10000,Math.max(0,Math.floor(Number(p.priority)||0)));model.maxInputChars=Math.min(500000,Math.max(1000,Math.floor(Number(p.maxInputChars)||24000)));model.inputCostMicrosPerMillion=Math.max(0,Math.floor(Number(p.inputCostMicrosPerMillion)||0));model.outputCostMicrosPerMillion=Math.max(0,Math.floor(Number(p.outputCostMicrosPerMillion)||0));model.embeddingCostMicrosPerMillion=Math.max(0,Math.floor(Number(p.embeddingCostMicrosPerMillion)||0));model.updatedByUserId=decider._id;await model.save({session});result={aiModel:model.publicId};
+      }else if(freshApproval.type==='subscription_plan'){
+        const {applySuperPlanApproval}=await import('./super-admin-operations.js');result=await applySuperPlanApproval({approval:freshApproval,context,session});
+      }else if(freshApproval.type==='personal_account_status'){
+        if(decider.role!=='super_admin'||!context.grant||context.grant.role!=='super_admin'||!context.grant.operationalCountries.includes('*'))throw new AppError('A global Super Admin grant is required.',403,'SUPER_ADMIN_GRANT_REQUIRED');
+        const target=await User.findOne({publicId:freshApproval.targetPublicId,country:freshApproval.country}).session(session),payload=freshApproval.payload||{};
+        const {countryAdminPersonalAccountEligible}=await import('./country-admin-people-actions.js');
+        if(!target||!await countryAdminPersonalAccountEligible(target,'customer',session)||String(target._id)===String(decider._id)||String(target._id)===String(freshApproval.requestedByUserId)||target.status!==payload.previousStatus||Number(target.__v||0)!==payload.sourceVersion||target.security.tokenVersion!==payload.tokenVersion||!['active','suspended'].includes(payload.status)||target.status===payload.status)throw new AppError('The personal account changed after this request.',409,'PERSONAL_ACCOUNT_SOURCE_CHANGED');
+        target.status=payload.status;target.security.tokenVersion+=1;await target.save({session});
+        await Device.updateMany({userId:target._id,revokedAt:null},{$set:{revokedAt:new Date(),revokedReason:'super_admin_account_review'},$inc:{__v:1}},{session});
+        await MobileSession.updateMany({userId:target._id,revokedAt:null},{$set:{revokedAt:new Date(),revokedReason:'super_admin_account_review'},$inc:{__v:1}},{session});
+        result={user:target.publicId,status:target.status};
       }else if(freshApproval.type==='business_credit_terms'){
         const org=await BusinessOrganization.findOne({publicId:freshApproval.targetPublicId}).session(session);if(!org)throw new AppError('Business organization not found.',404,'BUSINESS_ORG_NOT_FOUND');if(org.country!==freshApproval.country)throw new AppError('Business approval does not match its source country.',403,'COUNTRY_SCOPE');ensureAdminScope(decider,org.country);const p=freshApproval.payload||{};org.invoiceTermsApproved=Boolean(p.approved);org.invoiceTermsDays=org.invoiceTermsApproved?Math.min(120,Math.max(0,Math.floor(Number(p.invoiceTermsDays)||0))):0;org.creditLimitMinor=org.invoiceTermsApproved?Math.min(10_000_000_000,Math.max(0,Math.floor(Number(p.creditLimitMinor)||0))):0;org.status=org.invoiceTermsApproved?'active':'risk_review';await org.save({session});result={businessOrganization:org.publicId};
       }else if(freshApproval.type==='platform_staff_access'){
         const target=await User.findOne({publicId:freshApproval.targetPublicId}).select('+operationalCountries').session(session);if(!target)throw new AppError('Staff account not found.',404,'STAFF_ACCOUNT_NOT_FOUND');
+        if(Object.hasOwn(freshApproval.payload||{},'sourceVersion')&&(Number(target.__v||0)!==freshApproval.payload.sourceVersion||target.security.tokenVersion!==freshApproval.payload.targetTokenVersion))throw new AppError('The staff account changed after this request.',409,'STAFF_VERSION_CONFLICT');
         if(String(target._id)===String(decider._id)||String(target._id)===String(freshApproval.requestedByUserId))throw new AppError('Administrators cannot approve their own staff access.',403,'FOUR_EYES_REQUIRED');
         const currentGrants=await PlatformGrant.find({userId:target._id,status:mongoose.trusted({$in:['active','suspended']})}).session(session).lean();
         const targetRoles=target.platformAccessManagedAt?currentGrants.map(row=>row.role):[target.role];
@@ -195,11 +217,11 @@ export async function applyApproval(approval,decider,{request,beforeApply,dryRun
         const grantDurationDays=Math.max(1,Math.min(365,Math.floor(Number(p.grantDurationDays)||180)));
         if(action==='grant'){
           if(!platformRoles.has(requestedRole))throw new AppError('Requested platform role is invalid.',422,'STAFF_ROLE_INVALID');
-          if(!target.emailVerifiedAt||!target.phoneVerifiedAt)throw new AppError('Staff must verify email and phone before activation.',409,'STAFF_VERIFICATION_REQUIRED');
+          if(!target.emailVerifiedAt||!target.phoneVerifiedAt||!target.onboardingCompletedAt||target.status!=='active')throw new AppError('Staff must complete verified onboarding before activation.',409,'STAFF_VERIFICATION_REQUIRED');
           if(!target.security?.mfaEnabled)throw new AppError('Staff must enroll MFA before privileged access can be activated.',409,'STAFF_MFA_REQUIRED');
           if(['seller','business','promoter','delivery'].includes(target.role))throw new AppError('Marketplace operator identities cannot be converted directly into platform staff. Use a dedicated staff account.',409,'STAFF_DEDICATED_ACCOUNT_REQUIRED');
           if(!countries.length)throw new AppError('At least one operational country is required.',422,'STAFF_COUNTRY_REQUIRED');
-          const valid=await CountrySetting.countDocuments({code:{$in:countries}}).session(session);if(valid!==countries.length)throw new AppError('One or more operational countries are invalid.',422,'STAFF_COUNTRY_INVALID');
+          const valid=await CountrySetting.countDocuments({code:{$in:countries},active:true}).session(session);if(valid!==countries.length)throw new AppError('One or more operational countries are invalid or inactive.',422,'STAFF_COUNTRY_INVALID');
           if(decider.role==='country_admin'){
             if(['finance','country_admin'].includes(requestedRole))throw new AppError('Only Super Admin can provision Finance or Country Admin access.',403,'STAFF_ROLE_SCOPE');
             const allowed=operationalCountryScope(decider,'code');const allowedCountries=Array.isArray(allowed.code?.$in)?allowed.code.$in:[decider.country];
@@ -207,6 +229,7 @@ export async function applyApproval(approval,decider,{request,beforeApply,dryRun
           }
           if(['finance','country_admin'].includes(requestedRole)&&decider.role!=='super_admin')throw new AppError('Only Super Admin can provision Finance or Country Admin access.',403,'STAFF_ROLE_SCOPE');
           if(requestedRole!=='warehouse'&&warehouseScopes.length)throw new AppError('Warehouse scopes can only be assigned to Warehouse staff.',422,'STAFF_WAREHOUSE_SCOPE_ROLE');
+          if(requestedRole==='warehouse'&&!warehouseScopes.length)throw new AppError('Warehouse staff require explicit warehouse assignments.',422,'STAFF_WAREHOUSE_SCOPE_REQUIRED');
           if(warehouseScopes.length){const scoped=await Warehouse.find({publicId:{$in:warehouseScopes},active:true}).select('publicId country').session(session).lean();if(scoped.length!==warehouseScopes.length||scoped.some(row=>!countries.includes(String(row.country||'').toUpperCase())))throw new AppError('One or more warehouse scopes are invalid or outside the approved countries.',422,'STAFF_WAREHOUSE_SCOPE_INVALID');}
           const grant=await activatePlatformGrant({user:target,role:requestedRole,operationalCountries:countries,warehouseScopes,approvedByUserId:decider._id,approvalPublicId:freshApproval.publicId,reason:freshApproval.reason,durationDays:grantDurationDays,session});result={user:target.publicId,role:grant.role,operationalCountries:grant.operationalCountries,warehouseScopes:grant.warehouseScopes,status:'active',platformGrant:grant.publicId,expiresAt:grant.expiresAt};
         }else if(action==='suspend'){
@@ -217,7 +240,7 @@ export async function applyApproval(approval,decider,{request,beforeApply,dryRun
           await revokePlatformGrant({user:target,actorUserId:decider._id,reason:freshApproval.reason,session});result={user:target.publicId,role:target.role,status:target.status};
         }else throw new AppError('Staff access action is invalid.',422,'STAFF_ACTION_INVALID');
       }else throw new AppError('Unsupported approval type.',422,'APPROVAL_TYPE');
-      freshApproval.status='applied';freshApproval.decidedByUserId=decider._id;freshApproval.decidedAt=new Date();freshApproval.appliedAt=new Date();freshApproval.increment();await freshApproval.save({session});
+      freshApproval.status='applied';freshApproval.decidedByUserId=decider._id;freshApproval.decisionReason=String(decisionReason).trim().slice(0,1000);freshApproval.decidedAt=new Date();freshApproval.appliedAt=new Date();freshApproval.increment();await freshApproval.save({session});
       await writeAudit(administrativeRequest(decider,request,freshApproval.country),'country_admin.approval_applied',{actor:decider,targetType:'approval',targetPublicId:freshApproval.publicId,country:freshApproval.country,session,metadata:{type:freshApproval.type}});
       if(dryRun)throw dryRunRollback;
     });
@@ -262,14 +285,8 @@ export async function publishScheduledCms(now=new Date()){
   return activated;
 }
 
-async function ensureLoyalty(userId,country,session){
-  let account=await LoyaltyAccount.findOne({userId}).session(session||null);if(!account){const [created]=await LoyaltyAccount.create([{publicId:publicId('loy'),userId,country,points:0}],session?{session}:undefined);account=created;}return account;
-}
-export async function addLoyaltyPoints({userId,country,points,idempotencyKey,type,referenceType='',referencePublicId='',reason='',actorUserId},session){
-  if(!userId||!points)return null;const existing=await LoyaltyEntry.findOne({idempotencyKey}).session(session||null);if(existing)return existing;
-  const account=await ensureLoyalty(userId,country,session);const next=account.points+points;if(next<0)throw new AppError('Loyalty balance is insufficient.',409,'LOYALTY_BALANCE');account.points=next;if(points>0)account.lifetimeEarned+=points;else account.lifetimeRedeemed+=Math.abs(points);account.tier=account.lifetimeEarned>=5000?'gold':account.lifetimeEarned>=1000?'silver':'classic';await account.save({session});
-  const docs=await LoyaltyEntry.create([{publicId:publicId('loe'),idempotencyKey,userId,country,type,pointsDelta:points,balanceAfter:account.points,referenceType,referencePublicId,reason,actorUserId}],session?{session}:undefined);return docs[0];
-}
+export { addLoyaltyPoints } from './loyalty.js';
+
 export async function ensureReferralCode(user,{session=null,country=user.country}={}){
   const scope={referrerUserId:user._id,country};
   const existing=await ReferralInvite.findOne(scope).session(session);if(existing)return existing;
@@ -295,12 +312,12 @@ export async function applyGrowthForPaidOrder(order,session){
   // Payment handlers call this only after settlement. Keep the same boundary in
   // the service so an unpaid checkout or another market cannot qualify a signup.
   if(!order.userId||order.paymentState!=='paid')return;const setting=await CountrySetting.findOne({code:order.country,active:true}).session(session).lean();if(!setting)return;
-  if(setting.growth?.loyaltyEnabled){const rate=Number(setting.growth.loyaltyPointsPer1000Minor||0);const points=Math.floor(Number(order.totals.subtotalMinor||0)/1000)*rate;if(points>0)await addLoyaltyPoints({userId:order.userId,country:order.country,points,idempotencyKey:`order:${order.publicId}:loyalty`,type:'order_earn',referenceType:'order',referencePublicId:order.publicId,reason:'Verified order reward'},session);}
+  const loyalty=order.loyaltySnapshot||{enabled:setting.growth?.loyaltyEnabled,pointsPer1000Minor:Number(setting.growth?.loyaltyPointsPer1000Minor||0),multiplierBps:10000,eligibleMinor:Math.max(0,Number(order.totals.subtotalMinor||0)-Number(order.totals.discountMinor||0))};if(loyalty.enabled){const rate=Number(loyalty.pointsPer1000Minor||0);const points=Number(BigInt(Math.floor(Number(loyalty.eligibleMinor||0)/1000))*BigInt(rate)*BigInt(Number(loyalty.multiplierBps||10000))/10000n);if(points>0)await addLoyaltyPoints({userId:order.userId,country:order.country,points,idempotencyKey:`order:${order.publicId}:loyalty`,type:'order_earn',referenceType:'order',referencePublicId:order.publicId,reason:'Verified order reward'},session);}
   if(setting.growth?.referralEnabled){
     const referral=await Referral.findOne({referredUserId:order.userId,country:order.country,status:'pending'}).session(session);
     if(referral&&!referral.referrerUserId.equals(order.userId)){
       const eligibleUsers=await User.countDocuments({_id:{$in:[referral.referrerUserId,order.userId]},status:'active',country:order.country}).session(session);
-      const previous=await Order.countDocuments({userId:order.userId,paymentState:'paid',_id:{$ne:order._id}}).session(session);
+      const previous=await Order.countDocuments({userId:order.userId,_id:{$ne:order._id},$or:[{paymentState:{$in:['paid','partially_refunded','refunded']}},{'timeline.type':{$in:['payment.verified','payment.cod_reconciled','payment.chargeback_opened']}}]}).session(session);
       if(eligibleUsers===2&&previous===0){
         const reward=Number(setting.growth.referralRewardPoints??100);
         referral.status='rewarded';referral.qualifiedOrderPublicId=order.publicId;referral.qualifiedAt=new Date();referral.rewardedAt=new Date();
@@ -311,24 +328,29 @@ export async function applyGrowthForPaidOrder(order,session){
     }
   }
 }
-export async function redeemGiftCard({user,code}){
+export async function redeemGiftCard({user,code,country=user.country,currency=user.currency,request=null}){
   const session = await mongoose.startSession();
   try {
     return await session.withTransaction(async () => {
       const card = await GiftCard.findOne({codeHash:hashToken(String(code||'').trim())}).select('+codeHash').session(session);
       if(!card||card.status!=='active')throw new AppError('Gift card is invalid or no longer active.',404,'GIFT_CARD_INVALID');
-      if(card.country!==user.country)throw new AppError('Gift card belongs to another country.',409,'GIFT_CARD_COUNTRY');
+      if(card.country!==country||card.currency!==currency)throw new AppError('Gift card belongs to another marketplace or currency.',409,'GIFT_CARD_COUNTRY');
       if(card.expiresAt&&card.expiresAt<=new Date())throw new AppError('Gift card has expired.',409,'GIFT_CARD_EXPIRED');
-      const setting = await CountrySetting.findOne({code:user.country}).session(session).lean();
+      const current=request?await currentCustomerAccess(request,{session,write:true}):await User.findById(user?._id).select('status security.tokenVersion __v').session(session).lean();
+      if(!current||String(current._id)!==String(user._id)||current.status!=='active'||current.security.tokenVersion!==user.security?.tokenVersion)throw new AppError('Your account or session is unavailable.',403,'ACCOUNT_UNAVAILABLE');
+      if(!request){const identityFence=await User.updateOne({_id:current._id,__v:current.__v||0,status:'active','security.tokenVersion':current.security.tokenVersion},{$inc:{__v:1}},{session});if(identityFence.modifiedCount!==1)throw new AppError('Your account changed. Refresh and retry.',409,'ACCOUNT_CHANGED');}
+      const setting = await CountrySetting.findOne({code:country,currency,active:true}).session(session).lean();
       if(!setting?.growth?.giftCardsEnabled)throw new AppError('Gift cards are not enabled in this country.',409,'GIFT_CARDS_DISABLED');
-      const rate = Math.max(1,Number(setting.growth.loyaltyPointsPer1000Minor||1));
-      const points = Math.max(1,Math.floor(card.balanceMinor/1000)*rate);
+      const rate = Number(setting.growth.loyaltyPointsPer1000Minor||0);
+      if(!Number.isSafeInteger(rate)||rate<=0||!Number.isSafeInteger(card.balanceMinor)||card.balanceMinor<=0)throw new AppError('Gift card point conversion requires a reviewed market rate.',409,'GIFT_CARD_RATE_UNAVAILABLE');
+      const points = Number(BigInt(card.balanceMinor)*BigInt(rate)/1000n);
+      if(!Number.isSafeInteger(points)||points<=0)throw new AppError('This balance is below the configured point conversion minimum.',409,'GIFT_CARD_VALUE_TOO_LOW');
       const value = card.balanceMinor;
       // Claim the card and credit points in the same transaction. Concurrent claims
       // retry against the committed status, and any credit failure rolls back both.
       card.balanceMinor=0;card.status='redeemed';card.redeemedByUserId=user._id;card.redeemedAt=new Date();
       await card.save({session});
-      await addLoyaltyPoints({userId:user._id,country:user.country,points,idempotencyKey:`gift:${card.publicId}`,type:'gift_card_redeem',referenceType:'gift_card',referencePublicId:card.publicId,reason:`Gift card value ${value} ${card.currency}`},session);
+      await addLoyaltyPoints({userId:user._id,country,points,idempotencyKey:`gift:${card.publicId}`,type:'gift_card_redeem',referenceType:'gift_card',referencePublicId:card.publicId,reason:`Gift card value ${value} ${card.currency}`},session);
       return {card,points};
     });
   } finally { await session.endSession(); }
