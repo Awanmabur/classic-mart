@@ -169,7 +169,6 @@ export async function submitBusinessProcurement(value, input) {
 export async function decideBusinessProcurement(value, publicIdValue, input) {
   const data = businessInput(z.object({ version, decision: z.enum(['approve','reject']), reason: z.string().trim().max(500).default('') }).strict(), input);
   return businessTransaction(value, 'approve', async (context, session) => {
-    if (!['owner','approver'].includes(context.member.role) && !context.member.canApprove) throw new AppError('An authorized independent approver is required.', 403, 'BUSINESS_APPROVER_REQUIRED');
     const row = await ProcurementRequest.findOne({ publicId: businessInput(id, publicIdValue), organizationId: context.org._id, status: 'submitted' }).session(session);
     if (!row) throw new AppError('Submitted procurement request not found.', 404, 'BUSINESS_REQUEST_NOT_FOUND');
     assertBusinessVersion(row, data.version);

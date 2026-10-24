@@ -47,9 +47,11 @@ test('Customer page loader is page-scoped, not all-pages preload',()=>{
   assert.doesNotMatch(source,/Promise\.all\(\s*Object\.values\(LOADERS\)/);
 });
 
-test('retired role compatibility views are removed and unfinished operations remain blocked in production',()=>{
+test('retired role compatibility views are removed and unsupported operational pages remain blocked in every environment',()=>{
   const wrappers=['seller-dashboard.ejs','promoter-dashboard.ejs','finance-dashboard.ejs','support-dashboard.ejs','warehouse-dashboard.ejs','moderator-dashboard.ejs','country-admin-dashboard.ejs','super-admin-dashboard.ejs'];
   for(const name of wrappers) assert.equal(exists(`views/${name}`),false);
-  assert.match(read('src/routes/approved-dashboard.js'),/workspace !== 'customer' && \(\['seller', 'moderator', 'admin'\]\.includes\(workspace\) \|\| env.isProduction\)/);
-  assert.match(read('src/routes/approved-dashboard.js'),/503, 'DASHBOARD_NOT_CONNECTED'/);
+  const router=read('src/routes/approved-dashboard.js');
+  assert.match(router,/if \(workspace !== 'customer'\) throw new AppError\('This operational page is unavailable\.', 404, 'DASHBOARD_PAGE_NOT_FOUND'\)/);
+  assert.doesNotMatch(router,/DASHBOARD_NOT_CONNECTED|env\.isProduction\s*\)/);
+  assert.match(router,/workspaceForPage\(request\.user, page\)/);
 });

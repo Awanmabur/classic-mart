@@ -34,10 +34,13 @@ test('seller personal account pages use the authorized store shell while custome
   const suffix = crypto.randomBytes(8).toString('hex');
   await mongoose.connect(uri, { dbName: `classicmart_seller_account_shell_test_${suffix}` });
   const { createApp } = await import('../src/app.js');
-  const { User, Store, StoreMember, Device, CountrySetting, PrivacyRequest, SellerContactRequest, Notification, PlatformGrant } = await import('../src/models/index.js');
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { User, Store, StoreMember, StoreTeamInvitation, Device, CountrySetting, PrivacyRequest, SellerContactRequest, Notification, PlatformGrant } = await import('../src/models/index.js');
+  const { hashPassword, hashValue } = await import('../src/core/crypto.js');
+  const { encryptSensitive } = await import('../src/core/sensitive.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { getOrCreateStore } = await import('../src/services/store.js');
+  const { hydrateSellerAuthorization } = await import('../src/services/seller-authorization.js');
+  const { accountWorkspaceView } = await import('../src/dashboard/account-workspace-view.js');
   const app = createApp(null);
   const password = `Shell-${suffix}-A1!`, passwordHash = await hashPassword(password);
   const transports = [];
@@ -48,9 +51,9 @@ test('seller personal account pages use the authorized store shell while custome
       phone, phoneNormalized: phone, passwordHash, role, country: 'UG', currency: 'UGX', locale: 'en-UG', emailVerifiedAt: new Date(),
       onboardingCompletedAt: new Date(), roleProfile: { businessName: `Shell Store ${number}` },
       consents: { terms: true, privacy: true, recordedAt: new Date() },
-      ...(role === 'super_admin' ? { platformAccessManagedAt: new Date(), operationalCountries: ['*'] } : {}) });
-    if (role === 'super_admin') await PlatformGrant.create({ publicId: `pgr_shell_${suffix}_${number}`, userId: user._id, role,
-      operationalCountries: ['*'], startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000),
+      ...(['super_admin', 'country_admin'].includes(role) ? { platformAccessManagedAt: new Date(), phoneVerifiedAt: new Date(), operationalCountries: role === 'super_admin' ? ['*'] : ['UG'] } : {}) });
+    if (['super_admin', 'country_admin'].includes(role)) await PlatformGrant.create({ publicId: `pgr_shell_${suffix}_${number}`, userId: user._id, role,
+      operationalCountries: role === 'super_admin' ? ['*'] : ['UG'], startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000),
       reason: 'Independently approved account shell fixture.', approvalPublicId: `apr_shell_${suffix}_${number}`,
       approvedByUserId: new mongoose.Types.ObjectId(), status: 'active' });
     const transport = new http.Agent({ localAddress: `127.0.0.${number + 2}`, keepAlive: false });
@@ -59,6 +62,17 @@ test('seller personal account pages use the authorized store shell while custome
     const form = await client.get('/login').expect(200);
     await client.post('/login').type('form').send({ email, password, _csrf: csrf(form.text) }).expect(302);
     return { user, client };
+  }
+  async function enroll(entry, next = '') {
+    const path = '/account/security' + (next ? '?next=' + encodeURIComponent(next) : '');
+    const security = await entry.client.get(path).expect(200);
+    await entry.client.post('/account/mfa/begin').type('form').send({ currentPassword: password, _csrf: csrf(security.text), ...(next ? { next } : {}) })
+      .expect(302).expect('location', path);
+    const pending = await pendingMfaEnrollment(entry.user._id);
+    const enrollment = await entry.client.get(path).expect(200);
+    await entry.client.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: csrf(enrollment.text), ...(next ? { next } : {}) })
+      .expect(302).expect('location', path);
+    return entry.client.get(path).expect(200);
   }
   try {
     await Promise.all([User.init(), Store.init(), StoreMember.init(), Device.init(), CountrySetting.init(), PlatformGrant.init()]);
@@ -195,6 +209,23 @@ test('seller personal account pages use the authorized store shell while custome
         assert.doesNotMatch(sidebar(profile.text), /Classic Club|My Orders|Wishlist|Rewards|Profile Settings/);
         assert.doesNotMatch(profile.text, /aria-label="Wishlist"|aria-label="Cart"/);
         assert.equal(await Store.countDocuments({ ownerUserId: identity.user._id }), 0);
+        if (role === 'country_admin') {
+          await enroll(identity, '/admin/overview');
+          const ownProfile = await identity.client.get('/account/profile').expect(200);
+          const avatar = await sharp({ create: { width: 400, height: 400, channels: 3, background: '#ed6c16' } }).png().toBuffer();
+          await identity.client.post('/account/avatar').field('_csrf', csrf(ownProfile.text)).field('returnTo', '/account/profile')
+            .attach('avatar', avatar, { filename: 'admin-personal-avatar.png', contentType: 'image/png' }).expect(302);
+          const saved = await identity.client.get('/account/profile').expect(200);
+          const avatarUrl = saved.text.match(/id="customerAvatarPreview" src="([^"]+)"/)?.[1];
+          assert.match(avatarUrl, /^\/account\/avatar\?v=/);
+          const operational = await identity.client.get('/admin/overview').expect(200);
+          assert.match(operational.text, /data-dashboard-workspace="admin"/);
+          assert.ok(operational.text.includes(`<img src="${avatarUrl}"`), 'Country Admin uses the same owned photo in its dedicated header.');
+          await identity.client.get(avatarUrl).expect(200).expect('content-type', /image\/webp/);
+          await customer.client.get(avatarUrl).expect(404);
+          await identity.client.post('/account/avatar/delete').type('form').send({ _csrf: csrf(saved.text), returnTo: '/account/profile' }).expect(302);
+          await identity.client.get(avatarUrl).expect(404);
+        }
       }
     });
 
@@ -237,6 +268,39 @@ test('seller personal account pages use the authorized store shell while custome
       assert.match(sidebar(security.text), /href="\/seller\/orders"/);
       assert.doesNotMatch(sidebar(security.text), /href="\/seller\/products"|href="\/seller\/store"/);
       assert.equal((await User.findById(staff.user._id)).role, 'customer');
+      // Revalidate owner authority on each request, without silently switching
+      // a delegated Customer to another store or owner-capability navigation.
+      for (const [change, restore] of [
+        [{ $set: { status: 'suspended' } }, { $set: { status: 'active' } }],
+        [{ $set: { role: 'customer' } }, { $set: { role: 'seller' } }],
+        [{ $set: { platformAccessManagedAt: new Date() } }, { $unset: { platformAccessManagedAt: 1 } }],
+      ]) {
+        try {
+          await User.updateOne({ _id: seller.user._id }, change);
+          const unavailable = await staff.client.get('/account/security').expect(200);
+          assert.match(unavailable.text, /data-dashboard-workspace="customer"/);
+          assert.doesNotMatch(sidebar(unavailable.text), /href="\/seller\//);
+          await staff.client.get('/seller/orders').set('accept', 'application/json').expect(403);
+        } finally { await User.updateOne({ _id: seller.user._id }, restore); }
+      }
+      const ownerGrant = await PlatformGrant.create({ publicId: `pgr_shell_owner_${suffix}`, userId: seller.user._id, role: 'support',
+        operationalCountries: ['UG'], startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000),
+        reason: 'Current owner grant invalidates personal Seller navigation.', approvalPublicId: `apr_shell_owner_${suffix}`,
+        approvedByUserId: new mongoose.Types.ObjectId(), status: 'active' });
+      try {
+        const unavailable = await staff.client.get('/account/security').expect(200);
+        assert.match(unavailable.text, /data-dashboard-workspace="customer"/);
+        await staff.client.get('/seller/orders').set('accept', 'application/json').expect(403);
+      } finally { await PlatformGrant.deleteOne({ _id: ownerGrant._id }); }
+      const pageRequest = { user: await User.findById(staff.user._id), session: { activeStorePublicId: access.store.publicId },
+        country: await CountrySetting.findOne({ code: 'UG' }).lean(), query: {} };
+      assert.equal((await hydrateSellerAuthorization(pageRequest)).role, 'fulfilment');
+      try {
+        await User.updateOne({ _id: seller.user._id }, { $set: { status: 'suspended' } });
+        const raced = await accountWorkspaceView(pageRequest, 'security');
+        assert.equal(raced.workspace, 'customer');
+        assert.equal(raced.liveSeller, undefined, 'Lost access after hydration cannot default to owner navigation.');
+      } finally { await User.updateOne({ _id: seller.user._id }, { $set: { status: 'active' } }); }
       const currentMembership = await StoreMember.findById(membership._id);
       currentMembership.status = 'revoked';
       currentMembership.revokedAt = new Date();
@@ -245,6 +309,50 @@ test('seller personal account pages use the authorized store shell while custome
       assert.match(revoked.text, /data-dashboard-workspace="customer"/);
       await staff.client.get('/seller/orders').expect(403);
       assert.equal((await User.findById(staff.user._id)).role, 'customer');
+    });
+
+    await t.test('accepted invitations retain the exact inbox continuation through fresh authenticator setup', async () => {
+      const recipient = await actor(), store = await Store.findOne({ ownerUserId: seller.user._id });
+      const { mfaContinuation } = await import('../src/dashboard/mfa-continuation.js');
+      const personalView = { workspace: 'customer', accountNavigation: [] };
+      assert.equal(mfaContinuation('/account/store-invitations?next=https://elsewhere.example', recipient.user, personalView).next, '/account/store-invitations');
+      for (const unsafe of ['https://elsewhere.example/account/store-invitations', '//elsewhere.example/account/store-invitations',
+        '/account/store-invitations/../../logout', '/account/store-invitations/accept', '/account%2fstore-invitations']) {
+        assert.equal(mfaContinuation(unsafe, recipient.user, personalView).next, '', unsafe);
+      }
+      assert.equal(mfaContinuation('/account/store-invitations', { role: 'customer', status: 'active', platformAccessManagedAt: new Date() }, personalView).next, '');
+      const owner = await User.findById(seller.user._id), ownerMember = await StoreMember.findOne({ storeId: store._id, userId: owner._id });
+      const invitation = await StoreTeamInvitation.create({ publicId: `sti_shell_${recipient.user.publicId}`, storeId: store._id,
+        storePublicId: store.publicId, country: store.country, currency: store.currency, emailHash: hashValue(recipient.user.email),
+        emailEncrypted: encryptSensitive(recipient.user.email), emailMasked: 's***@example.com', role: 'fulfilment', status: 'accepted',
+        invitedByUserId: owner._id, invitedByTokenVersion: owner.security.tokenVersion, invitedByMembershipId: ownerMember._id,
+        invitedByRole: 'owner', invitedByPermissionVersion: ownerMember.permissionVersion || 0, recipientUserId: recipient.user._id,
+        expiresAt: new Date(Date.now() + 86_400_000), respondedAt: new Date() });
+      await StoreMember.create({ publicId: `stm_shell_inbox_${recipient.user.publicId}`, storeId: store._id, userId: recipient.user._id,
+        invitedByUserId: owner._id, invitationId: invitation._id, role: 'fulfilment', status: 'active', acceptedAt: new Date() });
+      // The recipient previously accepted, but can disable a personal factor
+      // while no operational workspace is selected. That must not strand them.
+      const firstEnrollment = await enroll(recipient);
+      const recovery = [...firstEnrollment.text.matchAll(/<code>([A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4})<\/code>/g)].map(match => match[1]);
+      assert.equal(recovery.length, 10);
+      await recipient.client.post('/account/mfa/disable').type('form').send({ currentPassword: password, code: recovery[0], _csrf: csrf(firstEnrollment.text) }).expect(302);
+      assert.equal((await User.findById(recipient.user._id)).security.mfaEnabled, false);
+      const inbox = await recipient.client.get('/account/store-invitations').expect(200);
+      assert.match(inbox.text, /href="\/account\/security\?next=%2Faccount%2Fstore-invitations"/);
+      assert.doesNotMatch(inbox.text, /action="\/seller\/workspace"/);
+      assert.match(inbox.text, /data-dashboard-workspace="customer"/);
+      const next = '/account/store-invitations';
+      const enabled = await enroll(recipient, next);
+      assert.match(enabled.text, /href="\/account\/store-invitations">Continue to store invitations/);
+      const ready = await recipient.client.get(next).expect(200);
+      assert.match(ready.text, /action="\/seller\/workspace"/);
+      assert.doesNotMatch(ready.text, /Set up authenticator/);
+      await recipient.client.post('/seller/workspace').type('form').send({ _csrf: csrf(ready.text), storePublicId: store.publicId })
+        .expect(302).expect('location', '/seller/orders');
+      const selected = await recipient.client.get('/account/security').expect(200);
+      assert.match(selected.text, /data-dashboard-workspace="seller"/);
+      assert.doesNotMatch(sidebar(selected.text), /href="\/seller\/products"|href="\/seller\/store"/);
+      assert.equal((await User.findById(recipient.user._id)).role, 'customer');
     });
 
     await t.test('an owned store alone does not silently reclassify a customer account', async () => {

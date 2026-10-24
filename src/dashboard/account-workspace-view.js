@@ -62,11 +62,14 @@ export async function accountWorkspaceView(request, section = 'profile') {
   // Ordinary customer pages retain their existing reads, layout and destinations.
   if (!sellerAccount && !preferredStore) return customerAccount();
   const accesses = await sellerStoreAccesses(request.user);
-  const selected = accesses.find(access => access.store.publicId === preferredStore) || (sellerAccount ? accesses[0] : null);
+  const personalSeller = request.user.role === 'seller';
+  const selected = accesses.find(access => access.store.publicId === preferredStore)
+    || (personalSeller && sellerAccount ? accesses.find(access => access.role === 'owner') || accesses[0] : null);
   // A stale store selection and mere ownership do not reclassify a customer.
   // Explicit, currently active staff membership may keep the operational shell
   // while its member configures personal MFA before entering store operations.
-  if (!sellerAccount && (!selected?.membership || selected.membership.status !== 'active')) return customerAccount();
+  if (!personalSeller && (!selected?.membership || selected.membership.status !== 'active'
+    || !(selected.membership.acceptedAt instanceof Date))) return customerAccount();
 
   const navigation = sellerNavigation({ ...request, storeMembership: { role: selected?.role || 'owner' } });
   const home = navigation.find(item => item.id === 'seller-overview' && item.ready) || navigation.find(item => item.ready);

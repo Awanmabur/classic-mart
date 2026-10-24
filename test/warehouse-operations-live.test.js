@@ -32,9 +32,9 @@ test('managed warehouse operators complete audited inventory and paid-order fulf
   const { createApp } = await import('../src/app.js');
   const models = await import('../src/models/index.js');
   const { User, Store, Category, Product, ProductVariant, Warehouse, StockItem, WarehouseTask, WarehouseWave,
-    PlatformGrant, InventoryMovement, InventoryDiscrepancy, InventoryReservation, OperationAction, Order,
+    Device, PlatformGrant, InventoryMovement, InventoryDiscrepancy, InventoryReservation, OperationAction, Order,
     SellerOrder, SellerShipment, Shipment, Parcel, CountrySetting, ShippingZone, AuditLog, DeliveryProfile, ReturnRequest, EvidenceDocument } = models;
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { hashPassword, hashToken } = await import('../src/core/crypto.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { hydratePlatformAuthorization } = await import('../src/services/platform-grants.js');
   const { offerShipment, acceptDeliveryOffer, transitionShipment } = await import('../src/services/logistics.js');
@@ -69,13 +69,40 @@ test('managed warehouse operators complete audited inventory and paid-order fulf
       await agent.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: csrf((await agent.get('/account/security')).text) }).expect(302);
       assert.equal((await User.findById(user._id)).security.mfaEnabled, true);
     }
-    return { user: await User.findById(user._id), agent, grant };
+    const currentUser = await User.findById(user._id), sessionID = crypto.randomUUID();
+    const device = await Device.create({ publicId: id('dev'), userId: currentUser._id, sessionHash: hashToken(sessionID),
+      label: 'Current warehouse service fixture', userAgent: 'Warehouse fixture', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    return { user: currentUser, agent, grant, sessionID, device };
   }
   async function serviceRequest(member, publicId = '', body = {}) {
     const user = await User.findById(member.user._id).select('+operationalCountries');
     await hydratePlatformAuthorization(user);
-    return { id: id('request'), user, authActor: user, params: { publicId }, body, query: {}, country: { code: 'UG' }, get: () => '' };
+    return { id: id('request'), user, authActor: user, sessionID: member.sessionID, device: member.device,
+      session: { userId: String(user._id), tokenVersion: user.security.tokenVersion, mfaVerifiedAt: Date.now() }, params: { publicId }, body, query: {}, country: { code: 'UG' }, get: () => '' };
   }
+  const actorRequest = (member, body = {}, publicId = '') => serviceRequest(member, publicId, body);
+
+  async function approveCarrier(carrier, operator) {
+    const delivery = await import('../src/services/delivery-workspace.js');
+    const profileFor = () => DeliveryProfile.findOne({ userId: carrier.user._id });
+    await delivery.saveDeliveryProfile(await actorRequest(carrier, { version: 0, transport: 'bicycle', serviceAreas: 'Kampala', action: 'save' }));
+    let profile = await profileFor();
+    const buffer = await sharp({ create: { width: 400, height: 400, channels: 3, background: '#345678' } }).png().toBuffer();
+    const identity = await actorRequest(carrier, { version: profile.__v, documentType: 'identity' });
+    identity.file = { buffer, mimetype: 'image/png', originalname: 'independent-carrier-identity.png', size: buffer.length };
+    await delivery.uploadDeliveryEvidence(identity, { profile: true });
+    profile = await profileFor();
+    await delivery.saveDeliveryProfile(await actorRequest(carrier, { version: profile.__v, transport: 'bicycle', serviceAreas: 'Kampala', action: 'submit' }));
+    profile = await profileFor();
+    await delivery.reviewDeliveryProfile(await actorRequest(operator, { version: profile.__v, decision: 'approve', codEnabled: 'true',
+      reason: 'Independent Warehouse review of actual private carrier identity evidence.' }, profile.publicId));
+    profile = await profileFor();
+    await delivery.setDeliveryAvailability(await actorRequest(carrier, { version: profile.__v, available: 'true' }));
+    profile = await profileFor();
+    assert.equal(profile.verificationStatus, 'approved'); assert.notEqual(String(profile.reviewedByUserId), String(carrier.user._id));
+    return profile;
+  }
+
   async function mutation(member, path, body, { status = 200, includeCsrf = true } = {}) {
     const page = await member.agent.get('/account/security').expect(200);
     return member.agent.post(path).set('accept', 'application/json').type('form')
@@ -108,14 +135,14 @@ test('managed warehouse operators complete audited inventory and paid-order fulf
     return { product, variant, stock };
   }
   async function paidOrder(buyer, item, quantity = 2) {
+    const contact = { fullName: buyer.user.name, email: buyer.user.email, phone: buyer.user.phone, address: 'Real buyer verification street', city: 'Kampala', country: 'UG' };
     const cart = await buyer.agent.get('/api/v1/cart').expect(200);
     await buyer.agent.post('/api/v1/cart/items').set('x-csrf-token', cart.body.csrfToken)
       .send({ productId: item.product.publicId, variantId: item.variant.publicId, quantity }).expect(200);
     const checkout = await buyer.agent.post('/api/v1/checkout/review').set('x-csrf-token', cart.body.csrfToken)
-      .send({ deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala' }).expect(200);
+      .send({ deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala', contact }).expect(200);
     const placed = await buyer.agent.post('/api/v1/orders').set('x-csrf-token', cart.body.csrfToken).send({ checkoutId: checkout.body.checkoutId,
-      idempotencyKey: actionKey(), deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala', contact: {
-        fullName: buyer.user.name, email: buyer.user.email, phone: buyer.user.phone, address: 'Real buyer verification street', city: 'Kampala', country: 'Uganda' } }).expect(201);
+      idempotencyKey: actionKey(), deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala', contact }).expect(201);
     const order = await Order.findOne({ publicId: placed.body.order.id });
     const pendingStock = await stockSnapshot(item.stock);
     await buyer.agent.post(`/api/v1/orders/${order.publicId}/payment-intents`).set('x-csrf-token', cart.body.csrfToken)
@@ -142,7 +169,7 @@ test('managed warehouse operators complete audited inventory and paid-order fulf
     await Promise.all(Object.values(models).filter(model => model?.init && typeof model.init === 'function').map(model => model.init()));
     for (const [code, currency, timeZone] of [['UG', 'UGX', 'Africa/Kampala'], ['KE', 'KES', 'Africa/Nairobi'], ['TZ', 'TZS', 'Africa/Dar_es_Salaam']])
       await CountrySetting.create({ code, name: code, currency, locale: 'en', timeZone, phonePrefix: code === 'UG' ? '+256' : code === 'KE' ? '+254' : '+255', active: true,
-        delivery: { requirePhotoForCod: false } });
+        delivery: { requirePhotoForCod: true } });
     await Category.create({ publicId: `cat_warehouse_${suffix}`, name: 'Warehouse Test Goods', slug: `warehouse-${suffix}`, countries: ['UG'], active: true });
     await ShippingZone.create({ publicId: id('zone'), country: 'UG', name: 'Warehouse verification delivery', cities: ['Kampala'], standardFeeMinor: 5000, currency: 'UGX', active: true });
     const seller = await actor({ role: 'seller' }), buyer = await actor({ mfa: false });
@@ -371,8 +398,7 @@ test('managed warehouse operators complete audited inventory and paid-order fulf
 
     if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE) await t.test('desktop and mobile approved pages complete receiving, bin assignment, paid parcel fulfilment and received-return inspection without clipping or browser errors', async () => {
       const carrier = await actor({ role: 'delivery' });
-      await DeliveryProfile.create({ publicId: id('dlp'), userId: carrier.user._id, country: 'UG', transport: 'motorcycle',
-        verificationStatus: 'approved', approvedAt: new Date(), available: true, codEnabled: true });
+      await approveCarrier(carrier, operator);
       server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
       const origin = `http://127.0.0.1:${server.address().port}`;
       browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, args: ['--no-sandbox'] });
@@ -454,16 +480,31 @@ test('managed warehouse operators complete audited inventory and paid-order fulf
         // return services, so an arbitrary task cannot fabricate stock returns.
         let shipment = await Shipment.findById(fixture.shipment._id).select('+pickupCodeEncrypted +deliveryCodeEncrypted');
         const pickup = decryptSensitive(shipment.pickupCodeEncrypted), delivery = decryptSensitive(shipment.deliveryCodeEncrypted);
-        const offer = await offerShipment({ shipment, deliveryUserId: carrier.user._id, earningMinor: 3000, currency: 'UGX', actorUserId: operator.user._id });
-        shipment = await acceptDeliveryOffer({ offer, actorUserId: carrier.user._id });
-        shipment = await transitionShipment({ shipment, actorUserId: carrier.user._id, nextStatus: 'picked_up', proofCode: pickup });
-        shipment = await transitionShipment({ shipment, actorUserId: carrier.user._id, nextStatus: 'in_transit' });
-        await transitionShipment({ shipment, actorUserId: carrier.user._id, nextStatus: 'delivered', proofCode: delivery });
+        const offer = await offerShipment({ shipment, deliveryUserId: carrier.user._id, earningMinor: 3000, currency: 'UGX', actorUserId: operator.user._id, request: await actorRequest(operator), version: shipment.__v });
+        shipment = await acceptDeliveryOffer({ offer, actorUserId: carrier.user._id, request: await actorRequest(carrier), version: offer.__v });
+        shipment = await transitionShipment({ shipment, actorUserId: carrier.user._id, request: await actorRequest(carrier), version: (await Shipment.findById(shipment._id)).__v, nextStatus: 'picked_up', proofCode: pickup });
+        shipment = await transitionShipment({ shipment, actorUserId: carrier.user._id, request: await actorRequest(carrier), version: (await Shipment.findById(shipment._id)).__v, nextStatus: 'in_transit' });
+        const deliveryToken = csrf((await carrier.agent.get('/delivery/jobs?record=' + shipment.publicId).expect(200)).text);
+        const deliveryAction = () => carrier.agent.post(`/delivery/jobs/${shipment.publicId}/delivered`)
+          .set('accept', 'application/json').set('x-csrf-token', deliveryToken);
+        await deliveryAction().send({ version: shipment.__v, proofCode: delivery }).expect(422)
+          .expect(response => assert.equal(response.body.error.code, 'DELIVERY_PHOTO_REQUIRED'));
+        const deliveryImage = await sharp({ create: { width: 400, height: 400, channels: 3, background: '#c04800' } }).png().toBuffer();
+        const uploaded = await carrier.agent.post(`/delivery/jobs/${shipment.publicId}/evidence`).set('accept', 'application/json')
+          .field('_csrf', deliveryToken).field('version', String(shipment.__v)).field('documentType', 'delivery_photo')
+          .attach('document', deliveryImage, { filename: `delivery-${width}.png`, contentType: 'image/png' }).expect(200);
+        const deliveryEvidence = await EvidenceDocument.findOne({ publicId: uploaded.body.record.publicId, ownerUserId: carrier.user._id,
+          country: 'UG', contextType: 'delivery_job', contextPublicId: shipment.publicId, documentType: 'delivery_photo', status: 'ready' });
+        assert.ok(deliveryEvidence); assert.equal(deliveryEvidence.mimeType, 'image/webp');
+        shipment = await Shipment.findById(shipment._id);
+        await deliveryAction().send({ version: shipment.__v, proofCode: delivery }).expect(200);
+        shipment = await Shipment.findById(shipment._id);
+        assert.ok(shipment.proofEvidenceDocumentIds.some(value => String(value) === String(deliveryEvidence._id)));
         assert.equal((await Order.findById(fixture.order._id)).fulfillmentState, 'delivered');
         const requested = await createReturnRequest(await serviceRequest(buyer), { orderId: fixture.order.publicId,
           items: [{ orderLineId: fixture.order.items[0].linePublicId, quantity: 1 }], reason: 'other', details: 'Goods returned after verified delivery',
           resolution: 'refund', returnMethod: 'dropoff' });
-        await decideReturn(await serviceRequest(supervisor), requested.returnRequest.publicId, { decision: 'approve', note: 'Approved item return for warehouse verification' });
+        await decideReturn(await serviceRequest(supervisor), requested.returnRequest.publicId, { version: requested.returnRequest.__v, decision: 'approve', note: 'Approved item return for warehouse verification' });
         // A Support/admin statement cannot establish physical warehouse receipt.
         // The current, authenticated receiving operator uploads its real image
         // and confirms the exact immutable line through the approved page.

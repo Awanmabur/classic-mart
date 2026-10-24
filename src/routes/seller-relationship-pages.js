@@ -31,8 +31,10 @@ function mutation(kind, selection, operation, success, tab = '') {
     } catch (error) {
       const status = error.name === 'ZodError' ? 422 : error.status;
       if (![409, 422].includes(status) || error.code === 'STORE_LOCKED') throw error;
-      const pageRequest = { user: request.user, store: request.store, session: request.session,
-        query: { ...request.query, [selection]: request.params.publicId, ...(tab ? { tab } : {}) } };
+      const pageRequest = Object.create(request);
+      Object.defineProperty(pageRequest, 'query', { value: {
+        ...request.query, [selection]: request.params.publicId, ...(tab ? { tab } : {}),
+      }, configurable: true });
       const flow = await sellerRelationshipPage(pageRequest, 'seller-' + kind);
       flow.error = error.name === 'ZodError' ? error.issues.map(issue => issue.message).join(' ') : error.message;
       flow.draft = { message: String(request.body.message || '').slice(0, 2000), reason: String(request.body.reason || '').slice(0, 1000),

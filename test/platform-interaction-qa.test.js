@@ -19,5 +19,10 @@ test('checkout uses the real tracked-order flow without a dead client-only confi
   const cartPage = read('public/cart-page.js');
   assert.doesNotMatch(cartView, /id="(?:orderComplete|copyOrderNumber)"/);
   assert.match(cartPage, /location\.href = `\/track-order\?order=/);
-  assert.match(cartPage, /await window\.ClassicMartCart\?\.clear\?\.\(\)/);
+  assert.match(cartPage, /await window\.ClassicMartCart\?\.refresh\?\.\(\)/);
+  const submit=cartPage.slice(cartPage.indexOf("$('#placeOrderButton')"));
+  assert.doesNotMatch(submit, /ClassicMartCart\?\.clear|method: ['"]DELETE['"]/);
+  const checkout=read('src/services/checkout.js');
+  assert.match(checkout, /freshCart\.items = \[\]/);
+  assert.match(checkout, /freshCart\.save\(\{ session \}\)/);
 });

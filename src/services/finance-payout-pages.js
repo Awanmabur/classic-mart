@@ -23,11 +23,12 @@ function filtersFor(request) {
   return {tab,status,search,after};
 }
 function marketPairs(context) { return context.countries.filter(row=>!context.country||row.code===context.country).map(row=>({country:row.code,currency:row.currency})); }
-function accountScope(context) { return {$or:marketPairs(context)}; }
+function accountScope(context) { return {...context.countryScope}; }
+function currentMarketCurrency(context,country,currency) { return context.countries.some(row=>row.code===country&&row.currency===currency); }
 function payoutMarketStages(context) {
   return [{$lookup:{from:PayoutAccount.collection.name,localField:'payoutAccountId',foreignField:'_id',as:'destination',pipeline:[{$project:{publicId:1,ownerType:1,ownerUserId:1,ownerStoreId:1,ownerStorePublicId:1,country:1,currency:1,method:1,label:1,status:1,verifiedAt:1,createdAt:1,__v:1}}]}},{$unwind:'$destination'},
-    {$match:{$or:marketPairs(context).map(row=>({'destination.country':row.country,currency:row.currency,'destination.currency':row.currency}))}},
-    {$match:{$expr:{$and:[{$eq:['$ownerUserId','$destination.ownerUserId']},{$eq:[{$ifNull:['$ownerStoreId',null]},{$ifNull:['$destination.ownerStoreId',null]}]},{$eq:[{$ifNull:['$ownerStorePublicId','']},{$ifNull:['$destination.ownerStorePublicId','']}]}]}}}];
+    {$match:Object.fromEntries(Object.entries(context.countryScope).map(([field,value])=>['destination.'+field,value]))},
+    {$match:{$expr:{$and:[{$eq:['$currency','$destination.currency']},{$eq:['$ownerUserId','$destination.ownerUserId']},{$eq:[{$ifNull:['$ownerStoreId',null]},{$ifNull:['$destination.ownerStoreId',null]}]},{$eq:[{$ifNull:['$ownerStorePublicId','']},{$ifNull:['$destination.ownerStorePublicId','']}]}]}}}];
 }
 function appealMarketStages(context) {
   return [{$lookup:{from:Campaign.collection.name,localField:'campaignId',foreignField:'_id',as:'campaign',pipeline:[{$project:{country:1,name:1,publicId:1}}]}},{$unwind:'$campaign'},
@@ -35,13 +36,15 @@ function appealMarketStages(context) {
     {$match:{$or:marketPairs(context).map(row=>({'campaign.country':row.country,'order.country':row.country,currency:row.currency,'order.totals.currency':row.currency}))}},
     {$match:{$expr:{$eq:['$orderPublicId','$order.publicId']}}}];
 }
-function payoutDto(row,actor) {
+function payoutDto(row,context) {
+  const actor=context.actor;
   const account=row.destination,own=String(row.ownerUserId)===String(actor._id)||String(row.requestedByUserId)===String(actor._id),submitted=String(row.submittedByUserId)===String(actor._id);
+  const currentCurrency=currentMarketCurrency(context,account.country,row.currency);
   return {publicId:row.publicId,country:account.country,currency:row.currency,ownerType:account.ownerType,storePublicId:row.ownerStorePublicId||'',amountMinor:row.amountMinor,status:row.status,version:row.__v||0,requestedAt:row.requestedAt||row.createdAt,
     destination:{...publicPayoutAccount(account),version:account.__v||0},approvedAt:row.approvedAt||null,submissionStartedAt:row.submissionStartedAt||null,submittedAt:row.submittedAt||null,completedAt:row.completedAt||null,
     submissionAttemptId:row.submissionAttemptId||'',providerReference:row.providerReference||'',provider:row.disbursementProvider||'external',ambiguityReason:row.ambiguityReason||'',failureMessage:row.failureMessage||'',
-    actions:{approve:!own&&row.status==='requested'&&account.status==='verified',reject:!own&&['requested','approved'].includes(row.status),submit:!own&&row.status==='approved'&&account.status==='verified'&&String(row.approvedByUserId)!==String(actor._id),
-      confirm:submitted&&row.status==='submitting',reveal:submitted&&row.status==='submitting',unknown:!own&&['submitting','submitted'].includes(row.status),reconcile:!own&&!submitted&&['submitted','unknown'].includes(row.status)}};
+    actions:{approve:currentCurrency&&!own&&row.status==='requested'&&account.status==='verified',reject:currentCurrency&&!own&&['requested','approved'].includes(row.status),submit:currentCurrency&&!own&&row.status==='approved'&&account.status==='verified'&&String(row.approvedByUserId)!==String(actor._id),
+      confirm:currentCurrency&&submitted&&row.status==='submitting',reveal:currentCurrency&&submitted&&row.status==='submitting',unknown:currentCurrency&&!own&&['submitting','submitted'].includes(row.status),reconcile:currentCurrency&&!own&&!submitted&&['submitted','unknown'].includes(row.status)}};
 }
 function appealDto(row,actor) {return {publicId:row.publicId,country:row.campaign.country,currency:row.currency,orderPublicId:row.orderPublicId,campaignPublicId:row.campaign.publicId,campaignName:row.campaign.name,amountMinor:row.amountMinor,reversedAmountMinor:row.reversedAmountMinor||0,paidAmountMinor:row.paidAmountMinor||0,payablePosted:Boolean(row.payableAt),status:row.status,version:row.__v||0,appeal:{status:row.appeal.status,message:row.appeal.message||'',decision:row.appeal.decision||'',submittedAt:row.appeal.submittedAt||null,reviewedAt:row.appeal.reviewedAt||null},canReview:row.appeal.status==='pending'&&String(row.promoterUserId)!==String(actor._id)};}
 function pathFor(context,values) {const params=new URLSearchParams();if(context.country)params.set('country',context.country);for(const [key,value]of Object.entries(values))if(value)params.set(key,value);return '/finance/payouts'+(params.size?'?'+params.toString():'');}
@@ -65,14 +68,14 @@ export async function loadFinancePayoutPage(request) {
   }
   const [records,countRows]=await Promise.all([model.aggregate([...stages,{$match:cursorScope(baseScope,filters.after)},{$sort:cursorSort()},{$limit:limit+1},...(filters.tab==='destinations'?[{$project:{destinationEncrypted:0}}]:[])]),model.aggregate([...stages,{$match:baseScope},{$count:'count'}])]);
   result=pageResult(records,{limit,total:countRows[0]?.count||0});
-  const payouts=filters.tab==='payouts'?result.items.map(row=>payoutDto(row,context.actor)):[],destinations=filters.tab==='destinations'?result.items.map(row=>({...publicPayoutAccount(row),version:row.__v||0,canReview:row.status==='pending'&&String(row.ownerUserId)!==String(context.actor._id)})):[],appeals=filters.tab==='appeals'?result.items.map(row=>appealDto(row,context.actor)):[];
+  const payouts=filters.tab==='payouts'?result.items.map(row=>payoutDto(row,context)):[],destinations=filters.tab==='destinations'?result.items.map(row=>({...publicPayoutAccount(row),version:row.__v||0,canReview:currentMarketCurrency(context,row.country,row.currency)&&row.status==='pending'&&String(row.ownerUserId)!==String(context.actor._id)})):[],appeals=filters.tab==='appeals'?result.items.map(row=>appealDto(row,context.actor)):[];
   const date=value=>value?new Intl.DateTimeFormat('en-UG',{dateStyle:'medium',timeZone:context.market?.timeZone||'UTC'}).format(new Date(value)):'—';
   rows=filters.tab==='payouts'?payouts.map(row=>({id:row.publicId,href:pathFor(context,{tab:'payouts',record:row.publicId}),cells:[row.publicId,row.ownerType+(row.storePublicId?' · '+row.storePublicId:''),row.destination.label,money(row.amountMinor,row.currency),row.status.replaceAll('_',' '),date(row.requestedAt)]}))
     :filters.tab==='destinations'?destinations.map(row=>({id:row.publicId,href:pathFor(context,{tab:'destinations',destination:row.publicId}),cells:[row.label,row.ownerType,row.method.replaceAll('_',' '),row.country+' · '+row.currency,row.status]}))
       :appeals.map(row=>({id:row.publicId,href:pathFor(context,{tab:'appeals',appeal:row.publicId}),cells:[row.publicId,row.orderPublicId,row.campaignName,money(row.reversedAmountMinor,row.currency),row.appeal.status,date(row.appeal.submittedAt)]}));
   let selected=null;
-  if(request.query?.record){const [row]=await Payout.aggregate([...payoutMarketStages(context),{$match:{publicId:request.query.record}},{$limit:1}]);if(!row)throw new AppError('Payout not found in your current scope.',404,'PAYOUT_NOT_FOUND');selected={type:'payout',...payoutDto(row,context.actor)};}
-  else if(request.query?.destination){const row=await PayoutAccount.findOne(mongoose.trusted({...accountScope(context),publicId:request.query.destination})).lean();if(!row)throw new AppError('Destination not found in your current scope.',404,'PAYOUT_ACCOUNT_NOT_FOUND');selected={type:'destination',...publicPayoutAccount(row),version:row.__v||0,canReview:row.status==='pending'&&String(row.ownerUserId)!==String(context.actor._id)};}
+  if(request.query?.record){const [row]=await Payout.aggregate([...payoutMarketStages(context),{$match:{publicId:request.query.record}},{$limit:1}]);if(!row)throw new AppError('Payout not found in your current scope.',404,'PAYOUT_NOT_FOUND');selected={type:'payout',...payoutDto(row,context)};}
+  else if(request.query?.destination){const row=await PayoutAccount.findOne(mongoose.trusted({...accountScope(context),publicId:request.query.destination})).lean();if(!row)throw new AppError('Destination not found in your current scope.',404,'PAYOUT_ACCOUNT_NOT_FOUND');selected={type:'destination',...publicPayoutAccount(row),version:row.__v||0,canReview:currentMarketCurrency(context,row.country,row.currency)&&row.status==='pending'&&String(row.ownerUserId)!==String(context.actor._id)};}
   else if(request.query?.appeal){const [row]=await CommissionEntry.aggregate([...appealMarketStages(context),{$match:{publicId:request.query.appeal,'appeal.status':{$in:appealStatuses}}},{$limit:1}]);if(!row)throw new AppError('Appeal not found in your current scope.',404,'COMMISSION_APPEAL_NOT_FOUND');selected={type:'appeal',...appealDto(row,context.actor)};}
   if(selected){const logs=await AuditLog.find({targetPublicId:selected.publicId,country:selected.country,action:/^finance\.(payout_|commission_appeal)/}).select('action createdAt actorPublicId').sort({createdAt:-1}).limit(20).lean();selected.history=logs.map(row=>({action:row.action.replace(/^finance\./,'').replaceAll('_',' '),at:row.createdAt,operator:row.actorPublicId||'Recorded operator'}));}
   await assertFinanceExportAccess(request,context);

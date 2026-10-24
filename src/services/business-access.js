@@ -5,14 +5,19 @@ import { BusinessMember, BusinessOrganization, CountrySetting, Device, PlatformG
 import { currentRequestDevice } from './country-admin-workspace-access.js';
 
 export const businessSame = (left, right) => String(left?._id ?? left ?? '') === String(right?._id ?? right ?? '');
-export const businessCapabilities = Object.freeze({ owner: ['*'], admin: ['members','budgets','buy','approve','quotes','po','templates'], buyer: ['buy','quotes','templates'], approver: ['approve','quotes','po'], viewer: [] });
+export const businessCapabilities = Object.freeze({ owner: ['*'], admin: ['members','budgets','buy','quotes','po','templates'], buyer: ['buy','quotes','templates'], approver: ['quotes','po'], viewer: [] });
+export function businessCapabilitiesFor(member) {
+  const capabilities = [...(businessCapabilities[member?.role] || [])];
+  if (member?.role !== 'owner' && member?.canApprove === true && Object.hasOwn(businessCapabilities, member?.role)) capabilities.push('approve');
+  return capabilities;
+}
 const unavailable = () => new AppError('Your business account or session is unavailable.', 403, 'BUSINESS_ACCOUNT_UNAVAILABLE');
 export function asBusinessRequest(value) {
   if (value?.user) return value;
   return { user: value, session: { tokenVersion: value?.security?.tokenVersion }, get: () => '', ip: '' };
 }
 export function requireBusinessCapability(context, capability) {
-  const allowed = businessCapabilities[context.member?.role] || [];
+  const allowed = businessCapabilitiesFor(context.member);
   if (capability && !allowed.includes('*') && !allowed.includes(capability)) throw new AppError('Your business membership does not allow this action.', 403, 'BUSINESS_CAPABILITY_REQUIRED');
   return context;
 }
@@ -66,6 +71,7 @@ export async function fenceBusinessAccess(context, session, { organization = tru
 export async function assertBusinessReadAccess(value, original) {
   const current = await businessAccess(value, { organizationPublicId: original.org.publicId });
   if (!businessSame(current.member, original.member) || current.member.role !== original.member.role
+    || current.member.canApprove !== original.member.canApprove
     || current.actor.security.tokenVersion !== original.actor.security.tokenVersion
     || current.org.currency !== original.org.currency || current.org.country !== original.org.country
     || current.market.timeZone !== original.market.timeZone) throw new AppError('Business access changed during this request.', 403, 'BUSINESS_ACCESS_CHANGED');

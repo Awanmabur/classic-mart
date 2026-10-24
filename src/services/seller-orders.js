@@ -9,6 +9,7 @@ import { createWarehouseTask, executeWarehouseTask, ensureShipmentForOrder } fro
 import { refreshOrderLifecycle } from './order-state.js';
 import { writeAudit } from './audit.js';
 import { addOutboxEvent } from './outbox.js';
+import { customerNotificationEnabled, SELLER_FULFILMENT_EMAIL_SUBJECT } from './customer-notification-policy.js';
 import { queueWebhookEvent } from './stage11.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
 
@@ -390,14 +391,14 @@ export async function transitionSellerOrder(request, rawAction) {
         metadata: { versionBefore: expected, versionAfter: expected + 1, parcelPublicId: parcel.publicId,
           sellerShipmentPublicId: sellerShipment.publicId, parcelStatus: freshParcel.status, warehouseTaskPublicIds: tasks } });
       if (action === 'dispatch' && root.userId) {
-        const buyer = await User.findOne({ _id: root.userId, status: 'active' }).select('email emailVerifiedAt').session(session);
+        const buyer = await User.findOne({ _id: root.userId, status: 'active' }).select('publicId email emailVerifiedAt preferences.notifications').session(session);
         if (buyer) {
           await Notification.create([{ publicId: publicId('ntf'), userId: buyer._id, country: store.country,
             type: 'order.fulfilment', title: 'Your order is ready for carrier pickup',
             body: 'A seller has completed preparation. Track your order for carrier pickup and delivery updates.',
             href: `/track-order?order=${encodeURIComponent(root.publicId)}`, importance: 'normal' }], { session });
-          if (buyer.emailVerifiedAt) await addOutboxEvent({ type: 'seller.order_notification', aggregateType: 'seller_order',
-            aggregatePublicId: order.publicId, payload: { email: buyer.email, subject: 'Your Classic Mart order is ready for carrier pickup',
+          if (buyer.emailVerifiedAt && customerNotificationEnabled(buyer, 'orders')) await addOutboxEvent({ type: 'seller.order_notification', aggregateType: 'seller_order',
+            aggregatePublicId: order.publicId, payload: { notificationCategory: 'orders', userPublicId: buyer.publicId, orderPublicId: root.publicId, country: store.country, subject: SELLER_FULFILMENT_EMAIL_SUBJECT,
               body: `A seller has completed preparation for order ${root.publicId}. Sign in to Classic Mart to view tracking. Carrier pickup and delivery have not yet been confirmed.` } }, session);
         }
       }

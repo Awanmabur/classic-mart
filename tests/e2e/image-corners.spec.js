@@ -81,6 +81,20 @@ async function expectPreview(page, testInfo) {
   await expectFrames(modal.locator('.preview-related-image'), 0);
 }
 
+async function signUpCustomer(page) {
+  await page.goto('/signup');
+  const identity = randomUUID();
+  await page.locator('#signUpName').fill('Image Corners Customer');
+  await page.locator('#signUpEmail').fill(`image-corners-${identity}@example.test`);
+  await page.getByLabel('Phone country code').selectOption('UG');
+  await page.locator('#signUpPhone').fill(`77${randomInt(1000000, 9999999)}`);
+  await page.locator('#signUpPassword').fill(`PhotoCorners7-${identity}`);
+  await page.locator('#signUpConfirmPassword').fill(`PhotoCorners7-${identity}`);
+  await page.locator('#acceptTerms').check();
+  await page.getByRole('button', { name: 'Create My Account', exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+}
+
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
 });
@@ -146,6 +160,7 @@ test('catalogue, category directory, search previews and direct product details 
 });
 
 test('cart photography and checkout thumbnails keep their approved frame radii after a real cart addition', async ({ page }, testInfo) => {
+  test.skip(process.env.E2E_IMAGE_SIGNUP !== 'true', 'Enable E2E_IMAGE_SIGNUP only for the isolated seeded browser server with simple customer login.');
   await page.goto('/products', { waitUntil: 'networkidle' });
   await page.locator('[data-catalog-add]:not([disabled])').first().click();
   await expect(page.locator('#cartCount')).toHaveText('1');
@@ -157,6 +172,13 @@ test('cart photography and checkout thumbnails keep their approved frame radii a
   await expectFrames(page.locator('.cart-recommend-image'), 0);
   await expectPhotos(page.locator('.cart-recommend-image > img'));
   await page.locator('#goToCheckout').click();
+  await expect(page).toHaveURL(url => url.pathname === '/login' && url.searchParams.get('next') === '/checkout');
+  await signUpCustomer(page);
+  await page.goto('/cart', { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toHaveAttribute('data-dashboard-workspace', 'customer');
+  await expectPhotos(page.locator('.cart-item > img'), 13);
+  await page.getByRole('link', { name: 'Proceed to Checkout', exact: true }).click();
+  await expect(page).toHaveURL(/\/checkout$/);
   await expectPhotos(page.locator('.checkout-mini-item > span > img'), 16);
   await expectQuantityBadgesUnclipped(page.locator('.checkout-mini-item > span > b'));
 });
@@ -174,17 +196,7 @@ test('journal and seller product photos retain their approved card clips while i
 
 test('customer wishlist and comparison photographs retain clean corners across server refreshes', async ({ page }) => {
   test.skip(process.env.E2E_IMAGE_SIGNUP !== 'true', 'Enable E2E_IMAGE_SIGNUP only for the isolated seeded browser server with simple customer login.');
-  await page.goto('/signup');
-  const identity = randomUUID();
-  await page.locator('#signUpName').fill('Image Corners Customer');
-  await page.locator('#signUpEmail').fill(`image-corners-${identity}@example.test`);
-  await page.getByLabel('Phone country code').selectOption('UG');
-  await page.locator('#signUpPhone').fill(`77${randomInt(1000000, 9999999)}`);
-  await page.locator('#signUpPassword').fill(`PhotoCorners7-${identity}`);
-  await page.locator('#signUpConfirmPassword').fill(`PhotoCorners7-${identity}`);
-  await page.locator('#acceptTerms').check();
-  await page.getByRole('button', { name: 'Create My Account', exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
+  await signUpCustomer(page);
 
   await page.goto('/products', { waitUntil: 'networkidle' });
   const firstProduct = page.locator('.catalog-product-card').first();

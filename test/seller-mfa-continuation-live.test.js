@@ -43,6 +43,10 @@ test('MFA continuations accept only current ready navigation and canonical local
   assert.equal(mfaContinuation('/seller/store', null, staff).next, '');
   assert.equal(mfaContinuation('/seller/orders/sor_test', null, staff).next, '/seller/orders/sor_test');
   assert.equal(mfaContinuation('/seller/orders/sor_test', null, { workspace: 'customer', accountNavigation: [] }).next, '');
+  const recipient = { role: 'customer', status: 'active' }, inbox = '/account/store-invitations';
+  assert.equal(mfaContinuation(inbox, recipient, { workspace: 'customer', accountNavigation: [] }).next, inbox);
+  assert.equal(mfaContinuation(inbox, { ...recipient, platformAccessManagedAt: new Date() }, { workspace: 'customer', accountNavigation: [] }).next, '');
+  assert.equal(mfaContinuation(inbox + '/accept', recipient, { workspace: 'customer', accountNavigation: [] }).next, '');
 });
 
 test('seller MFA enrollment keeps its destination, recovery codes and role shell through real HTTP and browser navigation', { skip: !uri, timeout: 180_000 }, async t => {
@@ -51,8 +55,9 @@ test('seller MFA enrollment keeps its destination, recovery codes and role shell
   const suffix = crypto.randomBytes(8).toString('hex');
   await mongoose.connect(uri, { dbName: `classicmart_seller_mfa_continuation_test_${suffix}` });
   const { createApp } = await import('../src/app.js');
-  const { User, Store, StoreMember, Device, CountrySetting } = await import('../src/models/index.js');
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { User, Store, StoreMember, StoreTeamInvitation, Device, CountrySetting } = await import('../src/models/index.js');
+  const { hashPassword, hashValue } = await import('../src/core/crypto.js');
+  const { encryptSensitive } = await import('../src/core/sensitive.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const app = createApp(null);
   const password = `Continue-${suffix}-A1!`, passwordHash = await hashPassword(password);
@@ -72,7 +77,7 @@ test('seller MFA enrollment keeps its destination, recovery codes and role shell
     return { user, client };
   }
   try {
-    await Promise.all([User.init(), Store.init(), StoreMember.init(), Device.init(), CountrySetting.init()]);
+    await Promise.all([User.init(), Store.init(), StoreMember.init(), StoreTeamInvitation.init(), Device.init(), CountrySetting.init()]);
     await CountrySetting.create({ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256', active: true });
     const seller = await actor();
     const target = '/seller/store', securityPath = '/account/security?next=%2Fseller%2Fstore';
@@ -128,28 +133,49 @@ test('seller MFA enrollment keeps its destination, recovery codes and role shell
       }
     });
 
-    await t.test('membership revoked during enrollment removes the operational continuation without changing the account role', async () => {
+    await t.test('membership revoked during inbox enrollment cannot acquire a store workspace or change the account role', async () => {
       const staff = await actor('customer'), store = await Store.findOne({ ownerUserId: seller.user._id });
+      const owner = await User.findById(seller.user._id), ownerMember = await StoreMember.findOne({ storeId: store._id, userId: owner._id });
+      const invitation = await StoreTeamInvitation.create({ publicId: `sti_continue_${staff.user.publicId}`, storeId: store._id,
+        storePublicId: store.publicId, country: store.country, currency: store.currency, emailHash: hashValue(staff.user.email),
+        emailEncrypted: encryptSensitive(staff.user.email), emailMasked: 'm***@example.com', role: 'fulfilment', status: 'accepted',
+        invitedByUserId: owner._id, invitedByTokenVersion: owner.security.tokenVersion, invitedByMembershipId: ownerMember._id,
+        invitedByRole: 'owner', invitedByPermissionVersion: ownerMember.permissionVersion || 0, recipientUserId: staff.user._id,
+        expiresAt: new Date(Date.now() + 86_400_000), respondedAt: new Date() });
       const member = await StoreMember.create({ publicId: `stm_continue_${staff.user.publicId}`, storeId: store._id, userId: staff.user._id,
-        role: 'fulfilment', status: 'active', invitedByUserId: seller.user._id, acceptedAt: new Date() });
-      const staffPath = '/account/security?next=%2Fseller%2Forders';
-      await staff.client.get('/seller/orders').expect(302).expect('location', staffPath);
+        role: 'fulfilment', status: 'active', invitationId: invitation._id, invitedByUserId: seller.user._id, acceptedAt: new Date() });
+      await staff.client.get('/seller/orders').expect(403);
+      const unselected = await staff.client.get('/account/security?next=%2Fseller%2Forders').expect(200);
+      assert.match(unselected.text, /data-dashboard-workspace="customer"/);
+      assert.doesNotMatch(unselected.text, /name="next"/);
+      const inboxPath = '/account/store-invitations', staffPath = '/account/security?next=%2Faccount%2Fstore-invitations';
+      const inbox = await staff.client.get(inboxPath).expect(200);
+      assert.match(inbox.text, /href="\/account\/security\?next=%2Faccount%2Fstore-invitations"/);
+      assert.doesNotMatch(inbox.text, /action="\/seller\/workspace"/);
       let page = await staff.client.get(staffPath).expect(200);
-      assert.match(page.text, /data-dashboard-workspace="seller"/);
-      assert.match(page.text, /name="next" value="\/seller\/orders"/);
-      await staff.client.post('/account/mfa/begin').type('form').send({ currentPassword: password, next: '/seller/orders', _csrf: csrf(page.text) })
+      assert.match(page.text, /data-dashboard-workspace="customer"/);
+      assert.match(page.text, /name="next" value="\/account\/store-invitations"/);
+      await staff.client.post('/seller/workspace').set('accept', 'application/json').type('form').send({ storePublicId: store.publicId, _csrf: csrf(page.text) })
+        .expect(403).expect(response => assert.equal(response.body.error.code, 'MFA_ENROLLMENT_REQUIRED'));
+      await staff.client.post('/account/mfa/begin').type('form').send({ currentPassword: password, next: inboxPath, _csrf: csrf(page.text) })
         .expect(302).expect('location', staffPath);
       const pending = await pendingMfaEnrollment(staff.user._id);
-      await staff.client.post('/account/mfa/disable').type('form').send({ currentPassword: password, code: 'invalid', next: '/seller/orders', _csrf: csrf(page.text) })
-        .expect(403);
       member.status = 'revoked'; member.revokedAt = new Date(); await member.save();
+      invitation.status = 'revoked'; invitation.revokedAt = new Date(); await invitation.save();
       page = await staff.client.get(staffPath).expect(200);
       assert.match(page.text, /data-dashboard-workspace="customer"/);
-      assert.doesNotMatch(page.text, /name="next"/);
-      await staff.client.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), next: '/seller/orders', _csrf: csrf(page.text) })
-        .expect(302).expect('location', '/account/security');
-      page = await staff.client.get('/account/security').expect(200);
+      assert.match(page.text, /name="next" value="\/account\/store-invitations"/);
+      await staff.client.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), next: inboxPath, _csrf: csrf(page.text) })
+        .expect(302).expect('location', staffPath);
+      page = await staff.client.get(staffPath).expect(200);
       assert.doesNotMatch(page.text, /Continue to Seller workspace/);
+      assert.match(page.text, /href="\/account\/store-invitations">Continue to store invitations/);
+      const revoked = await staff.client.get(inboxPath).expect(200);
+      assert.match(revoked.text, /revoked/);
+      assert.doesNotMatch(revoked.text, /action="\/seller\/workspace"/);
+      await staff.client.post('/seller/workspace').set('accept', 'application/json').type('form').send({ storePublicId: store.publicId, _csrf: csrf(revoked.text) })
+        .expect(403).expect(response => assert.equal(response.body.error.code, 'STORE_PERMISSION_DENIED'));
+      assert.equal((await StoreMember.findById(member._id)).status, 'revoked');
       assert.equal((await User.findById(staff.user._id)).role, 'customer');
       assert.equal(await Store.countDocuments({ ownerUserId: staff.user._id }), 0);
       await staff.client.get('/seller/orders').expect(403);

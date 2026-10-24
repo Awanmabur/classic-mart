@@ -242,6 +242,100 @@ test('Finance overview, reports and audit use complete scoped financial records 
       const restored = await owner.client.get(metric.href).set('Accept', 'application/json').expect(200);
       assert.equal(restored.body.page.total, expected.size);
     });
+    await t.test('historical currencies retain exact exception links, source searches and safe read-only payout history', async () => {
+      const historyOwner=await actor('promoter'), historyKey=`hist_fr_${suffix}`;
+      const historyId=type=>`${type}_${historyKey}`;
+      const orderId=new mongoose.Types.ObjectId(), historyOrder=historyId('ord'), merchantReference=historyId('merchant'), tracking=historyId('tracking');
+      const originalMarket=await CountrySetting.findOne({code:'UG'}).select('currency').lean();
+      let historicalPayment,historicalPayout,verifiedDestination,pendingDestination;
+      const privateMarkers=['HISTORY_CONTACT_PRIVATE','HISTORY_DESTINATION_PRIVATE','HISTORY_PROVIDER_PAYLOAD_PRIVATE','HISTORY_PROVIDER_HASH_PRIVATE'];
+      const assertPrivate=result=>{
+        const directives=new Set(String(result.headers['cache-control']||'').split(',').map(value=>value.trim().toLowerCase()));
+        assert.ok(directives.has('private'));assert.ok(directives.has('no-store'));assert.match(result.headers['x-robots-tag'],/noindex/);
+        for(const marker of privateMarkers)assert.ok(!String(result.text||JSON.stringify(result.body)).includes(marker));
+      };
+      try{
+        await Order.collection.insertOne({_id:orderId,publicId:historyOrder,country:'UG',userId:customer.user._id,
+          totals:{currency:'USD',totalMinor:5000},createdAt:now,idempotencyKey:historyId('order_key'),contact:{email:'HISTORY_CONTACT_PRIVATE'},items:[]});
+        historicalPayment=await PaymentIntent.create({publicId:historyId('pay'),orderId,orderPublicId:historyOrder,country:'UG',currency:'USD',
+          idempotencyKey:historyId('payment_key'),provider:'pesapal',method:'pesapal',status:'succeeded',amountMinor:5000,paidAt:now,createdAt:now,
+          providerReference:merchantReference,providerTrackingId:tracking});
+        verifiedDestination=await PayoutAccount.create({publicId:historyId('poa'),ownerUserId:historyOwner.user._id,ownerType:'promoter',
+          country:'UG',currency:'USD',method:'bank',label:'Historical USD destination',destinationEncrypted:'HISTORY_DESTINATION_PRIVATE',status:'verified'});
+        pendingDestination=await PayoutAccount.create({publicId:historyId('poa_pending'),ownerUserId:historyOwner.user._id,ownerType:'promoter',
+          country:'UG',currency:'USD',method:'bank',label:'Historical pending USD destination',destinationEncrypted:'HISTORY_DESTINATION_PRIVATE',status:'pending'});
+        historicalPayout=await Payout.create({publicId:historyId('pyo'),idempotencyKey:historyId('payout_key'),ownerUserId:historyOwner.user._id,
+          requestedByUserId:historyOwner.user._id,payoutAccountId:verifiedDestination._id,amountMinor:5000,currency:'USD',status:'unknown',createdAt:now,
+          approvedByUserId:owner.user._id,approvedAt:now,submittedByUserId:single.user._id,submissionStartedAt:now,submittedAt:now,
+          submissionAttemptId:crypto.randomUUID(),providerReference:historyId('transfer')});
+        await Chargeback.create({publicId:historyId('chb'),orderId,orderPublicId:historyOrder,paymentIntentId:historicalPayment._id,
+          paymentIntentPublicId:historicalPayment.publicId,country:'UG',currency:'USD',amountMinor:5000,status:'open'});
+        // Cached display identifiers may be blank on a valid received event.
+        // Merchant/tracking identity still binds it to the original payment.
+        await ProviderEvent.create({publicId:historyId('pev'),provider:'pesapal',eventId:historyId('event'),eventType:'ipn',country:'UG',
+          merchantReference,providerTrackingId:tracking,paymentIntentPublicId:'',orderPublicId:'',rawHash:'HISTORY_PROVIDER_HASH_PRIVATE',
+          rawEncrypted:'HISTORY_PROVIDER_PAYLOAD_PRIVATE',verifiedAt:now,status:'dead',createdAt:now});
+
+        const report=await owner.client.get('/finance/reports').query({country:'UG',report:'exceptions',search:historyKey}).set('Accept','application/json').expect(200);
+        assertPrivate(report);assert.equal(report.body.page.total,3);
+        assert.deepEqual(new Set(report.body.items.map(row=>row.category)),new Set(['providerEvents','unknownPayouts','openDisputes']));
+        assert.ok(report.body.items.every(row=>row.country==='UG'&&row.currency==='USD'));
+        for(const row of report.body.items){
+          const detail=await owner.client.get(row.href).set('Accept','application/json').expect(200);assertPrivate(detail);
+          assert.equal(detail.body.selected.publicId,row.publicId);assert.equal(detail.body.selected.currency,'USD');
+          if(row.category==='unknownPayouts')assert.ok(Object.values(detail.body.selected.actions).every(value=>value===false));
+          else assert.equal(detail.body.selected.orderPublicId,historyOrder);
+          const foreign=new URL(row.href,'http://localhost');foreign.searchParams.set('country','KE');
+          await owner.client.get(foreign.pathname+foreign.search).set('Accept','application/json').expect(404);
+        }
+        const historicalGroup=report.body.groups.find(row=>row.country==='UG'&&row.currency==='USD');
+        assert.equal(historicalGroup.exceptions,3,'The provider event contributes to its original USD group.');
+        assert.equal(report.body.groups.find(row=>row.country==='UG'&&row.currency==='UGX').exceptions,6);
+        const exceptionCsv=await owner.client.get(report.body.exportHref).expect(200);assertPrivate(exceptionCsv);
+        assert.equal(exceptionCsv.text.trim().split('\r\n').length,4);assert.ok(exceptionCsv.text.includes('"UG","USD"'));
+
+        // Read-only history survives a subsequent reviewed market-currency change.
+        await CountrySetting.updateOne({code:'UG'},{$set:{currency:'EUR'}});
+        const changedMarket=await owner.client.get('/finance/overview?country=UG').set('Accept','application/json').expect(200);
+        assert.equal(changedMarket.body.groups.find(row=>row.country==='UG'&&row.currency==='UGX').exceptions,6);
+        assert.equal(changedMarket.body.groups.find(row=>row.country==='UG'&&row.currency==='USD').exceptions,3);
+        assert.equal(changedMarket.body.groups.find(row=>row.country==='UG'&&row.currency==='EUR').exceptions,0);
+        for(const row of report.body.items)await owner.client.get(row.href).set('Accept','application/json').expect(200);
+        await CountrySetting.updateOne({code:'UG'},{$set:{currency:originalMarket.currency}});
+
+        for(const search of [historyId('pev'),historyOrder,historicalPayment.publicId]){
+          const events=await owner.client.get('/finance/reconciliation').query({country:'UG',view:'events',search}).set('Accept','application/json').expect(200);
+          assertPrivate(events);assert.equal(events.body.page.total,1);assert.equal(events.body.items[0].publicId,historyId('pev'));
+          assert.equal(events.body.items[0].orderPublicId,historyOrder);assert.equal(events.body.items[0].paymentIntentPublicId,historicalPayment.publicId);
+          const selected=await owner.client.get(events.body.rows[0].href).set('Accept','application/json').expect(200);
+          assert.equal(selected.body.selected.publicId,historyId('pev'));
+          const csv=await owner.client.get(events.body.exportHref).expect(200);assertPrivate(csv);
+          assert.equal(csv.text.trim().split('\r\n').length,2);assert.ok(csv.text.includes(historyId('pev')));
+        }
+        const payoutPath='/finance/payouts?country=UG&record='+historicalPayout.publicId;
+        const payoutHtml=await owner.client.get(payoutPath).expect(200);assertPrivate(payoutHtml);
+        assert.ok(!payoutHtml.text.includes('action="/finance/payouts/'+historicalPayout.publicId+'/reconcile'));
+        const unchangedPayout=await Payout.findById(historicalPayout._id).lean();
+        const denied=await owner.client.post('/finance/payouts/'+historicalPayout.publicId+'/reconcile?country=UG').set('Accept','application/json')
+          .type('form').send({_csrf:csrf(payoutHtml.text),version:historicalPayout.__v,submissionAttemptId:historicalPayout.submissionAttemptId,
+            outcome:'paid',message:'A changed currency cannot authorize a transfer.',reference:historyId('transfer')}).expect(409);
+        assert.equal(denied.body.error.code,'PAYOUT_MARKET_INVALID');assert.deepEqual(await Payout.findById(historicalPayout._id).lean(),unchangedPayout);
+        const destinations=await owner.client.get('/finance/payouts').query({country:'UG',tab:'destinations',search:historyKey,destination:pendingDestination.publicId}).set('Accept','application/json').expect(200);
+        assertPrivate(destinations);assert.equal(destinations.body.page.total,2);assert.equal(destinations.body.selected.currency,'USD');assert.equal(destinations.body.selected.canReview,false);
+        const payoutCsv=await owner.client.get('/finance/payouts/export.csv').query({country:'UG',search:historyKey}).expect(200);assertPrivate(payoutCsv);
+        assert.equal(payoutCsv.text.trim().split('\r\n').length,2);assert.ok(payoutCsv.text.includes('"UG","USD"'));
+        const destinationCsv=await owner.client.get('/finance/payouts/export.csv').query({country:'UG',tab:'destinations',search:historyKey}).expect(200);assertPrivate(destinationCsv);
+        assert.equal(destinationCsv.text.trim().split('\r\n').length,3);
+        await PlatformGrant.updateOne({_id:owner.grant._id},{$set:{status:'revoked'}});
+        await owner.client.get(payoutPath).set('Accept','application/json').expect(403);
+      }finally{
+        await CountrySetting.updateOne({code:'UG'},{$set:{currency:originalMarket.currency}});
+        await PlatformGrant.updateOne({_id:owner.grant._id},{$set:{status:'active'}});
+        await ProviderEvent.deleteMany({publicId:historyId('pev')});await Chargeback.deleteMany({publicId:historyId('chb')});
+        await Payout.deleteMany({publicId:historyId('pyo')});await PayoutAccount.deleteMany({publicId:{$in:[historyId('poa'),historyId('poa_pending')]}});
+        await PaymentIntent.deleteMany({publicId:historyId('pay')});await Order.deleteOne({_id:orderId});await User.deleteOne({_id:historyOwner.user._id});
+      }
+    });
     await t.test('audit results and CSV project only scoped finance evidence', async () => {
       const result = await owner.client.get('/finance/audit?country=UG&status=denied').set('Accept', 'application/json').expect(200); assert.equal(result.body.page.total, 38); assert.equal(result.body.page.count, 25);
       assert.ok(result.body.items.every(row => row.result === 'denied' && row.country === 'UG')); assert.ok(result.body.items.every(row => !Object.hasOwn(row, 'metadata') && !Object.hasOwn(row, 'ipHash')));

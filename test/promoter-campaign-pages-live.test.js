@@ -31,10 +31,13 @@ test('Promoter campaign and profile pages complete real scoped signup, promotion
   const suffix = crypto.randomBytes(8).toString('hex');
   await mongoose.connect(uri, { dbName: `classicmart_promoter_campaign_test_${suffix}` });
   const models = await import('../src/models/index.js');
-  const { User, Store, StoreMember, LedgerAccount, CountrySetting, Category, Product, ProductVariant, PromoterVerification, Campaign, CampaignApplication, PromoterLink, AiJob, AuditLog } = models;
+  const { Device, PlatformGrant, SubscriptionPlan, SubscriptionEnrollment, SubscriptionCharge, User, Store, StoreMember, LedgerAccount, CountrySetting, Category, Product, ProductVariant, PromoterVerification, Campaign, CampaignApplication, PromoterLink, AiJob, AuditLog } = models;
   const { createApp } = await import('../src/app.js');
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { hashPassword, hashToken } = await import('../src/core/crypto.js');
   const services = await import('../src/services/promoter-campaign-pages.js');
+  const promoterOperations = await import('../src/services/promoters.js');
+  const affiliate = await import('../src/services/seller-affiliate-pages.js');
+  const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const app = createApp(null), password = `Promoter-${suffix}-A1!`, passwordHash = await hashPassword(password), transports = [];
   let sequence = 0;
   function client() {
@@ -44,13 +47,28 @@ test('Promoter campaign and profile pages complete real scoped signup, promotion
   async function actor(role = 'promoter') {
     const number = ++sequence, email = `promoter-campaign-${suffix}-${number}@example.com`, phone = '+25670' + String(number).padStart(7, '0');
     const user = await User.create({ publicId: `usr_pc_${suffix}_${number}`, name: `Account ${number}`, email, emailNormalized: email, phone, phoneNormalized: phone,
-      passwordHash, role, country: 'UG', currency: 'UGX', emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(), consents: { terms: true, privacy: true, recordedAt: new Date() } });
+      passwordHash, role: role === 'country_admin' ? 'customer' : role, country: 'UG', currency: 'UGX', emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
+      ...(role === 'country_admin' ? { platformAccessManagedAt: new Date(), operationalCountries: ['UG'] } : {}), consents: { terms: true, privacy: true, recordedAt: new Date() } });
+    if (role === 'country_admin') await PlatformGrant.create({ publicId: `pgr_pc_${suffix}_${number}`, userId: user._id, role, operationalCountries: ['UG'],
+      status: 'active', startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000),
+      approvalPublicId: `apr_pc_${suffix}_${number}`, approvedByUserId: new mongoose.Types.ObjectId(), reason: 'Independent campaign publication reviewer.' });
     const agent = client(), login = await agent.get('/login').expect(200);
     await agent.post('/login').type('form').send({ email, password, _csrf: csrf(login.text) }).expect(302);
-    return { user: await User.findById(user._id), agent };
+    if (['seller', 'country_admin'].includes(role)) {
+      const security = await agent.get('/account/security').expect(200);
+      await agent.post('/account/mfa/begin').type('form').send({ currentPassword: password, _csrf: csrf(security.text) }).expect(302);
+      const pending = await pendingMfaEnrollment(user._id), enrollment = await agent.get('/account/security').expect(200);
+      await agent.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: csrf(enrollment.text) }).expect(302);
+    }
+    const current = await User.findById(user._id), sessionID = crypto.randomUUID();
+    const device = await Device.create({ publicId: `dev_pc_${suffix}_${number}`, userId: current._id, sessionHash: hashToken(sessionID),
+      label: 'Current programme fixture session', userAgent: 'Promoter campaign fixture', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    return { user: current, agent, sessionID, device };
+
   }
   function scoped(entry, body = {}, params = {}) {
-    return { user: entry.user, session: { tokenVersion: entry.user.security.tokenVersion }, query: {}, body, params,
+    return { user: entry.user, sessionID: entry.sessionID, device: entry.device, store: entry.store,
+      session: { userId: String(entry.user._id), tokenVersion: entry.user.security.tokenVersion, activeStorePublicId: entry.store?.publicId, mfaVerifiedAt: Date.now() }, query: {}, body, params,
       id: `test_pc_${suffix}_${crypto.randomBytes(4).toString('hex')}`, ip: '127.0.0.1', get: () => 'Promoter campaign verification', country: { code: 'UG', currency: 'UGX' } };
   }
   async function freshCampaign(row) { return Campaign.findById(row._id); }
@@ -83,10 +101,51 @@ test('Promoter campaign and profile pages complete real scoped signup, promotion
       await returning.get('/promoter/links').expect(200);
     });
 
-    const owner = await actor(), other = await actor(), customer = await actor('customer'), administrator = await actor('super_admin'), merchant = await actor('seller'), unverified = await actor();
+    const owner = await actor(), other = await actor(), customer = await actor('customer'), administrator = await actor('super_admin'), merchant = await actor('seller'), unverified = await actor(), reviewer = await actor('country_admin');
     const verification = await PromoterVerification.create({ publicId: `prv_pc_${suffix}`, userId: owner.user._id, country: 'UG', status: 'verified', channels: ['Instagram'], niches: ['Technology'], audienceSize: 1200, disclosureAcceptedAt: new Date() });
     await PromoterVerification.create({ publicId: `prv_other_pc_${suffix}`, userId: other.user._id, country: 'UG', status: 'verified' });
     const store = await Store.create({ publicId: `sto_pc_${suffix}`, ownerUserId: merchant.user._id, name: 'Approved Merchant', slug: `approved-merchant-${suffix}`, country: 'UG', currency: 'UGX', status: 'verified' });
+    merchant.store = store;
+    const membership = await StoreMember.create({ publicId: `stm_pc_owner_${suffix}`, storeId: store._id, userId: merchant.user._id,
+      role: 'owner', status: 'active', acceptedAt: new Date(), invitedByUserId: merchant.user._id });
+    // This read/pagination fixture starts with an already-paid, immutable period;
+    // provider verification and activation are exercised by seller-recovery-live.
+    const entitlements = { productLimit: 50, seatLimit: 1, campaignLimit: 100, analyticsDays: 30, analyticsExport: false };
+    const plan = await SubscriptionPlan.create({ publicId: `spl_pc_${suffix}`, key: `pc-${suffix}`, name: 'Historical campaign capacity', audience: 'seller',
+      country: 'UG', currency: 'UGX', priceMinor: 2500, cadence: 'monthly', status: 'active', entitlements,
+      createdByUserId: reviewer.user._id, updatedByUserId: reviewer.user._id });
+    const terms = { planPublicId: plan.publicId, planVersion: plan.__v, name: plan.name, priceMinor: plan.priceMinor, country: 'UG', currency: 'UGX', cadence: 'monthly', entitlements };
+    const enrollmentId = new mongoose.Types.ObjectId(), chargeId = new mongoose.Types.ObjectId(), enrollmentPublicId = `sen_pc_${suffix}`, chargePublicId = `sch_pc_${suffix}`;
+    await SubscriptionEnrollment.create({ _id: enrollmentId, publicId: enrollmentPublicId, planId: plan._id, planPublicId: plan.publicId, audience: 'seller', userId: merchant.user._id,
+      storeId: store._id, storePublicId: store.publicId, country: 'UG', currency: 'UGX', priceMinor: plan.priceMinor, status: 'active',
+      startsAt: new Date(Date.now() - 60_000), currentPeriodEndsAt: new Date(Date.now() + 86_400_000), terms, subscriptionChargeId: chargeId, subscriptionChargePublicId: chargePublicId });
+    await SubscriptionCharge.create({ _id: chargeId, publicId: chargePublicId, requestId: new mongoose.Types.ObjectId(), requestPublicId: `scr_pc_${suffix}`,
+      userId: merchant.user._id, payerTokenVersion: merchant.user.security.tokenVersion, payerMembershipId: membership._id, storeId: store._id, storePublicId: store.publicId,
+      country: 'UG', currency: 'UGX', amountMinor: plan.priceMinor, terms, idempotencyKey: `historical-pc-${suffix}`, providerReference: `historical-pc-${suffix}`,
+      status: 'succeeded', paidAt: new Date(Date.now() - 60_000), enrollmentId, enrollmentPublicId });
+    async function independentlyApproveCampaign(row) {
+      const savedAssets = row.assets.map(value => value.toObject());
+      // The legacy invalid assets below intentionally exercise defensive output
+      // filtering. They are never submitted as acceptable review evidence.
+      row.assets = savedAssets.filter(asset => services.safeCampaignAssetUrl(asset.url));
+      row.status = 'draft'; row.scope = 'seller'; row.systemManaged = false;
+      row.createdByUserId = merchant.user._id; row.disclosureText ||= 'Sponsored Seller affiliate campaign';
+      if (!row.facts.length) row.facts = ['Current approved product facts'];
+      await row.save();
+      await promoterOperations.submitCampaign(scoped(merchant), row.publicId, { version: row.__v });
+      const submitted = await Campaign.findById(row._id);
+      assert.equal(submitted.status, 'submitted'); assert.equal(String(submitted.submittedByUserId), String(merchant.user._id));
+      await promoterOperations.reviewCampaign(scoped(reviewer), row.publicId, { version: submitted.__v, decision: 'approve', reason: 'Independent review of this exact Seller campaign source.' });
+      const current = await Campaign.findById(row._id);
+      assert.equal(current.status, 'active'); assert.equal(String(current.reviewedByUserId), String(reviewer.user._id));
+      await Campaign.updateOne({ _id: row._id }, { $set: { assets: savedAssets } });
+      return Campaign.findById(row._id);
+    }
+    async function decideApplication(row, decision = 'approve') {
+      const current = await CampaignApplication.findById(row._id);
+      await affiliate.decideSellerAffiliateApplication(scoped(merchant), current.publicId, { version: current.__v, decision, reason: 'Seller reviewed the independent verified applicant.' });
+      return CampaignApplication.findById(row._id);
+    }
     const category = await Category.create({ publicId: `cat_pc_${suffix}`, name: 'Technology', slug: `technology-${suffix}`, active: true, countries: ['UG'] });
     const product = await Product.create({ publicId: `prd_pc_${suffix}`, storeId: store._id, ownerUserId: merchant.user._id, categoryId: category._id, title: 'Approved Product', slug: `approved-product-${suffix}`,
       description: 'Real approved product facts.', countries: ['UG'], status: 'published', publishedAt: new Date() });
@@ -95,6 +154,7 @@ test('Promoter campaign and profile pages complete real scoped signup, promotion
       productPublicIds: [product.publicId], allowedChannels: ['Instagram'], facts: ['Approved product fact'], assets: [{ type: 'image', url: '/assets/campaigns/approved.png', label: 'Approved asset', approved: true }, { type: 'copy', url: 'https://private.example/token', label: 'PRIVATE_ASSET', approved: true }, { type: 'image', url: '/assets/campaigns/private.png', label: 'UNAPPROVED_ASSET', approved: false }] });
     const invitation = await Campaign.create({ publicId: `cmp_invite_pc_${suffix}`, ownerUserId: merchant.user._id, storeId: store._id, country: 'UG', name: 'Invitation Campaign', visibility: 'invite_only', status: 'active',
       productPublicIds: [product.publicId], facts: ['INVITE_PRIVATE_FACT'], assets: [{ type: 'image', url: '/assets/campaigns/invite.png', label: 'INVITE_PRIVATE_ASSET', approved: true }] });
+    await independentlyApproveCampaign(campaign); await independentlyApproveCampaign(invitation);
     const foreign = await Campaign.create({ publicId: `cmp_foreign_pc_${suffix}`, ownerUserId: merchant.user._id, storeId: store._id, country: 'KE', name: 'FOREIGN_COUNTRY_CAMPAIGN', status: 'active', productPublicIds: [product.publicId] });
 
     await t.test('five canonical pages render live Promoter forms and safe marketplace briefs', async () => {
@@ -139,7 +199,9 @@ test('Promoter campaign and profile pages complete real scoped signup, promotion
       const html = await owner.agent.get('/promoter/marketplace?campaign=' + campaign.publicId).expect(200), token = csrf(html.text);
       await owner.agent.post('/promoter/campaigns/' + campaign.publicId + '/apply').type('form').send({ note: 'My audience follows technology products.' }).expect(403);
       await owner.agent.post('/promoter/campaigns/' + campaign.publicId + '/apply').type('form').send({ note: 'My audience follows technology products.', _csrf: token }).expect(302);
-      const application = await CampaignApplication.findOne({ campaignId: campaign._id, promoterUserId: owner.user._id }); assert.equal(application.status, 'approved');
+      let application = await CampaignApplication.findOne({ campaignId: campaign._id, promoterUserId: owner.user._id });
+      assert.equal(application.status, 'pending'); application = await decideApplication(application); assert.equal(application.status, 'approved');
+      assert.equal(String(application.reviewedByUserId), String(merchant.user._id));
       const base = { campaignId: campaign.publicId, destination: '/products/' + product.publicId, channel: 'Instagram', couponCode: `PC_${suffix.toUpperCase()}`, subId: 'weekend-story' };
       await owner.agent.post('/promoter/links').type('form').send({ ...base, _csrf: token }).expect(302).expect('location', '/promoter/links');
       const link = await PromoterLink.findOne({ campaignId: campaign._id, promoterUserId: owner.user._id });
@@ -161,9 +223,9 @@ test('Promoter campaign and profile pages complete real scoped signup, promotion
       const pending = await services.secureApplyToCampaign(scoped(owner), invitation.publicId, 'Invitation request'); assert.equal(pending.status, 'pending');
       await assert.rejects(services.secureCreatePromoterLink(scoped(owner), { campaignId: invitation.publicId, destination: '/products/' + product.publicId }), error => error.code === 'CAMPAIGN_APPROVAL_REQUIRED');
       assert.ok(!JSON.stringify((await owner.agent.get('/promoter/campaigns?campaign=' + invitation.publicId).set('accept', 'application/json')).body).includes('INVITE_PRIVATE_FACT'));
-      await CampaignApplication.updateOne({ _id: pending._id }, { $set: { status: 'approved' }, $inc: { __v: 1 } });
+      await decideApplication(pending);
       assert.ok(JSON.stringify((await owner.agent.get('/promoter/campaigns?campaign=' + invitation.publicId).set('accept', 'application/json')).body).includes('INVITE_PRIVATE_FACT'));
-      await CampaignApplication.updateOne({ _id: pending._id }, { $set: { status: 'revoked' }, $inc: { __v: 1 } });
+      await decideApplication(pending, 'revoke');
       assert.ok(!JSON.stringify((await owner.agent.get('/promoter/campaigns?campaign=' + invitation.publicId).set('accept', 'application/json')).body).includes('INVITE_PRIVATE_FACT'));
       await PromoterVerification.updateOne({ _id: verification._id }, { $set: { status: 'rejected' }, $inc: { __v: 1 } });
       await assert.rejects(services.secureCreatePromoterLink(scoped(owner), { campaignId: campaign.publicId, destination: '/products/' + product.publicId }), error => error.code === 'PROMOTER_VERIFICATION_REQUIRED');
@@ -240,8 +302,9 @@ test('Promoter campaign and profile pages complete real scoped signup, promotion
     });
 
     await t.test('campaign and link pagination keeps exact filtered totals and safe complete exports', async () => {
-      await Campaign.insertMany(Array.from({ length: 23 }, (_, index) => ({ publicId: `cmp_page_pc_${suffix}_${index}`, ownerUserId: merchant.user._id, storeId: store._id,
-        country: 'UG', name: `${index === 0 ? '=' : ''}Pagination approved ${index}`, status: 'active', productPublicIds: [product.publicId] })));
+      const paginationSources = await Campaign.insertMany(Array.from({ length: 23 }, (_, index) => ({ publicId: `cmp_page_pc_${suffix}_${index}`, ownerUserId: merchant.user._id, storeId: store._id,
+        country: 'UG', name: `${index === 0 ? '=' : ''}Pagination approved ${index}`, status: 'submitted', productPublicIds: [product.publicId] })));
+      for (const source of paginationSources) await independentlyApproveCampaign(source);
       const first = (await owner.agent.get('/promoter/marketplace?search=Pagination&status=available').set('accept', 'application/json').expect(200)).body;
       assert.equal(first.page.total, 23); assert.equal(first.rows.length, 20); assert.equal(first.page.hasMore, true);
       const second = (await owner.agent.get('/promoter/marketplace?search=Pagination&status=available&after=' + first.page.next).set('accept', 'application/json').expect(200)).body;

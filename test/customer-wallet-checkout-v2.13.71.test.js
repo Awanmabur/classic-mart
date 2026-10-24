@@ -55,7 +55,7 @@ test('remaining Customer Final 19 pages are real data-bound pages',()=>{
   const view=read('views/partials/customer-live-pages.ejs');
   assert.match(data,/loadCategories/);assert.match(data,/getStorefront/);
   assert.match(data,/loadCart/);assert.match(data,/cartData/);
-  assert.match(data,/loadNotifications/);assert.match(data,/Notification\.find/);
-  assert.match(data,/loadClub/);assert.match(data,/customerClubSummary/);
+  assert.match(data,/loadNotifications/);assert.match(data,/customerHistoryPage\(Notification,\{userId:request\.user\._id/);assert.match(data,/notificationsCursor/);
+  assert.match(data,/loadClub/);assert.match(data,/customerRewardSummary\(\{userId:request\.user\._id,country:request\.country\.code,currency:request\.country\.currency\}\)/);
   for(const page of ['categories','cart','notifications','club']) assert.match(view,new RegExp(`pageId===['"]${page}['"]`));
 });

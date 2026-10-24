@@ -5,6 +5,7 @@ import { LedgerAccount, LedgerTransaction, WalletTopUp } from '../models/index.j
 import { currentCustomerAccess } from './customer-access.js';
 import { customerHistoryPage } from './customer-history.js';
 import { writeAudit } from './audit.js';
+import { customerHistoryFocus, customerSourceMap, customerEntrySource } from './customer-source-links.js';
 
 const dates = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 const factor = currency => 10 ** new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits;
@@ -18,13 +19,17 @@ async function walletScope(request) {
 
 export async function customerWalletActivity(request) {
   const { actor, country, currency, account } = await walletScope(request);
-  const [page, topUpPage] = await Promise.all([
+  const [page, topUpPage, focused] = await Promise.all([
     customerHistoryPage(LedgerTransaction, { country, currency, 'entries.accountId': account?._id || new mongoose.Types.ObjectId() }, request, 'walletCursor', { field: 'postedAt', binding: `${country}:${currency}` }),
     customerHistoryPage(WalletTopUp, { userId: actor._id, country, currency }, request, 'topUpsCursor', { binding: `${country}:${currency}`, limit: 12 }),
+    customerHistoryFocus(WalletTopUp, request, 'topUp', { userId: actor._id, country, currency }),
   ]);
+  if (focused && !topUpPage.items.some(row => row.publicId === focused.publicId)) topUpPage.items.unshift(focused);
+  const sources = await customerSourceMap(actor._id, { entries: page.items });
   return { country, currency, entries: page.items.map(row => {
     const owned = row.entries.filter(entry => String(entry.accountId) === String(account?._id));
-    return { publicId: row.publicId, type: row.referenceType, referencePublicId: row.referencePublicId, description: row.description,
+    const source = customerEntrySource(row, sources);
+    return { publicId: row.publicId, type: row.referenceType, referencePublicId: source?.publicId || '', sourceHref: source?.href || '', description: row.description,
       postedAt: row.postedAt, currency: row.currency, amountMinor: owned.reduce((sum, entry) => sum + entry.creditMinor - entry.debitMinor, 0) };
   }), pagination: page.pagination, topUps: topUpPage.items, topUpsPagination: topUpPage.pagination };
 }

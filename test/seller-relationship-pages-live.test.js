@@ -29,9 +29,9 @@ test('seller relationship pages use complete scoped counts and persist authorize
   const database = `classicmart_relationship_test_${suffix}`;
   await mongoose.connect(uri, { dbName: database });
   const { createApp } = await import('../src/app.js');
-  const { User, Store, StoreMember, Category, Product, ProductVariant, Order, SellerOrder, SellerReturnCase, ReturnRequest,
+  const { Device, User, Store, StoreMember, Category, Product, ProductVariant, Order, SellerOrder, SellerReturnCase, ReturnRequest,
     Review, SellerContactRequest, ProductQuestion, EvidenceDocument, AuditLog, OutboxEvent, Notification, CountrySetting } = await import('../src/models/index.js');
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { hashPassword, hashToken } = await import('../src/core/crypto.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { getOrCreateStore } = await import('../src/services/store.js');
   const { sellerRelationshipPage, respondSellerReturn, disputeSellerReview, replySellerConversation, contactSellerCustomer } = await import('../src/services/seller-relationship-pages.js');
@@ -55,7 +55,12 @@ test('seller relationship pages use complete scoped counts and persist authorize
       await agent.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: csrf((await agent.get('/account/security')).text) }).expect(302);
       user = await User.findById(user._id);
     }
-    return { user, agent };
+    const currentUser = await User.findById(user._id), sessionID = crypto.randomUUID();
+    const device = await Device.create({ publicId: `dev_rel_${suffix}_${index}`, userId: currentUser._id,
+      sessionHash: hashToken(sessionID), label: 'Current fixture service session', userAgent: 'Authenticated fixture', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    const context = { sessionID, device, session: { userId: String(currentUser._id), tokenVersion: currentUser.security.tokenVersion,
+      mfaVerifiedAt: Date.now() }, country: { code: currentUser.country, currency: currentUser.currency }, ip: '127.0.0.1', query: {} };
+    return { user: currentUser, agent, context };
   }
   async function seller() {
     const person = await actor();
@@ -63,7 +68,7 @@ test('seller relationship pages use complete scoped counts and persist authorize
     person.store = await Store.findOneAndUpdate({ _id: access.store._id }, { $set: { status: 'verified', verifiedAt: new Date() } }, { returnDocument: 'after' });
     return person;
   }
-  const serviceRequest = (person, id = '', body = {}, query = {}) => ({ id: `rel-${suffix}-${crypto.randomBytes(4).toString('hex')}`, user: person.user, store: person.store,
+  const serviceRequest = (person, id = '', body = {}, query = {}) => ({ ...person.context, id: `rel-${suffix}-${crypto.randomBytes(4).toString('hex')}`, user: person.user, store: person.store,
     params: { publicId: id }, body, query, get: () => '', country: { code: 'UG' } });
   async function catalogue(person, index, category) {
     const product = await Product.create({ publicId: `prd_rel_${suffix}_${index}`, storeId: person.store._id, ownerUserId: person.user._id,
@@ -182,6 +187,10 @@ test('seller relationship pages use complete scoped counts and persist authorize
     let returnPage = await owner.agent.get('/seller/returns?case=' + ownReturn.row.publicId).expect(200);
     const invalidResponse = await owner.agent.post(`/seller/returns/${ownReturn.row.publicId}/respond`).type('form').send({ _csrf: csrf(returnPage.text), version: 0, action: 'contested', message: 'No' }).expect(422);
     assert.match(invalidResponse.text, /name="message"/);
+    assert.match(invalidResponse.text, /data-dashboard-workspace="seller"/);
+    assert.match(invalidResponse.text, /data-dashboard-page="seller-returns"/);
+    assert.match(invalidResponse.text, /Explain the response in at least 10 characters\./);
+    assert.match(invalidResponse.text, /name="message"[^>]*>No<\/textarea>/);
     assert.equal((await SellerReturnCase.findById(ownReturn.row._id)).status, 'pending');
     t.mock.method(AuditLog, 'create', async () => { throw new Error('Relationship audit unavailable'); });
     try { await assert.rejects(respondSellerReturn(serviceRequest(owner, ownReturn.row.publicId, { version: 0, action: 'acknowledged', message: 'We are checking this.' })), /Relationship audit unavailable/); }
@@ -200,7 +209,11 @@ test('seller relationship pages use complete scoped counts and persist authorize
     const evidence = await EvidenceDocument.findOne({ contextPublicId: ownReturn.row.publicId, status: 'ready' }); assert.ok(evidence);
     await owner.agent.get('/evidence/' + evidence.publicId).expect(200); await other.agent.get('/evidence/' + evidence.publicId).expect(403);
     assert.equal((await ReturnRequest.findById(ownReturn.ret._id)).status, 'requested', 'Seller response must not bypass marketplace refund decisions');
-    await owner.agent.post(`/seller/returns/${ownReturn.row.publicId}/respond`).type('form').send({ _csrf: csrf(returnPage.text), version: 0, action: 'escalated', message: 'A stale escalation attempt.' }).expect(409);
+    const staleResponse = await owner.agent.post(`/seller/returns/${ownReturn.row.publicId}/respond`).type('form').send({ _csrf: csrf(returnPage.text), version: 0, action: 'escalated', message: 'A stale escalation attempt.' }).expect(409);
+    assert.match(staleResponse.text, /data-dashboard-workspace="seller"/);
+    assert.match(staleResponse.text, /data-dashboard-page="seller-returns"/);
+    assert.match(staleResponse.text, /This record changed\. Reload the page before saving\./);
+    assert.equal((await SellerReturnCase.findById(ownReturn.row._id)).status, 'acknowledged');
     await owner.agent.post(`/seller/returns/${ownReturn.row.publicId}/respond`).type('form').send({ _csrf: csrf(returnPage.text), version: 2, action: 'contested', message: 'The attached packing evidence needs support review.' }).expect(302);
     assert.equal((await SellerReturnCase.findById(ownReturn.row._id)).status, 'contested');
     await owner.agent.post(`/seller/returns/${ownReturn.row.publicId}/respond`).type('form').send({ _csrf: csrf(returnPage.text), version: 3, action: 'escalated', message: 'Please ask marketplace support to review both accounts.' }).expect(302);
@@ -226,7 +239,9 @@ test('seller relationship pages use complete scoped counts and persist authorize
     assert.equal(publishedQuestions.body.questions[0].answer.body, 'Clean the product with a soft dry cloth.');
 
     const staff = await actor('customer'), member = await StoreMember.create({ publicId: `stm_rel_${suffix}`, userId: staff.user._id,
-      storeId: owner.store._id, invitedByUserId: owner.user._id, role: 'catalogue', status: 'active' }); staff.store = owner.store;
+      storeId: owner.store._id, invitedByUserId: owner.user._id, role: 'catalogue', status: 'active', acceptedAt: new Date() }); staff.store = owner.store;
+    const selection = await staff.agent.get('/account/security').expect(200);
+    await staff.agent.post('/seller/workspace').set('accept', 'application/json').type('form').send({ storePublicId: owner.store.publicId, _csrf: csrf(selection.text) }).expect(200);
     for (const kind of ['returns', 'customers', 'reviews', 'messages']) await staff.agent.get('/seller/' + kind).expect(403);
     await StoreMember.updateOne({ _id: member._id }, { $set: { role: 'support' } });
     for (const kind of ['returns', 'customers', 'reviews', 'messages']) await staff.agent.get('/seller/' + kind).expect(200);
@@ -236,9 +251,9 @@ test('seller relationship pages use complete scoped counts and persist authorize
     await User.updateOne({ _id: staff.user._id }, { $inc: { 'security.tokenVersion': 1 } });
     await assert.rejects(sellerRelationshipPage(serviceRequest(staff), 'seller-reviews'), { code: 'ACCOUNT_UNAVAILABLE' });
     const nonMfa = await actor('customer', false); await StoreMember.create({ publicId: `stm_rel_no_mfa_${suffix}`, userId: nonMfa.user._id,
-      storeId: owner.store._id, invitedByUserId: owner.user._id, role: 'support', status: 'active' });
+      storeId: owner.store._id, invitedByUserId: owner.user._id, role: 'support', status: 'active', acceptedAt: new Date() });
     nonMfa.store = owner.store;
-    await nonMfa.agent.get('/seller/customers').expect(302).expect('location', '/account/security?next=%2Fseller%2Fcustomers');
+    await nonMfa.agent.get('/seller/customers').set('accept', 'application/json').expect(403);
     await assert.rejects(sellerRelationshipPage(serviceRequest(nonMfa), 'seller-customers'), { code: 'MFA_ENROLLMENT_REQUIRED' });
     await assert.rejects(contactSellerCustomer(serviceRequest(nonMfa, main.row.publicId, { subject: 'Denied direct contact', message: 'An unenrolled staff contact must fail.' })), { code: 'MFA_ENROLLMENT_REQUIRED' });
     await User.updateOne({ _id: owner.user._id }, { $unset: { emailVerifiedAt: 1 } });
@@ -249,11 +264,11 @@ test('seller relationship pages use complete scoped counts and persist authorize
     finally { await User.updateOne({ _id: owner.user._id }, { $set: { onboardingCompletedAt: owner.user.onboardingCompletedAt } }); }
     await CountrySetting.updateOne({ code: 'UG' }, { $set: { active: false } });
     try {
-      await assert.rejects(sellerRelationshipPage(serviceRequest(owner), 'seller-returns'), { code: 'SELLER_COUNTRY_UNAVAILABLE' });
-      await assert.rejects(contactSellerCustomer(serviceRequest(owner, main.row.publicId, { subject: 'Unavailable market', message: 'An inactive country contact must fail.' })), { code: 'SELLER_COUNTRY_UNAVAILABLE' });
+      await assert.rejects(sellerRelationshipPage(serviceRequest(owner), 'seller-returns'), { code: 'STORE_MARKET_UNAVAILABLE' });
+      await assert.rejects(contactSellerCustomer(serviceRequest(owner, main.row.publicId, { subject: 'Unavailable market', message: 'An inactive country contact must fail.' })), { code: 'STORE_MARKET_UNAVAILABLE' });
     } finally { await CountrySetting.updateOne({ code: 'UG' }, { $set: { active: true } }); }
     await CountrySetting.updateOne({ code: 'UG' }, { $set: { currency: 'KES' } });
-    try { await assert.rejects(sellerRelationshipPage(serviceRequest(owner), 'seller-customers'), { code: 'SELLER_COUNTRY_UNAVAILABLE' }); }
+    try { await assert.rejects(sellerRelationshipPage(serviceRequest(owner), 'seller-customers'), { code: 'STORE_MARKET_UNAVAILABLE' }); }
     finally { await CountrySetting.updateOne({ code: 'UG' }, { $set: { currency: 'UGX' } }); }
     await SellerOrder.updateOne({ _id: main.row._id }, { $set: { currency: 'KES' } });
     await owner.agent.get('/seller/returns?case=' + ownReturn.row.publicId).expect(404);

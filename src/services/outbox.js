@@ -6,6 +6,7 @@ import { clearStorefrontCache } from './storefront.js';
 import { prepareFinanceDigestDelivery, finishFinanceDigestDelivery } from './finance-weekly-reports.js';
 import { prepareSupportDigestDelivery, finishSupportDigestDelivery } from './support-weekly-reports.js';
 import { prepareSupportTicketDelivery, finishSupportTicketDelivery } from './support-ticket-pages.js';
+import { prepareSellerOrderNotificationDelivery } from './customer-notification-policy.js';
 
 export async function addOutboxEvent(
   { type, aggregateType, aggregatePublicId, payload },
@@ -40,8 +41,8 @@ export async function processNotificationOutbox({ limit = 50, workerId=`notifica
     );
     if(!event)break;checked+=1;
     try{
-      const financeDigest=event.type==='finance.weekly_report',supportDigest=event.type==='support.weekly_report',supportReply=event.type==='support.ticket_reply',marketingCampaign=event.type==='marketing.campaign_message',storeBroadcast=event.type==='store.broadcast';
-      const message=financeDigest?await prepareFinanceDigestDelivery(event):supportDigest?await prepareSupportDigestDelivery(event):supportReply?await prepareSupportTicketDelivery(event):marketingCampaign?await (await import('./country-admin-growth-pages.js')).prepareMarketingCampaignDelivery(event):storeBroadcast?await (await import('./seller-growth.js')).prepareStoreBroadcastDelivery(event):event.type==='seller.team_invitation'?await (await import('./seller-team-pages.js')).prepareStoreTeamInvitationDelivery(event):{email:event.payload?.email,subject:event.payload?.subject,text:event.payload?.body};
+      const financeDigest=event.type==='finance.weekly_report',supportDigest=event.type==='support.weekly_report',supportReply=event.type==='support.ticket_reply',marketingCampaign=event.type==='marketing.campaign_message',storeBroadcast=event.type==='store.broadcast',orderUpdate=event.type==='seller.order_notification';
+      const message=financeDigest?await prepareFinanceDigestDelivery(event):supportDigest?await prepareSupportDigestDelivery(event):supportReply?await prepareSupportTicketDelivery(event):marketingCampaign?await (await import('./country-admin-growth-pages.js')).prepareMarketingCampaignDelivery(event):storeBroadcast?await (await import('./seller-growth.js')).prepareStoreBroadcastDelivery(event):orderUpdate?await prepareSellerOrderNotificationDelivery(event):event.type==='seller.team_invitation'?await (await import('./seller-team-pages.js')).prepareStoreTeamInvitationDelivery(event):{email:event.payload?.email,subject:event.payload?.subject,text:event.payload?.body};
       const result=message?await runWithStoredTrace({traceId:event.traceId,spanId:event.traceSpanId},()=>sendEmail(message)):null;
       if(financeDigest&&message)await finishFinanceDigestDelivery(event,result);
       if(supportDigest&&message)await finishSupportDigestDelivery(event,result);
@@ -49,8 +50,8 @@ export async function processNotificationOutbox({ limit = 50, workerId=`notifica
         if(message)await finishSupportTicketDelivery(event,result);
         else{event.payload={...event.payload,deliveryStatus:'cancelled',deliveryProcessedAt:new Date().toISOString()};event.markModified('payload');}
       }
-      if(marketingCampaign||storeBroadcast||event.type==='seller.team_invitation'){event.payload={...event.payload,deliveryStatus:!message?'cancelled':result?.developmentSink?'development_sink':'delivered',deliveryProcessedAt:new Date().toISOString()};event.markModified('payload');}
-      event.status='processed';event.processedAt=new Date();event.lastError=!message?(financeDigest?'Finance report':supportDigest?'Support report':marketingCampaign?'Marketing campaign':storeBroadcast?'Store broadcast':event.type==='seller.team_invitation'?'Store team invitation':'Support reply')+' cancelled: current delivery authorization is unavailable.':result?.developmentSink?'Development mail sink: no external email was sent.':'';processed+=1;if(['marketing.campaign_message','store.broadcast'].includes(event.type))completedAggregates.add(event.aggregatePublicId);
+      if(marketingCampaign||storeBroadcast||orderUpdate||event.type==='seller.team_invitation'){event.payload={...event.payload,deliveryStatus:!message?'cancelled':result?.developmentSink?'development_sink':'delivered',deliveryProcessedAt:new Date().toISOString()};event.markModified('payload');}
+      event.status='processed';event.processedAt=new Date();event.lastError=!message?(financeDigest?'Finance report':supportDigest?'Support report':marketingCampaign?'Marketing campaign':storeBroadcast?'Store broadcast':orderUpdate?'Order update':event.type==='seller.team_invitation'?'Store team invitation':'Support reply')+' cancelled: current delivery authorization is unavailable.':result?.developmentSink?'Development mail sink: no external email was sent.':'';processed+=1;if(['marketing.campaign_message','store.broadcast'].includes(event.type))completedAggregates.add(event.aggregatePublicId);
     }catch(error){
       event.status=event.attempts>=10?'dead':'failed';event.lastError=String(error.message||error).slice(0,1000);event.availableAt=new Date(Date.now()+Math.min(60,2**Math.min(8,event.attempts))*60_000);failed+=1;
     }

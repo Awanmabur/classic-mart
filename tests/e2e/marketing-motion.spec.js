@@ -36,6 +36,18 @@ test('published catalogue initializes manual hero navigation and keeps each sele
 
   const slides = page.locator('.hero-slide');
   const slideCount = await slides.count();
+  const targets = await page.locator('#heroDots button').evaluateAll(buttons => buttons.map(button => {
+    const box = button.getBoundingClientRect(), dot = getComputedStyle(button, '::before');
+    return { left: box.left, right: box.right, width: box.width, height: box.height,
+      dotWidth: parseFloat(dot.width), dotHeight: parseFloat(dot.height) };
+  }));
+  for (const [index, target] of targets.entries()) {
+    expect(target.width).toBeGreaterThanOrEqual(24);
+    expect(target.height).toBeGreaterThanOrEqual(24);
+    expect(target.dotWidth).toBe(index === 0 ? 20 : 8);
+    expect(target.dotHeight).toBe(8);
+    if (index > 0) expect(target.left).toBeGreaterThanOrEqual(targets[index - 1].right);
+  }
   const expectSelectedSlide = async index => {
     expect(await activeSlide(page)).toBe(index);
     await expect(slides.nth(index)).toHaveAttribute('aria-hidden', 'false');
@@ -62,7 +74,7 @@ test('published catalogue initializes manual hero navigation and keeps each sele
     await expectSelectedSlide(0);
   }
   for (let index = 0; index < slideCount; index += 1) {
-    await page.getByRole('button', { name: `Slide ${index + 1}`, exact: true }).click();
+    await page.getByRole('button', { name: `Slide ${index + 1}`, exact: true }).click({ position: { x: 1, y: 1 } });
     await expectSelectedSlide(index);
   }
   await page.getByRole('button', { name: 'Slide 1', exact: true }).click();

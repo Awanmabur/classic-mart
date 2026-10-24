@@ -33,8 +33,8 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
   await mongoose.connect(uri, { dbName: `classicmart_seller_finance_pages_test_${suffix}` });
   const { createApp } = await import('../src/app.js');
   const models = await import('../src/models/index.js');
-  const { User, Store, StoreMember, CountrySetting, PayoutAccount, Payout, Refund, SellerOrder, Order, PaymentIntent } = models;
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { User, Store, StoreMember, CountrySetting, PayoutAccount, Payout, Refund, SellerOrder, Order, PaymentIntent, Device, PlatformGrant, SubscriptionPlan, SubscriptionChangeRequest, SubscriptionCharge, SubscriptionEnrollment } = models;
+  const { hashPassword, hashToken } = await import('../src/core/crypto.js');
   const { beginMfaEnrollment, confirmMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { ensureLedgerAccount, postLedgerTransaction } = await import('../src/services/money.js');
   const { requestPayout } = await import('../src/services/payments.js');
@@ -44,7 +44,7 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
   async function actor(role = 'seller', enrolled = true) {
     const index = ++sequence, email = `finance-${suffix}-${index}@example.com`, phone = `+25670${String(index).padStart(7, '0')}`;
     let user = await User.create({ publicId: `usr_finance_${suffix}_${index}`, name: `Finance Actor ${index}`, email, emailNormalized: email,
-      phone, phoneNormalized: phone, passwordHash, role, country: 'UG', currency: 'UGX', locale: 'en-UG', emailVerifiedAt: new Date(),
+      phone, phoneNormalized: phone, passwordHash, role, country: 'UG', currency: 'UGX', locale: 'en-UG', emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(),
       onboardingCompletedAt: new Date(), consents: { terms: true, privacy: true, recordedAt: new Date() } });
     let recovery;
     if (enrolled) {
@@ -62,9 +62,17 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
       const mfa = await client.get('/mfa').expect(200);
       await client.post('/mfa').type('form').send({ code: recovery, _csrf: csrf(mfa.text) }).expect(302);
     }
-    return { user, client };
+    user = await User.findById(user._id);
+    const serviceSessionID = crypto.randomUUID();
+    const serviceDevice = await Device.create({ publicId: `dev_context_${suffix}_${index}`, userId: user._id, sessionHash: hashToken(serviceSessionID), label: 'Current Seller fixture device', userAgent: 'Seller regression', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    return { user, client, serviceSessionID, serviceDevice };
   }
-  const scoped = (actor, store) => ({ user: actor.user, store, session: { tokenVersion: actor.user.security.tokenVersion, activeStorePublicId: store.publicId } });
+  const scoped = (actor, store) => ({ id: crypto.randomUUID(), user: actor.user, store, device: actor.serviceDevice, sessionID: actor.serviceSessionID, country: { code: store.country, currency: store.currency }, ip: '127.0.0.1', get: () => '', session: { userId: String(actor.user._id), tokenVersion: actor.user.security.tokenVersion, activeStorePublicId: store.publicId, ...(actor.user.security.mfaEnabled ? { mfaVerifiedAt: Date.now() } : {}) } });
+  async function selectStore(identity, selectedStore) {
+    const security = await identity.client.get('/account/security').expect(200);
+    await identity.client.post('/seller/workspace').set('accept', 'application/json').type('form')
+      .send({ storePublicId: selectedStore.publicId, _csrf: csrf(security.text) }).expect(200);
+  }
   try {
     await Promise.all(Object.values(models).filter(model => typeof model?.init === 'function').map(model => model.init()));
     await CountrySetting.create({ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256' });
@@ -72,6 +80,23 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
     await owner.client.get('/seller/earnings').expect(200);
     await foreignOwner.client.get('/seller/earnings').expect(200);
     const store = await Store.findOne({ ownerUserId: owner.user._id }), foreign = await Store.findOne({ ownerUserId: foreignOwner.user._id });
+    const billing = await import('../src/services/seller-subscription-operations.js');
+    const { sellerTransaction } = await import('../src/services/seller-operations-access.js');
+    const reviewer = await actor('super_admin');
+    await User.updateOne({ _id: reviewer.user._id }, { $set: { platformAccessManagedAt: new Date(), operationalCountries: ['*'] } });
+    reviewer.user = await User.findById(reviewer.user._id);
+    await PlatformGrant.create({ publicId: `free-finance-${suffix}` + '-grant', userId: reviewer.user._id, role: 'super_admin', operationalCountries: ['*'], status: 'active',
+      startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000), reason: 'Independent reviewed free analytics fixture.', approvalPublicId: `free-finance-${suffix}` + '-approval', approvedByUserId: new mongoose.Types.ObjectId() });
+    const analyticsPlan = await SubscriptionPlan.create({ publicId: `free-finance-${suffix}` + '-plan', key: `free-finance-${suffix}`, name: 'Reviewed analytics capacity', audience: 'seller', country: 'UG', currency: 'UGX', priceMinor: 0, cadence: 'monthly', status: 'active',
+      entitlements: { productLimit: 1000, seatLimit: 10, campaignLimit: 10, analyticsDays: 3660, analyticsExport: true }, createdByUserId: reviewer.user._id, updatedByUserId: reviewer.user._id });
+    const analyticsChange = await billing.requestReviewedSellerSubscription(scoped(owner, store), { planPublicId: analyticsPlan.publicId, note: 'Request genuine reviewed analytics capacity.' });
+    await sellerTransaction(session => billing.reviewSellerSubscriptionRequest({ ...scoped(reviewer, store), requiredOperationalWorkspace: 'superadmin' }, analyticsChange.publicId,
+      { decision: 'approve', version: analyticsChange.__v, reason: 'Independently reviewed the actual free plan terms.' }, { session }));
+    const reviewedChange = await SubscriptionChangeRequest.findById(analyticsChange._id);
+    const activated = await billing.startSellerSubscriptionPayment(scoped(owner, store), { requestPublicId: reviewedChange.publicId, version: reviewedChange.__v, idempotencyKey: `free-finance-${suffix}` + '-activation' });
+    assert.equal(activated.status, 'succeeded');
+    assert.equal((await SubscriptionCharge.findOne({ publicId: activated.publicId })).amountMinor, 0);
+    assert.ok(await SubscriptionEnrollment.exists({ storeId: store._id, subscriptionChargePublicId: activated.publicId, status: 'active' }));
     const accountScope = { country: 'UG', currency: 'UGX' };
     const payable = await ensureLedgerAccount({ ...accountScope, code: 'seller_payable', type: 'liability', ownerType: 'store', ownerPublicId: store.publicId });
     const foreignPayable = await ensureLedgerAccount({ ...accountScope, code: 'seller_payable', type: 'liability', ownerType: 'store', ownerPublicId: foreign.publicId });
@@ -158,25 +183,26 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
       assert.equal((await owner.client.get('/seller/earnings?search=settlement-own').set('accept', 'application/json').expect(200)).body.finance.activity.page.total, 1);
     });
 
-    await t.test('promoter identities working as store finance members keep payouts in the Seller domain', async () => {
-      const promoter = await actor('promoter');
-      await StoreMember.create({ publicId: `stm_promoter_finance_${suffix}`, storeId: store._id, userId: promoter.user._id,
+    await t.test('accepted Customer finance staff keep store payouts in the Seller domain', async () => {
+      const delegate = await actor('customer');
+      await StoreMember.create({ publicId: `stm_delegate_finance_${suffix}`, storeId: store._id, userId: delegate.user._id,
         role: 'finance', status: 'active', invitedByUserId: owner.user._id, acceptedAt: new Date() });
-      const html = await promoter.client.get('/seller/payouts').expect(200), token = csrf(html.text);
-      await promoter.client.post('/seller/payouts/accounts').type('form').send({ _csrf: token, method: 'bank', label: 'Store finance destination',
+      await selectStore(delegate, store);
+      const html = await delegate.client.get('/seller/payouts').expect(200), token = csrf(html.text);
+      await delegate.client.post('/seller/payouts/accounts').type('form').send({ _csrf: token, method: 'bank', label: 'Store finance destination',
         beneficiary_name: 'Store beneficiary', account_bank: 'Store Bank', account_number: '12345678' }).expect(302);
       const destination = await PayoutAccount.findOne({ label: 'Store finance destination' });
       assert.equal(destination.ownerType, 'seller');
       assert.equal(String(destination.ownerStoreId), String(store._id));
       assert.equal(String(destination.ownerUserId), String(owner.user._id));
       await PayoutAccount.updateOne({ _id: destination._id }, { $set: { status: 'verified' } });
-      await promoter.client.post('/seller/payouts').type('form').send({ _csrf: token, payoutAccountId: destination.publicId,
-        amount: '100', idempotencyKey: `promoter-store-${suffix}` }).expect(302);
-      const payout = await Payout.findOne({ idempotencyKey: `promoter-store-${suffix}` });
+      await delegate.client.post('/seller/payouts').type('form').send({ _csrf: token, payoutAccountId: destination.publicId,
+        amount: '100', idempotencyKey: `delegate-store-${suffix}` }).expect(302);
+      const payout = await Payout.findOne({ idempotencyKey: `delegate-store-${suffix}` });
       assert.equal(String(payout.ownerStoreId), String(store._id));
       assert.equal(String(payout.ownerUserId), String(owner.user._id));
-      assert.equal(String(payout.requestedByUserId), String(promoter.user._id));
-      assert.equal(await PayoutAccount.countDocuments({ ownerUserId: promoter.user._id, ownerType: 'promoter' }), 0);
+      assert.equal(String(payout.requestedByUserId), String(delegate.user._id));
+      assert.equal(await PayoutAccount.countDocuments({ ownerUserId: delegate.user._id }), 0);
     });
 
     await t.test('fresh finance authorization rejects buyer, nonfinance staff, revoked members, stale sessions and locked stores', async () => {
@@ -184,6 +210,7 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
       const staff = await actor('customer');
       const member = await StoreMember.create({ publicId: `stm_finance_staff_${suffix}`, storeId: store._id, userId: staff.user._id,
         role: 'support', status: 'active', invitedByUserId: owner.user._id, acceptedAt: new Date() });
+      await selectStore(staff, store);
       await staff.client.get('/seller/payouts').set('accept', 'application/json').expect(403);
       await StoreMember.updateOne({ _id: member._id }, { $set: { role: 'finance' } });
       assert.equal((await staff.client.get('/seller/payouts').set('accept', 'application/json').expect(200)).body.store.publicId, store.publicId);
@@ -191,9 +218,21 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
       await StoreMember.updateOne({ _id: member._id }, { $set: { status: 'revoked' } });
       await assert.rejects(loadSellerFinancePage(scoped(staff, store), 'seller-payouts'), error => error.code === 'STORE_PERMISSION_DENIED');
       await assert.rejects(loadSellerFinancePage(scoped(owner, foreign), 'seller-earnings'), error => error.code === 'STORE_PERMISSION_DENIED');
+      const forbiddenPromoter = await actor('promoter');
+      await StoreMember.create({ publicId: `stm_forbidden_promoter_${suffix}`, storeId: store._id, userId: forbiddenPromoter.user._id,
+        role: 'finance', status: 'active', invitedByUserId: owner.user._id, acceptedAt: new Date() });
+      await assert.rejects(loadSellerFinancePage(scoped(forbiddenPromoter, store), 'seller-payouts'), error => error.code === 'SELLER_IDENTITY_FORBIDDEN');
+      await assert.rejects(loadSellerFinancePage(scoped(reviewer, store), 'seller-payouts'), error => error.code === 'SELLER_IDENTITY_FORBIDDEN');
+      await Device.updateOne({ _id: owner.serviceDevice._id }, { $set: { revokedAt: new Date() } });
+      try { await assert.rejects(loadSellerFinancePage(scoped(owner, store), 'seller-payouts'), error => error.code === 'ACCOUNT_UNAVAILABLE'); }
+      finally { await Device.updateOne({ _id: owner.serviceDevice._id }, { $set: { revokedAt: null } }); }
+      await User.updateOne({ _id: owner.user._id }, { $set: { status: 'suspended' } });
+      try { await StoreMember.updateOne({ _id: member._id }, { $set: { status: 'active', role: 'finance' } });
+        await assert.rejects(loadSellerFinancePage(scoped(staff, store), 'seller-payouts'), error => error.code === 'STORE_PERMISSION_DENIED'); }
+      finally { await User.updateOne({ _id: owner.user._id }, { $set: { status: 'active' } }); await StoreMember.updateOne({ _id: member._id }, { $set: { status: 'revoked' } }); }
       const stale = scoped(owner, store); stale.session.tokenVersion += 1;
       await assert.rejects(loadSellerFinancePage(stale, 'seller-earnings'), error => error.code === 'ACCOUNT_UNAVAILABLE');
-      await StoreMember.create({ publicId: `stm_no_mfa_${suffix}`, storeId: store._id, userId: unenrolled.user._id, role: 'finance', status: 'active', invitedByUserId: owner.user._id });
+      await StoreMember.create({ publicId: `stm_no_mfa_${suffix}`, storeId: store._id, userId: unenrolled.user._id, role: 'finance', status: 'active', invitedByUserId: owner.user._id, acceptedAt: new Date() });
       await unenrolled.client.get('/seller/payouts').set('accept', 'application/json').expect(403);
       await assert.rejects(loadSellerFinancePage(scoped(unenrolled, store), 'seller-payouts'), error => error.code === 'MFA_ENROLLMENT_REQUIRED');
       await Store.updateOne({ _id: store._id }, { $set: { status: 'suspended' } });
@@ -238,9 +277,9 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
       assert.equal(apiRequest.body.error.code, 'MFA_ENROLLMENT_REQUIRED');
       for (const actor of [unenrolled, promoter]) {
         await assert.rejects(createSellerPayoutDestination(scoped(actor, store), { method: 'bank', label: 'Direct unverified destination',
-          beneficiary_name: 'Store owner', account_bank: 'Test Bank', account_number: '12345678' }), error => error.code === 'MFA_ENROLLMENT_REQUIRED');
+          beneficiary_name: 'Store owner', account_bank: 'Test Bank', account_number: '12345678' }), error => error.code === (actor === promoter ? 'SELLER_IDENTITY_FORBIDDEN' : 'MFA_ENROLLMENT_REQUIRED'));
         await assert.rejects(requestSellerPayout(scoped(actor, store), { payoutAccountId: ownedAccount.publicId,
-          amount: '10', idempotencyKey: `direct-no-mfa-${actor.user.publicId}` }), error => error.code === 'MFA_ENROLLMENT_REQUIRED');
+          amount: '10', idempotencyKey: `direct-no-mfa-${actor.user.publicId}` }), error => error.code === (actor === promoter ? 'SELLER_IDENTITY_FORBIDDEN' : 'MFA_ENROLLMENT_REQUIRED'));
       }
       const promoterSecurity = await promoter.client.get('/account/security').expect(200), promoterToken = csrf(promoterSecurity.text);
       await promoter.client.post('/api/v1/payouts').set('x-csrf-token', promoterToken).send({ payoutAccountId: ownedAccount.publicId,
@@ -286,12 +325,15 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
       }
       await User.updateOne({ _id: owner.user._id }, { $set: { status: 'suspended' } });
       try {
-        await assert.rejects(requestPayout(scoped(owner, store), input), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        await assert.rejects(requestPayout(scoped(owner, store), input), error => error.code === 'SELLER_IDENTITY_FORBIDDEN');
       } finally { await User.updateOne({ _id: owner.user._id }, { $set: { status: 'active' } }); }
       await User.updateOne({ _id: owner.user._id }, { $inc: { 'security.tokenVersion': 1 } });
       try {
-        await assert.rejects(requestPayout(scoped(owner, store), input), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        await assert.rejects(requestPayout(scoped(owner, store), input), error => error.code === 'SELLER_IDENTITY_FORBIDDEN');
       } finally { await User.updateOne({ _id: owner.user._id }, { $set: { 'security.tokenVersion': owner.user.security.tokenVersion } }); }
+      const staleSession = scoped(owner, store);
+      staleSession.session.tokenVersion += 1;
+      await assert.rejects(requestPayout(staleSession, input), error => error.code === 'ACCOUNT_UNAVAILABLE');
       await PayoutAccount.updateOne({ _id: ownedAccount._id }, { $set: { status: 'disabled' } });
       try {
         await assert.rejects(requestPayout(scoped(owner, store), input), error => error.code === 'PAYOUT_ACCOUNT_REQUIRED');
@@ -309,11 +351,12 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
       await StoreMember.create({ publicId: `stm_domain_retry_${suffix}`, storeId: store._id, userId: promoter.user._id,
         role: 'finance', status: 'active', invitedByUserId: owner.user._id, acceptedAt: new Date() });
       const idempotencyKey = `domain-retry-${suffix}`;
-      const storePayout = await requestPayout(scoped(promoter, store), { payoutAccountId: ownedAccount.publicId, amountMinor: 1, idempotencyKey });
+      await assert.rejects(requestPayout(scoped(promoter, store), { payoutAccountId: ownedAccount.publicId, amountMinor: 1, idempotencyKey: `forbidden-store-${suffix}` }), error => error.code === 'SELLER_IDENTITY_FORBIDDEN');
+      const storePayout = await requestPayout(scoped(owner, store), { payoutAccountId: ownedAccount.publicId, amountMinor: 1, idempotencyKey });
       assert.equal(String(storePayout.ownerStoreId), String(store._id));
       const personalAccount = await PayoutAccount.create({ publicId: `poa_domain_retry_${suffix}`, ownerUserId: promoter.user._id,
         ownerType: 'promoter', country: 'UG', currency: 'UGX', method: 'bank', label: 'Personal retry destination', destinationEncrypted: 'PERSONAL_PRIVATE', status: 'verified' });
-      await assert.rejects(requestPayout({ user: promoter.user, session: { tokenVersion: promoter.user.security.tokenVersion } },
+      await assert.rejects(requestPayout({ ...scoped(promoter, store), store: undefined, session: { userId: String(promoter.user._id), tokenVersion: promoter.user.security.tokenVersion } },
         { payoutAccountId: personalAccount.publicId, amountMinor: 1, idempotencyKey }), error => error.code === 'PAYOUT_IDEMPOTENCY_CONFLICT');
       assert.equal(await Payout.countDocuments({ idempotencyKey }), 1);
       assert.equal(await models.LedgerAccount.countDocuments({ code: 'promoter_payable', ownerPublicId: String(promoter.user._id) }), 0);

@@ -21,24 +21,45 @@ test('Promoter attribution binds real journeys, current eligibility and commissi
   const suffix = crypto.randomBytes(8).toString('hex');
   await mongoose.connect(uri, { dbName: `classicmart_promoter_attribution_test_${suffix}` });
   const models = await import('../src/models/index.js');
-  const { User, Store, StoreMember, CountrySetting, Campaign, CampaignApplication, PromoterVerification, PromoterLink,
+  const { Device, PlatformGrant, User, Store, StoreMember, CountrySetting, Campaign, CampaignApplication, PromoterVerification, PromoterLink,
     AttributionTouch, CommissionEntry, Order, Refund, LedgerTransaction, AuditLog, Category, Product, ProductVariant, Warehouse, StockItem, ShippingZone, InventoryReservation } = models;
   const { recordTouch, redeemPromoterCoupon, attributeOrder, makeOrderCommissionsPayable, reverseOrderCommissions, settlePromoterCommissions,
     appealCommissionReversal, reviewCommissionAppeal } = await import('../src/services/promoters.js');
   const { ensureLedgerAccount, accountBalanceMinor } = await import('../src/services/money.js');
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { hashPassword, hashToken } = await import('../src/core/crypto.js');
   const { marketplacePromoterCampaignPublicId } = await import('../src/services/seller-growth.js');
+  const campaignOperations = await import('../src/services/promoters.js');
+  const { beginMfaEnrollment, confirmMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   let sequence = 0;
   const id = prefix => `${prefix}_pa_${suffix}_${++sequence}`;
   const transports = [];
   async function actor(role) {
     const publicId = id('usr'), email = publicId + '@example.com', phone = '+25670' + String(sequence).padStart(7, '0');
-    return User.create({ publicId, name: `Attribution ${role}`, email, emailNormalized: email, phone, phoneNormalized: phone,
-      passwordHash: crypto.randomBytes(32).toString('hex'), role, country: 'UG', currency: 'UGX', emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
+    const operational = ['seller', 'country_admin'].includes(role), password = `Attribution-actor-${suffix}-A1!`;
+    let user = await User.create({ publicId, name: `Attribution ${role}`, email, emailNormalized: email, phone, phoneNormalized: phone,
+      passwordHash: operational ? await hashPassword(password) : crypto.randomBytes(32).toString('hex'), role: role === 'country_admin' ? 'customer' : role,
+      country: 'UG', currency: 'UGX', emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
+      ...(role === 'country_admin' ? { platformAccessManagedAt: new Date(), operationalCountries: ['UG'] } : {}),
       consents: { terms: true, privacy: true, recordedAt: new Date() } });
+    if (role === 'country_admin') await PlatformGrant.create({ publicId: id('pgr'), userId: user._id, role, operationalCountries: ['UG'], status: 'active',
+      startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000), reason: 'Independent scoped campaign reviewer fixture',
+      approvalPublicId: id('apr'), approvedByUserId: new mongoose.Types.ObjectId() });
+    if (operational) {
+      const enrollment = await beginMfaEnrollment(user._id, password);
+      await confirmMfaEnrollment(user._id, totpCode(enrollment.secret));
+      user = await User.findById(user._id);
+    }
+    return user;
   }
   const shoppingRequest = (user = null, session = {}) => ({ id: id('req'), user, country: { code: 'UG', currency: 'UGX' }, session,
     ip: '127.0.0.' + (sequence % 200 + 20), get: name => name === 'user-agent' ? 'ClassicMartAttributionTest/1.0' : 'https://example.com/' });
+  async function currentRequest(actor, selectedStore = null) {
+    const current = await User.findById(actor._id), sessionID = crypto.randomUUID();
+    const device = await Device.create({ publicId: id('dev'), userId: current._id, sessionHash: hashToken(sessionID),
+      label: 'Current attribution campaign fixture', userAgent: 'Attribution fixture', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    return { ...shoppingRequest(current), device, sessionID, store: selectedStore, session: { userId: String(current._id), tokenVersion: current.security.tokenVersion,
+      activeStorePublicId: selectedStore?.publicId, mfaVerifiedAt: Date.now() } };
+  }
   let promoter, buyer, store, product, variant, campaign, application, verification, link;
   async function pendingOrder(req, { items = null, country = 'UG', currency = 'UGX' } = {}) {
     const selected = items || [line(product, variant, store, 10000)];
@@ -78,6 +99,8 @@ test('Promoter attribution binds real journeys, current eligibility and commissi
     promoter = await actor('promoter'); buyer = await actor('customer');
     const seller = await actor('seller');
     store = await Store.create({ publicId: id('sto'), ownerUserId: seller._id, name: 'Attribution seller', slug: id('store'), country: 'UG', currency: 'UGX', status: 'verified' });
+    await StoreMember.create({ publicId: id('stm'), storeId: store._id, userId: seller._id, role: 'owner', status: 'active', acceptedAt: new Date(), invitedByUserId: seller._id });
+    const reviewer = await actor('country_admin');
     const category = await Category.create({ publicId: id('cat'), name: 'Attribution products', slug: id('category'), countries: ['UG'], active: true });
     product = await Product.create({ publicId: id('prd'), storeId: store._id, ownerUserId: seller._id, categoryId: category._id,
       title: 'Attribution product', slug: id('product'), description: 'A real published product used for attribution verification.', countries: ['UG'], status: 'published' });
@@ -122,13 +145,20 @@ test('Promoter attribution binds real journeys, current eligibility and commissi
     });
 
     await t.test('product links recheck current product, merchant, category and offer approvals', async () => {
-      const sellerCampaign = await Campaign.create({ publicId: id('cmp'), ownerUserId: store.ownerUserId, storeId: store._id,
-        scope: 'seller', country: 'UG', name: 'Approved seller promotion', status: 'active', commissionBps: 500,
-        allowedChannels: ['whatsapp'], productPublicIds: [product.publicId] });
-      await CampaignApplication.create({ publicId: id('cap'), campaignId: sellerCampaign._id, campaignPublicId: sellerCampaign.publicId,
-        promoterUserId: promoter._id, country: 'UG', status: 'approved' });
-      const productLink = await PromoterLink.create({ publicId: id('plk'), campaignId: sellerCampaign._id, promoterUserId: promoter._id,
-        token: crypto.randomBytes(18).toString('base64url'), destination: '/products/' + product.publicId, channel: 'whatsapp' });
+      const created = await campaignOperations.createCampaign(await currentRequest(seller, store), { name: 'Approved seller promotion', visibility: 'public',
+        commissionBps: 500, attributionDays: 30, allowedChannels: ['whatsapp'], productPublicIds: [product.publicId],
+        facts: ['Approved product details'], disclosureText: 'Sponsored Seller affiliate link.' });
+      let sellerCampaign = await Campaign.findOne({ publicId: created.publicId });
+      await campaignOperations.submitCampaign(await currentRequest(seller, store), sellerCampaign.publicId, { version: sellerCampaign.__v });
+      sellerCampaign = await Campaign.findById(sellerCampaign._id);
+      await campaignOperations.reviewCampaign(await currentRequest(reviewer), sellerCampaign.publicId, { version: sellerCampaign.__v, decision: 'approve', reason: 'Independent review of this exact store campaign.' });
+      let applied = await campaignOperations.applyToCampaign(await currentRequest(promoter), sellerCampaign.publicId, 'Independent audience application.');
+      assert.equal(applied.status, 'pending');
+      await campaignOperations.reviewCampaignApplication(await currentRequest(seller, store), applied.publicId, { version: applied.__v, decision: 'approve', reason: 'Seller verified the independent promoter audience.' });
+      applied = await CampaignApplication.findById(applied._id);
+      assert.equal(String(applied.reviewedByUserId), String(seller._id));
+      const productLink = await campaignOperations.createPromoterLink(await currentRequest(promoter), { campaignId: sellerCampaign.publicId,
+        destination: '/products/' + product.publicId, channel: 'whatsapp' });
       assert.equal((await recordTouch(shoppingRequest(), productLink.token)).touch.status, 'valid');
       for (const [Model, _id, revoke, restore] of [[Product, product._id, { status: 'archived' }, { status: 'published' }],
         [Store, store._id, { status: 'suspended' }, { status: 'verified' }], [Category, category._id, { active: false }, { active: true }],
@@ -300,9 +330,10 @@ test('Promoter attribution binds real journeys, current eligibility and commissi
       const login = await client.get('/login').expect(200), token = login.text.match(/name="_csrf"[^>]*value="([^"]+)"/)[1];
       await client.post('/login').type('form').send({ email: buyer.email, password, _csrf: token }).expect(302);
       cart = await client.get('/api/v1/cart').expect(200); assert.equal(cart.body.cart.items.length, 1);
-      const review = await client.post('/api/v1/checkout/review').set('x-csrf-token', cart.body.csrfToken).send({ city: 'Kampala', deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '' }).expect(200);
+      const contact = { fullName: buyer.name, email: buyer.email, phone: buyer.phone, address: '10 Test Road', city: 'Kampala', country: 'UG', note: '' };
+      const review = await client.post('/api/v1/checkout/review').set('x-csrf-token', cart.body.csrfToken).send({ city: 'Kampala', deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '', contact }).expect(200);
       const input = { checkoutId: review.body.checkoutId, idempotencyKey: id('real_checkout'), city: 'Kampala', deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '',
-        contact: { fullName: buyer.name, email: buyer.email, phone: buyer.phone, address: '10 Test Road', city: 'Kampala', country: 'Uganda', note: '' } };
+        contact };
       const previousOrders = await Order.countDocuments(), previousCommissions = await CommissionEntry.countDocuments(), previousReservations = await InventoryReservation.countDocuments();
       const createAudit = AuditLog.create;
       t.mock.method(AuditLog, 'create', async function (documents, ...args) {

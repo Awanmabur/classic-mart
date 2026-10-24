@@ -9,7 +9,9 @@ test('project checker validates RegExp arguments and enforces the approved dashb
   assert.doesNotMatch(source, /\b(?:requireMatch|forbidMatch)\(\s*['"][^'"]+['"]\s*,\s*['"]/, 'checker calls must use RegExp patterns');
   assert.match(source, /approvedDashboardLayerFailures/);
   assert.match(source, /Customer account permission guard is missing/);
-  assert.match(source, /must not restore .* before that dashboard checkpoint/);
+  assert.match(source, /must not restore the retired/);
+  for (const route of ['businessPageRoutes', 'deliveryRoutes', 'superAdminPageRoutes', 'aftersalesPageRoutes', 'sellerTeamPageRoutes']) assert.ok(source.includes(route));
+  assert.match(source, /Retired carrier handlers must not bypass the dedicated Delivery router/);
   assert.match(source, /Normal account order history route is missing/);
   assert.match(source, /src\/routes\/account\.js/);
   assert.match(source, /const releaseVersion = String\(pkg\.version/);

@@ -127,7 +127,11 @@ test('Final 19 wallet controls are wired to real Customer behavior',()=>{
   const route=read('src/routes/dashboard.js');
   assert.match(customer,/\/wallet\/statement\.csv/);
   assert.match(route,/router\.get\(paths\('\/dashboard\/wallet\/statement\.csv'\),\.\.\.gates/);
-  assert.match(route,/text\/csv/);
+  assert.match(route,/streamCustomerWalletStatement\(request,response\)/);
+  const statement=read('src/services/customer-wallet-history.js');
+  assert.match(statement,/Content-Type': 'text\/csv; charset=utf-8'/);
+  assert.match(statement,/ownerPublicId: actor\.publicId, country, currency/);
+  assert.match(statement,/await assertAccess\(\)/);
   assert.match(runtime,/data-wallet-amount/);
   assert.match(runtime,/walletAmount/);
 });

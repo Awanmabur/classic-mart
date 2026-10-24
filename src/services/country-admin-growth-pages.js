@@ -7,7 +7,8 @@ import { ApprovalRequest, Campaign, Category, CmsContent, Coupon, CountrySetting
 import { countryAdminAccess, assertCountryAdminReadAccess, countryAdminPublicContext } from './country-admin-workspace-access.js';
 import { writeAudit } from './audit.js';
 import { addOutboxEvent } from './outbox.js';
-import { optionalProcessingUser, restrictedOptionalUserIds } from './optional-processing.js';
+import { restrictedOptionalUserIds } from './optional-processing.js';
+import { optionalNotificationRecipient } from './customer-notification-policy.js';
 import { cursorScope, cursorSort, decodeCursor, encodeCursor, pageResult } from './pagination.js';
 import { clearSponsoredOfferCache } from './seller-growth.js';
 import { assertSellerCapacity } from './seller-entitlements.js';
@@ -104,8 +105,8 @@ export async function queueCurrentConsentCampaign(row, context, session, request
   if (row.roles.some(role => !MARKETPLACE_ROLES.includes(role))) throw new AppError('The campaign audience is unavailable.', 409, 'CAMPAIGN_ROLE_INVALID');
   row.dispatchGrantPublicId = context.grant?.publicId || 'legacy:' + context.storedRole; row.dispatchActorUserId = context.actor._id; row.dispatchTokenVersion = context.actor.security.tokenVersion; row.dispatchStoredRole = context.storedRole; row.status = 'running'; row.startedAt = new Date(); row.eligibleCount = 0; row.queuedCount = 0;
   const restrictedIds = await restrictedOptionalUserIds({ session });
-  let after; while (true) { const users = await User.find({ _id: { $nin: restrictedIds, ...(after ? { $gt: after } : {}) }, country: row.country, status: 'active', platformAccessManagedAt: null, emailVerifiedAt: { $type: 'date' }, 'consents.marketing': true, role: { $in: row.roles.length ? row.roles : MARKETPLACE_ROLES } }).select('_id publicId __v').sort({ _id: 1 }).limit(SIZE).session(session).lean();
-    for (const user of users) { const current = await User.updateOne({ _id: user._id, status: 'active', country: row.country, platformAccessManagedAt: null, 'consents.marketing': true, __v: user.__v || 0 }, { $inc: { __v: 1 } }, { session }); if (current.modifiedCount !== 1) throw new AppError('Campaign audience changed. Queue it again.', 409, 'CAMPAIGN_AUDIENCE_CHANGED'); await addOutboxEvent({ type: 'marketing.campaign_message', aggregateType: 'marketing_campaign', aggregatePublicId: row.publicId, payload: { userPublicId: user.publicId, country: row.country, campaignVersion: (row.__v || 0) + 1, consentBasis: 'marketing' } }, session); row.eligibleCount++; row.queuedCount++; }
+  let after; while (true) { const users = await User.find({ _id: { $nin: restrictedIds, ...(after ? { $gt: after } : {}) }, country: row.country, status: 'active', platformAccessManagedAt: null, emailVerifiedAt: { $type: 'date' }, 'consents.marketing': true, 'preferences.notifications.offers': true, role: { $in: row.roles.length ? row.roles : MARKETPLACE_ROLES } }).select('_id publicId __v').sort({ _id: 1 }).limit(SIZE).session(session).lean();
+    for (const user of users) { const current = await User.updateOne({ _id: user._id, status: 'active', country: row.country, platformAccessManagedAt: null, 'consents.marketing': true, 'preferences.notifications.offers': true, __v: user.__v || 0 }, { $inc: { __v: 1 } }, { session }); if (current.modifiedCount !== 1) throw new AppError('Campaign audience changed. Queue it again.', 409, 'CAMPAIGN_AUDIENCE_CHANGED'); await addOutboxEvent({ type: 'marketing.campaign_message', aggregateType: 'marketing_campaign', aggregatePublicId: row.publicId, payload: { userPublicId: user.publicId, country: row.country, campaignVersion: (row.__v || 0) + 1, consentBasis: 'marketing' } }, session); row.eligibleCount++; row.queuedCount++; }
     if (users.length < SIZE) break; after = users.at(-1)._id;
   }
   if (!row.queuedCount) { row.status = 'completed'; row.completedAt = new Date(); } row.increment(); await row.save({ session }); await audit(request, 'campaign_queued', row, session, { queuedCount: row.queuedCount }); return row;
@@ -127,7 +128,7 @@ export async function marketingDispatchAuthority(row, session = null) {
 }
 export async function prepareMarketingCampaignDelivery(event) {
   const row = await MarketingCampaign.findOne({ publicId: event.aggregatePublicId, country: event.payload?.country, status: 'running' }).lean(); if (!row || (row.__v || 0) !== event.payload?.campaignVersion || !await marketingDispatchAuthority(row)) return null;
-  const user = await User.findOne({ publicId: event.payload?.userPublicId, country: row.country, status: 'active', platformAccessManagedAt: null, emailVerifiedAt: { $type: 'date' }, 'consents.marketing': true, role: { $in: row.roles.length ? row.roles : MARKETPLACE_ROLES } }).select('_id email').lean(); const allowed = user ? await optionalProcessingUser(user._id, { marketing: true }) : null; return allowed ? { email: allowed.email, subject: row.subject, text: row.body } : null;
+  const user = await User.findOne({ publicId: event.payload?.userPublicId, country: row.country, status: 'active', platformAccessManagedAt: null, emailVerifiedAt: { $type: 'date' }, 'consents.marketing': true, role: { $in: row.roles.length ? row.roles : MARKETPLACE_ROLES } }).select('_id email').lean(); const allowed = user ? await optionalNotificationRecipient(user._id, 'offers') : null; return allowed ? { email: allowed.email, subject: row.subject, text: row.body } : null;
 }
 
 export async function decideCountryAffiliateCampaign(request, id, raw) {

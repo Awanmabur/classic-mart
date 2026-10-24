@@ -18,8 +18,10 @@ import { assertOperationalCountry, operationalCountriesFor, operationalCountrySc
 import { activatePlatformGrant, revokePlatformGrant, suspendPlatformGrant } from './platform-grants.js';
 import { env } from '../config/env.js';
 import { countryAdminAccess, fenceCountryAdminAccess } from './country-admin-workspace-access.js';
+import { superAdminAccess } from './super-admin-access.js';
 import { applyCountryCmsApproval } from './country-admin-growth-pages.js';
 import { writeAudit } from './audit.js';
+import { scanMaintenanceBatch } from './maintenance-scan.js';
 
 const exportDir=env.exportDir;
 
@@ -268,17 +270,43 @@ export async function createCmsRevision({user,key,type,country='',title='',body=
   });}finally{await session.endSession();}
 }
 
+async function scheduledCmsAuthority(actor, revision, country, session) {
+  if (revision.dispatchGrantPublicId?.startsWith('legacy:')) return currentAdministrativeAuthority(actor, { country, session });
+  const grant = await PlatformGrant.findOne({ publicId: revision.dispatchGrantPublicId, userId: actor._id }).select('role').session(session).lean();
+  const request = { user: actor, query: { country }, requiredOperationalWorkspace: grant?.role === 'super_admin' ? 'superadmin' : 'admin' };
+  let context;
+  if (grant?.role !== 'super_admin') {
+    if (!country) throw new AppError('Global scheduled publication requires current Super Admin authority.', 403, 'COUNTRY_SCOPE');
+    context = await countryAdminAccess(request, { country, session });
+  } else context = await superAdminAccess(request, { country, session });
+  if (context.grant?.publicId !== revision.dispatchGrantPublicId) throw new AppError('The scheduled publication staff grant changed.', 403, 'CMS_DISPATCH_AUTHORITY_CHANGED');
+  // Publication was independently approved with recent MFA in the browser.
+  // Dispatch reloads and fences that exact current staff authority, without
+  // inventing a browser session or a fresh interactive MFA proof for a worker.
+  await fenceCountryAdminAccess(context, session);
+  return context;
+}
+
 export async function publishScheduledCms(now=new Date()){
-  const docs=await CmsContent.find({status:'scheduled'}).select('publicId').limit(100).lean();let activated=0;
-  for(const original of docs){const session=await mongoose.startSession();try{const result=await session.withTransaction(async()=>{
+  // Persist keyset progress even when a source is blocked. A future schedule or
+  // a revoked approval cannot monopolize the first page on every worker cycle.
+  const {rows:docs}=await scanMaintenanceBatch(CmsContent,'scheduled_cms_publication',
+    {status:'scheduled','revisions.scheduledFor':{$lte:now}},
+    {limit:100,select:'publicId scheduledVersion revisions.version revisions.scheduledFor'});
+  let activated=0;
+  for(const original of docs){
+    const scheduled=original.revisions.find(row=>row.version===original.scheduledVersion);
+    if(!scheduled?.scheduledFor||scheduled.scheduledFor>now)continue;
+    const session=await mongoose.startSession();try{const result=await session.withTransaction(async()=>{
     const doc=await CmsContent.findOne({publicId:original.publicId,status:'scheduled'}).session(session);if(!doc)return false;
     const revision=doc.revisions.find(row=>row.version===doc.scheduledVersion);if(!revision?.scheduledFor||revision.scheduledFor>now)return false;
-    const approval=await ApprovalRequest.findOne({publicId:revision.approvalPublicId,targetPublicId:doc.publicId,country:doc.country,type:'cms_publish',status:'applied','payload.version':revision.version}).session(session);if(!approval||String(approval.decidedByUserId)!==String(revision.approvedByUserId))return false;
+    const approval=await ApprovalRequest.findOne({publicId:revision.approvalPublicId,targetPublicId:doc.publicId,country:doc.country,type:{$in:['cms_publish','cms_rollback']},status:'applied','payload.version':revision.version}).session(session);if(!approval||String(approval.decidedByUserId)!==String(revision.approvedByUserId)||String(approval.requestedByUserId)===String(approval.decidedByUserId))return false;
+    if(!approval.payload.scheduledFor||new Date(approval.payload.scheduledFor).getTime()!==revision.scheduledFor.getTime()||approval.type==='cms_rollback'&&!revision.publishedAt)return false;
     const actor=await User.findOne({_id:revision.approvedByUserId,'security.tokenVersion':revision.dispatchTokenVersion}).session(session);if(!actor)return false;
-    let context;try{context=revision.dispatchGrantPublicId?.startsWith('legacy:')?await currentAdministrativeAuthority(actor,{country:doc.country,session}):await countryAdminAccess({user:actor,query:{country:doc.country},requiredOperationalWorkspace:'admin'},{country:doc.country,session,write:true});}catch(error){if([401,403,409].includes(error.status))return false;throw error;}
-    if((context.grant?.publicId||`legacy:${context.storedRole}`)!==(revision.dispatchGrantPublicId||''))return false;
     const {cmsRevisionDigest}=await import('./country-admin-growth-pages.js');if(approval.payload.digest&&cmsRevisionDigest(revision)!==approval.payload.digest)return false;
     if(String(revision.createdByUserId)===String(actor._id))return false;
+    let context;try{context=await scheduledCmsAuthority(actor,revision,doc.country,session);}catch(error){if([401,403,409].includes(error.status))return false;throw error;}
+    if((context.grant?.publicId||`legacy:${context.storedRole}`)!==(revision.dispatchGrantPublicId||''))return false;
     doc.activeVersion=doc.scheduledVersion;doc.scheduledVersion=0;doc.status='published';revision.publishedAt=now;await doc.save({session});
     await AuditLog.create([{requestId:publicId('req'),actorId:actor._id,actorPublicId:actor.publicId,action:'cms.scheduled_published',targetType:'cms',targetPublicId:doc.publicId,country:doc.country,result:'success',metadata:{version:revision.version,approvalPublicId:approval.publicId}}],{session});return true;
   });if(result)activated++;}finally{await session.endSession();}}

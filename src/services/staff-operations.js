@@ -7,7 +7,6 @@ import { ApprovalRequest, CountrySetting, PlatformStaffInvitation, User, Warehou
 import { authenticateOperator, authorizeOperator, fenceOperatorAuthentication } from './operator-auth.js';
 import { createPlatformStaffInvitation } from './staff-access.js';
 import { currentAdministrativeAuthority, applyApproval } from './stage9.js';
-import { writeAudit } from './audit.js';
 
 const identifier = z.string().trim().regex(/^[A-Za-z0-9_-]{4,120}$/);
 const staffRole = z.enum(['country_admin', 'finance', 'moderator', 'support', 'warehouse']);
@@ -91,7 +90,6 @@ export async function runStaffOperation(credentials, { action, apply = false, ..
         const authority = await currentAdministrativeAuthority(context.actor, { session, country: context.role === 'country_admin' ? input.operationalCountries[0] : '' });
         const request = cliRequest(authority.actor);
         invitation = await createPlatformStaffInvitation(request, input, { session });
-        await writeAudit(request, 'admin.staff_invited', { session, actor: context.actor, targetType: 'platform_staff_invitation', targetPublicId: invitation.publicId, country: invitation.approvalCountry, metadata: { source: 'operations_cli', role: invitation.role, countries: invitation.operationalCountries, warehouseScopes: invitation.warehouseScopes } });
       });
     } finally { await session.endSession(); }
     if (!apply) return { mode: 'dry-run', action, operator, invitation: { emailMasked: maskEmail(input.email), role: input.role, operationalCountries: input.operationalCountries, warehouseScopes: input.warehouseScopes, grantDurationDays: input.grantDurationDays }, activationRequiresIndependentApproval: true };

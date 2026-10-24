@@ -167,11 +167,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .hero-arrow img { width: 10px; }
 .hero-prev { left: 12px; }
 .hero-next { right: 12px; }
-.hero-dots { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 5px; z-index: 8; }
-.hero-dots button { position: relative; width: 8px; height: 8px; border: 0; border-radius: 50%; padding: 0; background: rgba(255,255,255,.55); cursor: pointer; transition: .2s ease; }
-.hero-dots button.active { width: 20px; border-radius: 5px; background: #fff; }
-/* Extend the hit area vertically while keeping the approved dot spacing. */
-.hero-dots button::after { content: ""; position: absolute; inset: -8px 0; }
+.hero-dots { position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); display: flex; gap: 0; z-index: 8; }
+/* Keep the visible dots eight pixels tall while giving each slide its own
+   nonoverlapping touch target. The visible dots still sit 12px above the edge. */
+.hero-dots button { position: relative; width: 24px; height: 24px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.hero-dots button::before { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; transform: translate(-50%, -50%); border-radius: 50%; background: rgba(255,255,255,.55); transition: .2s ease; }
+.hero-dots button.active::before { width: 20px; border-radius: 5px; background: #fff; }
 
 .promo-stack { display: grid; grid-template-rows: repeat(3, 1fr); gap: 8px; }
 .promo-card { position: relative; min-height: 0; border: 0; border-radius: 7px; padding: 11px 10px 10px 14px; display: grid; grid-template-columns: 1fr 43%; align-items: center; overflow: hidden; cursor: pointer; text-align: left; transition: transform .2s ease, box-shadow .2s ease; }

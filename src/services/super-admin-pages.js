@@ -111,9 +111,10 @@ function sourcePipeline(definition,query){
   stages.push({$match:query});return stages;
 }
 const projection=definition=>Object.fromEntries(definition.select.split(/\s+/).filter(Boolean).map(field=>[field,1]));
+const listSelect=definition=>definition.Model===CmsContent?definition.select.replace(/\brevisions\b/,''):definition.select;
 async function sourceRows(definition,query,{after='',limit=SIZE+1,idQuery=null}={}){
   if(definition.join){const stages=sourcePipeline(definition,query);if(idQuery)stages.push({$match:idQuery});if(after)stages.push({$match:cursorScope({},after)});stages.push({$sort:cursorSort()},{$limit:limit},{$project:projection(definition)});return definition.Model.aggregate(stages);}
-  const select=definition.Model===CmsContent&&!idQuery?definition.select.replace(/\brevisions\b/,''):definition.select;
+  const select=idQuery?definition.select:listSelect(definition);
   return definition.Model.find(idQuery?{$and:[query,idQuery]}:cursorScope(query,after)).select(select).sort(cursorSort()).limit(limit).lean();
 }
 async function sourceCount(definition,query){if(!definition.join)return definition.Model.countDocuments(query);const rows=await definition.Model.aggregate([...sourcePipeline(definition,query),{$count:'count'}]);return rows[0]?.count||0;}
@@ -163,7 +164,7 @@ async function writeLine(response,values){if(response.destroyed)throw new AppErr
 export async function streamSuperAdminCsv(request,response,pageId){
   if(!SUPER_ADMIN_LIVE_ROUTES[pageId])throw new AppError('Super Admin page not found.',404,'SUPER_ADMIN_PAGE_NOT_FOUND');
   const context=await superAdminAccess(request),selected=filters(request,pageId),definition=superAdminPageDefinition(pageId,selected.tab),query=queryFor(context,selected,definition),snapshot=new Date();
-  const exportQuery={$and:[query,{createdAt:{$lte:snapshot}}]},cursor=definition.join?definition.Model.aggregate([...sourcePipeline(definition,exportQuery),{$sort:cursorSort()},{$project:projection(definition)}]).cursor({batchSize:100}):definition.Model.find(exportQuery).select(definition.select).sort(cursorSort()).lean().cursor({batchSize:100});let rows=0;
+  const exportQuery={$and:[query,{createdAt:{$lte:snapshot}}]},cursor=definition.join?definition.Model.aggregate([...sourcePipeline(definition,exportQuery),{$sort:cursorSort()},{$project:projection(definition)}]).cursor({batchSize:100}):definition.Model.find(exportQuery).select(listSelect(definition)).sort(cursorSort()).lean().cursor({batchSize:100});let rows=0;
   await assertSuperAdminReadAccess(request,context);
   response.set({'Cache-Control':'private, no-store','Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${pageId}-${selected.tab||'records'}.csv"`,'X-Robots-Tag':'noindex, nofollow, noarchive'});
   try{await writeLine(response,definition.columns);for await(const row of cursor){await assertSuperAdminReadAccess(request,context);await writeLine(response,definition.cells(row));rows++;}}finally{await cursor.close();}

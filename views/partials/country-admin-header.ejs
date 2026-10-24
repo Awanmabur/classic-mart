@@ -18,6 +18,6 @@ const headerSearch = searchPath + (searchParams.size ? '?' + searchParams : '');
     <button class="ai-button" id="classicAiBtn" type="button" aria-label="Open Classic AI" title="Classic AI"><svg class="ai-sparkle-icon"><use href="#i-sparkles"></use></svg><span>Classic AI</span></button>
     <button class="categories-button" data-page-target="admin-orders"><svg><use href="#i-shield"></use></svg><span>Operations</span></button>
     <button class="round-icon badge-button" data-page-target="admin-support" aria-label="Support queue"><svg><use href="#i-bell"></use></svg><b class="red" id="notificationBadge"><%= liveAdmin.sidebar?.backlog?.supportTickets ?? 0 %></b></button>
-    <button class="profile-button" id="profileButton"><img src="/approved-dashboard/assets/avatar.svg" alt="<%= user?.name || 'Member' %>"><span><strong>Hi, <%= headerMember %></strong><small>Admin</small></span><svg><use href="#i-chevron-down"></use></svg></button>
+    <button class="profile-button" id="profileButton"><img src="<%= typeof avatarUrl !== 'undefined' ? avatarUrl : '/approved-dashboard/assets/avatar.svg' %>" alt="<%= user?.name || 'Member' %>"><span><strong>Hi, <%= headerMember %></strong><small>Admin</small></span><svg><use href="#i-chevron-down"></use></svg></button>
   </div>
 </header>

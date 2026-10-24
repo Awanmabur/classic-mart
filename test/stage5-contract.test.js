@@ -55,7 +55,9 @@ test('Stage 5 reloads refund order and payment records inside the refund transac
   assert.match(refundLedger,/Order\.findById\(orderLike\._id\)\.session\(session\)/);
   assert.match(refundLedger,/PaymentIntent\.findById\(intentLike\._id\)\.session\(session\)/);
   assert.match(refundLedger,/Refund\.findById\(refundLike\._id\)\.session\(session\)/);
-  assert.match(refundLedger,/refundActorAccess\(request,order,session,\{write:true,financeRequired:manual\}\)/);
+  assert.match(refundLedger,/refundActorAccess\(request,order,session,\{write:true,financeRequired:manual,/);
+  assert.match(refundLedger,/completedCancellation:refund\.settlementMode==='cancellation_remainder'&&refund\.status==='completed'/);
+  assert.ok(refundLedger.indexOf('await refundActorAccess(')<refundLedger.indexOf('LedgerTransaction.exists('), 'Authorization precedes completed-ledger replay.');
   assert.match(refundLedger,/LedgerTransaction\.exists\(\{idempotencyKey:`refund:\$\{refundLike\.publicId\}`\}\)\.session\(session\)\)\{[\s\S]*?return;/);
   assert.match(refundLedger,/REFUND_COMPLETION_CONFLICT/);
   assert.match(service,/postRefundLedger\(order,refund,intent,\{request,manual:true,version\}\)/);

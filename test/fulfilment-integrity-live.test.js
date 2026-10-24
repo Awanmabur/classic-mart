@@ -237,13 +237,13 @@ test('fulfilment commits rejected proof attempts, authenticates carrier claims a
     await t.test('cancellation retries classify the latest captured payment and roll back preliminary stock restoration', async () => {
       const f = await fixture();
       await Order.updateOne({ _id: f.order._id }, { $set: { paymentMethod: 'wallet', paymentState: 'pending', status: 'pending_payment' } });
-      const findById = Order.findById;
+      const findOne = Order.findOne;
       let injected = false;
-      t.mock.method(Order, 'findById', function (...args) {
-        const query = findById.apply(this, args), exec = query.exec;
+      t.mock.method(Order, 'findOne', function (...args) {
+        const query = findOne.apply(this, args), exec = query.exec;
         query.exec = async function (...execArgs) {
           const document = await exec.apply(this, execArgs);
-          if (!injected && String(args[0]) === String(f.order._id) && this.getOptions().session) {
+          if (!injected && String(document?._id) === String(f.order._id) && this.getOptions().session) {
             injected = true;
             // A real write outside the cancellation transaction simulates the
             // payment commit and causes MongoDB to retry the stale snapshot.

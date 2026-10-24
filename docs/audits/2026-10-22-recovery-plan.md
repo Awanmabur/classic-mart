@@ -1,5 +1,9 @@
 # Recovery of the end-to-end remediation
 
+The [25 October verification checkpoint](2026-10-25-verification.md) records
+the newer full-run failures, fixes and outstanding checks. Rows below retain
+their earlier scoped evidence until the final recovery run is complete.
+
 The environment reset removed the uncommitted v2.14 working copy. The last
 durable baseline is `ae0936589e6ef1144ef8ba5495e2d40571b52ebc` (v2.13.74)
 on `approved-dashboard-ui`. Earlier test counts describe the lost working
@@ -19,15 +23,15 @@ preview fallbacks, and retain explicit workspace authorization boundaries.
 | G06 | Atomic independently approved staff grants | Super Admin recovery passed accepted invitations, independent grants, stale targets and concurrent decisions; release checks pending |
 | G07 | Privacy operations execute the approved request | Privacy recovery: 8 checks passed, including owned exports, corrections and deletion; worker/release checks pending |
 | G08 | Privacy legal holds, recovery and restrictions | Privacy recovery passed obligation blocks, interrupted-job recovery, storage revocation and effective restrictions; release checks pending |
-| G09 | Customer source links | Source restored; dedicated Customer HTTP/browser recovery verification pending |
+| G09 | Customer source links | Eight-check Customer recovery passed source-bound owned receipt/refund/return/exchange/reward/top-up links, private focus and actual browser clicks; release checks pending |
 | G10 | Atomic exact-variant cart-to-wishlist move | Customer recovery passed selected owned variant movement, replay, stale requests and rollback; release checks pending |
 | G11 | Complete scoped wallet history and CSV | Customer recovery passed all owned ledger rows, opening/closing balances and foreign-account exclusion; release checks pending |
 | G12 | Customer history pagination and order filters | Customer recovery passed owned order keysets/status filters beyond the old limit; broader history/release checks pending |
-| G13 | Customer aftersales history | Aftersales recovery passed owned collection codes and consent progress; broader complete-history/browser verification pending |
+| G13 | Customer aftersales history | Customer recovery traversed all 67 tied-timestamp records in each of five histories, with no duplicates/foreign records and rejected forged/cross-account/cross-history cursors; release checks pending |
 | G14 | Address editing and default invariant | Customer recovery passed all-field edits, stale versions and one default under concurrent writes; actual browser create/edit passed; release checks pending |
 | G15 | Policy-controlled funded rewards | Funding unit/live and checkout suites passed exact cash/subsidy/refund accounting; independent policy publication passed; release checks pending |
 | G16 | Club, market loyalty, refund/chargeback recovery | Loyalty/migration/funding suites passed lineage, debt and market isolation; Club policy publication passed; full UI/release checks pending |
-| G17 | Effective notification and privacy preferences | Privacy recovery passed restriction effects on outreach, profiling, AI and push; ordinary preference/browser verification pending |
+| G17 | Effective notification and privacy preferences | Final notification suite passed all 6 checks for actual optional delivery, queued opt-out/consent/privacy changes, atomic alert claims, source-bound historical messages and required notices; release checks pending |
 | G18 | Private sanitized avatars and durable cleanup | Customer recovery passed raster validation, private sanitizing, replacement/deletion and physical cleanup lease/staging recovery; Customer browser avatar flow and Seller HTTP profile/ownership checks passed; worker/release checks pending |
 | G19 | Accepted seller team invitations and capabilities | Seller recovery passed exact-recipient acceptance, retained identity and explicit workspace selection; release checks pending |
 | G20 | Reviewed affiliate campaign lifecycle | Seller recovery and twelve-stage integration passed independent campaign/application review, attributed purchase and proportional refund reversal; release checks pending |

@@ -3,10 +3,8 @@ import { assertSellerAnalytics } from './seller-entitlements.js';
 import { sellerOverviewWindow } from './seller-overview.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
-import { CountrySetting, LedgerAccount, Payout, PayoutAccount, Store, StoreMember, User } from '../models/index.js';
-import { storeCapabilities } from './store.js';
+import { LedgerAccount, Payout, PayoutAccount } from '../models/index.js';
 import { accountBalanceMinor } from './money.js';
 import { sellerFinanceStatement } from './seller-finance.js';
 import { loadSellerOverview } from './seller-overview.js';
@@ -33,27 +31,7 @@ function scopedPaymentRequest(request, store) {
 
 /** Fresh authorization also protects direct service callers and mutations. */
 export async function sellerFinanceAccess(request) {
-  if (!request.user?._id || !request.store?._id) throw new AppError('Seller authentication is required.', 401, 'UNAUTHENTICATED');
-  const [actor, store, member] = await Promise.all([
-    User.findById(request.user._id).select('status security.tokenVersion security.mfaEnabled emailVerifiedAt onboardingCompletedAt').lean(),
-    Store.findById(request.store._id),
-    StoreMember.findOne({ storeId: request.store._id, userId: request.user._id, status: 'active' }).lean(),
-  ]);
-  if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion
-    || (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) {
-    throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
-  }
-  if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) {
-    throw new AppError('Complete account verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');
-  }
-  if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) {
-    throw new AppError('Authenticator enrollment is required for store operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
-  }
-  const capabilities = storeCapabilities(member?.role);
-  if (!member || (!capabilities.has('*') && !capabilities.has('finance'))) throw new AppError('Your store role cannot access finance.', 403, 'STORE_PERMISSION_DENIED');
-  if (!store || !['pending_verification', 'verified'].includes(store.status)) throw new AppError('This store is unavailable.', 409, 'STORE_LOCKED');
-  const country = await CountrySetting.findOne({ code: store.country, active: true }).select('currency timeZone').lean();
-  if (!country || country.currency !== store.currency) throw new AppError('The store country and currency need configuration.', 409, 'SELLER_COUNTRY_UNAVAILABLE');
+  const { store, member, country } = await sellerOperationsAccess(request, 'finance');
   if (request.session) request.session.activeStorePublicId = store.publicId;
   request.store = store;
   request.storeMembership = member;

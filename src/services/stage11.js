@@ -12,7 +12,8 @@ import { authenticate } from './auth.js';
 import { getCountry } from './country.js';
 import { writeAudit } from './audit.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
-import { assertOptionalProcessing, optionalProcessingUser } from './optional-processing.js';
+import { assertOptionalProcessing, fenceOptionalProcessing } from './optional-processing.js';
+import { customerNotificationEnabled, optionalNotificationRecipient } from './customer-notification-policy.js';
 import {
   ApiClient,
   ApiIdempotency,
@@ -48,11 +49,14 @@ function requestHash(body) { return crypto.createHash('sha256').update(stable(bo
 
 function pushGatewayConfigured(){return Boolean(env.stage11.pushGatewayUrl && env.stage11.pushGatewaySecret);}
 function pushSignature(timestamp,body){return crypto.createHmac('sha256',env.stage11.pushGatewaySecret).update(`${timestamp}.${body}`).digest('hex');}
-export async function queuePushNotification({userId,userPublicId='',title,body,deepLink='/'}){
+export async function queuePushNotification({userId,userPublicId='',title,body,deepLink='/',category='general'},{session=null}={}){
   if(!userId) throw new AppError('Push notification user is required.',422,'PUSH_USER_REQUIRED');
-  const user = await assertOptionalProcessing(userId);
+  if(!['general','orders','wishlist','offers','club'].includes(category)) throw new AppError('Choose a valid notification category.',422,'PUSH_CATEGORY_INVALID');
+  const user = session ? await fenceOptionalProcessing(userId, { session, marketing: category === 'offers' })
+    : await assertOptionalProcessing(userId, { marketing: category === 'offers' });
   if (userPublicId && user.publicId !== userPublicId) throw new AppError('Push notification identity changed.',409,'PUSH_USER_CHANGED');
-  const event=await OutboxEvent.create({eventId:publicId('evt'),type:'mobile.push',aggregateType:'user',aggregatePublicId:userPublicId||String(userId),payload:{userId:String(userId),title:String(title||'Classic Mart').slice(0,120),body:String(body||'').slice(0,500),deepLink:String(deepLink||'/').slice(0,500)}});
+  if(category!=='general'&&!customerNotificationEnabled(user,category))return null;
+  const [event]=await OutboxEvent.create([{eventId:publicId('evt'),type:'mobile.push',aggregateType:'user',aggregatePublicId:userPublicId||String(userId),payload:{userId:String(userId),notificationCategory:category,title:String(title||'Classic Mart').slice(0,120),body:String(body||'').slice(0,500),deepLink:String(deepLink||'/').slice(0,500)}}],session?{session}:undefined);
   return event;
 }
 export async function processPushOutbox({limit=50,workerId=`push:${process.pid}`,leaseMs=60_000}={}){
@@ -68,15 +72,19 @@ export async function processPushOutbox({limit=50,workerId=`push:${process.pid}`
     );
     if(!event)break;checked+=1;
     try{
-      if (!await optionalProcessingUser(event.payload?.userId)) {
+      if (!await optionalNotificationRecipient(event.payload?.userId, event.payload?.notificationCategory || 'general')) {
         event.status='processed';event.processedAt=new Date();event.lastError='Push cancelled: current account or privacy authorization is unavailable.';
         event.payload={userId:event.payload?.userId,deliveryStatus:'cancelled'};event.markModified('payload');processed+=1;event.lockedBy='';event.lockedUntil=null;await event.save();continue;
       }
       const devices=await PushDevice.find({userId:event.payload?.userId,status:'active'}).select('+tokenEncrypted').lean();
       if(!devices.length){event.status='processed';event.processedAt=new Date();event.lastError='No active push devices.';processed+=1;event.lockedBy='';event.lockedUntil=null;await event.save();continue;}
       let delivered=0;
-      for(const device of devices){if(!await optionalProcessingUser(event.payload?.userId)||!await PushDevice.exists({_id:device._id,userId:event.payload?.userId,status:'active'}))continue;const payload={platform:device.platform,token:decryptSensitive(device.tokenEncrypted),title:event.payload.title,body:event.payload.body,deepLink:event.payload.deepLink,eventId:event.eventId};const raw=JSON.stringify(payload),timestamp=Math.floor(Date.now()/1000).toString();const response=await fetch(gateway,{method:'POST',headers:{'content-type':'application/json','user-agent':'Classic-Mart-Push/1.0','x-classic-mart-event-id':event.eventId,'x-classic-mart-timestamp':timestamp,'x-classic-mart-signature':`v1=${pushSignature(timestamp,raw)}`},body:raw,redirect:'error',signal:AbortSignal.timeout(8000)});if(response.ok){delivered+=1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:0,lastSeenAt:new Date()}});}else{const failures=Number(device.failureCount||0)+1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:failures,status:failures>=5?'invalid':'active'}});}}
-      if(delivered<1)throw new Error('Push gateway did not accept any active device delivery.');event.status='processed';event.processedAt=new Date();event.lastError='';processed+=1;
+      for(const device of devices){if(!await optionalNotificationRecipient(event.payload?.userId,event.payload?.notificationCategory||'general')||!await PushDevice.exists({_id:device._id,userId:event.payload?.userId,status:'active'}))continue;const payload={platform:device.platform,token:decryptSensitive(device.tokenEncrypted),title:event.payload.title,body:event.payload.body,deepLink:event.payload.deepLink,eventId:event.eventId};const raw=JSON.stringify(payload),timestamp=Math.floor(Date.now()/1000).toString();const response=await fetch(gateway,{method:'POST',headers:{'content-type':'application/json','user-agent':'Classic-Mart-Push/1.0','x-classic-mart-event-id':event.eventId,'x-classic-mart-timestamp':timestamp,'x-classic-mart-signature':`v1=${pushSignature(timestamp,raw)}`},body:raw,redirect:'error',signal:AbortSignal.timeout(8000)});if(response.ok){delivered+=1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:0,lastSeenAt:new Date()}});}else{const failures=Number(device.failureCount||0)+1;await PushDevice.updateOne({_id:device._id},{$set:{failureCount:failures,status:failures>=5?'invalid':'active'}});}}
+      if(delivered<1&&!await optionalNotificationRecipient(event.payload?.userId,event.payload?.notificationCategory||'general')){
+        event.payload={userId:event.payload?.userId,deliveryStatus:'cancelled'};event.markModified('payload');
+        event.lastError='Push cancelled: current notification or privacy authorization is unavailable.';
+      }else{if(delivered<1)throw new Error('Push gateway did not accept any active device delivery.');event.lastError='';}
+      event.status='processed';event.processedAt=new Date();processed+=1;
     }catch(error){event.status=event.attempts>=10?'dead':'failed';event.lastError=String(error.message||error).slice(0,1000);event.availableAt=new Date(Date.now()+Math.min(60,2**Math.min(8,event.attempts))*60_000);failed+=1;}
     event.lockedBy='';event.lockedUntil=null;await event.save();
   }

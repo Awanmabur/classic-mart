@@ -25,6 +25,7 @@ const csrf = html => {
   return token[1];
 };
 const routes = Object.freeze({
+  'admin-order-cases': '/admin/order-cases',
   'admin-overview': '/admin/overview',
   'admin-seller-approvals': '/admin/seller-approvals',
   'admin-promoter-approvals': '/admin/promoter-approvals',
@@ -51,7 +52,7 @@ test('Country Admin retains the approved shared design and original image assets
   }
 });
 
-test('all 16 Country Admin destinations use current grants, genuine MFA and the approved responsive workspace', { skip: !uri, timeout: 600_000 }, async t => {
+test('all 17 Country Admin destinations use current grants, genuine MFA and the approved responsive workspace', { skip: !uri, timeout: 600_000 }, async t => {
   assert.equal(new URL(uri).hostname, '127.0.0.1');
   assert.match(new URL(uri).pathname, /verification|test/i);
   const suffix = crypto.randomBytes(8).toString('hex'), transports = [];
@@ -218,7 +219,7 @@ test('all 16 Country Admin destinations use current grants, genuine MFA and the 
       countries: ['UG', 'KE', 'TZ'], status: 'submitted', moderation: { submittedAt: now } });
     await Product.create(paginatedProducts);
 
-    await t.test('all 16 private canonical pages and query-preserving aliases retain only Country Admin navigation', async () => {
+    await t.test('all 17 private canonical pages and query-preserving aliases retain only Country Admin navigation', async () => {
       for (const [id, href] of Object.entries(routes)) {
         const page = await client.get(href).set('Accept', 'text/html').expect(200);
         assert.match(page.text, /data-dashboard-workspace="admin"/);
@@ -271,7 +272,7 @@ test('all 16 Country Admin destinations use current grants, genuine MFA and the 
       assert.equal(allMarkets.page.total, 32, 'A listing selling in both countries belongs to one owning-store queue.');
     });
 
-    await t.test('selected records and original product and verification detail URLs remain private and in the approved 16-page shell', async () => {
+    await t.test('selected records and original product and verification detail URLs remain private and in the approved 17-page shell', async () => {
       for (const [href, kind] of [['/admin/products', 'product'], ['/admin/seller-approvals', 'verification'], ['/admin/reviews', 'review']]) {
         // Product and seller evidence authorize the authoritative Store country
         // before building a detail DTO. A market outside the entire grant is
@@ -322,7 +323,7 @@ test('all 16 Country Admin destinations use current grants, genuine MFA and the 
       }
     });
 
-    await t.test('personal account pages retain all 16 Country Admin destinations without customer balances or a role selector', async () => {
+    await t.test('personal account pages retain all 17 Country Admin destinations without customer balances or a role selector', async () => {
       for (const href of ['/account/security', '/account/messages']) {
         const page = await client.get(href).expect(200);
         assert.match(page.text, /data-dashboard-workspace="admin"/);
@@ -338,7 +339,7 @@ test('all 16 Country Admin destinations use current grants, genuine MFA and the 
     await new Promise(resolve => server.once('listening', resolve));
     const base = `http://127.0.0.1:${server.address().port}`;
     browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
-    for (const width of [1366, 390]) await t.test(`all 16 actual Country Admin pages, details and five settings sections remain readable at ${width}px`, async () => {
+    for (const width of [1366, 390]) await t.test(`all 17 actual Country Admin pages, details and five settings sections remain readable at ${width}px`, async () => {
       const browserActor = await actor('customer', { managed: true, enroll: true });
       const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
       try {
@@ -356,7 +357,7 @@ test('all 16 Country Admin destinations use current grants, genuine MFA and the 
           if (layout.scrollWidth > width + 1) await page.screenshot({ path: `/tmp/classicmart-country_admin-${width}-overflow.png`, fullPage: true, animations: 'disabled' });
           assert.ok(layout.scrollWidth <= width + 1, href + ' page overflow: ' + JSON.stringify(layout));
           assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'admin');
-          assert.equal(await page.locator('.side-navigation a[href^="/admin/"]').count(), 16);
+          assert.equal(await page.locator('.side-navigation a[href^="/admin/"]').count(), 17);
           assert.equal(await page.locator('#roleSwitcher').count(), 0);
           assert.equal(await page.locator('.role-page h1').isVisible(), true, href + ' heading');
           const unlabeled = await page.locator('input:not([type="hidden"]), select, textarea').evaluateAll(nodes => nodes.filter(node =>
@@ -431,7 +432,7 @@ test('all 16 Country Admin destinations use current grants, genuine MFA and the 
         }
         await page.goto(base + '/account/security');
         assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'admin');
-        assert.equal(await page.locator('.side-navigation a[href^="/admin/"]').count(), 16);
+        assert.equal(await page.locator('.side-navigation a[href^="/admin/"]').count(), 17);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Country Admin personal security overflow');
         assert.equal(await page.locator('#searchInput').getAttribute('aria-label'), 'Search your Country Admin workspace');
         assert.equal(await page.locator('#searchForm').getAttribute('data-dashboard-search-route'), '/admin/products');

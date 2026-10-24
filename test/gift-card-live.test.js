@@ -2,20 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
-import { GiftCard, CountrySetting, LoyaltyAccount, LoyaltyEntry } from '../src/models/index.js';
+import { GiftCard, CountrySetting, LoyaltyAccount, LoyaltyEntry, User } from '../src/models/index.js';
 import { hashToken } from '../src/core/crypto.js';
 import { encryptSensitive } from '../src/core/sensitive.js';
 import { redeemGiftCard } from '../src/services/stage9.js';
 
 const uri = process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI;
-test('real MongoDB gift-card redemption credits one concurrent claimant and rolls back failed credit', { skip: !uri }, async () => {
+test('real MongoDB gift-card redemption credits one concurrent claimant and rolls back failed credit', { skip: !uri, timeout: 120_000 }, async () => {
   const target = new URL(uri);
   assert.equal(target.hostname, '127.0.0.1');
   assert.match(target.pathname, /verification|test/i);
-  await mongoose.connect(uri);
-  // ZZ is confined to the isolated test database and avoids changing live settings.
-  await CountrySetting.collection.updateOne({ code: 'ZZ' }, { $set: { growth: { giftCardsEnabled: true, loyaltyPointsPer1000Minor: 1 } } }, { upsert: true });
-  const users = [0, 1].map(() => ({ _id: new mongoose.Types.ObjectId(), country: 'ZZ' }));
+  const suffix = crypto.randomBytes(8).toString('hex');
+  await mongoose.connect(uri, { dbName: 'classicmart_gift_card_test_' + suffix });
+  let users = [];
   const cards = [];
   async function issue() {
     const code = crypto.randomBytes(20).toString('hex');
@@ -24,7 +23,10 @@ test('real MongoDB gift-card redemption credits one concurrent claimant and roll
     return { card, code };
   }
   try {
-    await Promise.all([GiftCard.init(), LoyaltyAccount.init(), LoyaltyEntry.init()]);
+    await Promise.all(Object.values(mongoose.models).map(Model => Model.init()));
+  // ZZ is confined to the isolated test database and avoids changing live settings.
+  await CountrySetting.create({ code: 'ZZ', name: 'Gift card test market', currency: 'UGX', locale: 'en-UG', timeZone: 'UTC', phonePrefix: '+256', active: true, growth: { giftCardsEnabled: true, loyaltyPointsPer1000Minor: 1 } });
+  users = await User.create([0, 1].map(index => ({ publicId: 'usr_gift_' + suffix + '_' + index, name: 'Gift claimant ' + index, email: 'gift-' + suffix + '-' + index + '@example.com', emailNormalized: 'gift-' + suffix + '-' + index + '@example.com', phone: '+25670011100' + index, phoneNormalized: '+25670011100' + index, passwordHash: crypto.randomBytes(32).toString('hex'), role: 'customer', country: 'ZZ', currency: 'UGX', status: 'active', emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(), consents: { terms: true, privacy: true, recordedAt: new Date() } })));
     const first = await issue();
     const results = await Promise.allSettled(users.map(user => redeemGiftCard({ user, code: first.code })));
     assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
@@ -58,6 +60,7 @@ test('real MongoDB gift-card redemption credits one concurrent claimant and roll
     await LoyaltyEntry.collection.deleteMany({ userId: { $in: users.map(user => user._id) } });
     await LoyaltyAccount.deleteMany({ userId: { $in: users.map(user => user._id) } });
     await CountrySetting.collection.deleteOne({ code: 'ZZ' });
+    await mongoose.connection.dropDatabase();
     await mongoose.disconnect();
   }
 });

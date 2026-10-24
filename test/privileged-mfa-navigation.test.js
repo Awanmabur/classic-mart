@@ -37,7 +37,18 @@ test('privileged MFA classification matches Express case-insensitive routing', (
 });
 
 test('non-privileged roles are never caught by the privileged MFA classifier', () => {
-  for (const role of ['customer', 'promoter', 'business', 'delivery']) {
+  for (const role of ['customer', 'promoter']) {
     assert.equal(requiresPrivilegedMfaForRequest(req('/api/v1/finance/refunds', { role })), false);
+  }
+});
+
+test('Business and Delivery operations require MFA while personal security remains reachable', () => {
+  for (const role of ['business', 'delivery']) {
+    for (const path of [`/${role}/overview`, `/api/v1/${role}/records`, `/dashboard/${role}-overview`]) {
+      assert.equal(requiresPrivilegedMfaForRequest(req(path, { role })), true, role + ':' + path);
+    }
+    for (const path of ['/account/profile', '/account/security', '/account/mfa/confirm', '/logout']) {
+      assert.equal(requiresPrivilegedMfaForRequest(req(path, { role })), false, role + ':' + path);
+    }
   }
 });

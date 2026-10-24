@@ -35,7 +35,11 @@ export function mfaContinuation(value, user, view) {
     const item = navigation.find(entry => destination.pathname === entry.href
       || destination.pathname === `/dashboard/${entry.id}`
       || (entry.id === 'seller-overview' && destination.pathname === '/seller'));
-    if (item) next = item.href + destination.search;
+    // The owned inbox remains reachable before an accepted store can be selected.
+    if (destination.pathname === '/account/store-invitations' && user?.status === 'active'
+        && ['customer', 'seller'].includes(user.role) && !user.platformAccessManagedAt
+        && !user.authorizationContext?.platformManaged) next = '/account/store-invitations';
+    else if (item) next = item.href + destination.search;
     // Keep a selected order/product after enrollment. Mutation and export URLs
     // cannot become continuation targets, even with the same store capability.
     else if (/^\/seller\/orders\/[A-Za-z0-9_-]{1,160}$/.test(destination.pathname)
@@ -47,7 +51,8 @@ export function mfaContinuation(value, user, view) {
   return {
     next,
     url: next || home,
-    label: workspace === 'customer' ? 'Continue to dashboard' : `Continue to ${DASHBOARD_WORKSPACES[workspace]?.label || 'your'} workspace`,
+    label: next === '/account/store-invitations' ? 'Continue to store invitations'
+      : workspace === 'customer' ? 'Continue to dashboard' : `Continue to ${DASHBOARD_WORKSPACES[workspace]?.label || 'your'} workspace`,
   };
 }
 

@@ -197,6 +197,65 @@ test('Super Admin uses current global grants, genuine MFA, source records and in
       await post(author,'/super/security/alerts/'+alert.publicId+'/actions',{version:alert.__v||0,status:'resolved',reason:reviewReason},409);
     });
 
+    await t.test('the CMS worker publishes and rolls back the exact independently approved revision with current staff authority',async()=>{
+      const {publishScheduledCms,publishedCms}=await import('../src/services/stage9.js');
+      const key='legal.dispatch.'+suffix,schedule=new Date(Date.now()+60_000),due=new Date(schedule.getTime()+1);
+      const create=raw=>operations.saveSuperCmsRevision(author.scoped(),{key,type:'legal',country:'',title:'Scheduled source',body:'The independently reviewed original publication.',reason:reviewReason,...raw});
+      const approve=async row=>operations.decideSuperApproval(reviewer.scoped(),row.publicId,{decision:'approve',reason:reviewReason,version:row.__v||0});
+      let content=await create({});
+      let approval=await operations.requestSuperCmsPublication(author.scoped(),content.publicId,{version:content.__v,revisionVersion:1,action:'publish',scheduledFor:schedule.toISOString(),reason:reviewReason});
+      await approve(approval);
+      assert.equal(await publishScheduledCms(new Date(schedule.getTime()-1)),0);
+      assert.equal(await publishedCms(key,'UG'),null);
+      await PlatformGrant.updateOne({_id:reviewer.grant._id},{$set:{status:'revoked'}});
+      assert.equal(await publishScheduledCms(due),0);
+      assert.equal((await CmsContent.findById(content._id)).activeVersion,0);
+      assert.equal(await AuditLog.countDocuments({action:'cms.scheduled_published',targetPublicId:content.publicId}),0);
+      await PlatformGrant.updateOne({_id:reviewer.grant._id},{$set:{status:'active'}});
+      assert.equal(await publishScheduledCms(due),1);
+      assert.equal((await publishedCms(key,'UG')).body,'The independently reviewed original publication.');
+      assert.equal(await publishScheduledCms(due),0);
+      content=await CmsContent.findById(content._id);
+      assert.equal(content.activeVersion,1);assert.equal(content.scheduledVersion,0);assert.equal(content.status,'published');
+      assert.equal(content.revisions[0].publishedAt.getTime(),due.getTime());
+      content=await create({version:content.__v,body:'The second independently approved public revision.'});
+      approval=await operations.requestSuperCmsPublication(author.scoped(),content.publicId,{version:content.__v,revisionVersion:2,action:'publish',scheduledFor:'',reason:reviewReason});
+      await approve(approval);
+      assert.equal((await publishedCms(key,'UG')).version,2);
+      content=await CmsContent.findById(content._id);
+      const rollbackSchedule=new Date(Date.now()+120_000),rollbackDue=new Date(rollbackSchedule.getTime()+1);
+      approval=await operations.requestSuperCmsPublication(author.scoped(),content.publicId,{version:content.__v,revisionVersion:1,action:'rollback',scheduledFor:rollbackSchedule.toISOString(),reason:reviewReason});
+      await approve(approval);
+      assert.equal((await publishedCms(key,'UG')).version,2,'A scheduled rollback preserves the current public revision until it is due.');
+      await CmsContent.updateOne({_id:content._id,'revisions.version':1},{$set:{'revisions.$.body':'Changed after the independent decision.'}});
+      assert.equal(await publishScheduledCms(rollbackDue),0);
+      assert.equal((await CmsContent.findById(content._id)).activeVersion,2);
+      await CmsContent.updateOne({_id:content._id,'revisions.version':1},{$set:{'revisions.$.body':'The independently reviewed original publication.'}});
+      assert.equal(await publishScheduledCms(rollbackDue),1);
+      const restored=await publishedCms(key,'UG');assert.equal(restored.version,1);assert.equal(restored.body,'The independently reviewed original publication.');
+      assert.equal(await publishScheduledCms(rollbackDue),0);
+      assert.equal(await AuditLog.countDocuments({action:'cms.scheduled_published',targetPublicId:content.publicId}),2);
+    });
+
+    await t.test('more than one hundred future or blocked CMS schedules cannot starve a later valid due publication',async()=>{
+      const {publishScheduledCms,publishedCms}=await import('../src/services/stage9.js');
+      const dueAt=new Date(Date.now()+60_000),clock=new Date(dueAt.getTime()+1),future=new Date(Date.now()+7*86_400_000);
+      const scheduled=(kind,index,date)=>({publicId:id('cms'),key:'backpressure.'+suffix+'.'+kind+'.'+index,type:'legal',country:'',status:'scheduled',scheduledVersion:1,
+        revisions:[{version:1,title:'Retained '+kind+' source',body:'This unsatisfied source must not publish.',reason:reviewReason,createdByUserId:author.user._id,scheduledFor:date,approvalPublicId:id('missing_approval'),approvedByUserId:reviewer.user._id,dispatchGrantPublicId:reviewer.grant.publicId,dispatchTokenVersion:reviewer.user.security.tokenVersion}]});
+      await CmsContent.create(Array.from({length:101},(_,index)=>scheduled('future',index,future)));
+      const blocked=await CmsContent.create(Array.from({length:101},(_,index)=>scheduled('blocked',index,new Date(Date.now()-60_000))));
+      const key='legal.after.backpressure.'+suffix;
+      const content=await operations.saveSuperCmsRevision(author.scoped(),{key,type:'legal',country:'',title:'Actual due source',body:'The valid approved source is eventually published.',reason:reviewReason});
+      const approval=await operations.requestSuperCmsPublication(author.scoped(),content.publicId,{version:content.__v,revisionVersion:1,action:'publish',scheduledFor:dueAt.toISOString(),reason:reviewReason});
+      await operations.decideSuperApproval(reviewer.scoped(),approval.publicId,{decision:'approve',reason:reviewReason,version:approval.__v||0});
+      assert.equal(await publishScheduledCms(clock),0,'The first bounded page contains one hundred unavailable approvals.');
+      assert.equal(await publishedCms(key,'UG'),null);
+      assert.equal(await publishScheduledCms(clock),1,'A persisted keyset advances past the blocked first page on the next worker cycle.');
+      assert.equal((await publishedCms(key,'UG')).body,'The valid approved source is eventually published.');
+      assert.equal(await CmsContent.countDocuments({_id:{$in:blocked.map(row=>row._id)},status:'scheduled',activeVersion:0}),101);
+      assert.equal(await AuditLog.countDocuments({action:'cms.scheduled_published',targetPublicId:content.publicId}),1);
+    });
+
     await t.test('CMS backlog keysets expose every scoped record beyond fifty and an older source remains editable',async()=>{
       const prefix='backlog.'+suffix,createdAt=new Date('2026-01-03T03:04:05Z');
       const source=(country,index)=>({publicId:id('cms'),key:prefix+'.'+(country||'global')+'.'+index,type:'help',country,createdAt,
@@ -251,6 +310,14 @@ test('Super Admin uses current global grants, genuine MFA, source records and in
       const refreshed=(await author.client.get(olderRow.href).set('accept','application/json').expect(200)).body;
       assert.equal(refreshed.selected.revisions[0].body,edited.body);assert.equal(refreshed.page.total,67);
       assert.ok(refreshed.items.every(item=>!Object.hasOwn(item,'revisions')));
+      const originalFind=CmsContent.collection.find.bind(CmsContent.collection),projections=[];
+      const observed=t.mock.method(CmsContent.collection,'find',(filter,options)=>{projections.push(options?.projection);return originalFind(filter,options);});
+      try{
+        const exported=await author.client.get('/super/settings/export.csv').query(filters).expect(200);
+        assert.equal(exported.text.trim().split('\r\n').length,68);
+        assert.ok(exported.text.includes(detail.key));assert.doesNotMatch(exported.text,/PRIVATE_CMS_BODY_|original older record/);
+        assert.ok(projections.length>0);assert.ok(projections.every(projection=>projection&&!Object.hasOwn(projection,'revisions')),'The database export cursor must not fetch private revision histories.');
+      }finally{observed.mock.restore();}
     });
 
     await t.test('business credit review uses the current requesting membership and bounded requested terms',async()=>{

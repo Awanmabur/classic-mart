@@ -1,5 +1,8 @@
 # End-to-end recovery checkpoint
 
+For the subsequent full-run failures, fixes and current remaining verification,
+see the [25 October verification checkpoint](2026-10-25-verification.md).
+
 This is a recovery branch, not a production release. The baseline is
 `ae0936589e6ef1144ef8ba5495e2d40571b52ebc` (v2.13.74). The missing working copy
 has been rebuilt from the recorded remediation scope; previous lost test

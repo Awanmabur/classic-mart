@@ -24,8 +24,8 @@ test('seller products complete authenticated creation, inventory, independent re
   const database = `classicmart_seller_products_test_${suffix}`;
   await mongoose.connect(uri, { dbName: database });
   const { createApp } = await import('../src/app.js');
-  const { User, Store, StoreMember, Product, ProductVariant, ProductMedia, Category, Brand, Warehouse, StockItem, InventoryMovement, InventoryReservation, Order, CountrySetting, ShippingZone, AuditLog, Notification, OutboxEvent, Cart } = await import('../src/models/index.js');
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { Device, User, Store, StoreMember, Product, ProductVariant, ProductMedia, Category, Brand, Warehouse, StockItem, InventoryMovement, InventoryReservation, Order, CountrySetting, ShippingZone, AuditLog, Notification, OutboxEvent, Cart } = await import('../src/models/index.js');
+  const { hashPassword, hashToken } = await import('../src/core/crypto.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { readMediaObjectBuffer, deleteMediaObject, putMediaObject } = await import('../src/services/object-storage.js');
   const { updateSellerProduct, adjustSellerProductStock, uploadSellerProductImage, sellerProductList } = await import('../src/services/seller-products.js');
@@ -59,7 +59,12 @@ test('seller products complete authenticated creation, inventory, independent re
       await agent.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: csrf((await agent.get('/account/security')).text) }).expect(302);
       assert.equal((await User.findById(user._id)).security.mfaEnabled, true);
     }
-    return { user: await User.findById(user._id), agent };
+    const currentUser = await User.findById(user._id), sessionID = crypto.randomUUID();
+    const device = await Device.create({ publicId: `dev_prod_${suffix}_${index}`, userId: currentUser._id,
+      sessionHash: hashToken(sessionID), label: 'Current fixture service session', userAgent: 'Authenticated fixture', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    const context = { sessionID, device, session: { userId: String(currentUser._id), tokenVersion: currentUser.security.tokenVersion,
+      mfaVerifiedAt: Date.now() }, country: { code: currentUser.country, currency: currentUser.currency }, ip: '127.0.0.1', query: {} };
+    return { user: currentUser, agent, context };
   }
   try {
     await Promise.all([Store.init(), StoreMember.init(), Product.init(), ProductVariant.init(), ProductMedia.init(), StockItem.init(), Category.init(), Brand.init()]);
@@ -152,11 +157,11 @@ test('seller products complete authenticated creation, inventory, independent re
     const otherStore = await Store.findOne({ ownerUserId: other.user._id });
     await other.agent.get(base).expect(404);
     await other.agent.get('/media/catalogue/' + media.publicId).expect(404);
-    const delegated = await StoreMember.create({ publicId: `stm_prod_${suffix}`, storeId: store._id, userId: other.user._id, invitedByUserId: owner.user._id, role: 'catalogue', status: 'active' });
+    const delegated = await StoreMember.create({ publicId: `stm_prod_${suffix}`, storeId: store._id, userId: other.user._id, invitedByUserId: owner.user._id, role: 'catalogue', status: 'active', acceptedAt: new Date() });
     await other.agent.get('/media/catalogue/' + media.publicId).expect(200);
     await StoreMember.updateOne({ _id: delegated._id }, { $set: { status: 'revoked', revokedAt: new Date() } });
     await other.agent.get('/media/catalogue/' + media.publicId).expect(404);
-    await assert.rejects(updateSellerProduct({ id: `revoked-product-${suffix}`, user: other.user, store, params: { publicId: product.publicId }, body: { ...fields, version: await version() }, get: () => '' }), { code: 'STORE_PERMISSION_DENIED' });
+    await assert.rejects(updateSellerProduct({ id: `revoked-product-${suffix}`, ...other.context, user: other.user, store, params: { publicId: product.publicId }, body: { ...fields, version: await version() }, get: () => '' }), { code: 'STORE_PERMISSION_DENIED' });
 
     const firstVersion = await version();
     assert.equal((await ownerPost('update', { ...fields, version: firstVersion - 1 })).status, 409);
@@ -165,11 +170,11 @@ test('seller products complete authenticated creation, inventory, independent re
     assert.equal((await ProductVariant.findById(variant._id)).priceMinor, 45000);
     const previousTitle = (await Product.findById(product._id)).title;
     t.mock.method(AuditLog, 'create', async () => { throw new Error('Product update audit unavailable'); });
-    await assert.rejects(updateSellerProduct({ id: `update-audit-${suffix}`, user: owner.user, store, params: { publicId: product.publicId }, body: { ...fields, title: 'Rollback product title', version: await version() }, get: () => '' }), /Product update audit unavailable/);
+    await assert.rejects(updateSellerProduct({ id: `update-audit-${suffix}`, ...owner.context, user: owner.user, store, params: { publicId: product.publicId }, body: { ...fields, title: 'Rollback product title', version: await version() }, get: () => '' }), /Product update audit unavailable/);
     t.mock.restoreAll();
     assert.equal((await Product.findById(product._id)).title, previousTitle);
     const competingVersion = await version();
-    const competing = await Promise.allSettled(Array.from({ length: 6 }, (_, index) => updateSellerProduct({ id: `competing-product-${suffix}-${index}`, user: owner.user, store, params: { publicId: product.publicId }, body: { ...fields, title: `${fields.title} edit ${index}`, version: competingVersion }, get: () => '' })));
+    const competing = await Promise.allSettled(Array.from({ length: 6 }, (_, index) => updateSellerProduct({ id: `competing-product-${suffix}-${index}`, ...owner.context, user: owner.user, store, params: { publicId: product.publicId }, body: { ...fields, title: `${fields.title} edit ${index}`, version: competingVersion }, get: () => '' })));
     assert.equal(competing.filter(row => row.status === 'fulfilled').length, 1, competing.filter(row => row.status === 'rejected').map(row => row.reason.code || row.reason.message).join(', '));
     assert.equal(await version(), competingVersion + 1);
     assert.equal((await ownerPost('update', fields)).status, 302);
@@ -193,7 +198,7 @@ test('seller products complete authenticated creation, inventory, independent re
     assert.equal((await ProductVariant.findById(variant._id)).active, true);
     assert.equal((await StockItem.findById(stock._id)).onHand, 12);
     t.mock.method(AuditLog, 'create', async () => { throw new Error('Stock audit unavailable'); });
-    await assert.rejects(adjustSellerProductStock({ id: `stock-audit-${suffix}`, user: owner.user, store, params: { publicId: product.publicId }, body: { ...stockFields, quantity: 2, version: await version() }, get: () => '' }), /Stock audit unavailable/);
+    await assert.rejects(adjustSellerProductStock({ id: `stock-audit-${suffix}`, ...owner.context, user: owner.user, store, params: { publicId: product.publicId }, body: { ...stockFields, quantity: 2, version: await version() }, get: () => '' }), /Stock audit unavailable/);
     t.mock.restoreAll();
     assert.equal((await StockItem.findById(stock._id)).onHand, 12);
     assert.equal(await InventoryMovement.countDocuments({ stockItemId: stock._id }), 1);
@@ -270,8 +275,9 @@ test('seller products complete authenticated creation, inventory, independent re
     const storedCart = await Cart.findOne({ userId: customer.user._id });
     assert.equal(storedCart.items[0].quantity, 2); assert.equal(String(storedCart.items[0].variantId), String(variant._id));
     await customer.agent.patch('/api/v1/cart/items/' + variant.publicId).set('x-csrf-token', cart.body.csrfToken).send({ quantity: 13 }).expect(409);
-    const checkout = await customer.agent.post('/api/v1/checkout/review').set('x-csrf-token', cart.body.csrfToken).send({ deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala' }).expect(200);
-    const orderInput = { checkoutId: checkout.body.checkoutId, deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala', contact: { fullName: 'Product Test Buyer', email: customer.user.email, phone: customer.user.phone, address: 'Buyer test street address', city: 'Kampala', country: 'Uganda' } };
+    const contact = { fullName: 'Product Test Buyer', email: customer.user.email, phone: customer.user.phone, address: 'Buyer test street address', city: 'Kampala', country: 'UG' };
+    const checkout = await customer.agent.post('/api/v1/checkout/review').set('x-csrf-token', cart.body.csrfToken).send({ deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala', contact }).expect(200);
+    const orderInput = { checkoutId: checkout.body.checkoutId, deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala', contact };
     const deniedOrder = async reason => {
       const response = await customer.agent.post('/api/v1/orders').set('x-csrf-token', cart.body.csrfToken).send({ ...orderInput, idempotencyKey: `product-denied-${suffix}-${reason}` }).expect(409);
       assert.equal(response.body.error.code, 'CART_CHANGED');
@@ -346,7 +352,7 @@ test('seller products complete authenticated creation, inventory, independent re
 
     // Concurrent uploads must serialize through the same aggregate version.
     const imageVersion = await version(), imageCount = await ProductMedia.countDocuments({ productId: product._id });
-    const uploadClaims = await Promise.allSettled(Array.from({ length: 6 }, (_, index) => uploadSellerProductImage({ id: `product-upload-race-${suffix}-${index}`, user: owner.user, store, params: { publicId: product.publicId }, body: { version: imageVersion, altText: 'Concurrent product image ' + index, position: imageCount }, file: { buffer: png, mimetype: 'image/png', originalname: 'race.png' }, get: () => '' })));
+    const uploadClaims = await Promise.allSettled(Array.from({ length: 6 }, (_, index) => uploadSellerProductImage({ id: `product-upload-race-${suffix}-${index}`, ...owner.context, user: owner.user, store, params: { publicId: product.publicId }, body: { version: imageVersion, altText: 'Concurrent product image ' + index, position: imageCount }, file: { buffer: png, mimetype: 'image/png', originalname: 'race.png' }, get: () => '' })));
     assert.equal(uploadClaims.filter(row => row.status === 'fulfilled').length, 1, uploadClaims.filter(row => row.status === 'rejected').map(row => row.reason.code || row.reason.message).join(', '));
     assert.equal(await ProductMedia.countDocuments({ productId: product._id }), imageCount + 1);
     assert.equal((await fs.readdir(objectDirectory)).length, (imageCount + 1) * 2);
@@ -470,7 +476,7 @@ test('seller products complete authenticated creation, inventory, independent re
     assert.equal(await OutboxEvent.countDocuments({ type: 'catalogue.product_notification', status: 'processed', lastError: /no external email was sent/ }), queuedNotifications, 'development notification processing must clearly report that no provider email was delivered');
 
     const pageFixtures = await Product.insertMany(Array.from({ length: 51 }, (_, index) => ({ publicId: `prd_${crypto.randomBytes(16).toString('hex')}`, storeId: store._id, ownerUserId: owner.user._id, categoryId: category._id, title: `Paged Test Bag ${index}`, slug: `page-bag-${suffix}-${index}`, description: fields.description, countries: ['UG'], status: 'draft' })));
-    const listRequest = { user: owner.user, store };
+    const listRequest = { ...owner.context, user: owner.user, store };
     const firstPage = await sellerProductList(listRequest, { status: 'draft', q: 'Paged Test Bag' });
     assert.equal(firstPage.items.length, 50); assert.equal(firstPage.page.hasMore, true);
     const nextPage = await sellerProductList(listRequest, { status: 'draft', q: 'Paged Test Bag', after: firstPage.page.next });

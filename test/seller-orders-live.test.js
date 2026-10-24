@@ -25,10 +25,10 @@ test('seller orders complete payment-gated, isolated and atomic warehouse fulfil
   const database = `classicmart_seller_orders_test_${suffix}`;
   await mongoose.connect(uri, { dbName: database });
   const { createApp } = await import('../src/app.js');
-  const { User, Store, StoreMember, Product, ProductVariant, Category, Warehouse, StockItem, InventoryMovement,
+  const { Device, User, Store, StoreMember, Product, ProductVariant, Category, Warehouse, StockItem, InventoryMovement,
     InventoryReservation, Order, SellerOrder, SellerShipment, Shipment, Parcel, WarehouseTask, CountrySetting,
     ShippingZone, AuditLog, OutboxEvent, DeliveryOffer, DeliveryProfile } = await import('../src/models/index.js');
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { hashPassword, hashToken } = await import('../src/core/crypto.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { sellerOrderList, sellerOrderDetail, transitionSellerOrder } = await import('../src/services/seller-orders.js');
   const { offerShipment, acceptDeliveryOffer, transitionShipment } = await import('../src/services/logistics.js');
@@ -55,7 +55,12 @@ test('seller orders complete payment-gated, isolated and atomic warehouse fulfil
       await agent.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: csrf((await agent.get('/account/security')).text) }).expect(302);
       assert.equal((await User.findById(user._id)).security.mfaEnabled, true);
     }
-    return { user: await User.findById(user._id), agent };
+    const currentUser = await User.findById(user._id), sessionID = crypto.randomUUID();
+    const device = await Device.create({ publicId: `dev_orders_${suffix}_${index}`, userId: currentUser._id,
+      sessionHash: hashToken(sessionID), label: 'Current fixture service session', userAgent: 'Authenticated fixture', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    const context = { sessionID, device, session: { userId: String(currentUser._id), tokenVersion: currentUser.security.tokenVersion,
+      mfaVerifiedAt: Date.now() }, country: { code: currentUser.country, currency: currentUser.currency }, ip: '127.0.0.1', query: {} };
+    return { user: currentUser, agent, context };
   }
   async function seller() {
     const member = await actor();
@@ -64,9 +69,35 @@ test('seller orders complete payment-gated, isolated and atomic warehouse fulfil
     return member;
   }
   function serviceRequest(member, sellerOrder, version = sellerOrder.__v, fields = {}) {
-    return { id: `orders-${suffix}-${crypto.randomBytes(4).toString('hex')}`, user: member.user, store: member.store,
+    return { ...member.context, id: `orders-${suffix}-${crypto.randomBytes(4).toString('hex')}`, user: member.user, store: member.store,
       params: { publicId: sellerOrder.publicId }, body: { version, ...fields }, country: { code: 'UG' }, get: () => '' };
   }
+  async function actorRequest(member, body = {}, publicId = '') {
+    return { ...member.context, id: `orders-actor-${suffix}-${crypto.randomUUID()}`,
+      user: member.user, body, params: { publicId }, get: () => '' };
+  }
+
+  async function approveCarrier(carrier, operator) {
+    const delivery = await import('../src/services/delivery-workspace.js');
+    const profileFor = () => DeliveryProfile.findOne({ userId: carrier.user._id });
+    await delivery.saveDeliveryProfile(await actorRequest(carrier, { version: 0, transport: 'bicycle', serviceAreas: 'Kampala', action: 'save' }));
+    let profile = await profileFor();
+    const buffer = await sharp({ create: { width: 400, height: 400, channels: 3, background: '#345678' } }).png().toBuffer();
+    const identity = await actorRequest(carrier, { version: profile.__v, documentType: 'identity' });
+    identity.file = { buffer, mimetype: 'image/png', originalname: 'independent-carrier-identity.png', size: buffer.length };
+    await delivery.uploadDeliveryEvidence(identity, { profile: true });
+    profile = await profileFor();
+    await delivery.saveDeliveryProfile(await actorRequest(carrier, { version: profile.__v, transport: 'bicycle', serviceAreas: 'Kampala', action: 'submit' }));
+    profile = await profileFor();
+    await delivery.reviewDeliveryProfile(await actorRequest(operator, { version: profile.__v, decision: 'approve', codEnabled: 'true',
+      reason: 'Independent Warehouse review of actual private carrier identity evidence.' }, profile.publicId));
+    profile = await profileFor();
+    await delivery.setDeliveryAvailability(await actorRequest(carrier, { version: profile.__v, available: 'true' }));
+    profile = await profileFor();
+    assert.equal(profile.verificationStatus, 'approved'); assert.notEqual(String(profile.reviewedByUserId), String(carrier.user._id));
+    return profile;
+  }
+
   async function catalogue(member, warehouse, title) {
     const index = catalogueSequence++;
     const category = await Category.findOne({ publicId: `cat_orders_${suffix}` });
@@ -79,14 +110,15 @@ test('seller orders complete payment-gated, isolated and atomic warehouse fulfil
     return { product, variant, stock };
   }
   async function buyerOrder(buyer, lines, { confirm = true } = {}) {
+    const contact = { fullName: 'Order Test Buyer', email: buyer.user.email, phone: buyer.user.phone, address: 'Buyer collection test street', city: 'Kampala', country: 'UG' };
     const index = orderSequence++, cart = await buyer.agent.get('/api/v1/cart').expect(200);
     for (const { item, quantity = 1 } of lines) await buyer.agent.post('/api/v1/cart/items').set('x-csrf-token', cart.body.csrfToken)
       .send({ productId: item.product.publicId, variantId: item.variant.publicId, quantity }).expect(200);
     const review = await buyer.agent.post('/api/v1/checkout/review').set('x-csrf-token', cart.body.csrfToken)
-      .send({ deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala' }).expect(200);
+      .send({ deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala', contact }).expect(200);
     const placed = await buyer.agent.post('/api/v1/orders').set('x-csrf-token', cart.body.csrfToken).send({
       checkoutId: review.body.checkoutId, idempotencyKey: `order-place-${suffix}-${index}`, deliveryMethod: 'standard', paymentMethod: 'cod', city: 'Kampala',
-      contact: { fullName: 'Order Test Buyer', email: buyer.user.email, phone: buyer.user.phone, address: 'Buyer collection test street', city: 'Kampala', country: 'Uganda' },
+      contact,
     }).expect(201);
     const order = await Order.findOne({ publicId: placed.body.order.id });
     assert.equal(order.status, 'pending_payment');
@@ -192,19 +224,26 @@ test('seller orders complete payment-gated, isolated and atomic warehouse fulfil
 
     const unprotectedStaff = await actor('customer', 'UG', false);
     await StoreMember.create({ publicId: `stm_orders_unprotected_${suffix}`, storeId: owner.store._id, userId: unprotectedStaff.user._id,
-      invitedByUserId: owner.user._id, role: 'fulfilment', status: 'active' });
-    await unprotectedStaff.agent.get('/seller/orders').expect(302).expect('location', '/account/security?next=%2Fseller%2Forders');
-    const refusedMfa = await unprotectedStaff.agent.get('/seller/orders').set('accept', 'application/json').expect(403);
+      invitedByUserId: owner.user._id, role: 'fulfilment', status: 'active', acceptedAt: new Date() });
+    // Accepted staff must select their own store explicitly; opening a Seller
+    // URL must never silently switch a Customer account into its workspace.
+    const unselected = await unprotectedStaff.agent.get('/seller/orders').set('accept', 'application/json').expect(403);
+    assert.equal(unselected.body.error.code, 'SELLER_WORKSPACE_REQUIRED');
+    const unprotectedSecurity = await unprotectedStaff.agent.get('/account/security').expect(200);
+    const refusedMfa = await unprotectedStaff.agent.post('/seller/workspace').set('accept', 'application/json').type('form')
+      .send({ storePublicId: owner.store.publicId, _csrf: csrf(unprotectedSecurity.text) }).expect(403);
     assert.equal(refusedMfa.body.error.code, 'MFA_ENROLLMENT_REQUIRED');
     const staff = await actor('customer', 'UG', true); staff.store = owner.store;
     const delegation = await StoreMember.create({ publicId: `stm_orders_${suffix}`, storeId: owner.store._id, userId: staff.user._id,
-      invitedByUserId: owner.user._id, role: 'catalogue', status: 'active' });
+      invitedByUserId: owner.user._id, role: 'catalogue', status: 'active', acceptedAt: new Date() });
     for (const role of ['catalogue', 'finance', 'support']) {
       await StoreMember.updateOne({ _id: delegation._id }, { $set: { role } });
       const staffSecurity = await staff.agent.get('/account/security').expect(200);
       await staff.agent.post(`/seller/orders/${sellerOrder.publicId}/pick`).type('form').send({ version: (await SellerOrder.findById(sellerOrder._id)).__v, _csrf: csrf(staffSecurity.text) }).expect(403);
     }
     await StoreMember.updateOne({ _id: delegation._id }, { $set: { role: 'fulfilment' } });
+    const selectedStaff = await staff.agent.get('/account/security').expect(200);
+    await staff.agent.post('/seller/workspace').set('accept', 'application/json').type('form').send({ storePublicId: owner.store.publicId, _csrf: csrf(selectedStaff.text) }).expect(200);
     const staffDetail = await staff.agent.get('/seller/orders/' + sellerOrder.publicId).expect(200);
     assert.match(staffDetail.text, new RegExp(main.product.title));
     const staffDto = await sellerOrderDetail(serviceRequest(staff, await SellerOrder.findById(sellerOrder._id)));
@@ -263,23 +302,22 @@ test('seller orders complete payment-gated, isolated and atomic warehouse fulfil
     await postAction(owner, sellerOrder, 'dispatch', { status: 409 });
 
     const carrier = await actor('delivery'), logistics = await actor('warehouse');
-    await DeliveryProfile.create({ publicId: `dlp_orders_${suffix}`, userId: carrier.user._id, country: 'UG', transport: 'motorcycle',
-      verificationStatus: 'approved', available: true, approvedAt: new Date(), codEnabled: true });
+    await approveCarrier(carrier, logistics);
     let shipment = await Shipment.findOne({ orderId: pending.order._id }).select('+pickupCodeEncrypted +deliveryCodeEncrypted');
     const pickupCode = decryptSensitive(shipment.pickupCodeEncrypted), deliveryCode = decryptSensitive(shipment.deliveryCodeEncrypted);
-    const offer = await offerShipment({ shipment, deliveryUserId: carrier.user._id, earningMinor: 3000, currency: 'UGX', actorUserId: logistics.user._id });
-    shipment = await acceptDeliveryOffer({ offer: await DeliveryOffer.findById(offer._id), actorUserId: carrier.user._id });
-    await assert.rejects(transitionShipment({ shipment, nextStatus: 'picked_up', actorUserId: carrier.user._id, proofCode: 'invalid' }), { code: 'PROOF_INVALID' });
+    const offer = await offerShipment({ shipment, deliveryUserId: carrier.user._id, earningMinor: 3000, currency: 'UGX', actorUserId: logistics.user._id, request: await actorRequest(logistics), version: shipment.__v });
+    shipment = await acceptDeliveryOffer({ offer: await DeliveryOffer.findById(offer._id), actorUserId: carrier.user._id, request: await actorRequest(carrier), version: offer.__v });
+    await assert.rejects(transitionShipment({ shipment, nextStatus: 'picked_up', actorUserId: carrier.user._id, request: await actorRequest(carrier), version: (await Shipment.findById(shipment._id)).__v, proofCode: 'invalid' }), { code: 'PROOF_INVALID' });
     assert.equal((await Order.findById(pending.order._id)).fulfillmentState, 'ready');
-    shipment = await transitionShipment({ shipment, nextStatus: 'picked_up', actorUserId: carrier.user._id, proofCode: pickupCode });
+    shipment = await transitionShipment({ shipment, nextStatus: 'picked_up', actorUserId: carrier.user._id, request: await actorRequest(carrier), version: (await Shipment.findById(shipment._id)).__v, proofCode: pickupCode });
     await tracking(buyer, pending.order, 'shipped', 'in_transit');
-    shipment = await transitionShipment({ shipment, nextStatus: 'in_transit', actorUserId: carrier.user._id });
-    await assert.rejects(transitionShipment({ shipment, nextStatus: 'delivered', actorUserId: carrier.user._id, proofCode: deliveryCode }), { code: 'DELIVERY_PHOTO_REQUIRED' });
+    shipment = await transitionShipment({ shipment, nextStatus: 'in_transit', actorUserId: carrier.user._id, request: await actorRequest(carrier), version: shipment.__v });
+    await assert.rejects(transitionShipment({ shipment, nextStatus: 'delivered', actorUserId: carrier.user._id, request: await actorRequest(carrier), version: (await Shipment.findById(shipment._id)).__v, proofCode: deliveryCode }), { code: 'DELIVERY_PHOTO_REQUIRED' });
     assert.equal((await Order.findById(pending.order._id)).fulfillmentState, 'shipped');
     const photo = await sharp({ create: { width: 640, height: 640, channels: 3, background: '#ef6c00' } }).png().toBuffer();
     await sanitizeAndStoreEvidenceImage({ file: { buffer: photo, mimetype: 'image/png', originalname: 'seller-order-delivery-proof.png' },
       user: carrier.user, country: 'UG', contextType: 'delivery_job', contextPublicId: shipment.publicId, documentType: 'delivery_photo' });
-    shipment = await transitionShipment({ shipment, nextStatus: 'delivered', actorUserId: carrier.user._id, proofCode: deliveryCode });
+    shipment = await transitionShipment({ shipment, nextStatus: 'delivered', actorUserId: carrier.user._id, request: await actorRequest(carrier), version: (await Shipment.findById(shipment._id)).__v, proofCode: deliveryCode });
     await tracking(buyer, pending.order, 'delivered', 'delivered');
     assert.equal((await SellerOrder.findById(sellerOrder._id)).status, 'fulfilled');
     assert.equal((await Order.findById(pending.order._id)).items[0].deliveredQuantity, 2);

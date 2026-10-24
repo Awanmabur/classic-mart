@@ -98,6 +98,36 @@ test('Business purchasing uses accepted current authority, reviewed commercial t
       assert.equal((await BusinessBudget.findById(budget._id)).spentMinor,0);
     });
 
+    await t.test('independent approval is an explicit current permission for every non-owner membership role',async()=>{
+      const request=await operations.submitBusinessProcurement(owner.service,{title:'A request used to verify current delegated approval',items:[{variantPublicId:variant.publicId,quantity:1}],idempotencyKey:id('permission_purchase')});
+      let row=await ProcurementRequest.findOne({publicId:request.publicId}),member=await BusinessMember.findOne({organizationId:org._id,userId:approver.user._id});
+      await operations.changeBusinessMember(owner.service,member.publicId,{version:member.__v,action:'update',role:'approver',canApprove:false});
+      assert.equal((await loadBusinessPage(approver.service,'orders')).can.approve,false);
+      const before=await ProcurementRequest.findById(row._id).lean(),auditCount=await AuditLog.countDocuments({targetPublicId:row.publicId});
+      await assert.rejects(operations.decideBusinessProcurement(approver.service,row.publicId,{version:row.__v,decision:'approve'}),error=>error.code==='BUSINESS_CAPABILITY_REQUIRED');
+      assert.deepEqual(await ProcurementRequest.findById(row._id).lean(),before);
+      assert.equal(await AuditLog.countDocuments({targetPublicId:row.publicId}),auditCount);
+      member=await BusinessMember.findById(member._id);
+      await operations.changeBusinessMember(owner.service,member.publicId,{version:member.__v,action:'update',role:'approver',canApprove:true});
+      assert.equal((await loadBusinessPage(approver.service,'orders')).can.approve,true);
+      for(const role of ['buyer','viewer']){
+        const delegate=await actor('customer'),invitation=await operations.inviteBusinessMember(owner.service,{email:delegate.user.email,role,canApprove:true});
+        const invited=await BusinessMember.findOne({publicId:invitation.publicId});
+        await operations.acceptBusinessInvitation(delegate.service,invited.publicId,{version:invited.__v});delegate.service.session.activeBusinessPublicId=org.publicId;
+        assert.equal((await loadBusinessPage(delegate.service,'orders')).can.approve,true,role+' with explicit approval permission can act independently.');
+        const submitted=role==='buyer'?request:await operations.submitBusinessProcurement(owner.service,{title:'Another independently reviewed request',items:[{variantPublicId:variant.publicId,quantity:1}],idempotencyKey:id('viewer_permission_purchase')});
+        row=await ProcurementRequest.findOne({publicId:submitted.publicId});
+        await operations.decideBusinessProcurement(delegate.service,row.publicId,{version:row.__v,decision:'reject',reason:'The delegated independent reviewer declined this test request.'});
+        assert.equal((await ProcurementRequest.findById(row._id)).status,'rejected');
+        assert.equal((await User.findById(delegate.user._id)).role,'customer');
+        const active=await BusinessMember.findById(invited._id);
+        await operations.changeBusinessMember(owner.service,active.publicId,{version:active.__v,action:'update',role,canApprove:false});
+        assert.equal((await loadBusinessPage(delegate.service,'orders')).can.approve,false);
+        await assert.rejects(businessAccess(delegate.service,{capability:'approve'}),error=>error.code==='BUSINESS_CAPABILITY_REQUIRED');
+      }
+      assert.equal((await loadBusinessPage(owner.service,'orders')).can.approve,true,'The owner retains implicit approval authority, still subject to the independent-review rule.');
+    });
+
     await t.test('scoped canonical pages, literal searches and private commercial documents use live records',async()=>{
       const client=await login(owner),memberClient=await login(approver),sellerClient=await login(seller);
       for(const path of ['overview','orders','quotes','invoices','templates','settings']){

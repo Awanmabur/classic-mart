@@ -38,9 +38,9 @@ test('approved seller overview is live, independently scoped, payment-aware and 
   await mongoose.connect(uri, { dbName: database });
   const { createApp } = await import('../src/app.js');
   const models = await import('../src/models/index.js');
-  const { User, Store, StoreMember, SellerOrder, Order, PaymentIntent, Refund, Product, Category, Review, Warehouse, StockItem } = models;
+  const { User, Store, StoreMember, SellerOrder, Order, PaymentIntent, Refund, Product, Category, Review, Warehouse, StockItem, Device, PlatformGrant, SubscriptionPlan, SubscriptionChangeRequest, SubscriptionCharge, SubscriptionEnrollment } = models;
   const { loadSellerOverview } = await import('../src/services/seller-overview.js');
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { hashPassword, hashToken } = await import('../src/core/crypto.js');
   const { beginMfaEnrollment, confirmMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const password = `Overview-${suffix}-A1!`, passwordHash = await hashPassword(password), app = createApp(null);
   const transports = [];
@@ -49,7 +49,7 @@ test('approved seller overview is live, independently scoped, payment-aware and 
   async function actor(role = 'seller', { enroll = role === 'seller' } = {}) {
     const number = ++sequence, email = `overview-${suffix}-${number}@example.com`, phone = `+25670${String(number).padStart(7, '0')}`;
     let user = await User.create({ publicId: `usr_overview_${suffix}_${number}`, name: `Overview Owner ${number}`, email, emailNormalized: email,
-      phone, phoneNormalized: phone, passwordHash, role, country: 'UG', currency: 'UGX', locale: 'en-UG', emailVerifiedAt: now,
+      phone, phoneNormalized: phone, passwordHash, role, country: 'UG', currency: 'UGX', locale: 'en-UG', emailVerifiedAt: now, phoneVerifiedAt: now,
       onboardingCompletedAt: now, consents: { terms: true, privacy: true, recordedAt: now } });
     let recoveryCodes = [];
     if (enroll) {
@@ -67,7 +67,10 @@ test('approved seller overview is live, independently scoped, payment-aware and 
       const challenge = await client.get('/mfa').expect(200);
       await client.post('/mfa').type('form').send({ code: recoveryCodes[0], _csrf: csrf(challenge.text) }).expect(302);
     }
-    return { user, client, recoveryCodes };
+    user = await User.findById(user._id);
+    const serviceSessionID = crypto.randomUUID();
+    const serviceDevice = await Device.create({ publicId: `dev_context_${suffix}_${number}`, userId: user._id, sessionHash: hashToken(serviceSessionID), label: 'Current Seller fixture device', userAgent: 'Seller regression', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    return { user, client, serviceSessionID, serviceDevice, recoveryCodes };
   }
   async function storeFor(user, name, status = 'verified') {
     const store = await Store.create({ publicId: `str_overview_${suffix}_${++sequence}`, ownerUserId: user._id, name, slug: `${suffix}-${sequence}`,
@@ -76,7 +79,12 @@ test('approved seller overview is live, independently scoped, payment-aware and 
       role: 'owner', status: 'active', invitedByUserId: user._id, acceptedAt: now });
     return { store, member };
   }
-  const serviceRequest = (actor, store) => ({ user: actor.user, store, session: { tokenVersion: actor.user.security.tokenVersion } });
+  const serviceRequest = (actor, store) => ({ id: crypto.randomUUID(), user: actor.user, store, device: actor.serviceDevice, sessionID: actor.serviceSessionID, country: { code: store.country, currency: store.currency }, ip: '127.0.0.1', get: () => '', session: { userId: String(actor.user._id), tokenVersion: actor.user.security.tokenVersion, activeStorePublicId: store.publicId, ...(actor.user.security.mfaEnabled ? { mfaVerifiedAt: Date.now() } : {}) } });
+  async function selectStore(identity, selectedStore) {
+    const security = await identity.client.get('/account/security').expect(200);
+    await identity.client.post('/seller/workspace').set('accept', 'application/json').type('form')
+      .send({ storePublicId: selectedStore.publicId, _csrf: csrf(security.text) }).expect(200);
+  }
   async function commerce(store, { subtotal = 1000, discount = 100, createdAt = new Date('2026-10-02T12:00:00Z'), paidAt = new Date('2026-10-03T12:00:00Z'),
     status = 'confirmed', paymentStatus = 'succeeded', otherStore = null, rootCountry = 'UG', currency = 'UGX', paid = true } = {}) {
     const index = ++sequence, orderId = new mongoose.Types.ObjectId(), publicId = `ord_overview_${suffix}_${index}`;
@@ -109,6 +117,23 @@ test('approved seller overview is live, independently scoped, payment-aware and 
     const { store, member } = await storeFor(owner.user, 'Real Seller Store');
     const { store: foreign } = await storeFor(otherOwner.user, 'Foreign Store');
     const scoped = serviceRequest(owner, store);
+    const billing = await import('../src/services/seller-subscription-operations.js');
+    const { sellerTransaction } = await import('../src/services/seller-operations-access.js');
+    const reviewer = await actor('super_admin', { enroll: true });
+    await User.updateOne({ _id: reviewer.user._id }, { $set: { platformAccessManagedAt: new Date(), operationalCountries: ['*'] } });
+    reviewer.user = await User.findById(reviewer.user._id);
+    await PlatformGrant.create({ publicId: `free-overview-${suffix}` + '-grant', userId: reviewer.user._id, role: 'super_admin', operationalCountries: ['*'], status: 'active',
+      startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000), reason: 'Independent reviewed free analytics fixture.', approvalPublicId: `free-overview-${suffix}` + '-approval', approvedByUserId: new mongoose.Types.ObjectId() });
+    const analyticsPlan = await SubscriptionPlan.create({ publicId: `free-overview-${suffix}` + '-plan', key: `free-overview-${suffix}`, name: 'Reviewed analytics capacity', audience: 'seller', country: 'UG', currency: 'UGX', priceMinor: 0, cadence: 'monthly', status: 'active',
+      entitlements: { productLimit: 1000, seatLimit: 10, campaignLimit: 10, analyticsDays: 3660, analyticsExport: true }, createdByUserId: reviewer.user._id, updatedByUserId: reviewer.user._id });
+    const analyticsChange = await billing.requestReviewedSellerSubscription(serviceRequest(owner, store), { planPublicId: analyticsPlan.publicId, note: 'Request genuine reviewed analytics capacity.' });
+    await sellerTransaction(session => billing.reviewSellerSubscriptionRequest({ ...serviceRequest(reviewer, store), requiredOperationalWorkspace: 'superadmin' }, analyticsChange.publicId,
+      { decision: 'approve', version: analyticsChange.__v, reason: 'Independently reviewed the actual free plan terms.' }, { session }));
+    const reviewedChange = await SubscriptionChangeRequest.findById(analyticsChange._id);
+    const activated = await billing.startSellerSubscriptionPayment(serviceRequest(owner, store), { requestPublicId: reviewedChange.publicId, version: reviewedChange.__v, idempotencyKey: `free-overview-${suffix}` + '-activation' });
+    assert.equal(activated.status, 'succeeded');
+    assert.equal((await SubscriptionCharge.findOne({ publicId: activated.publicId })).amountMinor, 0);
+    assert.ok(await SubscriptionEnrollment.exists({ storeId: store._id, subscriptionChargePublicId: activated.publicId, status: 'active' }));
 
     await t.test('empty owned pending store opens original seller panels without customer cards or fabricated numbers', async () => {
       await Store.updateOne({ _id: store._id }, { $set: { status: 'pending_verification' } });
@@ -208,9 +233,10 @@ test('approved seller overview is live, independently scoped, payment-aware and 
       assert.equal(await Store.countDocuments({ ownerUserId: buyer.user._id }), 0, 'role rejection must happen before store creation');
       await buyer.client.get('/seller').set('accept', 'application/json').expect(403);
       await buyer.client.get('/dashboard/seller-overview').set('accept', 'application/json').expect(403);
-      const restricted = await actor();
+      const restricted = await actor('customer', { enroll: true });
       const restrictedMember = await StoreMember.create({ publicId: `stm_restricted_${suffix}`, storeId: store._id, userId: restricted.user._id,
         role: 'support', status: 'active', invitedByUserId: owner.user._id, acceptedAt: now });
+      await selectStore(restricted, store);
       await restricted.client.get('/seller/overview').set('accept', 'application/json').expect(403);
       assert.equal(await Store.countDocuments({ ownerUserId: restricted.user._id }), 0);
       await assert.rejects(loadSellerOverview(serviceRequest(restricted, store), { now }), error => error.code === 'STORE_PERMISSION_DENIED');
@@ -219,8 +245,8 @@ test('approved seller overview is live, independently scoped, payment-aware and 
       await StoreMember.updateOne({ _id: restrictedMember._id }, { $set: { status: 'revoked' } });
       await assert.rejects(loadSellerOverview(serviceRequest(restricted, store), { now }), error => error.code === 'STORE_PERMISSION_DENIED');
       await assert.rejects(loadSellerOverview(serviceRequest(owner, foreign), { now }), error => error.code === 'STORE_PERMISSION_DENIED');
-      // An owner membership is repaired by the existing loadSellerStore middleware;
-      // direct service requests must still reject a revoked authoritative membership.
+      // Reads never repair an explicitly revoked owner membership;
+      // both direct and HTTP operations must reject the current authoritative state.
       await StoreMember.updateOne({ _id: member._id }, { $set: { status: 'revoked' } });
       await assert.rejects(loadSellerOverview(scoped, { now }), error => error.code === 'STORE_PERMISSION_DENIED');
       await StoreMember.updateOne({ _id: member._id }, { $set: { status: 'active' } });
@@ -228,7 +254,7 @@ test('approved seller overview is live, independently scoped, payment-aware and 
       await owner.client.get('/seller/overview').set('accept', 'application/json').expect(409);
       await Store.updateOne({ _id: store._id }, { $set: { status: 'verified' } });
       await models.CountrySetting.updateOne({ code: 'UG' }, { $set: { active: false } });
-      await assert.rejects(loadSellerOverview(scoped, { now }), error => error.code === 'SELLER_COUNTRY_UNAVAILABLE');
+      await assert.rejects(loadSellerOverview(scoped, { now }), error => error.code === 'STORE_MARKET_UNAVAILABLE');
       await models.CountrySetting.updateOne({ code: 'UG' }, { $set: { active: true } });
       await assert.rejects(loadSellerOverview({ ...scoped, session: { tokenVersion: 99 } }, { now }), error => error.code === 'ACCOUNT_UNAVAILABLE');
       const unenrolled = await actor('seller', { enroll: false });

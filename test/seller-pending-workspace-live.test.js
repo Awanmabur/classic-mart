@@ -109,8 +109,8 @@ test('a registered pending seller can read its approved workspace while verifica
       assert.equal(seller.user.security.mfaEnabled, true);
     });
 
-    await t.test('all 17 pending seller pages and aliases retain the approved shell with a verification next action', async () => {
-      assert.equal(Object.keys(SELLER_LIVE_ROUTES).length, 17);
+    await t.test('all 23 pending seller pages and aliases retain the approved shell with a verification next action', async () => {
+      assert.equal(Object.keys(SELLER_LIVE_ROUTES).length, 23);
       for (const [id, href] of Object.entries(SELLER_LIVE_ROUTES)) {
         const page = await seller.agent.get(href).set('accept', 'text/html').expect(200);
         assert.ok(page.text.includes(`data-dashboard-page="${id}"`), href);
@@ -201,8 +201,10 @@ test('a registered pending seller can read its approved workspace while verifica
 
     await t.test('suspension denies operational pages and keeps store settings readable without allowing writes', async () => {
       await Store.updateOne({ _id: store._id }, { $set: { status: 'suspended', suspendedAt: new Date() } });
-      for (const href of Object.values(SELLER_LIVE_ROUTES).filter(href => href !== '/seller/store')) {
-        await seller.agent.get(href).set('accept', 'application/json').expect(409);
+      const privateReadPaths = new Set(['/seller/store', '/seller/subscription', '/seller/cases', '/seller/trust-cases']);
+      for (const href of Object.values(SELLER_LIVE_ROUTES)) {
+        const result = await seller.agent.get(href).set('accept', 'application/json').expect(privateReadPaths.has(href) ? 200 : 409);
+        if (!privateReadPaths.has(href)) assert.equal(result.body.error.code, 'STORE_LOCKED', href + ' still blocks trading.');
       }
       const locked = await seller.agent.get('/seller/store').expect(200);
       assert.match(locked.text, /Settings cannot be changed/);
@@ -219,7 +221,7 @@ test('a registered pending seller can read its approved workspace while verifica
       await seller.agent.post('/seller/orders/' + ownOrder.publicId + '/processing').set('accept', 'application/json').type('form')
         .send({ version: ownOrder.__v, _csrf: csrf(security.text) }).expect(409);
       await Store.updateOne({ _id: store._id }, { $set: { status: 'closed' } });
-      for (const href of ['/seller/store', '/seller/orders', '/seller/shipping']) await seller.agent.get(href).set('accept', 'application/json').expect(409);
+      for (const href of ['/seller/store', '/seller/orders', '/seller/shipping']) await seller.agent.get(href).set('accept', 'application/json').expect(403).expect(result => assert.equal(result.body.error.code, 'SELLER_WORKSPACE_FORBIDDEN'));
       assert.equal(await Store.countDocuments({ ownerUserId: seller.user._id }), 1);
       assert.equal((await User.findById(seller.user._id)).role, 'seller');
       assert.equal(await StoreMember.countDocuments({ storeId: store._id, userId: seller.user._id, role: 'owner', status: 'active' }), 1);

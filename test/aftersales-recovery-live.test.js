@@ -247,31 +247,40 @@ test('real aftersales HTTP consent, specialist departments and private seller or
     });
     await t.test('seller /cases is a private current-store order queue, distinct from policy TrustCases', async () => {
       const fixture = await referredCase('seller'), base = '/seller/cases';
-      const flow = await seller.client.get(base + '?record=' + fixture.referral.publicId).set('accept', 'application/json').expect(200);
-      assert.equal(flow.body.kind, 'specialist'); assert.equal(flow.body.metrics.length, 4); assert.equal(flow.body.selected.items.length, 1);
-      for (const secret of ['BUYER_PRIVATE_NAME', 'BUYER_PRIVATE_ADDRESS', 'BUYER_PRIVATE_DESCRIPTION', 'SUPPORT_PRIVATE_REVIEW', 'SUPPORT_PRIVATE_REASON', buyer.user.email]) assert.ok(!JSON.stringify(flow.body).includes(secret), secret);
-      await otherSeller.client.get(base + '?record=' + fixture.referral.publicId).set('accept', 'application/json').expect(404);
-      await catalogue.client.get(base).set('accept', 'application/json').expect(403);
-      const policy = await seller.client.get('/seller/trust-cases').set('accept', 'application/json').expect(200); assert.equal(policy.body.kind, 'policy-cases');
-      const claimed = await post(seller, base + '/' + fixture.referral.publicId + '/claim', { version: fixture.referral.__v }, { page: base });
-      const html = await seller.client.get(base + '?record=' + fixture.referral.publicId).expect(200); assert.match(html.text, /Return assessment to Support/);
-      const upload = await seller.client.post(base + '/' + fixture.referral.publicId + '/evidence').set('x-csrf-token', csrf(html.text)).set('accept', 'application/json')
-        .field('version', String(claimed.body.referral.version)).field('description', 'Seller private original dispatch condition evidence').attach('document', image, 'dispatch.png').expect(201);
-      const evidence = await EvidenceDocument.findOne({ contextType: 'specialist_referral', contextPublicId: fixture.referral.publicId });
-      assert.ok(evidence); const before = await SpecialistReferral.findById(fixture.referral._id).lean();
-      await seller.client.get(base + '/evidence/' + evidence.publicId).expect(200).expect('Content-Type', /image\/webp/);
-      assert.equal((await SpecialistReferral.findById(fixture.referral._id)).__v, before.__v);
-      await otherSeller.client.get(base + '/evidence/' + evidence.publicId).set('accept', 'application/json').expect(404);
-      await support.client.get('/support/order-case-evidence/' + evidence.publicId).expect(200).expect('Content-Type', /image\/webp/);
-      await PlatformGrant.updateOne({ _id: support.grant._id }, { $set: { operationalCountries: ['KE'] } });
-      await support.client.get('/support/order-case-evidence/' + evidence.publicId).set('accept', 'application/json').expect(403);
-      await PlatformGrant.updateOne({ _id: support.grant._id }, { $set: { operationalCountries: ['UG'] } });
-      await post(seller, base + '/' + fixture.referral.publicId + '/respond', { version: upload.body.referral.version, finding: 'further_action', summary: 'The exact store-owned order lines and private dispatch evidence have been reviewed; Support should decide the buyer response.' }, { page: base });
-      assert.equal((await SpecialistReferral.findById(fixture.referral._id)).status, 'responded');
-      assert.equal((await Dispute.findById(fixture.dispute._id)).status, 'investigating');
-      await StoreMember.updateOne({ storeId: store._id, userId: seller.user._id }, { $set: { status: 'revoked' } });
-      await seller.client.get(base + '/evidence/' + evidence.publicId).set('accept', 'application/json').expect(403);
-      await StoreMember.updateOne({ storeId: store._id, userId: seller.user._id }, { $set: { status: 'active' } });
+      await Store.updateOne({ _id: store._id }, { $set: { status: 'suspended' }, $inc: { __v: 1 } });
+      try {
+        // Trading remains locked, while existing buyers can still obtain the
+        // current Seller's private assessment of already-delivered goods.
+        await seller.client.get('/seller/products').set('accept', 'application/json').expect(409);
+        await seller.client.get('/seller/orders').set('accept', 'application/json').expect(409);
+        const flow = await seller.client.get(base + '?record=' + fixture.referral.publicId).set('accept', 'application/json').expect(200);
+        assert.equal(flow.body.kind, 'specialist'); assert.equal(flow.body.metrics.length, 4); assert.equal(flow.body.selected.items.length, 1);
+        for (const secret of ['BUYER_PRIVATE_NAME', 'BUYER_PRIVATE_ADDRESS', 'BUYER_PRIVATE_DESCRIPTION', 'SUPPORT_PRIVATE_REVIEW', 'SUPPORT_PRIVATE_REASON', buyer.user.email]) assert.ok(!JSON.stringify(flow.body).includes(secret), secret);
+        await otherSeller.client.get(base + '?record=' + fixture.referral.publicId).set('accept', 'application/json').expect(404);
+        await catalogue.client.get(base).set('accept', 'application/json').expect(403);
+        const policy = await seller.client.get('/seller/trust-cases').set('accept', 'application/json').expect(200); assert.equal(policy.body.kind, 'policy-cases');
+        const claimed = await post(seller, base + '/' + fixture.referral.publicId + '/claim', { version: fixture.referral.__v }, { page: base });
+        const html = await seller.client.get(base + '?record=' + fixture.referral.publicId).expect(200); assert.match(html.text, /Return assessment to Support/);
+        const upload = await seller.client.post(base + '/' + fixture.referral.publicId + '/evidence').set('x-csrf-token', csrf(html.text)).set('accept', 'application/json')
+          .field('version', String(claimed.body.referral.version)).field('description', 'Seller private original dispatch condition evidence').attach('document', image, 'dispatch.png').expect(201);
+        const evidence = await EvidenceDocument.findOne({ contextType: 'specialist_referral', contextPublicId: fixture.referral.publicId });
+        assert.ok(evidence); const before = await SpecialistReferral.findById(fixture.referral._id).lean();
+        await seller.client.get(base + '/evidence/' + evidence.publicId).expect(200).expect('Content-Type', /image\/webp/);
+        assert.equal((await SpecialistReferral.findById(fixture.referral._id)).__v, before.__v);
+        await otherSeller.client.get(base + '/evidence/' + evidence.publicId).set('accept', 'application/json').expect(404);
+        await support.client.get('/support/order-case-evidence/' + evidence.publicId).expect(200).expect('Content-Type', /image\/webp/);
+        await PlatformGrant.updateOne({ _id: support.grant._id }, { $set: { operationalCountries: ['KE'] } });
+        await support.client.get('/support/order-case-evidence/' + evidence.publicId).set('accept', 'application/json').expect(403);
+        await PlatformGrant.updateOne({ _id: support.grant._id }, { $set: { operationalCountries: ['UG'] } });
+        await post(seller, base + '/' + fixture.referral.publicId + '/respond', { version: upload.body.referral.version, finding: 'further_action', summary: 'The exact store-owned order lines and private dispatch evidence have been reviewed; Support should decide the buyer response.' }, { page: base });
+        assert.equal((await SpecialistReferral.findById(fixture.referral._id)).status, 'responded');
+        assert.equal((await Dispute.findById(fixture.dispute._id)).status, 'investigating');
+        await StoreMember.updateOne({ storeId: store._id, userId: seller.user._id }, { $set: { status: 'revoked' } });
+        await seller.client.get(base + '/evidence/' + evidence.publicId).set('accept', 'application/json').expect(403);
+        await StoreMember.updateOne({ storeId: store._id, userId: seller.user._id }, { $set: { status: 'active' } });
+        assert.equal((await Store.findById(store._id)).status, 'suspended', 'A private response cannot unlock commerce.');
+        await seller.client.get('/seller/products').set('accept', 'application/json').expect(409);
+      } finally { await Store.updateOne({ _id: store._id }, { $set: { status: 'verified' }, $inc: { __v: 1 } }); }
     });
     await t.test('authority, source and audit failures abort complete transactions, including customer Device checks', async () => {
       const fixture = await referredCase('finance'), context = req(finance), originalUser = await User.findById(finance.user._id).lean();

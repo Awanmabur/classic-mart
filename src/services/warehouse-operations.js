@@ -13,6 +13,7 @@ import { createWarehouseTask, claimWarehouseTask, releaseWarehouseTask, executeW
 import { writeAudit } from './audit.js';
 import { refreshOrderLifecycle } from './order-state.js';
 import { addOutboxEvent } from './outbox.js';
+import { customerNotificationEnabled, SELLER_FULFILMENT_EMAIL_SUBJECT } from './customer-notification-policy.js';
 import { queueWebhookEvent } from './stage11.js';
 import { currentRequestDevice } from './country-admin-workspace-access.js';
 
@@ -255,13 +256,13 @@ async function syncFulfilment(task, access, session) {
   await seller.save({ session });
   await refreshOrderLifecycle(root._id, { session });
   if (task.type === 'dispatch' && root.userId) {
-    const buyer = await User.findOne({ _id: root.userId, status: 'active' }).select('email emailVerifiedAt').session(session);
+    const buyer = await User.findOne({ _id: root.userId, status: 'active' }).select('publicId email emailVerifiedAt preferences.notifications').session(session);
     if (buyer) {
       await Notification.create([{ publicId: publicId('ntf'), userId: buyer._id, country: root.country, type: 'order.fulfilment',
         title: 'Your order is ready for carrier pickup', body: 'Warehouse preparation is complete. Track your order for carrier pickup and delivery updates.',
         href: '/track-order?order=' + encodeURIComponent(root.publicId), importance: 'normal' }], { session });
-      if (buyer.emailVerifiedAt) await addOutboxEvent({ type: 'seller.order_notification', aggregateType: 'seller_order', aggregatePublicId: seller.publicId,
-        payload: { email: buyer.email, subject: 'Your Classic Mart order is ready for carrier pickup',
+      if (buyer.emailVerifiedAt && customerNotificationEnabled(buyer, 'orders')) await addOutboxEvent({ type: 'seller.order_notification', aggregateType: 'seller_order', aggregatePublicId: seller.publicId,
+        payload: { notificationCategory: 'orders', userPublicId: buyer.publicId, orderPublicId: root.publicId, country: root.country, subject: SELLER_FULFILMENT_EMAIL_SUBJECT,
           body: 'Warehouse preparation is complete for order ' + root.publicId + '. Sign in to Classic Mart to view tracking. Carrier pickup and delivery have not yet been confirmed.' } }, session);
     }
   }

@@ -2,10 +2,10 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
-import { env } from '../config/env.js';
-import { User, Store, StoreMember, SellerOrder, Order, SellerReturnCase, ReturnRequest, Review, Product,
-  SellerContactRequest, ProductQuestion, EvidenceDocument, Notification, CountrySetting } from '../models/index.js';
+import { SellerOrder, Order, SellerReturnCase, ReturnRequest, Review, Product,
+  SellerContactRequest, ProductQuestion, EvidenceDocument, Notification } from '../models/index.js';
 import { storeCapabilities } from './store.js';
+import { sellerOperationsAccess } from './seller-operations-access.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
 import { formatMinorUnits } from './catalogue.js';
 import { writeAudit } from './audit.js';
@@ -23,29 +23,9 @@ const purchaseStatuses = ['confirmed', 'processing', 'ready', 'fulfilled', 'part
 
 // Check live authorization for every service entry point, including direct callers.
 async function access(request, session = null, mutation = false) {
-  if (!request.user?._id || !request.store?._id) throw new AppError('Seller authentication is required.', 401, 'UNAUTHENTICATED');
-  const queries = [() => User.findById(request.user._id).select('publicId status security.tokenVersion security.mfaEnabled emailVerifiedAt onboardingCompletedAt').session(session),
-    () => Store.findById(request.store._id).session(session),
-    () => StoreMember.findOne({ storeId: request.store._id, userId: request.user._id, status: 'active' }).session(session)];
-  const [actor, store, member] = session ? [await queries[0](), await queries[1](), await queries[2]()] : await Promise.all(queries.map(query => query()));
-  if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion ||
-      (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) {
-    throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
-  }
-  if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) throw new AppError('Complete account verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');
-  if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) throw new AppError('Authenticator enrollment is required for store operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
-  const capabilities = storeCapabilities(member?.role);
-  if (!member || (!capabilities.has('*') && !capabilities.has('support'))) throw new AppError('Your store role cannot manage customer support.', 403, 'STORE_PERMISSION_DENIED');
-  if (!store || !['pending_verification', 'verified'].includes(store.status)) throw new AppError('This store is unavailable for customer support.', 409, 'STORE_LOCKED');
-  const country = await CountrySetting.findOne({ code: store.country, active: true }).select('currency timeZone').session(session).lean();
-  if (!country || country.currency !== store.currency) throw new AppError('The store country and currency need configuration.', 409, 'SELLER_COUNTRY_UNAVAILABLE');
-  if (mutation) {
-    if (store.status !== 'verified') throw new AppError('Verify this store before contacting customers or changing support records.', 409, 'STORE_LOCKED');
-    await User.updateOne({ _id: actor._id, status: 'active', 'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
-    await StoreMember.updateOne({ _id: member._id, status: 'active', role: member.role }, { $inc: { __v: 1 } }, { session });
-    await Store.updateOne({ _id: store._id, status: 'verified', country: store.country, currency: store.currency }, { $inc: { __v: 1 } }, { session });
-  }
-  return { actor, store, member, country };
+  const context = await sellerOperationsAccess(request, 'support', { session, write: mutation });
+  if (mutation && context.store.status !== 'verified') throw new AppError('Verify this store before contacting customers or changing support records.', 409, 'STORE_LOCKED');
+  return context;
 }
 
 async function transaction(request, operation) {
@@ -412,7 +392,7 @@ export async function contactSellerCustomer(request) {
     if (!own || !root) throw new AppError('Store customer order not found.', 404, 'CUSTOMER_NOT_FOUND');
     const email = z.email().max(254).parse(root.contact.email);
     await addOutboxEvent({ type: 'seller.order_notification', aggregateType: 'seller_order', aggregatePublicId: own.publicId,
-      payload: { email, subject: `${store.name}: ${input.subject}`.slice(0, 180), body: `About order ${root.publicId}\n\n${input.message}` } }, session);
+      payload: { notificationCategory: 'service', orderPublicId: root.publicId, country: store.country, email, subject: `${store.name}: ${input.subject}`.slice(0, 180), body: `About order ${root.publicId}\n\n${input.message}` } }, session);
     if (root.userId) await Notification.create([{ publicId: publicId('ntf'), userId: root.userId, country: store.country, type: 'seller.order_message',
       title: `${store.name}: ${input.subject}`.slice(0, 180), body: input.message.slice(0, 1500), href: '/orders' }], { session });
     await writeAudit(request, 'seller.customer_contact_queued', { targetType: 'seller_order', targetPublicId: own.publicId, country: store.country, session });

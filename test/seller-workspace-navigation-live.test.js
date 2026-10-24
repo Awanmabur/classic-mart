@@ -38,7 +38,8 @@ test('all Seller navigation destinations serve live approved layouts on desktop 
     await client.post('/login').type('form').send({ email, password, _csrf: csrf(login.text) }).expect(302).expect('location', '/seller/overview');
 
     await t.test('every owner menu destination is connected, scoped and has a canonical alias', async () => {
-      assert.equal(Object.keys(SELLER_LIVE_ROUTES).length, 17);
+      assert.equal(Object.keys(SELLER_LIVE_ROUTES).length, 23);
+      for (const [id, path] of Object.entries({ 'seller-team': '/seller/team', 'seller-affiliate': '/seller/affiliate', 'seller-cases': '/seller/cases', 'seller-trust-cases': '/seller/trust-cases', 'seller-business-quotes': '/seller/business-quotes', 'seller-business-orders': '/seller/business-orders' })) assert.equal(SELLER_LIVE_ROUTES[id], path);
       for (const [id, href] of Object.entries(SELLER_LIVE_ROUTES)) {
         const page = await client.get(href).set('Accept', 'text/html').expect(200);
         assert.match(page.text, /data-dashboard-workspace="seller"/);
@@ -82,7 +83,7 @@ test('all Seller navigation destinations serve live approved layouts on desktop 
           assert.equal(response.status(), 200, href);
           assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'seller');
           assert.equal(await page.locator('body').getAttribute('data-dashboard-page'), id);
-          assert.equal(await page.locator('.side-navigation a[href^="/seller/"]').count(), 17);
+          assert.equal(await page.locator('.side-navigation a[href^="/seller/"]').count(), 23);
           assert.equal(await page.locator('#roleSwitcher').count(), 0);
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, href + ' overflow');
           assert.equal(await page.locator('.role-page h1').isVisible(), true, href + ' heading');

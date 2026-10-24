@@ -73,7 +73,7 @@ test('payout reconciliation is transaction-bound and preserves four-eyes settlem
 test('payout ambiguity is covered by concurrency, privacy and invariant controls', () => {
   assert.match(concurrency, /Exactly one finance operator may claim an approved payout for external submission/);
   assert.match(concurrency, /submissionAttemptId: crypto\.randomUUID\(\)/);
-  assert.match(privacy, /'requested','approved','submitting','submitted','unknown'/);
+  assert.match(privacy, /await check\(Payout, \{ ownerUserId: userId, status: \{ \$in: \['requested',\s*'approved',\s*'submitting',\s*'submitted',\s*'unknown'\]/);
   assert.match(invariants, /submissionStartedAt:\{\$lt:cutoff\}/);
   assert.match(invariants, /PAYOUT_AMBIGUOUS/);
 });

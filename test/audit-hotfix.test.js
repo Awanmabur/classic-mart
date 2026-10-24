@@ -84,7 +84,7 @@ test('integration audit resolves parcel seller ownership before warehouse task c
   const audit = read('scripts/audit-integration.js');
   assert.doesNotMatch(audit, /parcel\.storeId/);
   assert.match(audit, /models\.Store\.findOne\(\{ publicId: parcel\.storePublicId \}\)/);
-  assert.match(audit, /models\.Warehouse\.findOne\(\{ storeId: parcelStore\._id, active: true \}\)/);
+  assert.match(audit, /models\.Warehouse\.find\(\{ _id: \{ \$in: stock\.map\(row => row\.warehouseId\) \}, storeId: parcelStore\._id, active: true \}\)/);
   assert.match(audit, /storeId: parcelStore\._id/);
 });
 
@@ -96,6 +96,6 @@ test('integration audit loads shipment proof hashes with encrypted proof codes b
   assert.match(audit, /decryptSensitive\(shipment\.deliveryCodeEncrypted\)/);
   assert.match(audit, /verifyProofCode\(pickupCode, shipment\.pickupCodeHash\)/);
   assert.match(audit, /verifyProofCode\(deliveryCode, shipment\.deliveryCodeHash\)/);
-  assert.match(audit, /nextStatus: 'picked_up'[\s\S]{0,140}proofCode: pickupCode/);
-  assert.match(audit, /nextStatus: 'delivered'[\s\S]{0,140}proofCode: deliveryCode/);
+  assert.match(audit, /await deliveryWorkspace\.advanceDelivery\(await auditAction\(carrier, \{ version: shipment\.__v, proofCode: pickupCode \}, shipment\.publicId\), 'picked_up'\)/);
+  assert.match(audit, /await deliveryWorkspace\.advanceDelivery\(await auditAction\(carrier, \{ version: shipment\.__v, proofCode: deliveryCode \}, shipment\.publicId\), 'delivered'\)/);
 });

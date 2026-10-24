@@ -95,7 +95,7 @@ export function financeExceptionSources(scope,now=new Date()) {
   return sources;
 }
 async function exceptionCounts(scope,now,session=null){
-  const sources=financeExceptionSources(scope,now),rows=await reportQueries(sources.map(source=>()=>source.Model.aggregate([...source.pipeline,{$group:{_id:source.kind==='providerEvents'?'$country':{country:'$country',currency:{$ifNull:['$currency','']}},count:{$sum:1}}}]).session(session)),session);
+  const sources=financeExceptionSources(scope,now),rows=await reportQueries(sources.map(source=>()=>source.Model.aggregate([...source.pipeline,{$group:{_id:{country:'$country',currency:{$ifNull:['$currency','']}},count:{$sum:1}}}]).session(session)),session);
   const total=rows=>int(rows.reduce((sum,row)=>sum+int(row.count),0)),counts={},result={};
   sources.forEach((source,index)=>{counts[source.kind]=total(rows[index]);result[({providerEvents:'provider',staleRefunds:'refunds',unknownPayouts:'payouts',openDisputes:'chargebacks',reconciliationRuns:'reconciliations',pendingCod:'cod'})[source.kind]]=rows[index];});
   const allTime={start:new Date(0),end:new Date(now.getTime()+1)};

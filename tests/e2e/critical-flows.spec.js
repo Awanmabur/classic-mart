@@ -1,30 +1,46 @@
 import { test, expect } from '@playwright/test';
 
-const adminEmail = process.env.ADMIN_EMAIL || 'admin@classicmart.local';
-const adminPassword = process.env.ADMIN_PASSWORD || '';
-const adminRecoveryCodes = (process.env.E2E_ADMIN_MFA_RECOVERY_CODES || '').split(',').map(value => value.trim()).filter(Boolean);
+const recoveryCodes = name => (process.env[name] || '').split(',').map(value => value.trim()).filter(Boolean);
+const sellerAccount = {
+  email: process.env.E2E_SELLER_EMAIL || '',
+  password: process.env.E2E_SELLER_PASSWORD || '',
+  recoveryCodes: recoveryCodes('E2E_SELLER_MFA_RECOVERY_CODES'),
+  recoveryCodesVariable: 'E2E_SELLER_MFA_RECOVERY_CODES',
+  path: '/seller/products', workspace: 'seller', label: 'Seller', heading: 'My Products',
+};
+const moderatorAccount = {
+  email: process.env.E2E_MODERATOR_EMAIL || '',
+  password: process.env.E2E_MODERATOR_PASSWORD || '',
+  recoveryCodes: recoveryCodes('E2E_MODERATOR_MFA_RECOVERY_CODES'),
+  recoveryCodesVariable: 'E2E_MODERATOR_MFA_RECOVERY_CODES',
+  path: '/moderation/products', workspace: 'moderator', label: 'Moderator', heading: 'Product Moderation',
+};
 
-async function signIn(page, testInfo) {
-  await page.goto('/login?next=%2Fseller%2Fproducts');
-  await page.getByLabel('Email address', { exact: true }).fill(adminEmail);
-  await page.getByLabel('Password', { exact: true }).fill(adminPassword);
+async function signIn(page, testInfo, account) {
+  await page.goto('/login?next=' + encodeURIComponent(account.path));
+  await page.getByLabel('Email address', { exact: true }).fill(account.email);
+  await page.getByLabel('Password', { exact: true }).fill(account.password);
   await Promise.all([
     page.waitForURL(url => !url.pathname.startsWith('/login')),
     page.getByRole('button', { name: /Sign In to Classic Mart/i }).click(),
   ]);
   if (new URL(page.url()).pathname === '/mfa') {
-    // Each project/retry consumes a different code from the ephemeral browser fixture.
+    // Seller desktop smoke and mobile cards use separate one-time codes. Each
+    // retry gets its own pair; Moderator has a separate account and code pool.
     const codeIndex = testInfo.retry * 2 + (testInfo.project.name.startsWith('mobile') ? 1 : 0);
-    const recoveryCode = adminRecoveryCodes[codeIndex];
-    if (!recoveryCode) throw new Error('Set E2E_ADMIN_MFA_RECOVERY_CODES with unused recovery codes for the seeded browser account.');
+    const recoveryCode = account.recoveryCodes[codeIndex];
+    if (!recoveryCode) throw new Error(`Set ${account.recoveryCodesVariable} with unused recovery codes for the dedicated ${account.label} browser account.`);
     await page.getByLabel('Authenticator or recovery code', { exact: true }).fill(recoveryCode);
     await Promise.all([
       page.waitForURL(url => url.pathname !== '/mfa'),
       page.getByRole('button', { name: 'Continue securely', exact: true }).click(),
     ]);
   }
-  await expect(page).toHaveURL(/\/seller\/products$/);
-  await expect(page.getByRole('heading', { name: 'My Products', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(url => url.pathname === account.path && !url.hash);
+  await expect(page.locator('body')).toHaveAttribute('data-dashboard-workspace', account.workspace);
+  await expect(page.locator('#profileButton small')).toHaveText(account.label);
+  await expect(page.getByRole('heading', { name: account.heading, exact: true })).toBeVisible();
+  await expect(page.locator('#roleSwitcher')).toHaveCount(0);
 }
 
 function monitorBrowserFailures(page) {
@@ -77,11 +93,13 @@ test('public catalogue survives search, refresh and browser back navigation', as
   expect(failures).toEqual([]);
 });
 
-test('seeded privileged account can sign in and reach scoped seller and moderation catalogue workspaces', async ({ page }, testInfo) => {
-  test.skip(!adminPassword, 'ADMIN_PASSWORD is required for authenticated browser coverage.');
-  if (testInfo.project.name.startsWith('mobile')) test.skip(true, 'Authenticated control-plane smoke runs once on desktop.');
+test('dedicated Seller signs in to its catalogue and cannot enter Moderation', async ({ page }, testInfo) => {
+  test.skip(!sellerAccount.email || !sellerAccount.password, 'E2E_SELLER_EMAIL and E2E_SELLER_PASSWORD are required for Seller browser coverage.');
+  test.skip(testInfo.project.name.startsWith('mobile'), 'Seller catalogue controls run once on desktop; the phone-card journey runs on mobile.');
   const failures = monitorBrowserFailures(page);
-  await signIn(page, testInfo);
+  await signIn(page, testInfo, sellerAccount);
+  await expect(page.locator('#sidebar a[href="/seller/products"]')).toHaveText('Products');
+  await expect(page.locator('#sidebar a[href^="/moderation/"]')).toHaveCount(0);
   await page.locator('#pageHost').getByRole('link', { name: 'Add Product', exact: true }).click();
   await expect(page).toHaveURL(/\/seller\/products\/new$/);
   await expect(page.getByRole('heading', { name: 'Add a Product', exact: true })).toBeVisible();
@@ -93,10 +111,25 @@ test('seeded privileged account can sign in and reach scoped seller and moderati
   await expect(category).toHaveAccessibleName('Category');
   expect(await category.locator('option:not([value=""])').count()).toBeGreaterThan(0);
   await expect(createForm.getByRole('button', { name: 'Save Product', exact: true })).toBeVisible();
-  const response = await page.goto('/moderation/products', { waitUntil: 'networkidle' });
-  expect(response.status()).toBe(200);
-  await expect(page.getByRole('heading', { name: 'Product Review', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Awaiting product review', exact: true })).toBeVisible();
+  const denied = await page.request.get('/moderation/products', { headers: { accept: 'application/json' } });
+  expect(denied.status()).toBe(403);
+  expect((await denied.json()).error.code).toBe('MODERATION_FORBIDDEN');
+  await expect(page.locator('body')).toHaveAttribute('data-dashboard-workspace', 'seller');
+  expect(failures).toEqual([]);
+});
+
+test('dedicated Moderator signs in to its catalogue and cannot enter the Seller workspace', async ({ page }, testInfo) => {
+  test.skip(!moderatorAccount.email || !moderatorAccount.password, 'E2E_MODERATOR_EMAIL and E2E_MODERATOR_PASSWORD are required for Moderation browser coverage.');
+  test.skip(testInfo.project.name.startsWith('mobile'), 'Authenticated Moderation catalogue smoke runs once on desktop.');
+  const failures = monitorBrowserFailures(page);
+  await signIn(page, testInfo, moderatorAccount);
+  await expect(page.locator('#sidebar nav').getByRole('link', { name: 'Product Queue', exact: true })).toHaveAttribute('href', '/moderation/products');
+  await expect(page.locator('#sidebar a[href^="/seller/"]')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Product review queue', exact: true })).toBeVisible();
+  const denied = await page.request.get('/seller/products', { headers: { accept: 'application/json' } });
+  expect(denied.status()).toBe(403);
+  expect((await denied.json()).error.code).toBe('DASHBOARD_FORBIDDEN');
+  await expect(page.locator('body')).toHaveAttribute('data-dashboard-workspace', 'moderator');
   expect(failures).toEqual([]);
 });
 
@@ -174,9 +207,9 @@ test('double activation of navigation does not create duplicate browser errors',
 
 
 test('authenticated seller product tables become labelled phone cards without page overflow', async ({ page }, testInfo) => {
-  test.skip(!adminPassword, 'ADMIN_PASSWORD is required for authenticated browser coverage.');
+  test.skip(!sellerAccount.email || !sellerAccount.password, 'E2E_SELLER_EMAIL and E2E_SELLER_PASSWORD are required for Seller browser coverage.');
   test.skip(!testInfo.project.name.startsWith('mobile'), 'Operational phone-card assertion runs in the mobile project.');
-  await signIn(page, testInfo);
+  await signIn(page, testInfo, sellerAccount);
   const responsiveCells = page.locator('.seller-product-page .role-table tbody td:not([colspan])');
   await expect(responsiveCells.first()).toBeVisible();
   const labels = await responsiveCells.evaluateAll(cells => cells.map(cell => ({

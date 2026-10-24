@@ -22,7 +22,7 @@ export function requireStoreCapability(capability) {
   return function storeCapability(request, _response, next) {
     if (request.store?.status === 'suspended') {
       const path = request.path.toLowerCase().replace(/\/$/, '');
-      const policyCase = /^\/seller\/trust-cases(?:\/|$)/.test(path);
+      const policyCase = /^\/seller\/(?:trust-cases|cases)(?:\/|$)/.test(path);
       const billingRead = request.method === 'GET' && path === '/seller/subscription';
       const lockedSettingsRead = request.method === 'GET' && path === '/seller/store';
       const billingControl = request.method === 'POST' && /^\/seller\/subscription\/(?:enrollments\/[^/]+\/cancel|payments\/[^/]+\/reconcile)$/.test(path);

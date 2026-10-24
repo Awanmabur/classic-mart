@@ -1,4 +1,6 @@
 import { ProductAlert, ProductVariant, StockItem } from '../models/index.js';
+import mongoose from 'mongoose';
+import { AppError } from '../core/errors.js';
 import { releaseExpiredReservations } from './checkout.js';
 import { stage9Maintenance } from './stage9.js';
 import { stage10Maintenance } from './ai.js';
@@ -17,6 +19,7 @@ import { scanMaintenanceBatch } from './maintenance-scan.js';
 import { expirePlatformGrants } from './platform-grants.js';
 import { queueWeeklyFinanceReports } from './finance-weekly-reports.js';
 import { queueWeeklySupportReports } from './support-weekly-reports.js';
+import { optionalNotificationRecipient } from './customer-notification-policy.js';
 
 let lastInvariantScanAt=0;
 
@@ -37,6 +40,8 @@ export async function evaluateProductAlerts({ limit = 250 } = {}) {
   const cache = new Map();
   let triggered = 0;
   for (const alert of alerts) {
+    // A muted alert stays active and can be evaluated after re-enabling alerts.
+    if (!await optionalNotificationRecipient(alert.userId, 'wishlist')) continue;
     const key = String(alert.productId);
     let state = cache.get(key);
     if (!state) {
@@ -50,19 +55,30 @@ export async function evaluateProductAlerts({ limit = 250 } = {}) {
     );
     const restocked = alert.type === 'restock' && state.available > 0;
     if (priceDrop || restocked) {
-      const updated = await ProductAlert.updateOne(
-        { _id: alert._id, status: 'active' },
-        { $set: { status: 'triggered', triggeredAt: new Date(), lastKnownPriceMinor: state.priceMinor ?? previous } },
-      );
-      triggered += updated.modifiedCount;
-      if (updated.modifiedCount) {
-        await queuePushNotification({
-          userId: alert.userId,
-          title: priceDrop ? 'Classic Mart price alert' : 'Classic Mart restock alert',
-          body: priceDrop ? 'A product you follow has reached your price alert.' : 'A product you follow is back in stock.',
-          deepLink: `/open/product/${encodeURIComponent(alert.productPublicId)}`,
+      const session = await mongoose.startSession();
+      let claimed = 0;
+      try {
+        await session.withTransaction(async () => {
+          claimed = 0;
+          const current = await ProductAlert.findOne({ _id: alert._id, status: 'active' }).session(session).lean();
+          if (current && (String(current.productId) !== String(alert.productId) || current.type !== alert.type
+            || current.targetPriceMinor !== alert.targetPriceMinor || current.lastKnownPriceMinor !== alert.lastKnownPriceMinor)) return;
+          if (!current || !await optionalNotificationRecipient(current.userId, 'wishlist', { session })) return;
+          // The queue fences current preferences/privacy in the same transaction.
+          // An unavailable recipient leaves the alert active; an outbox failure
+          // rolls back its claim so the worker can retry without losing an alert.
+          const notification = await queuePushNotification({ userId: current.userId, category: 'wishlist',
+            title: priceDrop ? 'Classic Mart price alert' : 'Classic Mart restock alert',
+            body: priceDrop ? 'A product you follow has reached your price alert.' : 'A product you follow is back in stock.',
+            deepLink: `/open/product/${encodeURIComponent(current.productPublicId)}` }, { session });
+          if (!notification) return;
+          const updated = await ProductAlert.updateOne({ _id: current._id, status: 'active', __v: current.__v || 0 },
+            { $set: { status: 'triggered', triggeredAt: new Date(), lastKnownPriceMinor: state.priceMinor ?? previous }, $inc: { __v: 1 } }, { session });
+          if (updated.modifiedCount !== 1) throw new AppError('This product alert changed. Retry its evaluation.', 409, 'PRODUCT_ALERT_CHANGED');
+          claimed = 1;
         });
-      }
+        triggered += claimed;
+      } finally { await session.endSession(); }
     } else if (state.priceMinor != null && state.priceMinor !== previous) {
       await ProductAlert.updateOne({ _id: alert._id, status: 'active' }, { $set: { lastKnownPriceMinor: state.priceMinor } });
     }

@@ -12,11 +12,28 @@ test('warehouse parcel options batch a complete cursor page without warehouse qu
   assert.equal(new URL(uri).hostname, '127.0.0.1');
   assert.match(new URL(uri).pathname, /verification|test/i);
   await mongoose.connect(uri, { dbName: `classicmart_warehouse_options_test_${suffix}` });
-  const { InventoryDiscrepancy, InventoryReservation, Order, Shipment, StockItem, Store, User, Warehouse, WarehouseTask } = await import('../src/models/index.js');
+  const { CountrySetting, Device, PlatformGrant, InventoryDiscrepancy, InventoryReservation, Order, Shipment, StockItem, Store, User, Warehouse, WarehouseTask } = await import('../src/models/index.js');
+  const { hashToken } = await import('../src/core/crypto.js');
   const { warehouseParcelOptions } = await import('../src/services/warehouse-parcel-options.js');
   const oid = () => new mongoose.Types.ObjectId();
   let sequence = 0;
   const publicId = prefix => `${prefix}_options_${suffix}_${sequence++}`;
+  async function scopedActor(actor, role) {
+    const now = new Date();
+    Object.assign(actor, { role: 'customer', platformAccessManagedAt: now, emailVerifiedAt: now, phoneVerifiedAt: now,
+      onboardingCompletedAt: now, __v: 0 });
+    await User.collection.insertOne(actor);
+    await PlatformGrant.create({ publicId: publicId('pgr'), userId: actor._id, role, operationalCountries: ['UG'],
+      warehouseScopes: [warehouses[0].publicId], status: 'active', startsAt: new Date(Date.now() - 60_000),
+      expiresAt: new Date(Date.now() + 86_400_000), reason: 'Independent scoped warehouse report fixture',
+      approvalPublicId: publicId('apr'), approvedByUserId: oid() });
+    const sessionID = crypto.randomUUID();
+    const device = await Device.create({ publicId: publicId('dev'), userId: actor._id, sessionHash: hashToken(sessionID),
+      label: 'Current warehouse reporting fixture', userAgent: 'Warehouse report fixture', ipHash: hashToken('127.0.0.1'), lastSeenAt: now });
+    return { user: actor, device, sessionID, session: { userId: String(actor._id), tokenVersion: actor.security.tokenVersion,
+      mfaVerifiedAt: Date.now() }, country: { code: 'UG', currency: 'UGX' }, ip: '127.0.0.1', get: () => '' };
+  }
+
   const store = { _id: oid(), publicId: publicId('sto'), country: 'UG', status: 'verified' };
   const warehouses = Array.from({ length: 20 }, (_, index) => ({ _id: oid(), publicId: publicId('wh'), storeId: store._id,
     country: 'UG', active: true, name: `Source warehouse ${index}`, __v: index }));
@@ -43,6 +60,8 @@ test('warehouse parcel options batch a complete cursor page without warehouse qu
         ({ productPublicId, variantPublicId, sku, title, quantity })) });
   }
   try {
+    await CountrySetting.create([{ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256' },
+      { code: 'KE', name: 'Kenya', currency: 'KES', locale: 'en-KE', timeZone: 'Africa/Nairobi', phonePrefix: '+254' }]);
     // These isolated fixtures represent existing authoritative records; using
     // collection inserts keeps this performance test independent of signup.
     await Promise.all([Store.collection.insertOne(store), Warehouse.collection.insertMany([...warehouses, ...unrelated]),
@@ -120,7 +139,7 @@ test('warehouse parcel options batch a complete cursor page without warehouse qu
       const operator = { _id: oid(), publicId: publicId('usr'), name: 'Scoped warehouse counter', role: 'warehouse',
         emailNormalized: `stock-counter-${suffix}@example.test`, phoneNormalized: '+256700000101',
         status: 'active', country: 'UG', security: { tokenVersion: 0, mfaEnabled: true } };
-      await User.collection.insertOne(operator);
+      const operatorContext = await scopedActor(operator, 'warehouse');
       const now = Date.now();
       const history = Array.from({ length: 185 }, (_, index) => ({ _id: oid(), publicId: publicId('wtk'),
         warehouseId: warehouses[0]._id, storeId: store._id, type: 'receive',
@@ -129,7 +148,7 @@ test('warehouse parcel options batch a complete cursor page without warehouse qu
         ...(index >= 80 && index < 120 ? { completedAt: new Date(now - 3600_000) } : {}), createdAt: new Date(now - index * 1000) }));
       await WarehouseTask.collection.insertMany(history);
       const { loadWarehousePage } = await import('../src/services/warehouse-dashboard.js');
-      const flow = await loadWarehousePage({ user: operator, query: { warehousePublicId: warehouses[0].publicId } }, 'reports');
+      const flow = await loadWarehousePage({ ...operatorContext, query: { warehousePublicId: warehouses[0].publicId } }, 'reports');
       assert.equal(flow.summary.totalOpen, 105);
       assert.equal(flow.summary.mineOpen, 40);
       assert.equal(flow.summary.overdueOpen, 40);
@@ -148,7 +167,8 @@ test('warehouse parcel options batch a complete cursor page without warehouse qu
         status: 'active', country: 'UG', security: { tokenVersion: 0, mfaEnabled: true } };
       const foreignWarehouse = { _id: oid(), publicId: publicId('wh'), storeId: oid(), country: 'KE', active: true,
         name: 'Private Kenya count warehouse' };
-      await Promise.all([User.collection.insertMany([supervisor, counter]), Warehouse.collection.insertOne(foreignWarehouse)]);
+      const supervisorContext = await scopedActor(supervisor, 'country_admin');
+      await Promise.all([User.collection.insertOne({ ...counter, __v: 0 }), Warehouse.collection.insertOne(foreignWarehouse)]);
       const now = Date.now();
       const count = (status, warehouse, index, newer = false) => {
         const id = publicId('dsc');
@@ -164,7 +184,7 @@ test('warehouse parcel options batch a complete cursor page without warehouse qu
       const foreign = Array.from({ length: 32 }, (_, index) => count('pending_review', foreignWarehouse, index, true));
       await InventoryDiscrepancy.collection.insertMany([...pending, ...closed, ...foreign]);
       const { loadWarehousePage } = await import('../src/services/warehouse-dashboard.js');
-      const requestFor = query => ({ user: supervisor, query });
+      const requestFor = query => ({ ...supervisorContext, query });
       const first = await loadWarehousePage(requestFor({}), 'inventory');
       assert.equal(first.discrepancies.length, 25);
       assert.equal(first.discrepancies.every(row => row.status === 'pending_review' && row.canReview), true);

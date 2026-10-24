@@ -22,10 +22,11 @@ test('approved inventory performs scoped, versioned warehouse, stock, condition 
   const database = `classicmart_seller_inventory_pages_test_${suffix}`;
   await mongoose.connect(uri,{dbName:database});
   const models = await import('../src/models/index.js');
-  const {User,Store,StoreMember,CountrySetting,Category,Product,ProductVariant,Warehouse,StockItem,InventoryMovement,InventoryLot,WarehouseTask,AuditLog,OutboxEvent} = models;
+  const {User,Store,StoreMember,CountrySetting,Category,Product,ProductVariant,Warehouse,StockItem,InventoryMovement,InventoryLot,WarehouseTask,AuditLog,OutboxEvent,Device,StoreTeamInvitation} = models;
   const {createApp} = await import('../src/app.js');
-  const {hashPassword} = await import('../src/core/crypto.js');
+  const {hashPassword,hashToken,hashValue,normalizeEmail} = await import('../src/core/crypto.js');
   const {beginMfaEnrollment,confirmMfaEnrollment,totpCode} = await import('../src/services/mfa.js');
+  const {encryptSensitive} = await import('../src/core/sensitive.js');
   const services = await import('../src/services/seller-inventory-pages.js');
   const password = `Inventory-${suffix}-A1!`, passwordHash = await hashPassword(password), app = createApp(null);
   const transports = [];
@@ -34,7 +35,7 @@ test('approved inventory performs scoped, versioned warehouse, stock, condition 
   async function actor(role='seller',mfa=true) {
     const number = ++sequence,email = `inventory-${suffix}-${number}@example.com`,phone=`+25670${String(number).padStart(7,'0')}`;
     let user = await User.create({publicId:nextId('usr'),name:`Inventory Actor ${number}`,email,emailNormalized:email,phone,phoneNormalized:phone,
-      passwordHash,role,country:'UG',currency:'UGX',emailVerifiedAt:new Date(),onboardingCompletedAt:new Date(),consents:{terms:true,privacy:true,recordedAt:new Date()}});
+      passwordHash,role,country:'UG',currency:'UGX',emailVerifiedAt:new Date(),phoneVerifiedAt:new Date(),onboardingCompletedAt:new Date(),consents:{terms:true,privacy:true,recordedAt:new Date()}});
     let codes=[];
     if(mfa) {
       const enrollment = await beginMfaEnrollment(user._id,password);
@@ -50,14 +51,22 @@ test('approved inventory performs scoped, versioned warehouse, stock, condition 
       const challenge=await client.get('/mfa').expect(200);
       await client.post('/mfa').type('form').send({code:codes[0],_csrf:csrf(challenge.text)}).expect(302);
     }
-    return {user,client};
+    user=await User.findById(user._id);
+    const serviceSessionID=crypto.randomUUID();
+    const serviceDevice=await Device.create({publicId:nextId('dev'),userId:user._id,sessionHash:hashToken(serviceSessionID),label:'Current inventory fixture device',userAgent:'Inventory regression',ipHash:hashToken('127.0.0.1'),lastSeenAt:new Date()});
+    return {user,client,serviceSessionID,serviceDevice};
   }
   async function storeFor(actor,name) {
     const store=await Store.create({publicId:nextId('str'),ownerUserId:actor.user._id,name,slug:`inventory-${suffix}-${sequence}`,country:'UG',currency:'UGX',status:'verified'});
     await StoreMember.create({publicId:nextId('stm'),storeId:store._id,userId:actor.user._id,role:'owner',status:'active',invitedByUserId:actor.user._id,acceptedAt:new Date()});
     return store;
   }
-  const serviceRequest = (actor,store) => ({user:actor.user,store,originalUrl:'/seller/inventory',id:`inv-${suffix}`,ip:'127.0.0.1',get:()=>'',session:{tokenVersion:actor.user.security.tokenVersion}});
+  const serviceRequest = (actor,store) => ({user:actor.user,store,device:actor.serviceDevice,sessionID:actor.serviceSessionID,originalUrl:'/seller/inventory',id:`inv-${suffix}`,ip:'127.0.0.1',get:()=>'',country:{code:store.country,currency:store.currency},session:{userId:String(actor.user._id),tokenVersion:actor.user.security.tokenVersion,activeStorePublicId:store.publicId,...(actor.user.security.mfaEnabled?{mfaVerifiedAt:Date.now()}:{})}});
+  async function selectStore(identity, selectedStore) {
+    const security = await identity.client.get('/account/security').expect(200);
+    await identity.client.post('/seller/workspace').set('accept', 'application/json').type('form')
+      .send({ storePublicId: selectedStore.publicId, _csrf: csrf(security.text) }).expect(200);
+  }
   async function post(actor,path,body,status=302,json=false) {
     const page=await actor.client.get('/seller/inventory').expect(200);
     const operation=actor.client.post(path).type('form').send({_csrf:csrf(page.text),...body});
@@ -221,13 +230,25 @@ test('approved inventory performs scoped, versioned warehouse, stock, condition 
       const membership=await StoreMember.create({publicId:nextId('stm'),storeId:store._id,userId:inventoryStaff.user._id,role:'catalogue',status:'active',invitedByUserId:owner.user._id,acceptedAt:new Date()});
       await StoreMember.create([{publicId:nextId('stm'),storeId:store._id,userId:supportStaff.user._id,role:'support',status:'active',invitedByUserId:owner.user._id,acceptedAt:new Date()},
         {publicId:nextId('stm'),storeId:store._id,userId:withoutMfa.user._id,role:'catalogue',status:'active',invitedByUserId:owner.user._id,acceptedAt:new Date()}]);
+      const inviter=await StoreMember.findOne({storeId:store._id,userId:owner.user._id});
+      const invitation=await StoreTeamInvitation.create({publicId:nextId('sti'),storeId:store._id,storePublicId:store.publicId,country:store.country,currency:store.currency,
+        emailHash:hashValue(normalizeEmail(withoutMfa.user.email)),emailEncrypted:encryptSensitive(withoutMfa.user.email),emailMasked:'i***@example.com',role:'catalogue',status:'accepted',
+        invitedByUserId:owner.user._id,invitedByTokenVersion:owner.user.security.tokenVersion,invitedByMembershipId:inviter._id,invitedByRole:'owner',invitedByPermissionVersion:inviter.permissionVersion||0,
+        recipientUserId:withoutMfa.user._id,respondedAt:new Date(),expiresAt:new Date(Date.now()+86400000)});
+      await StoreMember.updateOne({storeId:store._id,userId:withoutMfa.user._id},{$set:{invitationId:invitation._id}});
+      await selectStore(inventoryStaff,store);
+      await selectStore(supportStaff,store);
       await inventoryStaff.client.get('/seller/inventory').expect(200);
       await supportStaff.client.get('/seller/inventory').expect(403);
       await assert.rejects(services.loadSellerInventoryPage(serviceRequest(supportStaff,store)),error=>error.code==='STORE_PERMISSION_DENIED');
-      const mfa=await withoutMfa.client.get('/seller/inventory').set('accept','application/json').expect(403);assert.equal(mfa.body.error.code,'MFA_ENROLLMENT_REQUIRED');
+      await withoutMfa.client.get('/seller/inventory').set('accept','application/json').expect(403);
       await assert.rejects(services.loadSellerInventoryPage(serviceRequest(withoutMfa,store)),error=>error.code==='MFA_ENROLLMENT_REQUIRED');
-      await withoutMfa.client.get('/seller/inventory').expect(302).expect('location',/\/account\/security/u);
-      membership.status='revoked';await membership.save();
+      const inbox=(await withoutMfa.client.get('/account/store-invitations').set('accept','application/json').expect(200)).body;
+      assert.equal(inbox.requiresMfa,true);assert.equal(inbox.invitations.length,1);assert.equal(inbox.invitations[0].publicId,invitation.publicId);assert.equal(inbox.invitations[0].status,'accepted');
+      const invitations=await withoutMfa.client.get('/account/store-invitations').expect(200);
+      assert.match(invitations.text,/href="\/account\/security\?next=%2Faccount%2Fstore-invitations">Set up authenticator/u);
+      const revoked=await StoreMember.updateOne({_id:membership._id,status:'active'},{$set:{status:'revoked'},$inc:{__v:1}});
+      assert.equal(revoked.modifiedCount,1);
       await inventoryStaff.client.get('/seller/inventory').expect(403);
       await assert.rejects(services.createSellerWarehouse(serviceRequest(inventoryStaff,store),{name:'Revoked access location',country:'UG',city:'Kampala',address:'Revoked member address'}),error=>error.code==='STORE_PERMISSION_DENIED');
       const staleSession=serviceRequest(owner,store);staleSession.session.tokenVersion+=1;

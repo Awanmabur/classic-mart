@@ -39,8 +39,8 @@ test('seller growth pages persist authenticated store promotions, coupons and su
     const { createApp } = await import('../src/app.js');
     const models = await import('../src/models/index.js');
     const { User, Store, StoreMember, CountrySetting, Category, Product, ProductVariant, SellerPromotion,
-      SubscriptionPlan, SubscriptionEnrollment, SubscriptionChangeRequest, AuditLog } = models;
-    const { hashPassword } = await import('../src/core/crypto.js');
+      SubscriptionPlan, SubscriptionEnrollment, SubscriptionChangeRequest, SubscriptionCharge, PlatformGrant, AuditLog, Device } = models;
+    const { hashPassword, hashToken } = await import('../src/core/crypto.js');
     const { beginMfaEnrollment, confirmMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
     const { sellerPromotionsPage, sellerSubscriptionPage, createGrowthPromotion, updateGrowthPromotionStatus,
       requestSellerSubscription } = await import('../src/services/seller-growth-pages.js');
@@ -58,7 +58,7 @@ test('seller growth pages persist authenticated store promotions, coupons and su
       const number = ++sequence, email = `growth-${suffix}-${number}@example.com`, phone = `+25670${String(number).padStart(7, '0')}`;
       let user = await User.create({ publicId: `usr_growth_${suffix}_${number}`, name: `Growth Actor ${number}`, email, emailNormalized: email,
         phone, phoneNormalized: phone, passwordHash, role, country: 'UG', currency: 'UGX', locale: 'en-UG',
-        emailVerifiedAt: new Date(), ...(onboarded ? { onboardingCompletedAt: new Date() } : {}),
+        emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(), ...(onboarded ? { onboardingCompletedAt: new Date() } : {}),
         consents: { terms: true, privacy: true, recordedAt: new Date() } });
       let recoveryCodes = [];
       if (enroll) {
@@ -77,7 +77,10 @@ test('seller growth pages persist authenticated store promotions, coupons and su
         const challenge = await client.get('/mfa').expect(200);
         await client.post('/mfa').type('form').send({ code: recoveryCodes[0], _csrf: csrf(challenge.text) }).expect(302);
       }
-      return { user, client };
+      user = await User.findById(user._id);
+      const serviceSessionID = crypto.randomUUID();
+      const serviceDevice = await Device.create({ publicId: nextId('dev'), userId: user._id, sessionHash: hashToken(serviceSessionID), label: 'Current Seller fixture device', userAgent: 'Seller regression', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+      return { user, client, serviceSessionID, serviceDevice };
     }
     async function storeFor(identity, name) {
       const store = await Store.create({ publicId: nextId('str'), ownerUserId: identity.user._id, name,
@@ -86,8 +89,13 @@ test('seller growth pages persist authenticated store promotions, coupons and su
         invitedByUserId: identity.user._id, role: 'owner', status: 'active', acceptedAt: new Date() });
       return { store, member };
     }
-    const scoped = (identity, store) => ({ id: nextId('request'), user: identity.user, store,
-      session: { tokenVersion: identity.user.security.tokenVersion }, country: { code: store.country }, ip: '127.0.0.1', get: () => '', query: {} });
+    const scoped = (identity, store) => ({ id: nextId('request'), user: identity.user, store, device: identity.serviceDevice, sessionID: identity.serviceSessionID,
+      session: { userId: String(identity.user._id), tokenVersion: identity.user.security.tokenVersion, activeStorePublicId: store.publicId, ...(identity.user.security.mfaEnabled ? { mfaVerifiedAt: Date.now() } : {}) }, country: { code: store.country, currency: store.currency }, ip: '127.0.0.1', get: () => '', query: {} });
+    async function selectStore(identity, selectedStore) {
+      const security = await identity.client.get('/account/security').expect(200);
+      await identity.client.post('/seller/workspace').set('accept', 'application/json').type('form')
+        .send({ storePublicId: selectedStore.publicId, _csrf: csrf(security.text) }).expect(200);
+    }
     const json = (identity, path) => identity.client.get(path).set('accept', 'application/json');
     async function post(identity, pagePath, actionPath, payload, acceptJson = false) {
       const page = await identity.client.get(pagePath).expect(200);
@@ -341,10 +349,28 @@ test('seller growth pages persist authenticated store promotions, coupons and su
       await planFor('WRONG_CURRENCY_PLAN_SECRET', { currency: 'KES' });
       await planFor('DRAFT_PLAN_SECRET', { status: 'draft' });
       await planFor('RETIRED_PLAN_SECRET', { status: 'retired' });
-      const enrollment = { planId: plan._id, planPublicId: plan.publicId, audience: 'seller', country: 'UG', currency: 'UGX', priceMinor: plan.priceMinor,
-        status: 'active', startsAt: new Date(), currentPeriodEndsAt: new Date(end) };
-      currentEnrollment = await SubscriptionEnrollment.create({ publicId: nextId('sen'), ...enrollment, userId: owner.user._id, storeId: store._id, storePublicId: store.publicId });
-      await SubscriptionEnrollment.create({ publicId: nextId('sen'), ...enrollment, userId: other.user._id, storeId: foreign._id, storePublicId: foreign.publicId });
+      const billing = await import('../src/services/seller-subscription-operations.js');
+      const { sellerTransaction } = await import('../src/services/seller-operations-access.js');
+      const reviewer = await actor('super_admin', { enroll: true });
+      await User.updateOne({ _id: reviewer.user._id }, { $set: { platformAccessManagedAt: new Date(), operationalCountries: ['*'] } });
+      reviewer.user = await User.findById(reviewer.user._id);
+      await PlatformGrant.create({ publicId: nextId('pgr'), userId: reviewer.user._id, role: 'super_admin', operationalCountries: ['*'], status: 'active',
+        startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000), reason: 'Independent subscription fixture reviewer.', approvalPublicId: nextId('apr'), approvedByUserId: new mongoose.Types.ObjectId() });
+      const currentPlan = await planFor('Current reviewed free Seller period', { priceMinor: 0, entitlements: { productLimit: 1000, seatLimit: 10, campaignLimit: 10, analyticsDays: 3660, analyticsExport: true } });
+      for (const [identity, selectedStore] of [[owner, store], [other, foreign]]) {
+        const change = await billing.requestReviewedSellerSubscription(scoped(identity, selectedStore), { planPublicId: currentPlan.publicId, note: 'Activate independently reviewed free plan terms.' });
+        await sellerTransaction(session => billing.reviewSellerSubscriptionRequest({ ...scoped(reviewer, selectedStore), requiredOperationalWorkspace: 'superadmin' }, change.publicId,
+          { decision: 'approve', version: change.__v, reason: 'Independently reviewed the actual free period and capacity.' }, { session }));
+        const reviewed = await SubscriptionChangeRequest.findById(change._id);
+        const charge = await billing.startSellerSubscriptionPayment(scoped(identity, selectedStore), { requestPublicId: reviewed.publicId, version: reviewed.__v, idempotencyKey: nextId('activation') });
+        assert.equal(charge.status, 'succeeded');
+        const settled = await SubscriptionCharge.findOne({ publicId: charge.publicId });
+        assert.equal(settled.amountMinor, 0); assert.ok(settled.paidAt);
+        if (identity === owner) currentEnrollment = await SubscriptionEnrollment.findOne({ subscriptionChargeId: settled._id, storeId: store._id });
+      }
+      assert.ok(currentEnrollment?.terms);
+      // Retiring the free catalogue offer does not erase its already activated period.
+      await SubscriptionPlan.updateOne({ _id: currentPlan._id }, { $set: { status: 'retired' } });
       const history = { audience: 'seller', planId: plan._id, planPublicId: plan.publicId, country: 'UG', currency: 'UGX',
         requestedPriceMinor: plan.priceMinor, requestedCadence: plan.cadence, status: 'rejected' };
       await SubscriptionChangeRequest.create({ publicId: nextId('scr'), ...history, userId: owner.user._id, storeId: store._id, storePublicId: store.publicId, note: 'OWN_SUBSCRIPTION_HISTORY' });
@@ -352,7 +378,7 @@ test('seller growth pages persist authenticated store promotions, coupons and su
       const result = await json(owner, '/seller/subscription?storeId=' + foreign._id).expect(200), data = result.body;
       assert.deepEqual(data.plans.map(row => row.publicId), [plan.publicId]);
       assert.equal(data.enrollment.publicId, currentEnrollment.publicId);
-      assert.equal(data.changeRequests.length, 1); assert.equal(data.changeRequests[0].note, 'OWN_SUBSCRIPTION_HISTORY');
+      assert.equal(data.changeRequests.length, 2); assert.equal(data.changeRequests.filter(row => row.note === 'OWN_SUBSCRIPTION_HISTORY').length, 1);
       assert.doesNotMatch(JSON.stringify(data), /PROMOTER_PLAN_SECRET|FOREIGN_COUNTRY_PLAN_SECRET|WRONG_CURRENCY_PLAN_SECRET|DRAFT_PLAN_SECRET|RETIRED_PLAN_SECRET|FOREIGN_SUBSCRIPTION_REQUEST_SECRET/);
       const page = await owner.client.get('/seller/subscription').expect(200);
       assertShell(page, 'subscription'); assert.match(page.text, /Real Growth Seller Plan/);
@@ -363,10 +389,10 @@ test('seller growth pages persist authenticated store promotions, coupons and su
     await t.test('subscription request forms snapshot authoritative plan terms without activating or modifying enrollment', async () => {
       const previous = await SubscriptionEnrollment.findById(currentEnrollment._id).lean();
       for (const unavailable of await SubscriptionPlan.find({ publicId: { $ne: plan.publicId } })) {
-        await assert.rejects(requestSellerSubscription(scoped(owner, store), { planPublicId: unavailable.publicId }), hasCode('SUBSCRIPTION_PLAN_NOT_FOUND'));
+        await assert.rejects(requestSellerSubscription(scoped(owner, store), { planPublicId: unavailable.publicId }), hasCode('SUBSCRIPTION_PLAN_UNAVAILABLE'));
       }
       const invalid = await post(owner, '/seller/subscription', '/seller/subscription/requests', { planPublicId: 'spl_unknown', note: 'Invalid plan' }, true);
-      assert.equal(invalid.status, 404); assert.equal(invalid.body.error.code, 'SUBSCRIPTION_PLAN_NOT_FOUND');
+      assert.equal(invalid.status, 422); assert.equal(invalid.body.error.code, 'SUBSCRIPTION_PLAN_UNAVAILABLE');
       assertRedirect(await post(owner, '/seller/subscription', '/seller/subscription/requests', { planPublicId: plan.publicId, note: 'Please review our subscription request.',
         userId: String(other.user._id), storeId: String(foreign._id), storePublicId: foreign.publicId, country: 'KE', currency: 'KES',
         requestedPriceMinor: '0', priceMinor: '0', requestedCadence: 'yearly', status: 'approved' }), '/seller/subscription');
@@ -417,6 +443,7 @@ test('seller growth pages persist authenticated store promotions, coupons and su
       const staff = await actor('customer', { enroll: true });
       const member = await StoreMember.create({ publicId: nextId('stm'), storeId: store._id, userId: staff.user._id,
         invitedByUserId: owner.user._id, role: 'catalogue', status: 'active', acceptedAt: new Date() });
+      await selectStore(staff, store);
       for (const path of paths) await json(staff, path).expect(403);
       await assert.rejects(createGrowthPromotion(scoped(staff, store), promotion), hasCode('STORE_PERMISSION_DENIED'));
       await assert.rejects(requestSellerSubscription(scoped(staff, store), { planPublicId: plan.publicId }), hasCode('STORE_PERMISSION_DENIED'));
@@ -435,13 +462,13 @@ test('seller growth pages persist authenticated store promotions, coupons and su
       } finally { await User.updateOne({ _id: owner.user._id }, { $set: { 'security.tokenVersion': owner.user.security.tokenVersion } }); }
       await Store.updateOne({ _id: store._id }, { $set: { status: 'suspended' } });
       try {
-        for (const path of paths) await json(owner, path).expect(409);
+        for (const path of paths) await json(owner, path).expect(path === '/seller/subscription' ? 200 : 409);
         await assert.rejects(createGrowthPromotion(scoped(owner, store), promotion), hasCode('STORE_LOCKED'));
       } finally { await Store.updateOne({ _id: store._id }, { $set: { status: 'verified' } }); }
       await CountrySetting.updateOne({ code: 'UG' }, { $set: { currency: 'KES' } });
       try {
-        await assert.rejects(sellerPromotionsPage(scoped(owner, store)), hasCode('SELLER_COUNTRY_UNAVAILABLE'));
-        await assert.rejects(sellerSubscriptionPage(scoped(owner, store)), hasCode('SELLER_COUNTRY_UNAVAILABLE'));
+        await assert.rejects(sellerPromotionsPage(scoped(owner, store)), hasCode('STORE_MARKET_UNAVAILABLE'));
+        await assert.rejects(sellerSubscriptionPage(scoped(owner, store)), hasCode('STORE_MARKET_UNAVAILABLE'));
       } finally { await CountrySetting.updateOne({ code: 'UG' }, { $set: { currency: 'UGX' } }); }
     });
   } finally {

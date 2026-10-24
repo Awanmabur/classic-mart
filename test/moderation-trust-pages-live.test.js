@@ -28,11 +28,11 @@ test('Moderation reviews and trust cases use independent claims, actual sources,
   await mongoose.connect(uri, { dbName: `classicmart_moderation_trust_test_${suffix}` });
   try {
     const { createApp } = await import('../src/app.js');
-    const { User, PlatformGrant, CountrySetting, Store, StoreMember, Category, Product, ProductVariant, Order, Review, TrustCase, RiskSignal, EvidenceDocument, AuditLog, Notification, Refund, LedgerTransaction } = await import('../src/models/index.js');
+    const { User, Device, PlatformGrant, CountrySetting, Store, StoreMember, Category, Product, ProductVariant, Order, Review, TrustCase, RiskSignal, EvidenceDocument, AuditLog, Notification, Refund, LedgerTransaction } = await import('../src/models/index.js');
     const pages = await import('../src/services/moderation-trust-pages.js');
     const compatibility = await import('../src/services/trust.js');
-    const { disputeSellerReview } = await import('../src/services/seller-relationship-pages.js');
-    const { hashPassword } = await import('../src/core/crypto.js');
+    const { disputeSellerReview, sellerRelationshipPage } = await import('../src/services/seller-relationship-pages.js');
+    const { hashPassword, hashToken } = await import('../src/core/crypto.js');
     const { encryptSensitive } = await import('../src/core/sensitive.js');
     const { totpCode } = await import('../src/services/mfa.js');
     const { putMediaObject, deleteMediaObject } = await import('../src/services/object-storage.js');
@@ -55,24 +55,33 @@ test('Moderation reviews and trust cases use independent claims, actual sources,
       const grant = managed ? await PlatformGrant.create({ publicId: id('pgr'), userId: user._id, role: 'moderator', operationalCountries: countries,
         status: 'active', startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86400_000),
         reason: 'Independent moderation fixture', approvalPublicId: id('apr'), approvedByUserId: new mongoose.Types.ObjectId() }) : null;
-      let client;
+      const entry = { user, grant };
       if (login) {
         const transport = new http.Agent({ localAddress: `127.0.0.${number + 40}`, keepAlive: false }); transports.push(transport);
-        client = request.agent(app).use(req => req.agent(transport));
+        const client = request.agent(app).use(req => req.agent(transport));
         const page = await client.get('/login').expect(200);
         await client.post('/login').type('form').send({ email, password, _csrf: csrf(page.text) }).expect(302).expect('location', '/mfa');
         const challenge = await client.get('/mfa').expect(200);
-        await client.post('/mfa').type('form').send({ code: totpCode(secret), _csrf: csrf(challenge.text) }).expect(302);
+        const authenticated = await client.post('/mfa').type('form').send({ code: totpCode(secret), _csrf: csrf(challenge.text) }).expect(302);
+        const cookie = authenticated.headers['set-cookie'].find(value => value.startsWith('cm.sid='));
+        const signed = decodeURIComponent(cookie.split(';')[0].slice('cm.sid='.length));
+        entry.sessionID = signed.slice(2, signed.lastIndexOf('.'));
+        entry.device = await Device.findOne({ userId: user._id, sessionHash: hashToken(entry.sessionID), revokedAt: null }).select('+sessionHash');
+        assert.ok(entry.device);
+        entry.client = client; entry.user = await User.findById(user._id);
       }
-      return { user, grant, client };
+      return entry;
     }
     const moderator = await actor('customer', { login: true }), second = await actor('customer', { login: true });
     const globalModerator = await actor('customer', { countries: ['UG', 'KE', 'TZ'] });
-    const buyer = await actor('customer', { login: true }), reporter = await actor(), seller = await actor('seller', { login: true });
+    const buyer = await actor('customer', { login: true }), reporter = await actor(), seller = await actor('seller', { managed: false, login: true });
+    const platformSeller = await actor('seller', { login: true });
     const activeMember = await actor(), invitedMember = await actor(), productOwner = await actor(), formerDisputer = await actor();
     const foreignBuyer = await actor('customer', { managed: false, countries: ['TZ'] });
-    const req = (entry = moderator, query = {}) => ({ id: id('req'), user: entry.user, session: { tokenVersion: entry.user.security.tokenVersion }, query,
-      country: { code: 'UG' }, ip: '127.0.0.1', get: () => 'ModerationTrustTest/1.0' });
+    const req = (entry = moderator, query = {}) => ({ id: id('req'), user: entry.user,
+      session: { userId: String(entry.user._id), tokenVersion: entry.user.security.tokenVersion, mfaVerifiedAt: Date.now() },
+      ...(entry.sessionID ? { sessionID: entry.sessionID, device: entry.device } : {}), query,
+      country: { code: 'UG', currency: 'UGX' }, ip: '127.0.0.1', get: () => 'ModerationTrustTest/1.0' });
     const category = await Category.create({ publicId: id('cat'), name: 'Trust goods', slug: id('category'), countries: ['UG', 'KE', 'TZ'] });
     async function subject({ countries = ['UG', 'KE'], country = countries[0], owner, productActor, status = 'published', store: existingStore } = {}) {
       // Store ownership is unique: each new fixture store has its own seller in its actual home market.
@@ -105,9 +114,10 @@ test('Moderation reviews and trust cases use independent claims, actual sources,
     }
     const primary = await subject({ owner: seller }), foreign = await subject({ countries: ['TZ'], country: 'TZ' });
     await StoreMember.create([
-      { publicId: id('stm'), storeId: primary.store._id, userId: seller.user._id, role: 'owner', status: 'active', invitedByUserId: seller.user._id },
+      { publicId: id('stm'), storeId: primary.store._id, userId: seller.user._id, role: 'owner', status: 'active', acceptedAt: new Date(), invitedByUserId: seller.user._id },
       { publicId: id('stm'), storeId: primary.store._id, userId: activeMember.user._id, role: 'support', status: 'active', invitedByUserId: seller.user._id },
       { publicId: id('stm'), storeId: primary.store._id, userId: invitedMember.user._id, role: 'catalogue', status: 'invited', invitedByUserId: seller.user._id },
+      { publicId: id('stm'), storeId: primary.store._id, userId: platformSeller.user._id, role: 'support', status: 'active', acceptedAt: new Date(), invitedByUserId: seller.user._id },
     ]);
     const purchaseRow = await purchase(primary);
     let ownedReview, productCase, storeCase;
@@ -180,6 +190,21 @@ test('Moderation reviews and trust cases use independent claims, actual sources,
       await assert.rejects(pages.disputeOwnedReview(req(reporter), ownedReview.publicId, { version: await version(Review, ownedReview), reason: 'An unrelated account must not dispute this seller review.' }), error => error.status === 404 && error.code === 'REVIEW_NOT_FOUND');
       const sellerRequest = () => ({ ...req(seller), store: primary.store, params: { publicId: ownedReview.publicId }, body: { version: ownedReviewVersion, reason: 'Please independently examine the recorded delivered product review.' } });
       const ownedReviewVersion = await version(Review, ownedReview);
+      const forbidden = { ...req(platformSeller), store: primary.store, params: { publicId: ownedReview.publicId },
+        body: { version: ownedReviewVersion, reason: 'Platform-managed identities must not exercise Seller support permissions.' } };
+      const sourceBefore = await Review.findById(ownedReview._id).lean(), auditBefore = await AuditLog.countDocuments({ targetPublicId: ownedReview.publicId });
+      await assert.rejects(disputeSellerReview(forbidden), error => error.code === 'SELLER_IDENTITY_FORBIDDEN');
+      await assert.rejects(pages.disputeOwnedReview(forbidden, ownedReview.publicId, forbidden.body, { sellerWorkspace: true }), error => error.code === 'SELLER_IDENTITY_FORBIDDEN');
+      await assert.rejects(sellerRelationshipPage(forbidden, 'seller-reviews'), error => error.code === 'SELLER_IDENTITY_FORBIDDEN');
+      assert.deepEqual(await Review.findById(ownedReview._id).lean(), sourceBefore);
+      assert.equal(await AuditLog.countDocuments({ targetPublicId: ownedReview.publicId }), auditBefore);
+      await assert.rejects(pages.disputeOwnedReview(sellerRequest(), ownedReview.publicId, { reason: 'A Seller workspace dispute must include the saved source version.' }, { sellerWorkspace: true }), error => error.name === 'ZodError');
+      await Device.updateOne({ _id: seller.device._id }, { $set: { revokedAt: new Date() } });
+      try {
+        await assert.rejects(disputeSellerReview(sellerRequest()), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        await assert.rejects(sellerRelationshipPage(sellerRequest(), 'seller-reviews'), error => error.code === 'ACCOUNT_UNAVAILABLE');
+      } finally { await Device.updateOne({ _id: seller.device._id }, { $unset: { revokedAt: 1 } }); }
+      assert.deepEqual(await Review.findById(ownedReview._id).lean(), sourceBefore);
       await User.updateOne({ _id: seller.user._id }, { $set: { 'security.mfaEnabled': false } });
       try { await assert.rejects(disputeSellerReview(sellerRequest()), error => error.code === 'MFA_ENROLLMENT_REQUIRED'); }
       finally { await User.updateOne({ _id: seller.user._id }, { $set: { 'security.mfaEnabled': true } }); }
@@ -196,7 +221,8 @@ test('Moderation reviews and trust cases use independent claims, actual sources,
       for (const privateValue of ['actorUserId', 'assignedUserId', String(seller.user._id), String(moderator.user._id)]) assert.ok(!JSON.stringify(sellerJson.body.selected).includes(privateValue));
       const sellerHtml = await seller.client.get(sellerSelection).expect(200);
       assert.ok(sellerHtml.text.includes(disputed.disputeReason)); assert.match(sellerHtml.text, /Public review conversation/);
-      for (const entry of [seller, buyer, activeMember, invitedMember]) await assert.rejects(claim('reviews', Review, disputed, entry), error => error.code === 'MODERATION_CONFLICT_OF_INTEREST');
+      await assert.rejects(claim('reviews', Review, disputed, seller), error => error.status === 403);
+      for (const entry of [platformSeller, buyer, activeMember, invitedMember]) await assert.rejects(claim('reviews', Review, disputed, entry), error => error.code === 'MODERATION_CONFLICT_OF_INTEREST');
       const ownPage = await pages.loadModerationTrustPage(req(buyer, { record: disputed.publicId }), 'moderator-reviews');
       assert.equal(ownPage.selected.canAct, false); assert.match(ownPage.selected.independenceReason, /independent|store/i);
       const separate = await seededReview(primary); await compatibility.publishReview(req(), separate.review.publicId, { decision: 'publish', reason: 'A genuine legacy caller receives an independent recorded decision.' });
@@ -225,7 +251,8 @@ test('Moderation reviews and trust cases use independent claims, actual sources,
       await assert.rejects(pages.createOwnedTrustIssue(req(reporter), { type: 'counterfeit', productId: primary.product.publicId, storeId: foreign.store.publicId, country: 'UG', description: 'This mismatched foreign store does not own the selected product.' }), error => error.code === 'TRUST_SUBJECT_MISMATCH');
       await assert.rejects(pages.createOwnedTrustIssue(req(reporter), { type: 'counterfeit', productId: primary.product.publicId, country: 'TZ', description: 'A report cannot choose a market absent from the product.' }), error => error.code === 'TRUST_COUNTRY_INVALID');
       await assert.rejects(claim('cases', TrustCase, productCase, reporter), error => error.code === 'MODERATION_CONFLICT_OF_INTEREST');
-      for (const entry of [seller, activeMember, invitedMember]) await assert.rejects(claim('cases', TrustCase, storeCase, entry), error => error.code === 'MODERATION_CONFLICT_OF_INTEREST');
+      await assert.rejects(claim('cases', TrustCase, storeCase, seller), error => error.status === 403);
+      for (const entry of [platformSeller, activeMember, invitedMember]) await assert.rejects(claim('cases', TrustCase, storeCase, entry), error => error.code === 'MODERATION_CONFLICT_OF_INTEREST');
       await assert.rejects(claim('signals', RiskSignal, signal, reporter), error => error.code === 'MODERATION_CONFLICT_OF_INTEREST');
       await RiskSignal.collection.updateOne({ _id: signal._id }, { $unset: { reporterUserId: '' } });
       await assert.rejects(claim('signals', RiskSignal, signal, reporter), error => error.code === 'MODERATION_CONFLICT_OF_INTEREST');

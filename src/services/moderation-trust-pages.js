@@ -2,7 +2,6 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
-import { env } from '../config/env.js';
 import { Review, TrustCase, RiskSignal, Order, Product, Store, StoreMember, User, AuditLog, Notification, EvidenceDocument, ModerationQaReview, SellerVerification, SupportTicket } from '../models/index.js';
 import { writeAudit } from './audit.js';
 import { authorizeCustomerCaseActor, fenceCustomerCaseMarket } from './customer-dispute-pages.js';
@@ -10,6 +9,7 @@ import { moderationAccess, fenceModerationAccess, assertModerationReadAccess, mo
 import { cursorScope, cursorSort, decodeCursor, pageResult } from './pagination.js';
 import { queueModerationAlert } from './moderation-notifications.js';
 import { queueCountryAdminAlert } from './country-admin-notifications.js';
+import { sellerOperationsAccess } from './seller-operations-access.js';
 
 const SIZE = 25;
 const idValue = z.string().trim().min(4).max(100).regex(/^[A-Za-z0-9_-]+$/);
@@ -227,27 +227,28 @@ export async function createOwnedVerifiedReview(request, body) {
 }
 
 export async function disputeOwnedReview(request, reviewId, reasonOrInput, { sellerWorkspace = false } = {}) {
-  const id = idValue.parse(reviewId), input = z.object({ reason: z.string().trim().min(10).max(1000), version: versionValue.optional() }).parse(typeof reasonOrInput === 'string' ? { reason: reasonOrInput } : reasonOrInput);
+  const id = idValue.parse(reviewId), input = z.object({ reason: z.string().trim().min(10).max(1000), version: sellerWorkspace ? versionValue : versionValue.optional() }).parse(typeof reasonOrInput === 'string' ? { reason: reasonOrInput } : reasonOrInput);
   return transaction(async session => {
-    const actor = await authorizeCustomerCaseActor(request, session);
+    const sellerContext = sellerWorkspace ? await sellerOperationsAccess(request, 'support', { session, write: true }) : null;
+    const actor = sellerContext?.actor || await authorizeCustomerCaseActor(request, session);
     const review = await Review.findOne({ publicId: id, status: 'published' }).session(session);
     if (!review) throw new AppError('Published review not found.', 404, 'REVIEW_NOT_FOUND');
     versionCheck(review, input.version);
     const subject = await checkedReview(review, session);
     if (sellerWorkspace) {
-      if (!request.store?._id) throw new AppError('Seller authentication is required.', 401, 'UNAUTHENTICATED');
-      if (!same(request.store._id, subject.store._id)) throw new AppError('Store review not found.', 404, 'REVIEW_NOT_FOUND');
-      if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) throw new AppError('Authenticator enrollment is required for store operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
-      if (subject.store.status !== 'verified') throw new AppError('Verify this store before changing support records.', 409, 'STORE_LOCKED');
-      if (subject.store.country !== review.country) await fenceCustomerCaseMarket(subject.store.country, session, subject.store.currency);
+      if (!same(sellerContext.store._id, subject.store._id)) throw new AppError('Store review not found.', 404, 'REVIEW_NOT_FOUND');
+      if (sellerContext.store.status !== 'verified') throw new AppError('Verify this store before changing support records.', 409, 'STORE_LOCKED');
+      // Canonical store authorization already fenced its actor, Device, member,
+      // owner, Store and market. A cross-market review also binds its sale market.
+      if (sellerContext.store.country !== review.country) await fenceCustomerCaseMarket(review.country, session);
+    } else {
+      await fenceCustomerCaseMarket(review.country, session);
+      const member = await StoreMember.findOne({ storeId: subject.store._id, userId: actor._id, status: 'active', role: mongoose.trusted({ $in: ['owner', 'admin', 'support'] }) }).session(session);
+      if (!same(subject.store.ownerUserId, actor._id) && !member) throw new AppError('Published review not found for this store.', 404, 'REVIEW_NOT_FOUND');
+      if (member) { const locked = await StoreMember.updateOne({ _id: member._id, status: 'active', __v: member.__v || 0 }, { $inc: { __v: 1 } }, { session }); if (locked.modifiedCount !== 1) throw conflict(); }
+      const locked = await Store.updateOne({ _id: subject.store._id, ownerUserId: subject.store.ownerUserId, __v: subject.store.__v || 0, status: mongoose.trusted({ $ne: 'closed' }) }, { $inc: { __v: 1 } }, { session });
+      if (locked.modifiedCount !== 1) throw new AppError('The affected store changed.', 409, 'STORE_ACCESS_CHANGED');
     }
-    await fenceCustomerCaseMarket(review.country, session);
-    const member = await StoreMember.findOne({ storeId: subject.store._id, userId: actor._id, status: 'active', role: mongoose.trusted({ $in: ['owner', 'admin', 'support'] }) }).session(session);
-    if (sellerWorkspace && !member) throw new AppError('Your store role cannot manage customer support.', 403, 'STORE_PERMISSION_DENIED');
-    if (!same(subject.store.ownerUserId, actor._id) && !member) throw new AppError('Published review not found for this store.', 404, 'REVIEW_NOT_FOUND');
-    if (member) { const locked = await StoreMember.updateOne({ _id: member._id, status: 'active', __v: member.__v || 0 }, { $inc: { __v: 1 } }, { session }); if (locked.modifiedCount !== 1) throw conflict(); }
-    const locked = await Store.updateOne({ _id: subject.store._id, ownerUserId: subject.store.ownerUserId, __v: subject.store.__v || 0, status: mongoose.trusted({ $ne: 'closed' }) }, { $inc: { __v: 1 } }, { session });
-    if (locked.modifiedCount !== 1) throw new AppError('The affected store changed.', 409, 'STORE_ACCESS_CHANGED');
     review.status = 'disputed'; review.disputeReason = input.reason; review.disputedByUserId = actor._id; review.disputedAt = now(); review.assignedUserId = undefined; review.assignedAt = undefined;
     review.publicMessages.push({ author: 'seller', message: input.reason, actorUserId: actor._id }); await review.save({ session });
     await queueTrustModerationAlert({ country: review.country, href: '/moderation/reviews?record=' + review.publicId }, session);

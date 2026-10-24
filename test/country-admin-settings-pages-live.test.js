@@ -92,7 +92,8 @@ test('Country Admin settings use actual staff identity, devices, grant scope and
       assert.equal(response.body.context.country, ''); assert.equal(response.body.context.currency, null);
       assert.deepEqual(response.body.context.countries.map(row => row.code).sort(), ['KE', 'UG']);
       assert.equal(response.body.page.total, 6); assert.equal(response.body.security.activeSessions, 1);
-      assert.equal(response.body.security.mfaEnabled, true); assert.equal(response.body.landingOptions.length, 16);
+      assert.equal(response.body.security.mfaEnabled, true); assert.equal(response.body.landingOptions.length, 17);
+      assert.ok(response.body.landingOptions.some(option => option.id === 'admin-order-cases'), 'Order-case navigation is a real saved landing option.');
       assert.ok(!JSON.stringify(response.body).includes('Unassigned market'));
       assert.doesNotMatch(JSON.stringify(response.body), /mfaSecret|mfaRecoveryCode|sessionHash|passwordHash/);
       assert.match(response.headers['cache-control'], /no-store/);

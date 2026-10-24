@@ -21,7 +21,7 @@ const csrf = html => {
   return token[1];
 };
 
-test('all nine Finance destinations use current grants, real MFA and the approved responsive workspace', { skip: !uri, timeout: 300_000 }, async t => {
+test('all ten Finance destinations use current grants, real MFA and the approved responsive workspace', { skip: !uri, timeout: 300_000 }, async t => {
   assert.equal(new URL(uri).hostname, '127.0.0.1');
   assert.match(new URL(uri).pathname, /verification|test/i);
   const suffix = crypto.randomBytes(8).toString('hex'), transports = [];
@@ -138,8 +138,8 @@ test('all nine Finance destinations use current grants, real MFA and the approve
       fixtures[country] = { payment, refund, payout, run, dispute, auditTarget };
     }
 
-    await t.test('all nine private live pages have canonical aliases and approved Finance navigation', async () => {
-      assert.equal(Object.keys(FINANCE_LIVE_ROUTES).length, 9);
+    await t.test('all ten private live pages have canonical aliases and approved Finance navigation', async () => {
+      assert.equal(Object.keys(FINANCE_LIVE_ROUTES).length, 10);
       for (const [id, href] of Object.entries(FINANCE_LIVE_ROUTES)) {
         const page = await client.get(href).set('Accept', 'text/html').expect(200);
         assert.match(page.text, /data-dashboard-workspace="finance"/);
@@ -181,7 +181,7 @@ test('all nine Finance destinations use current grants, real MFA and the approve
       }
     });
 
-    await t.test('personal account pages keep all nine Finance menu destinations and real account security', async () => {
+    await t.test('personal account pages keep all ten Finance menu destinations and real account security', async () => {
       for (const href of ['/account/security', '/account/messages']) {
         const page = await client.get(href).expect(200);
         assert.match(page.text, /data-dashboard-workspace="finance"/);
@@ -212,7 +212,7 @@ test('all nine Finance destinations use current grants, real MFA and the approve
           assert.equal(response.status(), 200, href);
           assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'finance');
           assert.equal(await page.locator('body').getAttribute('data-dashboard-page'), id);
-          assert.equal(await page.locator('.side-navigation a[href^="/finance/"]').count(), 9);
+          assert.equal(await page.locator('.side-navigation a[href^="/finance/"]').count(), 10);
           assert.equal(await page.locator('#roleSwitcher').count(), 0);
           const layout = await page.evaluate(() => ({ viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth,
             overflowing: [...document.querySelectorAll('.role-page *')].map(node => { const box = node.getBoundingClientRect(); return { tag: node.tagName, classes: node.className,
@@ -266,7 +266,7 @@ test('all nine Finance destinations use current grants, real MFA and the approve
         }
         await page.goto(base + '/account/security');
         assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'finance');
-        assert.equal(await page.locator('.side-navigation a[href^="/finance/"]').count(), 9);
+        assert.equal(await page.locator('.side-navigation a[href^="/finance/"]').count(), 10);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'Finance personal security overflow');
         assert.equal((await User.findById(browserActor.user._id)).role, 'customer');
         assert.equal(await LedgerAccount.countDocuments({ ownerType: 'customer', ownerPublicId: browserActor.user.publicId }), 0);
