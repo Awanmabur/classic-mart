@@ -91,7 +91,16 @@ function filters(request,pageId){
 }
 function queryFor(context,selected,definition){
   const clauses=[definition.base||{}];
-  if(context.country&&!definition.noCountry){const field=definition.countryField||'country';clauses.push(definition.global?{$or:[{[field]:context.country},{[field]:''},{[field]:{$size:0}},{[field]:{$exists:false}}]}:{[field]:context.country});}
+  if(context.country&&!definition.noCountry){
+    const field=definition.countryField||'country';
+    if(definition.global){
+      const globalScope=[{[field]:context.country},{[field]:''},{[field]:{$exists:false}}];
+      // Empty arrays represent global coverage only for array-valued scopes.
+      // Mongoose cannot cast $size on a scalar country such as CmsContent.country.
+      if(definition.Model.schema.path(field)?.instance==='Array')globalScope.push({[field]:{$size:0}});
+      clauses.push({$or:globalScope});
+    }else clauses.push({[field]:context.country});
+  }
   if(selected.status&&!definition.noStatus){const valid=definition.Model.schema.path('status')?.enumValues||[];if(valid.length&&!valid.includes(selected.status))throw new AppError('The record status is invalid.',422,'SUPER_ADMIN_STATUS_INVALID');clauses.push({status:selected.status});}
   if(selected.search){const expression=new RegExp(RegExp.escape(selected.search),'i');clauses.push({$or:definition.fields.map(field=>({[field]:expression}))});}
   return clauses.length===1?clauses[0]:{$and:clauses};

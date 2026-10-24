@@ -88,8 +88,11 @@ const logistics = await import('../src/services/logistics.js');
 const trust = await import('../src/services/trust.js');
 const storefront = await import('../src/services/storefront.js');
 const stage9 = await import('../src/services/stage9.js');
-const business = await import('../src/services/business.js');
-const businessFulfillment = await import('../src/services/business-fulfillment.js');
+const business = await import('../src/services/business-operations.js');
+const { businessAccess } = await import('../src/services/business-access.js');
+const supplierBusiness = await import('../src/services/seller-business.js');
+const deliveryWorkspace = await import('../src/services/delivery-workspace.js');
+const warehouseOperations = await import('../src/services/warehouse-operations.js');
 const sellerGrowth = await import('../src/services/seller-growth.js');
 const outbox = await import('../src/services/outbox.js');
 const ai = await import('../src/services/ai.js');
@@ -104,20 +107,20 @@ await Promise.all(Object.values(mongoose.connection.models).map(model => model.i
 const country = { code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG' };
 let userSequence = 0;
 
-async function makeUser(role, suffix) {
+async function makeUser(role, suffix, { mfa = false } = {}) {
   const email = `${role}.${suffix}@audit.classicmart.local`;
   userSequence += 1;
   const phone = `+256799${String(userSequence).padStart(6, '0')}`;
   const user = await models.User.create({
     publicId: publicId('usr'), name: `Audit ${role}`, email, emailNormalized: normalizeEmail(email),
     phone, phoneNormalized: normalizePhone(phone), passwordHash: await hashPassword('AuditUser!2026Secure'), role,
-    status: 'active', emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(), onboardingCompletedAt: new Date(), country: 'UG', currency: 'UGX',
+    status: 'active', emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(), onboardingCompletedAt: new Date(), country: 'UG', currency: 'UGX', operationalCountries: ['UG'],
     consents: { terms: true, privacy: true, marketing: false, recordedAt: new Date(), policyVersion: '2026-07' },
   });
-  if (stage12Mfa.mfaRequiredForUser(user)) {
+  if (mfa || ['business', 'delivery'].includes(role) || stage12Mfa.mfaRequiredForUser(user)) {
     const enrollment = await stage12Mfa.beginMfaEnrollment(user._id, 'AuditUser!2026Secure');
     const confirmed = await stage12Mfa.confirmMfaEnrollment(user._id, stage12Mfa.totpCode(enrollment.secret));
-    assert.equal(confirmed.user.security.mfaEnabled, true, 'Audit privileged actors must complete actual authenticator enrollment');
+    assert.equal(confirmed.user.security.mfaEnabled, true, 'Audit actors requiring MFA must complete actual authenticator enrollment');
     return confirmed.user;
   }
   return user;
@@ -130,12 +133,121 @@ async function serviceRequest(user, overrides = {}) {
   const device = await models.Device.create({publicId:publicId('dev'),userId:actor._id,sessionHash:hashToken(sessionID),label:'Integration audit session',userAgent:'ClassicMartIntegrationAudit/1.0',ipHash:hashToken('127.0.0.18'),lastSeenAt:new Date()});
   return {
     id: publicId('req'), user: actor, country, query: {}, body: {}, ip: '127.0.0.18',
-    sessionID, device,
-    session: { userId: String(actor._id), tokenVersion: actor.security.tokenVersion,
-      ...(actor.security.mfaEnabled ? { mfaVerifiedAt: Date.now() } : {}) },
+    sessionID, device, currentDevice: device,
     get(name) { return String(name).toLowerCase() === 'user-agent' ? 'ClassicMartIntegrationAudit/1.0' : ''; },
     log: { warn() {}, error() {} }, ...overrides,
+    session: { userId: String(actor._id), tokenVersion: actor.security.tokenVersion,
+      ...(actor.security.mfaEnabled ? { mfaVerifiedAt: Date.now() } : {}), ...overrides.session },
   };
+}
+
+async function makeManagedStaff(role, suffix, approvedBy) {
+  const actor = await makeUser(role, suffix);
+  await models.User.updateOne({ _id: actor._id }, { $set: { platformAccessManagedAt: new Date() }, $inc: { __v: 1 } });
+  await models.PlatformGrant.create({
+    publicId: publicId('grt'), userId: actor._id, role, operationalCountries: ['UG'],
+    startsAt: new Date(Date.now()-60000), expiresAt: new Date(Date.now()+86400000),
+    reason: 'Independent reviewed integration audit staff assignment.', approvalPublicId: publicId('apr'), approvedByUserId: approvedBy._id,
+  });
+  return models.User.findById(actor._id);
+}
+
+async function currentRecord(Model, reference) {
+  const row = await Model.findOne({ publicId: typeof reference === 'string' ? reference : reference.publicId });
+  assert.ok(row, `Audit record ${typeof reference === 'string' ? reference : reference.publicId} must exist`);
+  return row;
+}
+
+async function auditAction(user, body = {}, publicIdValue = '', overrides = {}) {
+  return serviceRequest(user, { ...overrides, body, params: publicIdValue ? { publicId: publicIdValue } : {} });
+}
+
+async function privateProofFile() {
+  const { default: sharp } = await import('sharp');
+  const buffer = await sharp({ create: { width: 640, height: 640, channels: 3, background: '#345678' } }).png().toBuffer();
+  return { buffer, size: buffer.length, mimetype: 'image/png', originalname: 'audit-private-proof.png' };
+}
+
+async function rememberPrivateEvidence(result) {
+  const row = await models.EvidenceDocument.findOne({ publicId: result.publicId }).select('+storageKey');
+  assert.ok(row?.storageKey, 'Audit proof must be persisted to private storage');
+  auditEvidenceKeys.push(row.storageKey);
+  return row;
+}
+
+async function approveAuditCarrier(carrier, operator) {
+  await deliveryWorkspace.saveDeliveryProfile(await auditAction(carrier, { version: 0, transport: 'bicycle', serviceAreas: 'Kampala', action: 'save' }));
+  let profile = await models.DeliveryProfile.findOne({ userId: carrier._id });
+  const identity = await deliveryWorkspace.uploadDeliveryEvidence(await auditAction(carrier, { version: profile.__v, documentType: 'identity' }, '', { file: await privateProofFile() }), { profile: true });
+  const evidence = await rememberPrivateEvidence(identity);
+  assert.equal(evidence.contextPublicId, profile.publicId, 'Stage 7: private identity evidence must bind to the actual carrier profile');
+  profile = await models.DeliveryProfile.findById(profile._id);
+  await deliveryWorkspace.saveDeliveryProfile(await auditAction(carrier, { version: profile.__v, transport: 'bicycle', serviceAreas: 'Kampala', action: 'submit' }));
+  profile = await models.DeliveryProfile.findById(profile._id);
+  await deliveryWorkspace.reviewDeliveryProfile(await auditAction(operator, { version: profile.__v, decision: 'approve', reason: 'Independent review of private carrier identity evidence.', codEnabled: 'true' }, profile.publicId));
+  profile = await models.DeliveryProfile.findById(profile._id);
+  assert.notEqual(String(profile.reviewedByUserId), String(carrier._id), 'Stage 7: carrier verification must have an independent reviewer');
+  await deliveryWorkspace.setDeliveryAvailability(await auditAction(carrier, { version: profile.__v, available: 'true' }));
+  return models.DeliveryProfile.findById(profile._id);
+}
+
+async function prepareAuditShipment(order, operator) {
+  const shipment = await models.Shipment.findOne({ orderId: order._id, kind: 'outbound' });
+  assert.ok(shipment, 'Stage 7: preparation requires the operational order shipment');
+  const parcels = await models.Parcel.find({ shipmentId: shipment._id });
+  for (const parcel of parcels) {
+    const parcelStore = await models.Store.findOne({ publicId: parcel.storePublicId });
+    const reservations = await models.InventoryReservation.find({ publicId: { $in: order.items.filter(item => item.storePublicId === parcel.storePublicId).map(item => item.reservationPublicId) }, status: 'committed' });
+    const stock = await models.StockItem.find({ _id: { $in: reservations.map(row => row.stockItemId) } });
+    const warehouses = await models.Warehouse.find({ _id: { $in: stock.map(row => row.warehouseId) }, storeId: parcelStore._id, active: true });
+    assert.ok(warehouses.length, 'Stage 7: preparation must use the committed stock warehouse');
+    // Pick every real allocation before packing and dispatching at one of its warehouses.
+    const work = [...warehouses.map(warehouse => [warehouse, 'pick']), [warehouses[0], 'pack'], [warehouses[0], 'dispatch']];
+    for (const [warehouse, type] of work) {
+      const freshWarehouse = await models.Warehouse.findById(warehouse._id);
+      const created = await warehouseOperations.mutateWarehouse(await auditAction(operator, {
+        version: freshWarehouse.__v, actionKey: `audit-warehouse-${crypto.randomUUID()}`, warehousePublicId: warehouse.publicId,
+        type, parcelPublicId: parcel.publicId, reference: order.publicId, notes: `Audit ${type}`,
+      }), 'create-task');
+      let task = await currentRecord(models.WarehouseTask, created);
+      if (task.status === 'open') {
+        await warehouseOperations.mutateWarehouse(await auditAction(operator, { version: task.__v }, task.publicId), 'claim');
+        task = await currentRecord(models.WarehouseTask, task);
+      }
+      await warehouseOperations.mutateWarehouse(await auditAction(operator, { version: task.__v }, task.publicId), 'execute');
+      assert.equal((await currentRecord(models.WarehouseTask, task)).status, 'completed', `Stage 7: actual ${type} work must complete`);
+    }
+    assert.equal((await currentRecord(models.Parcel, parcel)).status, 'handed_over', 'Stage 7: seller parcel must reach physical carrier handoff');
+  }
+  return models.Shipment.findById(shipment._id);
+}
+
+async function deliverAuditShipment(order, carrier, operator, earningMinor = 300) {
+  let shipment = await prepareAuditShipment(order, operator);
+  const profile = await models.DeliveryProfile.findOne({ userId: carrier._id });
+  await deliveryWorkspace.createDeliveryOffer(await auditAction(operator, { version: shipment.__v, carrierPublicId: profile.publicId, earningMinor, currency: order.totals.currency }, shipment.publicId));
+  const offer = await models.DeliveryOffer.findOne({ shipmentId: shipment._id, deliveryUserId: carrier._id, status: 'offered' });
+  await deliveryWorkspace.respondDeliveryOffer(await auditAction(carrier, { version: offer.__v }, offer.publicId), 'accept');
+  shipment = await models.Shipment.findById(shipment._id).select('+pickupCodeHash +deliveryCodeHash +pickupCodeEncrypted +deliveryCodeEncrypted');
+  const pickupCode = decryptSensitive(shipment.pickupCodeEncrypted), deliveryCode = decryptSensitive(shipment.deliveryCodeEncrypted);
+  assert.equal(logistics.verifyProofCode(pickupCode, shipment.pickupCodeHash), true, 'Stage 7: actual pickup code must match its stored hash');
+  assert.equal(logistics.verifyProofCode(deliveryCode, shipment.deliveryCodeHash), true, 'Stage 7: actual recipient code must match its stored hash');
+  await deliveryWorkspace.advanceDelivery(await auditAction(carrier, { version: shipment.__v, proofCode: pickupCode }, shipment.publicId), 'picked_up');
+  shipment = await models.Shipment.findById(shipment._id);
+  await deliveryWorkspace.advanceDelivery(await auditAction(carrier, { version: shipment.__v }, shipment.publicId), 'in_transit');
+  shipment = await models.Shipment.findById(shipment._id);
+  await assert.rejects(deliveryWorkspace.advanceDelivery(await auditAction(carrier, { version: shipment.__v, proofCode: deliveryCode }, shipment.publicId), 'delivered'), error => error?.code === 'DELIVERY_PHOTO_REQUIRED', 'Stage 7: a buyer OTP cannot replace required private physical proof');
+  for (const documentType of ['delivery_photo', ...(shipment.proofPolicy?.signatureRequired ? ['delivery_signature'] : [])]) {
+    shipment = await models.Shipment.findById(shipment._id);
+    const uploaded = await deliveryWorkspace.uploadDeliveryEvidence(await auditAction(carrier, { version: shipment.__v, documentType }, shipment.publicId, { file: await privateProofFile() }));
+    await rememberPrivateEvidence(uploaded);
+  }
+  shipment = await models.Shipment.findById(shipment._id);
+  await deliveryWorkspace.advanceDelivery(await auditAction(carrier, { version: shipment.__v, proofCode: deliveryCode }, shipment.publicId), 'delivered');
+  shipment = await models.Shipment.findById(shipment._id);
+  assert.equal(shipment.status, 'delivered', 'Stage 7: delivery must persist through the current carrier service');
+  assert.ok(shipment.assignedAt && shipment.pickedUpAt && shipment.deliveredAt && shipment.proofEvidenceDocumentIds.length, 'Stage 7: persisted delivery requires assignment, physical pickup and private proof');
+  return shipment;
 }
 
 function auditCheckpoint(label) { console.log(`[audit] ${label}`); }
@@ -143,8 +255,10 @@ function auditCheckpoint(label) { console.log(`[audit] ${label}`); }
 try {
 auditCheckpoint('Stages 1–7: identity, catalogue, checkout, payments, promoter attribution and logistics');
 let admin = await models.User.findOne({ role: 'super_admin' });
-const initialAdminMfa = await stage12Mfa.beginMfaEnrollment(admin._id, process.env.ADMIN_PASSWORD);
-await stage12Mfa.confirmMfaEnrollment(admin._id, stage12Mfa.totpCode(initialAdminMfa.secret));
+if (!admin.security.mfaEnabled) {
+  const initialAdminMfa = await stage12Mfa.beginMfaEnrollment(admin._id, process.env.ADMIN_PASSWORD);
+  await stage12Mfa.confirmMfaEnrollment(admin._id, stage12Mfa.totpCode(initialAdminMfa.secret));
+}
 admin = await models.User.findById(admin._id);
 assert.ok(admin, 'Stage 1: seeded super admin must exist');
 const setting = await models.CountrySetting.findOne({ code: 'UG', active: true });
@@ -170,14 +284,32 @@ const store = await models.Store.findById(product.storeId);
 const warehouse = await models.Warehouse.findOne({ storeId: store._id, active: true });
 assert.ok(store?.status === 'verified' && warehouse, 'Stage 2: verified store and warehouse must exist');
 
+// The generic seed reference store belongs to its setup administrator. Give the
+// isolated audit's commercial fixture an actual personal Seller owner before any
+// checkout/procurement journey; platform identities never act as supplier owners.
+const adminGrantsBeforeFixture = await models.PlatformGrant.find({ userId: admin._id }).sort({ _id: 1 }).lean();
+const referenceSeller = await makeUser('seller', 'reference-store-owner', { mfa: true });
+store.ownerUserId = referenceSeller._id;
+await store.save();
+await models.Product.updateMany({ storeId: store._id }, { $set: { ownerUserId: referenceSeller._id } });
+await models.Warehouse.updateMany({ storeId: store._id }, { $set: { ownerUserId: referenceSeller._id } });
+product.ownerUserId = referenceSeller._id;
+warehouse.ownerUserId = referenceSeller._id;
+await models.StoreMember.create({ publicId: publicId('stm'), storeId: store._id, userId: referenceSeller._id,
+  role: 'owner', status: 'active', invitedByUserId: referenceSeller._id, acceptedAt: new Date() });
+assert.equal((await models.User.findById(admin._id)).role, 'super_admin', 'Audit fixture setup must not turn the platform administrator into a Seller');
+assert.deepEqual(await models.PlatformGrant.find({ userId: admin._id }).sort({ _id: 1 }).lean(), adminGrantsBeforeFixture, 'Audit fixture ownership must not rewrite platform administrator grants');
+assert.equal((await models.User.findById(referenceSeller._id)).role, 'seller', 'The reference supplier must have a real personal Seller owner');
+storefront.clearStorefrontCache();
+
 // Create a second verified seller/store/product so checkout and refund assertions
 // prove real multi-seller isolation rather than only exercising a one-store seed.
-const secondSeller = await makeUser('seller', 'seller2');
+const secondSeller = await makeUser('seller', 'seller2', { mfa: true });
 const secondStore = await models.Store.create({ publicId: publicId('str'), ownerUserId: secondSeller._id, name: 'Audit Second Store', slug: `audit-second-${Date.now()}`, country: 'UG', currency: 'UGX', status: 'verified', verifiedAt: new Date() });
 const secondWarehouse = await models.Warehouse.create({ publicId: publicId('whs'), storeId: secondStore._id, ownerUserId: secondSeller._id, name: 'Audit Second Warehouse', country: 'UG', city: 'Kampala', address: 'Second audit warehouse', active: true });
 await models.StoreMember.create({ publicId: publicId('stm'), storeId: secondStore._id, userId: secondSeller._id, role: 'owner', status: 'active', invitedByUserId: secondSeller._id, acceptedAt: new Date() });
 const secondProduct = await models.Product.create({ publicId: publicId('prd'), storeId: secondStore._id, ownerUserId: secondSeller._id, categoryId: product.categoryId, brandId: product.brandId, title: 'Audit Multi Seller Item', slug: `audit-multi-seller-${Date.now()}`, description: 'Second seller product used to prove refund and fulfilment isolation.', countries: ['UG'], tags: ['audit'], status: 'published', qualityScore: 90, publishedAt: new Date() });
-const secondVariant = await models.ProductVariant.create({ publicId: publicId('var'), productId: secondProduct._id, storeId: secondStore._id, sku: `AUD2-${Date.now()}`, title: 'Default', priceMinor: Math.max(1000, Number(productView.variants[0].priceMinor || productView.priceMinor || 10000)), currency: 'UGX', active: true });
+let secondVariant = await models.ProductVariant.create({ publicId: publicId('var'), productId: secondProduct._id, storeId: secondStore._id, sku: `AUD2-${Date.now()}`, title: 'Default', priceMinor: Math.max(1000, Number(productView.variants[0].priceMinor || productView.priceMinor || 10000)), currency: 'UGX', active: true });
 const secondVariantAlt = await models.ProductVariant.create({ publicId: publicId('var'), productId: secondProduct._id, storeId: secondStore._id, sku: `AUD2-ALT-${Date.now()}`, title: 'Large', priceMinor: secondVariant.priceMinor + 2_000, currency: 'UGX', active: true });
 await models.StockItem.create({ publicId: publicId('stk'), storeId: secondStore._id, warehouseId: secondWarehouse._id, variantId: secondVariant._id, onHand: 25, reserved: 0, damaged: 0, quarantined: 0 });
 await models.StockItem.create({ publicId: publicId('stk'), storeId: secondStore._id, warehouseId: secondWarehouse._id, variantId: secondVariantAlt._id, onHand: 4, reserved: 0, damaged: 0, quarantined: 0 });
@@ -208,7 +340,8 @@ assert.equal((await storefront.publishedSeller(secondStore.slug, country))?.slug
 const customer = await makeUser('customer', 'buyer');
 const promoter = await makeUser('promoter', 'affiliate');
 const delivery = await makeUser('delivery', 'driver');
-await models.DeliveryProfile.create({ publicId: publicId('dlp'), userId: delivery._id, country: 'UG', transport: 'motorcycle', verificationStatus: 'approved', approvedAt: new Date(), available: true, codEnabled: true });
+const warehouseOperator = await makeUser('warehouse', 'outbound');
+await approveAuditCarrier(delivery, warehouseOperator);
 const support = await makeUser('support', 'support');
 const receivingOperator = await makeUser('warehouse', 'return-receipt');
 const supportCases = await import('../src/services/support-case-pages.js');
@@ -225,42 +358,61 @@ async function receiveAuditReturn(doc) {
   }
   return models.ReturnRequest.findById(doc._id);
 }
+async function inspectAuditReturn(doc, disposition) {
+  for (const line of doc.items) {
+    let task = await currentRecord(models.WarehouseTask, line.warehouseTaskPublicId);
+    await warehouseOperations.mutateWarehouse(await auditAction(receivingOperator, { version: task.__v }, task.publicId), 'claim');
+    task = await currentRecord(models.WarehouseTask, task);
+    await warehouseOperations.mutateWarehouse(await auditAction(receivingOperator, { version: task.__v, disposition }, task.publicId), 'execute');
+    assert.equal((await currentRecord(models.WarehouseTask, task)).status, 'completed', 'Stage 8: the current authorized Warehouse operator must complete each physical return inspection');
+  }
+  return models.ReturnRequest.findById(doc._id);
+}
 const financeOne = await makeUser('finance', 'finance1');
 const financeTwo = await makeUser('finance', 'finance2');
+const growthReviewer = await makeManagedStaff('country_admin', 'affiliate-reviewer', admin);
 
+const revokedPromoterRequest = await serviceRequest(promoter);
+await models.Device.updateOne({ _id: revokedPromoterRequest.device._id }, { $set: { revokedAt: new Date() } });
+await assert.rejects(
+  promoters.submitPromoterVerification(revokedPromoterRequest, { verificationVersion: 0, channels: ['whatsapp'], niches: ['general'], disclosureAccepted: true }),
+  error => error.code === 'ACCOUNT_UNAVAILABLE',
+  'Stage 6: a revoked browser cannot submit a promoter verification',
+);
+assert.equal(await models.PromoterVerification.countDocuments({ userId: promoter._id }), 0, 'Stage 6: rejected browser authorization leaves no verification request');
 const promoterRequest = await serviceRequest(promoter);
-const verification = await promoters.submitPromoterVerification(promoterRequest, { channels: ['whatsapp'], niches: ['general'], disclosureAccepted: true });
-await promoters.reviewPromoterVerification(await serviceRequest(admin), verification.publicId, { decision: 'approve', reason: 'Audit approval' });
-const campaignOwner = await models.User.findById(store.ownerUserId);
-assert.ok(campaignOwner?.status === 'active', 'Stage 6: campaign must belong to the active verified store owner');
-const campaignRequest = await serviceRequest(campaignOwner, { store });
+const verification = await promoters.submitPromoterVerification(promoterRequest, { verificationVersion: 0, channels: ['whatsapp'], niches: ['general'], disclosureAccepted: true });
+await promoters.reviewPromoterVerification(await serviceRequest(admin), verification.publicId, { decision: 'approve', reason: 'Audit approval', version: (await currentRecord(models.PromoterVerification, verification)).__v });
+// Seller growth uses the independent second supplier with its real personal
+// Seller owner; administrator identity and reviewed grants remain unchanged.
+const campaignRequest = await serviceRequest(secondSeller, { store: secondStore });
 const campaign = await promoters.createCampaign(campaignRequest, {
   name: 'Audit campaign', visibility: 'public', commissionBps: 500, attributionDays: 7,
   allowedChannels: ['whatsapp'], facts: ['Product details and prices come from Classic Mart.'],
-  productPublicIds: [product.publicId], assets: [], disclosureText: 'Sponsored Classic Mart link',
+  productPublicIds: [secondProduct.publicId], assets: [], disclosureText: 'Sponsored Classic Mart link',
 });
-await promoters.submitCampaign(campaignRequest, campaign.publicId);
-await promoters.reviewCampaign(await serviceRequest(admin), campaign.publicId, { decision: 'approve', reason: 'Audit campaign approval' });
-let campaignApplication = await promoters.applyToCampaign(await serviceRequest(promoter), campaign.publicId, 'Audit application');
+await promoters.submitCampaign(await serviceRequest(secondSeller, { store: secondStore }), campaign.publicId, { version: (await currentRecord(models.Campaign, campaign)).__v });
+await promoters.reviewCampaign(await serviceRequest(growthReviewer), campaign.publicId, { decision: 'approve', reason: 'Audit campaign approval', version: (await currentRecord(models.Campaign, campaign)).__v });
+let campaignApplication = await promoters.applyToCampaign(await serviceRequest(promoter, { body: { campaignVersion: (await currentRecord(models.Campaign, campaign)).__v } }), campaign.publicId, 'Audit application');
 if (campaignApplication.status === 'pending') {
-  campaignApplication = await promoters.reviewCampaignApplication(campaignRequest, campaignApplication.publicId, { decision: 'approve', reason: 'Audit merchant application approval' });
+  campaignApplication = await promoters.reviewCampaignApplication(await serviceRequest(secondSeller, { store: secondStore }), campaignApplication.publicId, { decision: 'approve', reason: 'Audit merchant application approval', version: (await currentRecord(models.CampaignApplication, campaignApplication)).__v });
 }
 assert.equal(campaignApplication.status, 'approved', 'Stage 6: tracking links require an approved campaign application');
-const link = await promoters.createPromoterLink(promoterRequest, { campaignId: campaign.publicId, destination: `/products/${product.publicId}`, channel: 'whatsapp', couponCode: `AUD${Date.now()}` });
+const link = await promoters.createPromoterLink(await serviceRequest(promoter), { campaignId: campaign.publicId, campaignVersion: (await currentRecord(models.Campaign, campaign)).__v, applicationVersion: (await currentRecord(models.CampaignApplication, campaignApplication)).__v, destination: `/products/${secondProduct.publicId}`, channel: 'whatsapp', couponCode: `AUD${Date.now()}` });
 
-const shopperRequest = {
-  id: publicId('req'),
-  user: customer, country, session: { cartKey: `audit-cart-${Date.now()}` }, sessionID: `audit-session-${Date.now()}`,
+const shopperRequest = await serviceRequest(customer, {
+  session: { cartKey: `audit-cart-${Date.now()}` },
   ip: '127.0.0.10', get(name) { return ({ 'user-agent': 'ClassicMartAudit/1.0', referer: 'https://audit.local/' })[String(name).toLowerCase()] || ''; },
   log: { warn() {} },
-};
+});
 await promoters.recordTouch(shopperRequest, link.token);
 await checkout.addCartItem(shopperRequest, { productId: product.publicId, variantId: productView.variants[0].id, quantity: 1 });
-await checkout.addCartItem(shopperRequest, { productId: secondProduct.publicId, variantId: secondVariant.publicId, quantity: 1 });
-const review = await checkout.reviewCheckout(shopperRequest, { city: 'Kampala', deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '' });
+await checkout.addCartItem(shopperRequest, { productId: secondProduct.publicId, variantId: secondVariant.publicId, quantity: 2 });
+const buyerContact = { fullName: customer.name, email: customer.email, phone: customer.phone, address: 'Audit Street, Kampala', city: 'Kampala', country: 'UG', note: 'Audit landmark' };
+const review = await checkout.reviewCheckout(shopperRequest, { city: buyerContact.city, deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '', contact: buyerContact });
 const order = await checkout.placeOrder(shopperRequest, {
   checkoutId: review.checkoutId, idempotencyKey: `audit-order-${Date.now()}`, deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '',
-  contact: { fullName: 'Audit Buyer', email: customer.email, phone: customer.phone, address: 'Audit Street, Kampala', city: 'Kampala', country: 'Uganda', note: 'Audit landmark' },
+  contact: buyerContact,
 });
 assert.equal(order.status, 'pending_payment', 'Stage 4: checkout must create a pending-payment order');
 const storedOrder = await models.Order.findOne({ publicId: order.id });
@@ -269,46 +421,36 @@ assert.equal(await models.CommissionEntry.countDocuments({ orderId: storedOrder.
 
 const payment = await payments.initiatePayment(shopperRequest, { orderId: order.id, idempotencyKey: `audit-pay-${Date.now()}` });
 assert.equal(payment.status, 'pending_collection', 'Stage 5: COD payment must wait for collection');
-let shipment = await models.Shipment.findOne({ orderId: storedOrder._id }).select('+pickupCodeHash +deliveryCodeHash +pickupCodeEncrypted +deliveryCodeEncrypted');
+let shipment = await models.Shipment.findOne({ orderId: storedOrder._id });
 assert.ok(shipment, 'Stage 7: confirmed order must create shipment');
 const parcels = await models.Parcel.find({ shipmentId: shipment._id });
 assert.equal(parcels.length, 2, 'Stage 7: one parcel per seller must exist');
-for (const parcel of parcels) {
-  const parcelStore = await models.Store.findOne({ publicId: parcel.storePublicId });
-  assert.ok(parcelStore, `Stage 7: parcel ${parcel.publicId} must resolve to its seller store`);
-  const parcelWarehouse = await models.Warehouse.findOne({ storeId: parcelStore._id, active: true });
-  assert.ok(parcelWarehouse, `Stage 7: parcel ${parcel.publicId} seller must have an active warehouse`);
-  for (const type of ['pick', 'pack', 'dispatch']) {
-    const task = await logistics.createWarehouseTask({ warehouseId: parcelWarehouse._id, storeId: parcelStore._id, orderId: storedOrder._id, shipmentId: shipment._id, parcelId: parcel._id, type, reference: storedOrder.publicId, notes: `Audit ${type}`, assignedUserId: admin._id, quantity: 0 });
-    await logistics.executeWarehouseTask({ task, actorUserId: admin._id });
-  }
-}
-const offer = await logistics.offerShipment({ shipment, deliveryUserId: delivery._id, earningMinor: 5_000, currency: 'UGX', actorUserId: admin._id });
-shipment = await logistics.acceptDeliveryOffer({ offer, actorUserId: delivery._id });
-shipment = await models.Shipment.findById(shipment._id).select('+pickupCodeHash +deliveryCodeHash +pickupCodeEncrypted +deliveryCodeEncrypted');
-const pickupCode = decryptSensitive(shipment.pickupCodeEncrypted); const deliveryCode = decryptSensitive(shipment.deliveryCodeEncrypted);
-assert.equal(logistics.verifyProofCode(pickupCode, shipment.pickupCodeHash), true, 'Stage 7 audit fixture: decrypted pickup code must match the stored pickup hash');
-assert.equal(logistics.verifyProofCode(deliveryCode, shipment.deliveryCodeHash), true, 'Stage 7 audit fixture: decrypted delivery code must match the stored delivery hash');
-shipment = await logistics.transitionShipment({ shipment, nextStatus: 'picked_up', actorUserId: delivery._id, proofCode: pickupCode });
-shipment = await logistics.transitionShipment({ shipment, nextStatus: 'in_transit', actorUserId: delivery._id });
-// Exercise the same sanitized image persistence required by the delivery policy.
-const {default: sharp}=await import('sharp');
-const {sanitizeAndStoreEvidenceImage}=await import('../src/services/media.js');
-const deliveryImage=await sharp({create:{width:640,height:640,channels:3,background:'#f5f5f5'}}).png().toBuffer();
-for(const [required,documentType] of [[shipment.proofPolicy?.deliveryPhotoRequired,'delivery_photo'],[shipment.proofPolicy?.signatureRequired,'delivery_signature']]) {
-  if(!required)continue;
-  const evidence=await sanitizeAndStoreEvidenceImage({file:{buffer:deliveryImage,mimetype:'image/png',originalname:'audit-delivery-proof.png'},user:delivery,country:'UG',contextType:'delivery_job',contextPublicId:shipment.publicId,documentType});
-  auditEvidenceKeys.push(evidence.storageKey);
-}
-shipment = await logistics.transitionShipment({ shipment, nextStatus: 'delivered', actorUserId: delivery._id, proofCode: deliveryCode });
+shipment = await deliverAuditShipment(storedOrder, delivery, warehouseOperator, 5_000);
 assert.ok(await models.LedgerTransaction.exists({ referenceType: 'delivery_earning', referencePublicId: shipment.publicId }), 'Stage 7: delivered job must post a real delivery-partner payable');
 const deliveredParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Kampala', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(shipment.deliveredAt).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
 const deliveredDay = `${deliveredParts.year}-${deliveredParts.month}-${deliveredParts.day}`;
-const handoverEvidence=await sanitizeAndStoreEvidenceImage({file:{buffer:deliveryImage,mimetype:'image/png',originalname:'audit-cod-receipt.png'},user:delivery,country:'UG',contextType:'delivery_job',contextPublicId:shipment.publicId,documentType:'cod_handover'});
-auditEvidenceKeys.push(handoverEvidence.storageKey);
-await logistics.recordCodHandover({shipment,actorUserId:delivery._id,declaredAmountMinor:shipment.cod.collectedMinor,evidenceDocumentId:handoverEvidence._id});
+const handoverEvidence = await deliveryWorkspace.uploadDeliveryEvidence(await auditAction(delivery, { version: shipment.__v, declaredAmountMinor: shipment.cod.collectedMinor }, shipment.publicId, { file: await privateProofFile() }), { cod: true });
+await rememberPrivateEvidence(handoverEvidence);
+shipment = await models.Shipment.findById(shipment._id);
+await assert.rejects(
+  logistics.reconcileCod({ shipment, request: await serviceRequest(financeOne) }),
+  error => error.code === 'COD_WAREHOUSE_REVIEW_REQUIRED',
+  'Stage 7: Finance cannot post carrier-declared cash before independent Warehouse receipt review',
+);
+assert.equal(await models.LedgerTransaction.countDocuments({ idempotencyKey: `cod:${shipment.publicId}` }), 0, 'Stage 7: an unreviewed receipt must not create a COD posting');
+await deliveryWorkspace.reviewCodReceipt(await auditAction(warehouseOperator, { version: shipment.__v, reason: 'Cash physically received and carrier receipt independently reviewed.' }, shipment.publicId));
+shipment = await models.Shipment.findById(shipment._id);
+assert.equal(String(shipment.cod.reviewedByUserId), String(warehouseOperator._id), 'Stage 7: Warehouse review is bound to its actual operator');
+assert.notEqual(String(shipment.cod.reviewedByUserId), String(financeOne._id), 'Stage 7: the Finance posting actor must differ from the cash receiver');
 const codRun = await logistics.reconcileCodBatch({ country: 'UG', deliveryUserId: delivery._id, businessDate: deliveredDay, currency: 'UGX', declaredAmountMinor: shipment.cod.collectedMinor, actorUserId: financeOne._id, request: await serviceRequest(financeOne) });
 assert.equal(codRun.status, 'completed', 'Stage 7: driver/day COD reconciliation must complete only when declared cash equals delivered shipments');
+await logistics.reconcileCod({ shipment, request: await serviceRequest(financeOne) });
+assert.equal(await models.LedgerTransaction.countDocuments({ idempotencyKey: `cod:${shipment.publicId}` }), 1, 'Stage 7: reconciliation replay must retain one immutable COD posting');
+await assert.rejects(
+  logistics.reconcileCodBatch({ country: 'UG', deliveryUserId: delivery._id, businessDate: deliveredDay, currency: 'UGX', declaredAmountMinor: shipment.cod.collectedMinor, request: await serviceRequest(financeOne) }),
+  error => error.code === 'COD_BATCH_EMPTY',
+  'Stage 7: a completed batch cannot collect the same shipments again',
+);
 const paidOrder = await models.Order.findById(storedOrder._id);
 assert.equal(paidOrder.status, 'paid', 'Stage 5/7: delivered COD must reconcile to paid');
 assert.equal((await models.CommissionEntry.findOne({ orderId: paidOrder._id })).status, 'payable', 'Stage 6: verified payment must make commission payable');
@@ -333,15 +475,12 @@ deliveryPayout = await payments.rejectPayout(await serviceRequest(financeTwo), d
 assert.equal(deliveryPayout.status, 'rejected', 'Stage 5: independent payout rejection must finalize its reserved liability');
 assert.ok(await models.LedgerTransaction.exists({ idempotencyKey: `payout-release:${deliveryPayout.publicId}` }), 'Stage 5: payout rejection must release the actual reservation through the finance service');
 
-const returnResult = await trust.createReturnRequest(await serviceRequest(customer), { orderId: paidOrder.publicId, reason: 'damaged', details: 'Audit return verifies the real post-purchase workflow.', resolution: 'refund', returnMethod: 'dropoff', dropoffPointId: '', items: [{ orderLineId: paidOrder.items.find(item=>item.productPublicId===product.publicId).linePublicId, quantity: 1 }] });
+const returnResult = await trust.createReturnRequest(await serviceRequest(customer), { orderId: paidOrder.publicId, reason: 'damaged', details: 'Audit return verifies the real post-purchase workflow.', resolution: 'refund', returnMethod: 'dropoff', dropoffPointId: '', items: [{ orderLineId: paidOrder.items.find(item=>item.productPublicId===secondProduct.publicId).linePublicId, quantity: 1 }] });
 let returnDoc = returnResult.returnRequest;
-returnDoc = await trust.decideReturn(await serviceRequest(support), returnDoc.publicId, { decision: 'approve', note: 'Audit eligible return' });
+returnDoc = await trust.decideReturn(await serviceRequest(support), returnDoc.publicId, { decision: 'approve', note: 'Audit eligible return', version: returnDoc.__v });
 returnDoc = await receiveAuditReturn(returnDoc);
-for(const line of returnDoc.items) {
-  const task=await logistics.claimWarehouseTask({taskPublicId:line.warehouseTaskPublicId,actorUserId:admin._id});
-  await logistics.executeWarehouseTask({task,actorUserId:admin._id,disposition:'damaged'});
-}
-returnDoc = await trust.inspectReturn(await serviceRequest(support), returnDoc.publicId, { condition: 'damaged', notes: 'Audit inspection' });
+returnDoc = await inspectAuditReturn(returnDoc, 'damaged');
+returnDoc = await trust.inspectReturn(await serviceRequest(support), returnDoc.publicId, { condition: 'damaged', notes: 'Audit inspection', version: returnDoc.__v });
 assert.equal(returnDoc.status, 'refund_pending', 'Stage 8: inspected refund return must wait for finance');
 await supportCases.referSupportReturnToFinance(await serviceRequest(support), returnDoc.publicId, { version: returnDoc.__v, note: 'Independent Finance review of inspected audit return.' });
 returnDoc = await models.ReturnRequest.findById(returnDoc._id);
@@ -355,26 +494,24 @@ await payments.completeManualRefund(await serviceRequest(financeTwo), refund.pub
 assert.equal((await models.Refund.findById(refund._id)).status, 'completed', 'Stage 5/8: second finance actor must complete COD refund');
 assert.ok(await models.LedgerTransaction.exists({ referenceType: 'refund', referencePublicId: refund.publicId }), 'Stage 5/8: completed refund must reverse ledger entries');
 const refundLedger = await models.LedgerTransaction.findOne({ referenceType: 'refund', referencePublicId: refund.publicId }).lean();
-const secondPayable = await models.LedgerAccount.findOne({ code: 'seller_payable', ownerType: 'store', ownerPublicId: secondStore.publicId, country: 'UG', currency: 'UGX' }).lean();
-assert.ok(secondPayable, 'Stage 5: second seller payable account must exist after COD reconciliation');
-assert.equal(refundLedger.entries.some((entry) => String(entry.accountId) === String(secondPayable._id) && entry.debitMinor > 0), false, 'Stage 5/8: refunding Seller A item must never debit Seller B payable');
+const untouchedSellerPayable = await models.LedgerAccount.findOne({ code: 'seller_payable', ownerType: 'store', ownerPublicId: store.publicId, country: 'UG', currency: 'UGX' }).lean();
+assert.ok(untouchedSellerPayable, 'Stage 5: the other seller payable account must exist after COD reconciliation');
+assert.equal(refundLedger.entries.some((entry) => String(entry.accountId) === String(untouchedSellerPayable._id) && entry.debitMinor > 0), false, 'Stage 5/8: refunding Seller A item must never debit Seller B payable');
 assert.equal((await models.ReturnRequest.findById(returnDoc._id)).status, 'refunded', 'Stage 8: provider/finance completion must close the linked return');
-const reversedCommission = await models.CommissionEntry.findOne({ orderId: paidOrder._id, productPublicId: product.publicId });
-assert.equal(reversedCommission.status, 'reversed', 'Stage 6/8: refunding the attributed item must reverse only that item commission');
+const reversedCommission = await models.CommissionEntry.findOne({ orderId: paidOrder._id, productPublicId: secondProduct.publicId });
+assert.ok(reversedCommission.reversedAmountMinor > 0 && reversedCommission.reversedAmountMinor <= reversedCommission.amountMinor, 'Stage 6/8: refunding an attributed unit must reverse only its allocated item commission');
+assert.equal(reversedCommission.status, 'partially_reversed', 'Stage 6/8: the other purchased unit must retain its earned item commission');
 
 auditCheckpoint('Stage 8: returns, refunds, exchanges, support and trust');
 // Stage 8: an approved exchange must become an actual replacement fulfilment, not only a status flag.
 const exchangeResult = await trust.createReturnRequest(await serviceRequest(customer), { orderId: paidOrder.publicId, reason: 'wrong_item', details: 'Audit exchange verifies replacement stock, seller order and shipment creation.', resolution: 'exchange', returnMethod: 'dropoff', dropoffPointId: '', items: [{ orderLineId: paidOrder.items.find(item=>item.productPublicId===secondProduct.publicId).linePublicId, quantity: 1 }] });
 let exchangeDoc = exchangeResult.returnRequest;
-exchangeDoc = await trust.decideReturn(await serviceRequest(support), exchangeDoc.publicId, { decision: 'approve', note: 'Audit exchange approved' });
+exchangeDoc = await trust.decideReturn(await serviceRequest(support), exchangeDoc.publicId, { decision: 'approve', note: 'Audit exchange approved', version: exchangeDoc.__v });
 exchangeDoc = await receiveAuditReturn(exchangeDoc);
-for(const line of exchangeDoc.items) {
-  const task=await logistics.claimWarehouseTask({taskPublicId:line.warehouseTaskPublicId,actorUserId:admin._id});
-  await logistics.executeWarehouseTask({task,actorUserId:admin._id,disposition:'good'});
-}
-exchangeDoc = await trust.inspectReturn(await serviceRequest(support), exchangeDoc.publicId, { condition: 'wrong_item', notes: 'Audit exchange inspection' });
+exchangeDoc = await inspectAuditReturn(exchangeDoc, 'good');
+exchangeDoc = await trust.inspectReturn(await serviceRequest(support), exchangeDoc.publicId, { condition: 'wrong_item', notes: 'Audit exchange inspection', version: exchangeDoc.__v });
 assert.equal(exchangeDoc.status, 'exchange_pending', 'Stage 8: inspected exchange must wait for replacement creation');
-const replacementOrder = await trust.createExchangeReplacement(await serviceRequest(support), exchangeDoc.publicId);
+const replacementOrder = await trust.createExchangeReplacement(await serviceRequest(support), exchangeDoc.publicId, { version: exchangeDoc.__v });
 assert.equal(replacementOrder.status, 'confirmed', 'Stage 8: replacement order must be a real confirmed fulfilment order');
 assert.equal((await models.SellerOrder.countDocuments({ orderId: replacementOrder._id })), 1, 'Stage 8: replacement order must create seller fulfilment order(s)');
 assert.ok(await models.Shipment.exists({ orderId: replacementOrder._id, kind: 'outbound' }), 'Stage 8: replacement exchange must enter the Stage 7 shipment pipeline');
@@ -387,12 +524,11 @@ assert.equal((await trust.createExchangeReplacement(await serviceRequest(support
 assert.equal((await models.StockItem.findById(replacementReservations[0].stockItemId)).onHand, replacementStockBeforeReplay.onHand, 'Exchange: retry cannot consume replacement stock again');
 const sellerOrdersLive = await import('../src/services/seller-orders.js');
 let replacementSellerOrder = await models.SellerOrder.findOne({ orderId: replacementOrder._id });
-const replacementSellerRequest = { id: publicId('req'), user: secondSeller, store: secondStore, country, params: { publicId: replacementSellerOrder.publicId },
-  body: {}, ip: '127.0.0.20', get: () => 'ClassicMartAudit/1.0' };
+let replacementSellerRequest = await auditAction(secondSeller, {}, replacementSellerOrder.publicId, { store: secondStore });
 assert.equal((await sellerOrdersLive.sellerOrderDetail(replacementSellerRequest)).order.actions.pick, true, 'Exchange: seller live order must be fulfilable from its committed reservation');
 for (const action of ['processing', 'pick', 'pack', 'dispatch']) {
   replacementSellerOrder = await models.SellerOrder.findById(replacementSellerOrder._id);
-  replacementSellerRequest.body = { version: replacementSellerOrder.__v };
+  replacementSellerRequest = await auditAction(secondSeller, { version: replacementSellerOrder.__v }, replacementSellerOrder.publicId, { store: secondStore });
   await sellerOrdersLive.transitionSellerOrder(replacementSellerRequest, action);
 }
 assert.equal((await models.SellerOrder.findById(replacementSellerOrder._id)).status, 'ready', 'Exchange: seller can complete preparation through the shared live service');
@@ -438,7 +574,7 @@ await stage9.applyApproval(cmsRollback, countryReviewer);
 assert.equal((await models.CmsContent.findOne({ publicId: cmsV2.content.publicId })).activeVersion, cmsV1.version, 'Stage 9: approved rollback must restore earlier CMS version');
 
 const consentedCustomer = await makeUser('customer', 'marketing-consented');
-await models.User.updateOne({_id:consentedCustomer._id},{$set:{'consents.marketing':true}});
+await models.User.updateOne({_id:consentedCustomer._id},{$set:{'consents.marketing':true,'preferences.notifications.offers':true}});
 const noConsentCustomer = await makeUser('customer', 'marketing-no-consent');
 const stage9Campaign = await models.MarketingCampaign.create({ publicId: publicId('mkt'), name: 'Audit consent campaign', country: 'UG', subject: 'Audit subject', body: 'Audit consent body', roles: ['customer'], createdByUserId: countryRequester._id });
 await stage9.queueConsentCampaign(stage9Campaign, countryRequester);
@@ -471,34 +607,66 @@ assert.ok(stage9Report.orders.total >= 1 && stage9Report.finance.ledgerTransacti
 
 // Cross-section Stage 9 commitments: business procurement and seller growth are real workflows, not deferred labels.
 const businessBuyer = await makeUser('business', 'business-owner');
-businessBuyer.roleProfile = { businessName: 'Audit Procurement Ltd' }; await businessBuyer.save();
-const businessApprover = await makeUser('customer', 'business-approver');
-const businessAccess = await business.businessContext(businessBuyer, { create: true });
-await business.updateBusinessProfile(businessBuyer, {
+const businessApprover = await makeUser('customer', 'business-approver', { mfa: true });
+const createdOrganization = await business.createBusinessOrganization(await serviceRequest(businessBuyer), { companyName: 'Audit Procurement Ltd', billingEmail: businessBuyer.email });
+const businessOrganization = await currentRecord(models.BusinessOrganization, createdOrganization);
+const businessRequest = user => serviceRequest(user, { session: { activeBusinessPublicId: businessOrganization.publicId } });
+const staleBusinessSession = await businessRequest(businessBuyer);
+staleBusinessSession.session.tokenVersion += 1;
+await assert.rejects(businessAccess(staleBusinessSession), error => error?.code === 'BUSINESS_ACCOUNT_UNAVAILABLE', 'Business buyer: a mismatched session token version must not authorize company access');
+const revokedBusinessSession = await businessRequest(businessBuyer);
+await models.Device.updateOne({ _id: revokedBusinessSession.device._id }, { $set: { revokedAt: new Date(), revokedReason: 'audit_session_boundary' } });
+await assert.rejects(businessAccess(revokedBusinessSession), error => error?.code === 'ACCOUNT_UNAVAILABLE', 'Business buyer: a revoked current device must not authorize company access');
+await business.saveBusinessProfile(await businessRequest(businessBuyer), {
+  version: (await currentRecord(models.BusinessOrganization, businessOrganization)).__v,
   companyName: 'Audit Procurement Ltd', billingEmail: businessBuyer.email, taxId: 'AUDIT-TIN-001',
   billingContactName: businessBuyer.name, billingPhone: businessBuyer.phone, billingAddress: '1 Audit Billing Road', billingCity: 'Kampala',
   deliveryContactName: businessBuyer.name, deliveryPhone: businessBuyer.phone, deliveryAddress: '2 Audit Delivery Road', deliveryCity: 'Kampala',
 });
-const businessInvite = await business.inviteBusinessMember(businessBuyer, { email: businessApprover.email, role: 'approver', spendingLimitMinor: 5_000_000, canApprove: true });
-await business.acceptBusinessInvite(businessApprover, businessInvite.publicId);
-const budget = await business.createBudget(businessBuyer, { name: 'Audit purchasing budget', limitMinor: 5_000_000, periodStart: new Date(Date.now()-86400000), periodEnd: new Date(Date.now()+30*86400000) });
-const procurement = await business.createProcurementRequest(businessBuyer, { title: 'Audit approved multi-seller purchase', budgetId: budget.publicId, items: [{ variantPublicId: productView.variants[0].id, quantity: 1 }, { variantPublicId: secondVariant.publicId, quantity: 2 }] });
-await business.decideProcurementRequest(businessApprover, procurement.publicId, { approve: true });
+const businessInvite = await business.inviteBusinessMember(await businessRequest(businessBuyer), { email: businessApprover.email, role: 'approver', spendingLimitMinor: 5_000_000, canApprove: true });
+await assert.rejects(businessAccess(await serviceRequest(businessApprover)), error => error?.code === 'BUSINESS_MEMBERSHIP_REQUIRED', 'Business buyer: an invitation alone must not grant purchasing access');
+await business.acceptBusinessInvitation(await serviceRequest(businessApprover), businessInvite.publicId, { version: (await currentRecord(models.BusinessMember, businessInvite)).__v });
+const acceptedBusinessMember = await currentRecord(models.BusinessMember, businessInvite);
+assert.ok(acceptedBusinessMember.acceptedAt && acceptedBusinessMember.status === 'active', 'Business buyer: the verified recipient must explicitly accept the invitation');
+assert.equal((await models.User.findById(businessApprover._id)).role, 'customer', 'Business buyer: company membership must not overwrite a recipient identity role');
+const createdBudget = await business.createBusinessBudget(await businessRequest(businessBuyer), { name: 'Audit purchasing budget', limitMinor: 5_000_000, periodStart: new Date(Date.now()-86400000).toISOString(), periodEnd: new Date(Date.now()+30*86400000).toISOString() });
+const budget = await currentRecord(models.BusinessBudget, createdBudget);
+const submittedProcurement = await business.submitBusinessProcurement(await businessRequest(businessBuyer), { title: 'Audit approved multi-seller purchase', budgetId: budget.publicId, items: [{ variantPublicId: productView.variants[0].id, quantity: 1 }, { variantPublicId: secondVariant.publicId, quantity: 2 }] });
+const procurement = await currentRecord(models.ProcurementRequest, submittedProcurement);
+const submittedCommercialPolicy = procurement.commercialPolicy.toObject();
+await assert.rejects(business.decideBusinessProcurement(await businessRequest(businessBuyer), procurement.publicId, { version: procurement.__v, decision: 'approve', reason: 'The requester must not approve this purchase.' }), error => error?.code === 'BUSINESS_INDEPENDENT_APPROVAL_REQUIRED', 'Business buyer: procurement approval must be independent');
+// A subsequent market edit must not rewrite the policy already reviewed by the buyer.
+await models.CountrySetting.updateOne({ code: 'UG' }, { $set: { taxBps: submittedCommercialPolicy.taxBps === 10000 ? 9999 : submittedCommercialPolicy.taxBps + 1, policyVersion: 'audit-later-market-policy' }, $inc: { __v: 1 } });
+await business.decideBusinessProcurement(await businessRequest(businessApprover), procurement.publicId, { version: (await currentRecord(models.ProcurementRequest, procurement)).__v, decision: 'approve', reason: 'Independent approval of exact audited SKUs and reviewed totals.' });
 assert.equal((await models.ProcurementRequest.findById(procurement._id)).status, 'approved', 'Business buyer: a different approver must approve procurement within budget');
-const secondQuote = await business.createQuoteRequest(businessBuyer, { procurementRequestId: procurement.publicId, storeId: secondStore.publicId, message: 'Audit second-seller quotation request' });
+assert.deepEqual((await currentRecord(models.ProcurementRequest, procurement)).commercialPolicy.toObject(), submittedCommercialPolicy, 'Business buyer: approval must preserve the immutable submitted commercial policy');
+const requestedSecondQuote = await business.requestBusinessQuotation(await businessRequest(businessBuyer), { procurementRequestId: procurement.publicId, version: (await currentRecord(models.ProcurementRequest, procurement)).__v, storeId: secondStore.publicId, message: 'Audit second-seller quotation request' });
+const secondQuote = await currentRecord(models.QuoteRequest, requestedSecondQuote);
 assert.equal(secondQuote.items.length, 1, 'Business buyer: each seller quotation must contain only that seller’s exact approved variant/SKU subset');
-await sellerGrowth.sellerRespondQuote({ user: secondSeller, store: secondStore }, secondQuote.publicId, { message: 'Audit second-seller quotation', offeredUnitMinor: secondQuote.items.map(item => item.requestedUnitMinor), validUntil: new Date(Date.now()+7*86400000) });
-const firstSellerUser = await models.User.findById(store.ownerUserId);
-const firstQuote = await business.createQuoteRequest(businessBuyer, { procurementRequestId: procurement.publicId, storeId: store.publicId, message: 'Audit first-seller quotation request' });
+await supplierBusiness.respondSellerBusinessQuote(await serviceRequest(secondSeller, { store: secondStore }), secondQuote.publicId, { version: (await currentRecord(models.QuoteRequest, secondQuote)).__v, action: 'offer', message: 'Audit second-seller quotation', offeredUnitMinor: secondQuote.items.map(item => item.requestedUnitMinor), validUntil: new Date(Date.now()+7*86400000).toISOString() });
+const firstSellerUser = await makeUser('seller', 'reference-store-finance', { mfa: true });
+await models.StoreMember.create({ publicId: publicId('stm'), storeId: store._id, userId: firstSellerUser._id, role: 'finance', status: 'active', invitedByUserId: store.ownerUserId, acceptedAt: new Date() });
+const foreignQuoteBefore = await models.QuoteRequest.findById(secondQuote._id).lean();
+await assert.rejects(supplierBusiness.respondSellerBusinessQuote(await serviceRequest(firstSellerUser, { store }), secondQuote.publicId, { version: (await currentRecord(models.QuoteRequest, secondQuote)).__v, action: 'decline', message: 'A different supplier cannot decide this quotation.' }), error => error?.code === 'SELLER_BUSINESS_QUOTE_NOT_FOUND', 'Business buyer: supplier quotations must remain isolated to the accepted store membership');
+assert.deepEqual(await models.QuoteRequest.findById(secondQuote._id).lean(), foreignQuoteBefore, 'Business buyer: another valid supplier cannot change the target quotation');
+const requestedFirstQuote = await business.requestBusinessQuotation(await businessRequest(businessBuyer), { procurementRequestId: procurement.publicId, version: (await currentRecord(models.ProcurementRequest, procurement)).__v, storeId: store.publicId, message: 'Audit first-seller quotation request' });
+const firstQuote = await currentRecord(models.QuoteRequest, requestedFirstQuote);
 assert.equal(firstQuote.items.length, 1, 'Business buyer: multi-seller procurement must split into seller-specific exact variants');
-await sellerGrowth.sellerRespondQuote({ user: firstSellerUser || admin, store }, firstQuote.publicId, { message: 'Audit first-seller quotation', offeredUnitMinor: firstQuote.items.map(item => item.requestedUnitMinor), validUntil: new Date(Date.now()+7*86400000) });
-const businessTermsApproval = await stage9.createApproval({ user: countryRequester, type: 'business_credit_terms', country: 'UG', targetType: 'business_organization', targetPublicId: businessAccess.organization.publicId, payload: { approved: true, invoiceTermsDays: 30, creditLimitMinor: 5_000_000 }, reason: 'Audit business invoice risk approval' });
-await stage9.applyApproval(businessTermsApproval, countryReviewer);
-const secondPurchaseOrder = await business.acceptQuote(businessBuyer, secondQuote.publicId, { paymentTerms: 'credit' });
-await sellerGrowth.decidePurchaseOrder({ user: secondSeller, store: secondStore }, secondPurchaseOrder.publicId, 'accepted');
+await supplierBusiness.respondSellerBusinessQuote(await serviceRequest(firstSellerUser, { store }), firstQuote.publicId, { version: (await currentRecord(models.QuoteRequest, firstQuote)).__v, action: 'offer', message: 'Audit first-seller quotation', offeredUnitMinor: firstQuote.items.map(item => item.requestedUnitMinor), validUntil: new Date(Date.now()+7*86400000).toISOString() });
+await business.requestBusinessCreditTerms(await businessRequest(businessBuyer), { version: (await currentRecord(models.BusinessOrganization, businessOrganization)).__v, limitMinor: 5_000_000, termsDays: 30 });
+const creditReviewer = await makeManagedStaff('country_admin', 'independent-credit-reviewer', admin);
+await business.reviewBusinessCreditTerms(await serviceRequest(creditReviewer), businessOrganization.publicId, { version: (await currentRecord(models.BusinessOrganization, businessOrganization)).__v, decision: 'approve', limitMinor: 5_000_000, termsDays: 30, reason: 'Reviewed the current company request, payment profile and credit exposure independently.' });
+const reviewedOrganization = await currentRecord(models.BusinessOrganization, businessOrganization);
+assert.equal(String(reviewedOrganization.creditApprovedByUserId), String(creditReviewer._id), 'Business buyer: credit must come from an independent current reviewed staff grant');
+assert.ok(reviewedOrganization.creditApprovedAt && reviewedOrganization.invoiceTermsApproved, 'Business buyer: current credit review must persist before a credit purchase');
+await assert.rejects(business.reviewBusinessCreditTerms(await serviceRequest(creditReviewer), businessOrganization.publicId, { version: reviewedOrganization.__v, decision: 'approve', limitMinor: 5_000_000, termsDays: 30, reason: 'A completed credit request cannot be approved a second time.' }), error => error?.code === 'BUSINESS_CREDIT_REQUEST_UNAVAILABLE', 'Business buyer: credit approval requires a current unreviewed company request');
+const issuedSecondOrder = await business.acceptBusinessQuotation(await businessRequest(businessBuyer), secondQuote.publicId, { version: (await currentRecord(models.QuoteRequest, secondQuote)).__v, paymentTerms: 'credit' });
+const secondPurchaseOrder = await currentRecord(models.PurchaseOrder, issuedSecondOrder);
+await supplierBusiness.decideSellerBusinessOrder(await serviceRequest(secondSeller, { store: secondStore }), secondPurchaseOrder.publicId, { version: (await currentRecord(models.PurchaseOrder, secondPurchaseOrder)).__v, decision: 'accept' });
 assert.equal((await models.ProcurementRequest.findById(procurement._id)).status, 'partially_ordered', 'Business buyer: one seller acceptance must leave a multi-seller procurement request partially ordered');
-const firstPurchaseOrder = await business.acceptQuote(businessBuyer, firstQuote.publicId, { paymentTerms: 'credit' });
-await sellerGrowth.decidePurchaseOrder({ user: firstSellerUser || admin, store }, firstPurchaseOrder.publicId, 'accepted');
+const issuedFirstOrder = await business.acceptBusinessQuotation(await businessRequest(businessBuyer), firstQuote.publicId, { version: (await currentRecord(models.QuoteRequest, firstQuote)).__v, paymentTerms: 'credit' });
+const firstPurchaseOrder = await currentRecord(models.PurchaseOrder, issuedFirstOrder);
+await supplierBusiness.decideSellerBusinessOrder(await serviceRequest(firstSellerUser, { store }), firstPurchaseOrder.publicId, { version: (await currentRecord(models.PurchaseOrder, firstPurchaseOrder)).__v, decision: 'accept' });
 const secondAcceptedPo = await models.PurchaseOrder.findById(secondPurchaseOrder._id).lean();
 assert.equal(secondAcceptedPo.status, 'processing', 'Business buyer: accepted credit PO must enter real fulfilment, not a seller-controlled fulfilled shortcut');
 assert.ok(secondAcceptedPo.orderPublicId && secondAcceptedPo.invoicePublicId, 'Business buyer: accepted PO must create marketplace order and immutable invoice references');
@@ -508,56 +676,70 @@ assert.equal(b2bOrders.length, 2, 'Business buyer: each accepted seller PO must 
 assert.equal(await models.BusinessInvoice.countDocuments({ orderId: { $in: b2bOrders.map(order => order._id) }, status: 'credit_pending_delivery' }), 2, 'Business buyer: approved-credit POs must create delivery-gated receivable invoices');
 assert.equal(await models.Shipment.countDocuments({ orderId: { $in: b2bOrders.map(order => order._id) }, kind: 'outbound' }), 2, 'Business buyer: accepted credit POs must enter the real shipment lifecycle');
 for (const b2bOrder of b2bOrders) {
-  const deliverySession = await mongoose.startSession();
-  try { await deliverySession.withTransaction(async () => { await businessFulfillment.recordBusinessDelivery({ orderId: b2bOrder._id, actorUserId: countryReviewer._id, session: deliverySession }); }); }
-  finally { await deliverySession.endSession(); }
+  assert.deepEqual(b2bOrder.toObject().policySnapshot, submittedCommercialPolicy, 'Business buyer: the marketplace order must preserve the independently reviewed submitted policy');
+  assert.deepEqual((await models.PurchaseOrder.findById(b2bOrder.purchaseOrderId)).commercialPolicy.toObject(), submittedCommercialPolicy, 'Business buyer: the supplier-accepted purchase order must preserve the submitted commercial policy');
+  const deliveredBusinessShipment = await deliverAuditShipment(b2bOrder, delivery, warehouseOperator);
+  const deliveredBusinessInvoice = await models.BusinessInvoice.findById(b2bOrder.businessInvoiceId);
+  assert.ok(deliveredBusinessShipment.deliveredAt && deliveredBusinessInvoice.deliveredAt, 'Business buyer: the real persisted carrier delivery must reconcile its invoice');
+  assert.equal(await models.LedgerTransaction.countDocuments({ idempotencyKey: `business-credit-delivery:${b2bOrder.publicId}` }), 1, 'Business buyer: physical delivery must recognize each receivable exactly once');
+  assert.equal(await models.BusinessDocument.countDocuments({ eventKey: `delivery_note:${b2bOrder.publicId}` }), 1, 'Business buyer: physical delivery must issue one immutable delivery note');
 }
+await models.CountrySetting.updateOne({ code: 'UG' }, { $set: submittedCommercialPolicy, $inc: { __v: 1 } });
 const settledBudget = await models.BusinessBudget.findById(budget._id);
 assert.ok(settledBudget.spentMinor > 0, 'Business buyer: verified delivery must move approved commitment into actual budget spend');
 assert.equal(settledBudget.committedMinor, 0, 'Business buyer: fully delivered approved procurement must leave no stale budget commitment');
 assert.equal(await models.BusinessInvoice.countDocuments({ orderId: { $in: b2bOrders.map(order => order._id) }, status: 'open', dueAt: { $gt: new Date() } }), 2, 'Business buyer: verified credit delivery must open dated accounts receivable invoices');
 assert.ok(await models.LedgerTransaction.exists({ referenceType: 'business_invoice', referencePublicId: { $in: (await models.BusinessInvoice.find({ orderId: { $in: b2bOrders.map(order => order._id) } }).select('publicId').lean()).map(row => row.publicId) } }), 'Business buyer: verified credit delivery must post receivable/settlement ledger entries');
-const cancellable = await business.createProcurementRequest(businessBuyer, { title: 'Audit cancellable purchase', budgetId: budget.publicId, items: [{ variantPublicId: secondVariant.publicId, quantity: 1 }] });
-await business.decideProcurementRequest(businessApprover, cancellable.publicId, { approve: true });
+const submittedCancellable = await business.submitBusinessProcurement(await businessRequest(businessBuyer), { title: 'Audit cancellable purchase', budgetId: budget.publicId, items: [{ variantPublicId: secondVariant.publicId, quantity: 1 }] });
+const cancellable = await currentRecord(models.ProcurementRequest, submittedCancellable);
+await business.decideBusinessProcurement(await businessRequest(businessApprover), cancellable.publicId, { version: (await currentRecord(models.ProcurementRequest, cancellable)).__v, decision: 'approve', reason: 'Independent approval before explicit buyer cancellation.' });
 const committedBeforeCancel = (await models.BusinessBudget.findById(budget._id)).committedMinor;
-await business.cancelProcurementRequest(businessBuyer, cancellable.publicId, { reason: 'Audit explicit buyer cancellation' });
+await business.cancelBusinessProcurement(await businessRequest(businessBuyer), cancellable.publicId, { version: (await currentRecord(models.ProcurementRequest, cancellable)).__v, reason: 'Audit explicit buyer cancellation' });
 const committedAfterCancel = (await models.BusinessBudget.findById(budget._id)).committedMinor;
 assert.ok(committedAfterCancel < committedBeforeCancel, 'Business buyer: explicit cancellation must release unused committed budget');
 assert.equal(committedBeforeCancel - committedAfterCancel, cancellable.estimatedTotalMinor, 'Business buyer: cancellation must release exactly the unconsumed approved amount');
-const template = await business.createProcurementTemplate(businessBuyer, { name: 'Audit repeat list', recurrence: 'weekly', items: [{ variantPublicId: secondVariant.publicId, quantity: 1 }] });
-template.nextDueAt = new Date(Date.now()-1000); await template.save();
-const recurringResult = await business.processRecurringProcurement(new Date());
+const savedTemplate = await business.saveBusinessTemplate(await businessRequest(businessBuyer), { name: 'Audit repeat list', recurrence: 'weekly', items: [{ variantPublicId: secondVariant.publicId, quantity: 1 }] });
+const template = await currentRecord(models.ProcurementTemplate, savedTemplate);
+await models.ProcurementTemplate.updateOne({ _id: template._id, __v: template.__v }, { $set: { nextDueAt: new Date(Date.now()-1000) }, $inc: { __v: 1 } });
+const recurringResult = await business.processBusinessRecurrence(new Date());
 assert.equal(recurringResult.created, 1, 'Business buyer: due recurring procurement must create one new approval request, not auto-purchase');
 assert.equal(await models.ProcurementRun.countDocuments({ templateId: template._id, status: 'completed' }), 1, 'Business buyer: recurring procurement occurrence must have one durable idempotent run record');
+const recurringRun = await models.ProcurementRun.findOne({ templateId: template._id, status: 'completed' });
+const recurringRequest = await models.ProcurementRequest.findById(recurringRun.procurementRequestId);
+assert.equal(recurringRequest.status, 'submitted', 'Business buyer: recurrence must return to independent approval instead of issuing a purchase order');
+assert.equal(await models.PurchaseOrder.countDocuments({ procurementRequestId: recurringRequest._id }), 0, 'Business buyer: recurrence must never auto-purchase its generated request');
+assert.equal((await business.processBusinessRecurrence(new Date())).created, 0, 'Business buyer: rerunning recurrence must not duplicate the occurrence');
 
-const sellerReq = { user: secondSeller, store: secondStore };
+const sellerRequest = () => serviceRequest(secondSeller, { store: secondStore });
+// Source authorization fences advance variant versions during procurement.
+secondVariant = await models.ProductVariant.findById(secondVariant._id);
 secondVariant.minimumPriceMinor = Math.floor(secondVariant.priceMinor * 0.85); await secondVariant.save();
 const voucherCode = `SAVE${Date.now()}`;
-const sellerPromo = await sellerGrowth.createSellerPromotion(sellerReq, { type: 'voucher', name: 'Audit seller voucher', code: voucherCode, productPublicIds: [secondProduct.publicId], discountBps: 1000, fixedDiscountMinor: 0, minQuantity: 1, minSubtotalMinor: 0, status: 'active' });
-await sellerGrowth.createSellerPromotion(sellerReq, { type: 'quantity_break', name: 'Audit stacked quantity promotion', productPublicIds: [secondProduct.publicId], discountBps: 1000, fixedDiscountMinor: 0, minQuantity: 1, minSubtotalMinor: 0, status: 'active' });
+const sellerPromo = await sellerGrowth.createSellerPromotion(await sellerRequest(), { type: 'voucher', name: 'Audit seller voucher', code: voucherCode, productPublicIds: [secondProduct.publicId], discountBps: 1000, fixedDiscountMinor: 0, minQuantity: 1, minSubtotalMinor: 0, status: 'active' });
+await sellerGrowth.createSellerPromotion(await sellerRequest(), { type: 'quantity_break', name: 'Audit stacked quantity promotion', productPublicIds: [secondProduct.publicId], discountBps: 1000, fixedDiscountMinor: 0, minQuantity: 1, minSubtotalMinor: 0, status: 'active' });
 assert.equal(sellerPromo.status, 'active', 'Seller growth: seller promotion must persist server-side');
-const discountCartRequest = { user: customer, country, session: { cartKey: `audit-discount-${Date.now()}` }, sessionID: `audit-discount-session-${Date.now()}`, ip: '127.0.0.20', get(){ return 'ClassicMartAudit/1.0'; }, log:{warn(){}} };
+const discountCartRequest = await serviceRequest(customer, { session: { cartKey: `audit-discount-${Date.now()}` } });
 await checkout.addCartItem(discountCartRequest, { productId: secondProduct.publicId, variantId: secondVariant.publicId, quantity: 1 });
 const discountedCart = await checkout.applyCartPromotionCode(discountCartRequest, voucherCode);
 assert.ok(discountedCart.totals.discountMinor > 0, 'Seller growth: voucher must affect the server cart total');
 assert.ok(discountedCart.totals.discountMinor <= (secondVariant.priceMinor - secondVariant.minimumPriceMinor), 'Seller growth: stacked promotions must never cross the server minimum-price floor');
-const discountReview = await checkout.reviewCheckout(discountCartRequest, { city: 'Kampala', deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '' });
-const discountOrderView = await checkout.placeOrder(discountCartRequest, { checkoutId: discountReview.checkoutId, idempotencyKey: `audit-discount-order-${Date.now()}`, deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '', contact: { fullName: customer.name, email: customer.email, phone: customer.phone, address: 'Audit Road', city: 'Kampala', country: 'Uganda', note: '' } });
+const discountReview = await checkout.reviewCheckout(discountCartRequest, { city: buyerContact.city, deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '', contact: buyerContact });
+const discountOrderView = await checkout.placeOrder(discountCartRequest, { checkoutId: discountReview.checkoutId, idempotencyKey: `audit-discount-order-${Date.now()}`, deliveryMethod: 'standard', paymentMethod: 'cod', pickupPointId: '', contact: buyerContact });
 const discountOrder = await models.Order.findOne({ publicId: discountOrderView.id }).lean();
 const discountSellerOrder = await models.SellerOrder.findOne({ orderId: discountOrder._id }).lean();
 assert.ok(discountOrder.totals.discountMinor > 0 && discountSellerOrder.discountMinor > 0, 'Seller growth: checkout and seller-order snapshots must preserve the seller-funded discount');
 
 const currentConsentedCustomer = await models.User.findById(consentedCustomer._id);
-currentConsentedCustomer.consents.marketing = true; await currentConsentedCustomer.save();
+currentConsentedCustomer.consents.marketing = true; currentConsentedCustomer.preferences.notifications.offers = true; await currentConsentedCustomer.save();
 await models.CustomerCatalogueState.findOneAndUpdate({ userId: consentedCustomer._id }, { $addToSet: { followedStoreIds: secondStore._id } }, { upsert: true, setDefaultsOnInsert: true });
-const broadcast = await sellerGrowth.createStoreBroadcast(sellerReq, { subject: 'Audit follower update', body: 'Consent-aware seller broadcast.' });
-await sellerGrowth.queueStoreBroadcast(sellerReq, broadcast.publicId);
+const broadcast = await sellerGrowth.createStoreBroadcast(await sellerRequest(), { subject: 'Audit follower update', body: 'Consent-aware seller broadcast.' });
+await sellerGrowth.queueStoreBroadcast(await sellerRequest(), broadcast.publicId);
 assert.ok(await models.OutboxEvent.exists({ type: 'store.broadcast', aggregatePublicId: broadcast.publicId, 'payload.userPublicId': consentedCustomer.publicId }), 'Seller growth: consenting follower must be queued through the outbox');
 const broadcastDelivery = await outbox.processNotificationOutbox({ limit: 100 });
 assert.ok(broadcastDelivery.processed >= 1, 'Seller growth: consented broadcast must pass through the notification outbox processor');
 assert.equal((await models.StoreBroadcast.findById(broadcast._id)).status, 'sent', 'Seller growth: broadcast must become sent only after all queued outbox events are processed');
 const oldSecondPrice = secondVariant.priceMinor;
-const priceSchedule = await sellerGrowth.scheduleVariantPrice(sellerReq, { variantId: secondVariant.publicId, costMinor: Math.floor(oldSecondPrice/2), minimumPriceMinor: Math.floor(oldSecondPrice*0.8), newPriceMinor: oldSecondPrice + 500, startsAt: new Date(Date.now()-1000) });
+const priceSchedule = await sellerGrowth.scheduleVariantPrice(await sellerRequest(), { variantId: secondVariant.publicId, costMinor: Math.floor(oldSecondPrice/2), minimumPriceMinor: Math.floor(oldSecondPrice*0.8), newPriceMinor: oldSecondPrice + 500, startsAt: new Date(Date.now()-1000) });
 await sellerGrowth.applyDuePriceSchedules();
 assert.equal((await models.ProductVariant.findById(secondVariant._id)).priceMinor, oldSecondPrice + 500, 'Seller growth: due scheduled price must apply without crossing the minimum-price floor');
 
@@ -609,6 +791,8 @@ const activeMobileSession = await models.MobileSession.findOne({ publicId: activ
 assert.ok(activeMobileSession, 'Stage 11: active mobile session must persist server-side');
 const activeMobileRequest = { ...mobileRequest, id: 'audit-mobile-authority', mobileUser: customer, mobileCountry: country, mobileSession: activeMobileSession, log: { warn() {} } };
 const mobileCommerceRequest = stage11.mobileServiceRequest(activeMobileRequest);
+assert.equal(mobileCommerceRequest.session.tokenVersion, activeMobileSession.userTokenVersion, 'Stage 11: mobile service authority must remain bound to the persisted session token version');
+assert.equal(mobileCommerceRequest.session.tokenVersion, (await models.User.findById(customer._id)).security.tokenVersion, 'Stage 11: mobile commerce must use the current identity token version');
 await checkout.clearCart(mobileCommerceRequest);
 const mobileCart = await checkout.addCartItem(mobileCommerceRequest, { productId: secondProduct.publicId, variantId: secondVariant.publicId, quantity: 1 });
 const liveProductForMobile = await storefront.publishedProduct(secondProduct.publicId, country);
@@ -626,7 +810,7 @@ assert.equal(pushDevice.status, 'active', 'Stage 11: push device registration mu
 await stage11.queuePushNotification({ userId: customer._id, userPublicId: customer.publicId, title: 'Audit push', body: 'Provider-disabled push must remain honest.', deepLink: `/open/product/${product.publicId}` });
 const pushResult = await stage11.processPushOutbox({ limit: 5 });
 assert.equal(pushResult.providerConfigured, false, 'Stage 11: absent push provider must not claim external delivery');
-const apiCredentials = await stage11.createApiClient({ user: secondSeller, store: secondStore, name: 'Audit API', scopes: ['catalogue:read','inventory:read','inventory:write','orders:read','webhooks:manage'], requestsPerMinute: 120 });
+const apiCredentials = await stage11.createApiClient({ ...(await sellerRequest()), name: 'Audit API', scopes: ['catalogue:read','inventory:read','inventory:write','orders:read','webhooks:manage'], requestsPerMinute: 120 });
 assert.match(apiCredentials.apiKey, /^cmk_/, 'Stage 11: seller API secret is revealed only as an opaque key at creation');
 const clientStored = await models.ApiClient.findById(apiCredentials.client._id).select('+secretHash');
 assert.ok(clientStored.secretHash && !clientStored.secretHash.includes(apiCredentials.apiKey), 'Stage 11: seller API key must be stored as a hash, not plaintext');
@@ -646,14 +830,18 @@ const securityEvent = await stage12Security.writeSecurityEvent(securityRequest, 
 const storedSecurityEvent = await models.SecurityEvent.findById(securityEvent._id).select('+integrity +ipHash +userAgentHash').lean();
 assert.equal(stage12Security.verifySecurityEventIntegrity(storedSecurityEvent), true, 'Stage 12: persisted security event HMAC must verify');
 assert.equal(stage12Security.verifySecurityEventIntegrity({ ...storedSecurityEvent, type: 'tampered.event' }), false, 'Stage 12: tampered security event must fail HMAC verification');
-const mfaSetup = await stage12Mfa.beginMfaEnrollment(admin._id, process.env.ADMIN_PASSWORD);
+await assert.rejects(stage12Mfa.beginMfaEnrollment(admin._id, process.env.ADMIN_PASSWORD), error => error?.code === 'MFA_ALREADY_ENABLED', 'Stage 12: an enrolled administrator must not replace its existing authenticator through initial setup');
+const mfaCustomer = await makeUser('customer', 'dedicated-mfa-enrollment');
+const mfaSetup = await stage12Mfa.beginMfaEnrollment(mfaCustomer._id, 'AuditUser!2026Secure');
 const firstMfaCode = stage12Mfa.totpCode(mfaSetup.secret);
-const enabledMfa = await stage12Mfa.confirmMfaEnrollment(admin._id, firstMfaCode);
-assert.equal(enabledMfa.user.security.mfaEnabled, true, 'Stage 12: privileged MFA enrollment must persist');
-await assert.rejects(stage12Mfa.verifyMfa(admin._id, firstMfaCode), error => error?.code === 'MFA_REPLAY', 'Stage 12: authenticator time-step replay must be rejected');
+const enabledMfa = await stage12Mfa.confirmMfaEnrollment(mfaCustomer._id, firstMfaCode);
+assert.equal(enabledMfa.user.security.mfaEnabled, true, 'Stage 12: actual authenticator enrollment must persist');
+await assert.rejects(stage12Mfa.verifyMfa(mfaCustomer._id, firstMfaCode), error => error?.code === 'MFA_REPLAY', 'Stage 12: authenticator time-step replay must be rejected');
 const secondMfaCode = stage12Mfa.totpCode(mfaSetup.secret, { time: Date.now()+30_000 });
-assert.equal((await stage12Mfa.verifyMfa(admin._id, secondMfaCode)).method, 'totp', 'Stage 12: next authenticator time-step must verify');
-await stage12Mfa.clearMfa(await models.User.findById(admin._id).select('+security.mfaSecretEncrypted +security.mfaRecoveryCodeHashes +security.mfaLastCounter'), 'stage12_audit_cleanup');
+assert.equal((await stage12Mfa.verifyMfa(mfaCustomer._id, secondMfaCode)).method, 'totp', 'Stage 12: next authenticator time-step must verify');
+const disabledMfa = await stage12Mfa.disableMfa(mfaCustomer._id, 'AuditUser!2026Secure', enabledMfa.codes[0], 'stage12_audit_verified_cleanup');
+assert.equal(disabledMfa.security.mfaEnabled, false, 'Stage 12: MFA disable must verify the actual password and one-time recovery factor');
+assert.equal((await models.User.findById(admin._id)).security.mfaEnabled, true, 'Stage 12: the operational administrator must retain its authenticator');
 const launchEvidence = await stage12Launch.ensureLaunchEvidence();
 assert.equal(launchEvidence.length, stage12Launch.REQUIRED_LAUNCH_EVIDENCE.length, 'Stage 12: every mandatory launch-evidence gate must exist');
 let blockedStatus=0;

@@ -27,7 +27,7 @@ function accountScope(context) { return {$or:marketPairs(context)}; }
 function payoutMarketStages(context) {
   return [{$lookup:{from:PayoutAccount.collection.name,localField:'payoutAccountId',foreignField:'_id',as:'destination',pipeline:[{$project:{publicId:1,ownerType:1,ownerUserId:1,ownerStoreId:1,ownerStorePublicId:1,country:1,currency:1,method:1,label:1,status:1,verifiedAt:1,createdAt:1,__v:1}}]}},{$unwind:'$destination'},
     {$match:{$or:marketPairs(context).map(row=>({'destination.country':row.country,currency:row.currency,'destination.currency':row.currency}))}},
-    {$match:{$expr:{$and:[{$eq:['$ownerUserId','$destination.ownerUserId']},{$eq:[{$ifNull:['$ownerStoreId',null]},{$ifNull:['$destination.ownerStoreId',null]}]}]}}}];
+    {$match:{$expr:{$and:[{$eq:['$ownerUserId','$destination.ownerUserId']},{$eq:[{$ifNull:['$ownerStoreId',null]},{$ifNull:['$destination.ownerStoreId',null]}]},{$eq:[{$ifNull:['$ownerStorePublicId','']},{$ifNull:['$destination.ownerStorePublicId','']}]}]}}}];
 }
 function appealMarketStages(context) {
   return [{$lookup:{from:Campaign.collection.name,localField:'campaignId',foreignField:'_id',as:'campaign',pipeline:[{$project:{country:1,name:1,publicId:1}}]}},{$unwind:'$campaign'},

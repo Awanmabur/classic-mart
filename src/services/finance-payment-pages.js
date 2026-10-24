@@ -48,7 +48,9 @@ async function scopedPayment(context,id,{session=null}={}) {
 async function refundPipeline(context,filters={},cursor='') {
   const scope={};if(filters.status&&filters.status!=='all')scope.status=filters.status;
   if(filters.search)scope.publicId=new RegExp(escaped(filters.search),'i');
-  const base=[{$match:scope},{$lookup:{from:Order.collection.name,localField:'orderId',foreignField:'_id',as:'scopedOrder'}},{$unwind:'$scopedOrder'},{$match:{$and:[Object.fromEntries(Object.entries(context.countryScope).map(([key,value])=>['scopedOrder.'+key,value])),{$expr:{$eq:['$currency','$scopedOrder.totals.currency']}}]}}];
+  const base=[{$match:scope},{$lookup:{from:Order.collection.name,localField:'orderId',foreignField:'_id',as:'scopedOrder'}},{$unwind:'$scopedOrder'},{$match:{$and:[Object.fromEntries(Object.entries(context.countryScope).map(([key,value])=>['scopedOrder.'+key,value])),{$expr:{$eq:['$currency','$scopedOrder.totals.currency']}}]}},
+    {$lookup:{from:PaymentIntent.collection.name,localField:'paymentIntentId',foreignField:'_id',as:'scopedPayment',pipeline:[{$project:{orderId:1,orderPublicId:1,country:1,currency:1}}]}},{$unwind:'$scopedPayment'},
+    {$match:{$expr:{$and:[{$eq:['$scopedPayment.orderId','$scopedOrder._id']},{$eq:['$scopedPayment.orderPublicId','$scopedOrder.publicId']},{$eq:['$scopedPayment.country','$scopedOrder.country']},{$eq:['$scopedPayment.currency','$currency']}]}}}];
   if(cursor)base.push({$match:cursorScope({},cursor)});
   return base;
 }

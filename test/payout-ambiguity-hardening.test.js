@@ -23,7 +23,7 @@ test('payout submission uses an atomic approved-to-submitting claim with a froze
   assert.match(submit, /findOneAndUpdate\(\s*\{publicId:payoutPublicId,status:'approved',approvedByUserId:\{\$ne:request\.user\._id\},__v:payout\.__v\|\|0\}/s);
   assert.match(submit, /\$set:\{status:'submitting'/);
   assert.match(submit, /\$inc:\{__v:1\}/);
-  assert.match(submit, /\{new:true,session\}/);
+  assert.match(submit, /\{returnDocument:'after',session\}/);
   assert.match(submit, /submissionAttemptId=crypto\.randomUUID\(\)/);
   assert.match(submit, /PAYOUT_SUBMISSION_CLAIMED/);
   assert.match(payoutModel, /submissionStartedAt:Date/);

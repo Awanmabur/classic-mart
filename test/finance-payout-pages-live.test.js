@@ -13,12 +13,12 @@ const csrf=html=>html.match(/(?:name="_csrf"[^>]*value|name="csrf-token" content
 test('Finance payout operations complete reserved Seller and Promoter funds with independent, scoped evidence', {skip:!uri,timeout:180000},async t=>{
   assert.equal(new URL(uri).hostname,'127.0.0.1');assert.match(new URL(uri).pathname,/verification|test/i);
   const suffix=crypto.randomBytes(7).toString('hex');await mongoose.connect(uri,{dbName:'classicmart_finance_payout_test_'+suffix});
-  const models=await import('../src/models/index.js');const {User,CountrySetting,Store,StoreMember,PromoterVerification,PlatformGrant,Order,Campaign,CommissionEntry,Payout,PayoutAccount,LedgerTransaction,AuditLog,Notification}=models;
-  const {createApp}=await import('../src/app.js');const {hashPassword}=await import('../src/core/crypto.js');const {encryptSensitive}=await import('../src/core/sensitive.js');const {totpCode}=await import('../src/services/mfa.js');
+  const models=await import('../src/models/index.js');const {User,CountrySetting,Store,StoreMember,PromoterVerification,PlatformGrant,Order,Campaign,CommissionEntry,Payout,PayoutAccount,LedgerTransaction,AuditLog,Notification,Device}=models;
+  const {createApp}=await import('../src/app.js');const {hashPassword,hashToken}=await import('../src/core/crypto.js');const {encryptSensitive}=await import('../src/core/sensitive.js');const {totpCode}=await import('../src/services/mfa.js');
   const payments=await import('../src/services/payments.js');const {ensureLedgerAccount,postLedgerTransaction,accountBalanceMinor}=await import('../src/services/money.js');
   const {loadFinancePayoutPage,actOnFinancePayout,reviewFinanceAppeal,streamFinancePayoutCsv}=await import('../src/services/finance-payout-pages.js');
   const password='Finance-'+suffix+'-A1!',passwordHash=await hashPassword(password),transports=[],app=createApp(null);let sequence=0;
-  const scoped=actor=>({user:actor.user,session:{tokenVersion:actor.user.security.tokenVersion},query:{},id:'req_fp_'+suffix+'_'+(++sequence),get:()=>'',ip:'127.0.0.1'});
+  const scoped=actor=>({user:actor.user,device:actor.device,sessionID:actor.sessionID,session:{userId:String(actor.user._id),tokenVersion:actor.user.security.tokenVersion,mfaVerifiedAt:Date.now()},...(actor.role==='finance'?{requiredOperationalWorkspace:'finance'}:{}),query:{},id:'req_fp_'+suffix+'_'+(++sequence),get:()=>'',ip:'127.0.0.1'});
   async function actor(role='finance',{country='UG',countries=[country],managed=false,mfa=true}={}) {
     const n=++sequence,email=`finance-payout-${suffix}-${n}@example.com`,secret='JBSWY3DPEHPK3PXP';
     const user=await User.create({publicId:'usr_fp_'+suffix+'_'+n,name:'Finance '+n,email,emailNormalized:email,phone:'+25670'+String(n).padStart(7,'0'),phoneNormalized:'+25670'+String(n).padStart(7,'0'),passwordHash,role:managed?'customer':role,country,currency:country==='KE'?'KES':'UGX',locale:'en-UG',operationalCountries:countries,emailVerifiedAt:new Date(),onboardingCompletedAt:new Date(),...(managed?{platformAccessManagedAt:new Date()}:{}),security:{mfaEnabled:mfa,mfaSecretEncrypted:mfa?encryptSensitive(secret):undefined,mfaLastCounter:-1},consents:{terms:true,privacy:true,recordedAt:new Date()}});
@@ -26,7 +26,8 @@ test('Finance payout operations complete reserved Seller and Promoter funds with
     const transport=new http.Agent({localAddress:'127.0.0.'+(n+30),keepAlive:false});transports.push(transport);const client=request.agent(app).use(req=>req.agent(transport));
     const login=await client.get('/login').expect(200);const response=await client.post('/login').type('form').send({email,password,_csrf:csrf(login.text)}).expect(302);
     if(mfa){assert.equal(response.headers.location,'/mfa');const challenge=await client.get('/mfa').expect(200);await client.post('/mfa').type('form').send({_csrf:csrf(challenge.text),code:totpCode(secret)}).expect(302);}
-    return {user,client,grant};
+    const sessionID=crypto.randomUUID(),device=await Device.create({publicId:'dev_fp_'+suffix+'_'+n,userId:user._id,sessionHash:hashToken(sessionID),label:'Current Finance payout fixture',userAgent:'Finance payout regression',ipHash:hashToken(transport.options.localAddress),lastSeenAt:new Date()});
+    return {user,client,grant,role,sessionID,device};
   }
   async function fund(ownerType,ownerPublicId,amountMinor,country='UG',currency='UGX') {
     const payable=await ensureLedgerAccount({code:ownerType==='store'?'seller_payable':'promoter_payable',type:'liability',ownerType,ownerPublicId,country,currency});
@@ -39,7 +40,7 @@ test('Finance payout operations complete reserved Seller and Promoter funds with
     const approver=await actor('finance',{managed:true}),operator=await actor(),backup=await actor(),kenya=await actor('finance',{country:'KE'}),multi=await actor('finance',{countries:['UG','KE']}),promoter=await actor('promoter',{mfa:false}),seller=await actor('seller'),customer=await actor('customer',{mfa:false});
     await PromoterVerification.create({publicId:'prv_fp_'+suffix,userId:promoter.user._id,country:'UG',status:'verified'});
     const store=await Store.create({publicId:'sto_fp_'+suffix,ownerUserId:seller.user._id,name:'Verified payout store',slug:'finance-payout-'+suffix,country:'UG',currency:'UGX',status:'verified'});
-    await StoreMember.create({publicId:'stm_fp_'+suffix,storeId:store._id,userId:seller.user._id,role:'owner',status:'active',invitedByUserId:seller.user._id});
+    await StoreMember.create({publicId:'stm_fp_'+suffix,storeId:store._id,userId:seller.user._id,role:'owner',status:'active',acceptedAt:new Date(),invitedByUserId:seller.user._id});
     const sellerReq=()=>({...scoped(seller),store});
     const destination={beneficiary_name:'PRIVATE_BENEFICIARY',account_bank:'PRIVATE_BANK',account_number:'PRIVATE_ACCOUNT_1234'};
     const promoterAccount=await payments.savePayoutAccount(scoped(promoter),{method:'bank',label:'  =Promoter destination',destination});
@@ -111,6 +112,13 @@ test('Finance payout operations complete reserved Seller and Promoter funds with
       const results=await Promise.allSettled([payments.submitPayout(scoped(operator),payout.publicId),payments.rejectPayout(scoped(backup),payout.publicId,{reason:'Documented payout cancelled before sending money.'})]);assert.equal(results.filter(row=>row.status==='fulfilled').length,1);const saved=await Payout.findById(payout._id);assert.ok(['submitting','rejected'].includes(saved.status));const balance=await accountBalanceMinor(sellerPayable._id);assert.equal(balance,saved.status==='rejected'?30000:26000);
     });
     await t.test('current grant, role, token and MFA revocations fail closed at direct service boundaries',async()=>{
+      const deniedKey='payout_revoked_device_fp_'+suffix,accounts=await PayoutAccount.countDocuments();
+      await Device.updateOne({_id:seller.device._id},{$set:{revokedAt:new Date()}});
+      try{
+        await assert.rejects(payments.requestPayout(sellerReq(),{payoutAccountId:sellerAccount.publicId,amountMinor:1000,idempotencyKey:deniedKey}),error=>error.code==='ACCOUNT_UNAVAILABLE');
+        await assert.rejects(payments.savePayoutAccount(sellerReq(),{method:'bank',label:'Revoked browser cannot save',destination}),error=>error.code==='ACCOUNT_UNAVAILABLE');
+      }finally{await Device.updateOne({_id:seller.device._id},{$unset:{revokedAt:1}});}
+      assert.equal(await Payout.countDocuments({idempotencyKey:deniedKey}),0);assert.equal(await PayoutAccount.countDocuments(),accounts);
       const payout=await payments.requestPayout(sellerReq(),{payoutAccountId:sellerAccount.publicId,amountMinor:1000,idempotencyKey:'payout_security_fp_'+suffix});
       await PlatformGrant.updateOne({_id:approver.grant._id},{$set:{status:'suspended'}});await assert.rejects(payments.approvePayout(scoped(approver),payout.publicId),error=>error.code==='FINANCE_GRANT_UNAVAILABLE');await PlatformGrant.updateOne({_id:approver.grant._id},{$set:{status:'active'}});
       await User.updateOne({_id:operator.user._id},{$set:{'security.mfaEnabled':false}});await assert.rejects(payments.approvePayout(scoped(operator),payout.publicId),error=>error.code==='MFA_ENROLLMENT_REQUIRED');await User.updateOne({_id:operator.user._id},{$set:{'security.mfaEnabled':true}});

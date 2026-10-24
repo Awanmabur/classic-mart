@@ -101,3 +101,16 @@ The first root run exposed missing unique cart/order fixture keys in the
 loyalty test; those fixtures now use distinct source identities and keys. Root
 must rerun before claiming passing evidence. Current provider delivery and
 production deployment remain separate checks requiring configured secrets.
+
+## Root verification — 24 October 2026
+
+All six Finance exception categories now share exact source identities with
+their private detail destinations. Reports, counts and exports reject mismatched
+provider/payment/order/market/currency and payout-store bindings. The real HTTP
+report suite passed all 11 checks, including each rendered source link, revoked
+authority, safe complete CSV and corrupt source exclusions. The separate
+payment/refund, payout and reconciliation suites passed all 43 checks with
+current Devices, actual cancellation/restocking and independent Warehouse cash
+review before Finance posting. Payout submission now uses Mongoose
+`returnDocument: after`, preserving the atomic claim while removing its
+deprecation warning. Full canonical regression remains a separate release gate.

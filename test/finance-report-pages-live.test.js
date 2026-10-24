@@ -74,6 +74,8 @@ test('Finance overview, reports and audit use complete scoped financial records 
       }
     }
     const ug = roots[0], ugPayment = payments[0];
+    const providerReference = `merchant_fr_${suffix}`;
+    await PaymentIntent.updateOne({ _id: ugPayment._id }, { $set: { providerReference } });
     await PaymentIntent.create({ publicId: `pay_mismatch_fr_${suffix}`, orderId: ug._id, orderPublicId: 'MISMATCH_ORDER_PRIVATE', country: 'UG', currency: 'UGX', idempotencyKey: `payment_mismatch_fr_${suffix}`, provider: 'wallet', method: 'wallet', status: 'succeeded', paidAt: now, amountMinor: 999999, createdAt: now });
     await PaymentIntent.create({ publicId: `pay_old_fr_${suffix}`, orderId: ug._id, orderPublicId: ug.publicId, country: 'UG', currency: 'UGX', idempotencyKey: `payment_old_fr_${suffix}`, provider: 'wallet', method: 'wallet', status: 'succeeded', paidAt: old, amountMinor: 999999, createdAt: old });
     const account = await PayoutAccount.create({ publicId: `poa_fr_${suffix}`, ownerUserId: owner.user._id, ownerType: 'promoter', country: 'UG', currency: 'UGX', method: 'bank', label: 'ACCOUNT_LABEL_PRIVATE', destinationEncrypted: 'BANK_DESTINATION_PRIVATE', status: 'verified' });
@@ -96,7 +98,9 @@ test('Finance overview, reports and audit use complete scoped financial records 
     // the actual three-hour processing age rather than changing the exception rule.
     await Refund.updateOne({ publicId: `ref_stale_fr_${suffix}` }, { $set: { updatedAt: new Date(now.getTime() - 3 * 60 * 60 * 1000) } }, { timestamps: false });
     await Payout.create({ publicId: `pyo_unknown_fr_${suffix}`, idempotencyKey: `payout_unknown_fr_${suffix}`, ownerUserId: owner.user._id, requestedByUserId: owner.user._id, payoutAccountId: account._id, amountMinor: 200, currency: 'UGX', status: 'unknown', createdAt: now });
-    await ProviderEvent.create({ publicId: `pev_fr_${suffix}`, provider: 'pesapal', eventId: `event_fr_${suffix}`, eventType: 'ipn', country: 'UG', rawHash: 'RAW_HASH_PRIVATE', rawEncrypted: 'RAW_PAYLOAD_PRIVATE', verifiedAt: now, status: 'dead', createdAt: now });
+    await ProviderEvent.create({ publicId: `pev_fr_${suffix}`, provider: 'pesapal', eventId: `event_fr_${suffix}`, eventType: 'ipn', country: 'UG',
+      merchantReference: providerReference, providerTrackingId: ugPayment.providerTrackingId, paymentIntentPublicId: ugPayment.publicId, orderPublicId: ug.publicId,
+      rawHash: 'RAW_HASH_PRIVATE', rawEncrypted: 'RAW_PAYLOAD_PRIVATE', verifiedAt: now, status: 'dead', createdAt: now });
     await ReconciliationRun.create([{ publicId: `rec_done_fr_${suffix}`, country: 'UG', provider: 'pesapal', startedByUserId: owner.user._id, status: 'completed', checked: 200, matched: 198, failed: 0, createdAt: now },
       { publicId: `rec_failed_fr_${suffix}`, country: 'UG', currency: 'UGX', provider: 'cod', startedByUserId: owner.user._id, status: 'failed', checked: 3, matched: 1, failed: 2, errorMessages: ['STACK_TRACE_PRIVATE'], createdAt: now }]);
     await Chargeback.create({ publicId: `chb_fr_${suffix}`, orderId: ug._id, orderPublicId: ug.publicId, paymentIntentId: ugPayment._id, paymentIntentPublicId: ugPayment.publicId, country: 'UG', currency: 'UGX', amountMinor: 10000, status: 'open' });
@@ -146,6 +150,97 @@ test('Finance overview, reports and audit use complete scoped financial records 
       }
       const summary = await owner.client.get('/finance/reports/export.csv?report=summary').expect(200); assert.equal(summary.text.trim().split('\r\n').length, 3); assert.match(summary.text, /"UG","UGX","64","640000"/); assert.match(summary.text, /"KE","KES","3","60000"/);
       assert.equal(await AuditLog.countDocuments({ action: 'finance.report_exported', actorId: owner.user._id }), 6);
+    });
+    await t.test('all six overview exceptions open their exact scoped source, and exports never disclose private evidence', async () => {
+      const expected = new Map([
+        ['providerEvents', { id: `pev_fr_${suffix}`, path: '/finance/reconciliation', key: 'selected', view: 'events' }],
+        ['staleRefunds', { id: `ref_stale_fr_${suffix}`, path: '/finance/refunds', key: 'record' }],
+        ['unknownPayouts', { id: `pyo_unknown_fr_${suffix}`, path: '/finance/payouts', key: 'record' }],
+        ['openDisputes', { id: `chb_fr_${suffix}`, path: '/finance/disputes', key: 'selected' }],
+        ['reconciliationRuns', { id: `rec_failed_fr_${suffix}`, path: '/finance/reconciliation', key: 'selected', view: 'runs' }],
+        ['pendingCod', { id: `shp_fr_${suffix}`, path: '/finance/reconciliation', key: 'selected', view: 'cod' }],
+      ]);
+      const hidden = ['BUYER_CONTACT_PRIVATE', 'BUYER_PHONE_PRIVATE', 'BANK_DESTINATION_PRIVATE', 'RAW_PAYLOAD_PRIVATE', 'RAW_HASH_PRIVATE',
+        'STACK_TRACE_PRIVATE', 'COOKIE_HEADERS_PRIVATE', 'SESSION_TOKEN_PRIVATE', 'IP_HASH_PRIVATE', 'AUDIT_METADATA_PRIVATE'];
+      const privateResponse = result => {
+        const cacheDirectives = new Set(String(result.headers['cache-control'] || '').split(',').map(value => value.trim().toLowerCase()));
+        assert.ok(cacheDirectives.has('private')); assert.ok(cacheDirectives.has('no-store'));
+        assert.match(result.headers['x-robots-tag'], /noindex/);
+        const payload = String(result.text || '') + JSON.stringify(result.body || {});
+        for (const marker of hidden) assert.ok(!payload.includes(marker), marker);
+      };
+      const overview = await owner.client.get('/finance/overview?country=UG').set('Accept', 'application/json').expect(200);
+      const metric = overview.body.metrics.find(row => row.label === 'Open financial exceptions');
+      assert.equal(metric.value, '6');
+      const link = new URL(metric.href, 'http://localhost');
+      assert.equal(link.searchParams.get('report'), 'exceptions'); assert.equal(link.searchParams.get('country'), 'UG');
+      const report = await owner.client.get(metric.href).set('Accept', 'application/json').expect(200);
+      privateResponse(report);
+      assert.equal(report.body.page.total, expected.size); assert.equal(report.body.exceptionCount, expected.size);
+      assert.deepEqual(new Set(report.body.items.map(row => row.category)), new Set(expected.keys()));
+      assert.deepEqual(new Set(report.body.items.map(row => row.publicId)), new Set([...expected.values()].map(row => row.id)));
+      const html = await owner.client.get(metric.href).expect(200);
+      assert.match(html.text, /data-role="finance"/);
+      const renderedLinks = new Map([...html.text.matchAll(/href="([^"]+)" aria-label="Open ([^"]+)"/g)]
+        .map(([, href, publicId]) => [publicId, href.replaceAll(/&amp;|&#38;|&#x26;/g, '&')]));
+      for (const row of report.body.items) {
+        const source = expected.get(row.category), target = new URL(row.href, 'http://localhost');
+        assert.equal(row.publicId, source.id); assert.equal(row.country, 'UG'); assert.equal(row.currency, 'UGX');
+        assert.equal(target.pathname, source.path); assert.equal(target.searchParams.get(source.key), source.id);
+        assert.equal(target.searchParams.get('country'), 'UG');
+        if (source.view) assert.equal(target.searchParams.get('view'), source.view);
+        assert.ok(html.text.includes(row.publicId), 'The approved exception table renders the actual source identifier.');
+        assert.equal(renderedLinks.get(source.id), row.href, 'The visible action opens the same source verified in the report.');
+        const detail = await owner.client.get(row.href).set('Accept', 'application/json').expect(200);
+        privateResponse(detail);
+        assert.equal(detail.body.selected.publicId, source.id); assert.equal(detail.body.selected.country, 'UG');
+        assert.equal(detail.body.selected.currency, 'UGX');
+        if (row.category === 'unknownPayouts') {
+          assert.equal(detail.body.selected.destination.publicId, account.publicId);
+          assert.equal(detail.body.selected.destination.ownerType, 'promoter');
+          assert.equal(detail.body.selected.actions.reconcile, false, 'An operator cannot reconcile its own payout.');
+        } else if (row.category !== 'reconciliationRuns') assert.equal(detail.body.selected.orderPublicId, ug.publicId);
+        const foreignMarket = new URL(row.href, 'http://localhost'); foreignMarket.searchParams.set('country', 'KE');
+        await owner.client.get(foreignMarket.pathname + foreignMarket.search).set('Accept', 'application/json').expect(404);
+        foreignMarket.searchParams.set('country', 'TZ');
+        await owner.client.get(foreignMarket.pathname + foreignMarket.search).set('Accept', 'application/json').expect(403);
+        await request(app).get(row.href).set('Accept', 'application/json').expect(401);
+        const only = await owner.client.get('/finance/reports?country=UG&report=exceptions&exception=' + row.category).set('Accept', 'application/json').expect(200);
+        assert.equal(only.body.page.total, 1); assert.equal(only.body.items[0].publicId, source.id);
+      }
+      const csv = await owner.client.get(report.body.exportHref).expect(200);
+      privateResponse(csv); assert.match(csv.headers['content-type'], /text\/csv/);
+      assert.equal(csv.text.trim().split('\r\n').length, expected.size + 1);
+      for (const [category, source] of expected) assert.ok(csv.text.includes(`"${source.id}","${category}","UG","UGX"`));
+      await owner.client.get('/finance/reports?country=TZ&report=exceptions').set('Accept', 'application/json').expect(403);
+      await owner.client.get('/finance/reports/export.csv?country=TZ&report=exceptions').set('Accept', 'application/json').expect(403);
+
+      // Change one stored source at a time after it has appeared on the report.
+      // The same stale link must then fail closed instead of displaying a
+      // differently owned payment, destination, order or operating market.
+      const mutations = [
+        ['providerEvents', ProviderEvent, 'providerTrackingId', 'mismatched_tracking', ugPayment.providerTrackingId],
+        ['staleRefunds', Refund, 'paymentIntentId', payments.find(row => row.country === 'KE')._id, ugPayment._id],
+        ['unknownPayouts', Payout, 'ownerUserId', customer.user._id, owner.user._id],
+        ['unknownPayouts', Payout, 'ownerStorePublicId', 'str_mismatched_owner', undefined],
+        ['openDisputes', Chargeback, 'paymentIntentPublicId', 'pay_mismatched_source', ugPayment.publicId],
+        ['reconciliationRuns', ReconciliationRun, 'country', 'KE', 'UG'],
+        ['pendingCod', Shipment, 'orderPublicId', 'ord_mismatched_source', ug.publicId],
+        ['pendingCod', Shipment, 'cod.currency', 'KES', 'UGX'],
+      ];
+      for (const [category, Model, field, value, original] of mutations) {
+        const source = expected.get(category), row = report.body.items.find(item => item.category === category);
+        try {
+          await Model.collection.updateOne({ publicId: source.id }, { $set: { [field]: value } });
+          const filtered = await owner.client.get('/finance/reports?country=UG&report=exceptions&exception=' + category).set('Accept', 'application/json').expect(200);
+          assert.equal(filtered.body.page.total, 0, category + ' must omit a broken source binding.');
+          await owner.client.get(row.href).set('Accept', 'application/json').expect(404);
+        } finally {
+          await Model.collection.updateOne({ publicId: source.id }, original === undefined ? { $unset: { [field]: 1 } } : { $set: { [field]: original } });
+        }
+      }
+      const restored = await owner.client.get(metric.href).set('Accept', 'application/json').expect(200);
+      assert.equal(restored.body.page.total, expected.size);
     });
     await t.test('audit results and CSV project only scoped finance evidence', async () => {
       const result = await owner.client.get('/finance/audit?country=UG&status=denied').set('Accept', 'application/json').expect(200); assert.equal(result.body.page.total, 38); assert.equal(result.body.page.count, 25);

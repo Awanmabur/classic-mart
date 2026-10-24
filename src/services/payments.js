@@ -1170,7 +1170,7 @@ export async function submitPayout(request,payoutPublicId,{version}={}) {
     const claimed=await Payout.findOneAndUpdate(
       {publicId:payoutPublicId,status:'approved',approvedByUserId:{$ne:request.user._id},__v:payout.__v||0},
       {$set:{status:'submitting',submittedByUserId:access.actor._id,submissionStartedAt:now,submissionAttemptId,submittedAt:null,providerReference:'',ambiguityReason:'',unknownAt:null,unknownByUserId:null,disbursementProvider:'external'},$inc:{__v:1}},
-      {new:true,session}
+      {returnDocument:'after',session}
     );
     if(!claimed)throw new AppError('This payout has already been claimed for submission. Reconcile the existing attempt instead of resubmitting.',409,'PAYOUT_SUBMISSION_CLAIMED');
     await writeAudit(request,'finance.payout_submission_started',{actor:access.actor,targetType:'payout',targetPublicId:claimed.publicId,country:account.country,metadata:{submissionAttemptId},session});

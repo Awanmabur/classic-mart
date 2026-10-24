@@ -9,6 +9,7 @@ import { reviewChargeback, resolveChargeback } from './chargebacks.js';
 import { reconcilePayments, requeueProviderEvent } from './payments.js';
 import { reconcileCod } from './logistics.js';
 import { writeAudit } from './audit.js';
+import { financeProviderEventSource as providerEventSource, financeChargebackSource, financeCodSource } from './finance-record-sources.js';
 
 const SIZE=25, EXPORT_MAX=10000;
 const states={runs:['running','completed','failed'],events:['received','processing','processed','ignored','failed','dead'],cod:['ready','blocked','reconciled'],disputes:['open','reviewing','won','lost']};
@@ -26,14 +27,13 @@ function queryFor(request,pageId){
   input.search=input.q??input.search;return input;
 }
 function codState(row){return row.cod?.reconciledAt?'reconciled':row.cod?.handoverAt&&!row.cod?.mismatchExceptionPublicId&&row.cod?.handoverEvidenceDocumentId&&row.cod.handoverDeclaredMinor===row.cod.collectedMinor&&row.cod.collectedMinor===row.cod.amountMinor?'ready':'blocked';}
-function providerEventSource(scope){
-  return [{$match:scope},{$project:{publicId:1,country:1,status:1,attempts:1,manualReplayCount:1,paymentIntentPublicId:1,orderPublicId:1,nextAttemptAt:1,createdAt:1,__v:1,merchantReference:1,providerTrackingId:1}},
-    {$lookup:{from:PaymentIntent.collection.name,let:{reference:'$merchantReference'},as:'linkedIntent',pipeline:[{$match:{$expr:{$and:[{$eq:['$provider','pesapal']},{$eq:['$providerReference','$$reference']}]}}},{$project:{publicId:1,country:1,currency:1,orderId:1,orderPublicId:1,providerTrackingId:1}}]}},{$unwind:'$linkedIntent'},
-    {$lookup:{from:Order.collection.name,localField:'linkedIntent.orderId',foreignField:'_id',as:'linkedOrder',pipeline:[{$project:{publicId:1,country:1,'totals.currency':1}}]}},{$unwind:'$linkedOrder'},
-    {$match:{$expr:{$and:[{$eq:['$country','$linkedOrder.country']},{$eq:['$linkedIntent.country','$linkedOrder.country']},{$eq:['$linkedIntent.currency','$linkedOrder.totals.currency']},{$eq:['$linkedIntent.orderPublicId','$linkedOrder.publicId']},{$eq:['$providerTrackingId','$linkedIntent.providerTrackingId']},{$or:[{$eq:[{$ifNull:['$orderPublicId','']},'']},{$eq:['$orderPublicId','$linkedOrder.publicId']}]},{$or:[{$eq:[{$ifNull:['$paymentIntentPublicId','']},'']},{$eq:['$paymentIntentPublicId','$linkedIntent.publicId']}]}]}}},
-    {$set:{orderPublicId:'$linkedOrder.publicId',paymentIntentPublicId:'$linkedIntent.publicId'}},{$unset:['linkedOrder','linkedIntent','merchantReference','providerTrackingId']},
-  ];
+function recordSource(view, scope) {
+  if (view === 'events') return providerEventSource(scope);
+  if (view === 'disputes') return financeChargebackSource(scope);
+  if (view === 'cod') return financeCodSource(scope);
+  return [{ $match: scope }];
 }
+const recordProjection = config => Object.fromEntries(config.select.split(' ').map(field => [field, 1]));
 function configuration(view,context,input){
   let Model,scope,select,map,columns;
   if(view==='disputes'){
@@ -41,8 +41,8 @@ function configuration(view,context,input){
     map=row=>({publicId:row.publicId,orderPublicId:row.orderPublicId,paymentIntentPublicId:row.paymentIntentPublicId,country:row.country,currency:row.currency,amountMinor:integer(row.amountMinor),status:row.status,openedAt:row.openedAt,reviewedAt:row.reviewedAt,resolvedAt:row.resolvedAt,reviewNote:row.reviewNote,resolutionNote:row.resolutionNote,canResolve:row.status==='reviewing'&&String(row.reviewedByUserId)!==String(context.actor._id),version:row.__v||0,createdAt:row.createdAt});
     columns=['Dispute','Order','Country','Exposure','Status','Opened'];
   }else if(view==='events'){
-    Model=ProviderEvent;scope={...context.countryScope,provider:'pesapal'};select='publicId country status attempts manualReplayCount paymentIntentPublicId orderPublicId nextAttemptAt createdAt __v';
-    map=row=>({publicId:row.publicId,country:row.country,status:row.status,attempts:integer(row.attempts),manualReplayCount:integer(row.manualReplayCount),paymentIntentPublicId:row.paymentIntentPublicId,orderPublicId:row.orderPublicId,nextAttemptAt:row.nextAttemptAt,createdAt:row.createdAt,version:row.__v||0});
+    Model=ProviderEvent;scope={...context.countryScope,provider:'pesapal'};select='publicId country currency status attempts manualReplayCount paymentIntentPublicId orderPublicId nextAttemptAt createdAt __v';
+    map=row=>({publicId:row.publicId,country:row.country,currency:row.currency,status:row.status,attempts:integer(row.attempts),manualReplayCount:integer(row.manualReplayCount),paymentIntentPublicId:row.paymentIntentPublicId,orderPublicId:row.orderPublicId,nextAttemptAt:row.nextAttemptAt,createdAt:row.createdAt,version:row.__v||0});
     columns=['Event','Order','Country','Status','Attempts','Next attempt'];
   }else if(view==='cod'){
     Model=Shipment;scope={...context.countryScope,status:'delivered','cod.required':true};select='publicId orderPublicId country cod deliveryUserId createdAt __v';
@@ -70,27 +70,25 @@ function cells(view,row){
 }
 async function metricsFor(context,view){
   if(view==='disputes'){
-    const totals=await Chargeback.aggregate([{$match:moneyScope(context)},{$group:{_id:{status:'$status',currency:'$currency'},count:{$sum:1},amountMinor:{$sum:'$amountMinor'}}}]);
+    const totals=await Chargeback.aggregate([...financeChargebackSource(moneyScope(context)),{$group:{_id:{status:'$status',currency:'$currency'},count:{$sum:1},amountMinor:{$sum:'$amountMinor'}}}]);
     const count=status=>totals.filter(row=>row._id.status===status).reduce((sum,row)=>sum+row.count,0);
     const exposure=new Map();for(const row of totals.filter(row=>['open','reviewing'].includes(row._id.status)))exposure.set(row._id.currency,(exposure.get(row._id.currency)||0)+row.amountMinor);
     return [{label:'Open disputes',value:count('open'),detail:'Provider reversals awaiting Finance review'},{label:'Under review',value:count('reviewing'),detail:'A second operator must confirm the outcome'},{label:'Protected exposure',value:[...exposure].map(([currency,amount])=>money(amount,currency)).join(' · ')||'0',detail:'Currencies are reported separately'},{label:'Resolved disputes',value:count('won')+count('lost'),detail:'Independently verified won and lost outcomes'}];
   }
-  const [runs,failedRuns,eventCounts,readyCash]=await Promise.all([ReconciliationRun.countDocuments(context.countryScope),ReconciliationRun.countDocuments({...context.countryScope,status:'failed'}),ProviderEvent.aggregate([...providerEventSource({...context.countryScope,provider:'pesapal',status:{$in:['failed','dead']}}),{$count:'count'}]),Shipment.countDocuments({...context.countryScope,status:'delivered','cod.required':true,'cod.reconciledAt':null})]);
+  const [runs,failedRuns,eventCounts,readyCash]=await Promise.all([ReconciliationRun.countDocuments(context.countryScope),ReconciliationRun.countDocuments({...context.countryScope,status:'failed'}),ProviderEvent.aggregate([...providerEventSource({...context.countryScope,provider:'pesapal',status:{$in:['failed','dead']}}),{$count:'count'}]),Shipment.aggregate([...financeCodSource({...context.countryScope,status:'delivered','cod.required':true,'cod.reconciledAt':null}),{$count:'count'}]).then(rows=>rows[0]?.count||0)]);
   const exceptions=eventCounts[0]?.count||0;
   return [{label:'Reconciliation runs',value:runs,detail:'Recorded provider and COD reconciliation history'},{label:'Runs with exceptions',value:failedRuns,detail:'Resolve exceptions before running the report again'},{label:'Provider exceptions',value:exceptions,detail:'Failed and dead-letter events in your scope'},{label:'COD awaiting reconciliation',value:readyCash,detail:'Delivered cash shipments; evidence is checked before posting'}];
 }
 export async function loadFinanceReconciliationPage(request,pageId){
   if(!['finance-reconciliation','finance-disputes'].includes(pageId))throw new AppError('Finance report not found.',404,'FINANCE_PAGE_NOT_FOUND');
   const context=await financeAccess(request),input=queryFor(request,pageId),config=configuration(input.view,context,input),base='/finance/'+(pageId==='finance-disputes'?'disputes':'reconciliation');
-  let documents,total;
   const metricsPromise=metricsFor(context,input.view);
-  if(input.view==='events'){
-    const [page]=await ProviderEvent.aggregate([...providerEventSource(config.scope),{$facet:{rows:[{$match:cursorScope({},input.after)},{$sort:cursorSort()},{$limit:SIZE+1}],total:[{$count:'count'}]}}]);documents=page?.rows||[];total=page?.total?.[0]?.count||0;
-  }else [documents,total]=await Promise.all([config.Model.find(mongoose.trusted(cursorScope(config.scope,input.after))).select(config.select).sort(cursorSort()).limit(SIZE+1).lean(),config.Model.countDocuments(mongoose.trusted(config.scope))]);
+  const [page]=await config.Model.aggregate([...recordSource(input.view,config.scope),{$project:recordProjection(config)},{$facet:{rows:[{$match:cursorScope({},input.after)},{$sort:cursorSort()},{$limit:SIZE+1}],total:[{$count:'count'}]}}]);
+  const documents=page?.rows||[],total=page?.total?.[0]?.count||0;
   const metrics=await metricsPromise;
   const result=pageResult(documents,{limit:SIZE,total}),items=result.items.map(config.map);
   let selected=null;
-  if(input.selected){const scope={$and:[config.scope,{publicId:input.selected}]};const row=input.view==='events'?(await ProviderEvent.aggregate([...providerEventSource(scope),{$limit:1}]))[0]:await config.Model.findOne(mongoose.trusted(scope)).select(config.select).lean();if(!row)throw new AppError('The selected Finance record is unavailable in this report.',404,'FINANCE_RECORD_NOT_FOUND');selected=config.map(row);}
+  if(input.selected){const scope={$and:[config.scope,{publicId:input.selected}]};const [row]=await config.Model.aggregate([...recordSource(input.view,scope),{$project:recordProjection(config)},{$limit:1}]);if(!row)throw new AppError('The selected Finance record is unavailable in this report.',404,'FINANCE_RECORD_NOT_FOUND');selected=config.map(row);}
   const params={country:context.country,view:input.view==='disputes'?'runs':input.view,search:input.search,status:input.status};
   const url=(extra={})=>base+'?'+new URLSearchParams({...params,...extra});
   await assertFinanceExportAccess(request,context);
@@ -103,11 +101,11 @@ export async function reviewFinanceDispute(request,id,input){const data=z.object
 export async function resolveFinanceDispute(request,id,input){return resolveChargeback(request,id,z.object({outcome:z.enum(['won','lost']),note:z.string().trim().min(5).max(500)}).parse(input));}
 export async function streamFinanceReconciliationCsv(request,response,pageId){
   const context=await financeAccess(request),input=queryFor(request,pageId),config=configuration(input.view,context,input);
-  const total=input.view==='events'?(await ProviderEvent.aggregate([...providerEventSource(config.scope),{$count:'count'}]))[0]?.count||0:await config.Model.countDocuments(mongoose.trusted(config.scope));if(total>EXPORT_MAX)throw new AppError('Narrow this report to at most 10,000 records before exporting.',422,'FINANCE_EXPORT_TOO_LARGE');
+  const total=(await config.Model.aggregate([...recordSource(input.view,config.scope),{$count:'count'}]))[0]?.count||0;if(total>EXPORT_MAX)throw new AppError('Narrow this report to at most 10,000 records before exporting.',422,'FINANCE_EXPORT_TOO_LARGE');
   const session=await mongoose.startSession();try{await session.withTransaction(async()=>{const fresh=await financeAccess(request,{session,write:true,country:context.country});await writeAudit(request,'finance.'+(pageId==='finance-disputes'?'disputes':'reconciliation')+'_exported',{actor:fresh.actor,targetType:'finance_report',targetPublicId:pageId,country:context.country||undefined,metadata:{view:input.view,status:input.status},session});});}finally{await session.endSession();}
   await assertFinanceExportAccess(request,context);
   const cell=value=>'"'+(/^[\s\u0000-\u001f]*[=+\-@]/.test(String(value??''))?"'":'')+String(value??'').replaceAll('"','""')+'"';
   response.type('text/csv').set('Content-Disposition','attachment; filename="'+pageId+'-'+input.view+'.csv"');response.write(config.columns.map(cell).join(',')+'\r\n');
-  const cursor=input.view==='events'?ProviderEvent.aggregate([...providerEventSource(config.scope),{$sort:cursorSort()}]).cursor({batchSize:100}):config.Model.find(mongoose.trusted(config.scope)).select(config.select).sort(cursorSort()).lean().cursor();
+  const cursor=config.Model.aggregate([...recordSource(input.view,config.scope),{$project:recordProjection(config)},{$sort:cursorSort()}]).cursor({batchSize:100});
   try{for await(const row of cursor){if(response.destroyed)break;await assertFinanceExportAccess(request,context);if(!response.write(cells(input.view,config.map(row)).map(cell).join(',')+'\r\n'))await new Promise(resolve=>{const finish=()=>{response.removeListener('drain',finish);response.removeListener('close',finish);resolve();};response.once('drain',finish);response.once('close',finish);});}}finally{await cursor.close();}if(!response.destroyed)response.end();
 }

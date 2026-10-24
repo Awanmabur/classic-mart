@@ -140,12 +140,14 @@ try {
   assert.equal(reserved.items[0].returnReservedQuantity, 1, 'Return reservation must never exceed delivered quantity.');
 
   const warehouseTask = await WarehouseTask.collection.insertOne({
-    publicId: `wht_claim_race_${crypto.randomBytes(5).toString('hex')}`, type: 'pick', status: 'open', country: 'UG', warehousePublicId: 'wh_race', dueAt: new Date(Date.now() + 60_000), createdAt: new Date(), updatedAt: new Date(),
+    publicId: `wht_claim_race_${crypto.randomBytes(5).toString('hex')}`, type: 'pick', status: 'open',
+    warehouseId: new mongoose.Types.ObjectId(), storeId: new mongoose.Types.ObjectId(),
+    dueAt: new Date(Date.now() + 60_000), createdAt: new Date(), updatedAt: new Date(),
   });
   const operatorIds = Array.from({ length: 20 }, () => new mongoose.Types.ObjectId());
   const claimResults = await race(20, (index) => WarehouseTask.collection.updateOne(
     { _id: warehouseTask.insertedId, status: 'open', $or: [{ assignedUserId: null }, { assignedUserId: { $exists: false } }] },
-    { $set: { status: 'in_progress', assignedUserId: operatorIds[index], assignedAt: new Date(), updatedAt: new Date() } },
+    { $set: { status: 'in_progress', assignedUserId: operatorIds[index], claimedAt: new Date(), updatedAt: new Date() } },
   ));
   const successfulClaims = claimResults.filter((row) => row.status === 'fulfilled').reduce((sum, row) => sum + Number(row.value.modifiedCount || 0), 0);
   assert.equal(successfulClaims, 1, 'Exactly one warehouse operator may atomically claim an open task.');

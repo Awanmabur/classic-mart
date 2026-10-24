@@ -14,13 +14,13 @@ test('Finance CSV neutralizes formulas after whitespace and quotes fields',async
 test('Finance payments and refunds enforce scoped evidence, reservations and independent completion',{skip:!uri,timeout:120000},async t=>{
   assert.equal(new URL(uri).hostname,'127.0.0.1');assert.match(new URL(uri).pathname,/verification|test/i);
   const suffix=crypto.randomBytes(8).toString('hex');await mongoose.connect(uri,{dbName:'classicmart_finance_payments_test_'+suffix});
-  const {User,CountrySetting,PaymentIntent,Refund,Order,SellerOrder,Shipment,LedgerTransaction,LedgerAccount,AuditLog,FinancialDocument,PlatformGrant,Notification,Chargeback}=await import('../src/models/index.js');
-  const {createApp}=await import('../src/app.js'),{hashPassword}=await import('../src/core/crypto.js'),{beginMfaEnrollment,confirmMfaEnrollment,totpCode}=await import('../src/services/mfa.js');
+  const {User,CountrySetting,PaymentIntent,Refund,Order,SellerOrder,Shipment,LedgerTransaction,LedgerAccount,AuditLog,FinancialDocument,PlatformGrant,Notification,Chargeback,Device,StockItem,InventoryReservation,InventoryMovement}=await import('../src/models/index.js');
+  const {createApp}=await import('../src/app.js'),{hashPassword,hashToken}=await import('../src/core/crypto.js'),{beginMfaEnrollment,confirmMfaEnrollment,totpCode}=await import('../src/services/mfa.js');
   const {ensureLedgerAccount,postLedgerTransaction,accountBalanceMinor}=await import('../src/services/money.js');
   const {createRefund,completeManualRefund,verifyAndApplyPayment}=await import('../src/services/payments.js');
   const {requestFinanceRefund,completeFinanceRefund,loadFinancePaymentPage,streamFinancePaymentCsv}=await import('../src/services/finance-payment-pages.js');
   const app=createApp(null),password='Finance-'+suffix+'-A1!',passwordHash=await hashPassword(password),transports=[];let sequence=0;
-  const context=entry=>({user:entry.user,session:{tokenVersion:entry.user.security.tokenVersion},query:{},id:'req_finance_'+suffix+'_'+(++sequence),ip:'127.0.0.1',get:()=>''});
+  const context=entry=>({user:entry.user,device:entry.device,sessionID:entry.sessionID,session:{userId:String(entry.user._id),tokenVersion:entry.user.security.tokenVersion,mfaVerifiedAt:Date.now()},...(entry.role==='finance'?{requiredOperationalWorkspace:'finance'}:{}),query:{},id:'req_finance_'+suffix+'_'+(++sequence),ip:'127.0.0.1',get:()=>''});
   async function actor(role='finance',countries=['UG'],mfa=true){
     const index=++sequence,email='finance-payments-'+suffix+'-'+index+'@example.com',phone='+25670'+String(index).padStart(7,'0');
     let user=await User.create({publicId:'usr_fp_'+suffix+'_'+index,name:'Finance '+index,email,emailNormalized:email,phone,phoneNormalized:phone,passwordHash,role,country:countries[0],currency:'UGX',locale:'en-UG',operationalCountries:countries,emailVerifiedAt:new Date(),onboardingCompletedAt:new Date(),consents:{terms:true,privacy:true,recordedAt:new Date()}});
@@ -28,7 +28,8 @@ test('Finance payments and refunds enforce scoped evidence, reservations and ind
     const transport=new http.Agent({localAddress:'127.0.0.'+(index+5),keepAlive:false});transports.push(transport);const client=request.agent(app).use(req=>req.agent(transport));
     const login=await client.get('/login').expect(200);await client.post('/login').type('form').send({email,password,_csrf:csrf(login.text)}).expect(302);
     if(mfa){const challenge=await client.get('/mfa').expect(200);await client.post('/mfa').type('form').send({code:codes[0],_csrf:csrf(challenge.text)}).expect(302);}
-    return{user,client};
+    const sessionID=crypto.randomUUID(),device=await Device.create({publicId:'dev_fp_'+suffix+'_'+index,userId:user._id,sessionHash:hashToken(sessionID),label:'Current Finance payment fixture',userAgent:'Finance payment regression',ipHash:hashToken(transport.options.localAddress),lastSeenAt:new Date()});
+    return{user,client,role,sessionID,device};
   }
   async function fixture({country='UG',currency='UGX',provider='cod',amount=10000,status='succeeded',owner=null,settlement=false,lines=false}={}){
     const index=++sequence,orderId='ord_fp_'+suffix+'_'+index,paymentId='pay_fp_'+suffix+'_'+index,lineId='lin_fp_'+index,storeId='sto_fp_'+index;
@@ -36,7 +37,13 @@ test('Finance payments and refunds enforce scoped evidence, reservations and ind
     const intent=await PaymentIntent.create({publicId:paymentId,orderId:order._id,orderPublicId:orderId,country,currency,idempotencyKey:'payment_key_'+paymentId,provider,method:provider==='cod'?'cod':provider==='wallet'?'wallet':'card',status,amountMinor:amount,paidAt:status==='succeeded'?new Date():undefined,providerTrackingId:provider==='pesapal'?'tracking_'+paymentId:undefined,providerReference:paymentId,providerConfirmationCode:provider==='pesapal'?'CONFIRMATION_PRIVATE_'+index:undefined,lastVerifiedAt:provider==='pesapal'?new Date():undefined,providerStatus:provider==='pesapal'?'COMPLETED':'',checkoutUrl:'https://checkout.example.com/CHECKOUT_SECRET_PRIVATE',failureMessage:'PROVIDER_RAW_PRIVATE'});
     let payable=null,revenue=null;
     if(settlement){
-      const clearing=await ensureLedgerAccount({code:provider==='cod'?'cod_clearing':'provider_clearing',type:'asset',ownerType:provider==='cod'?'platform':'provider',ownerPublicId:provider==='cod'?'classic-mart':'pesapal',country,currency});
+      const clearing=provider==='wallet'
+        ? await ensureLedgerAccount({code:'customer_wallet',type:'liability',ownerType:'customer',ownerId:owner._id,ownerPublicId:owner.publicId,country,currency})
+        : await ensureLedgerAccount({code:provider==='cod'?'cod_clearing':'provider_clearing',type:'asset',ownerType:provider==='cod'?'platform':'provider',ownerPublicId:provider==='cod'?'classic-mart':'pesapal',country,currency});
+      if(provider==='wallet'){
+        const funding=await ensureLedgerAccount({code:'verified_fixture_cash',type:'asset',ownerType:'platform',ownerPublicId:'classic-mart',country,currency});
+        await postLedgerTransaction({idempotencyKey:'fund:'+paymentId,referenceType:'verified_test_settlement',referencePublicId:paymentId,country,currency,description:'Verified opening wallet funds',entries:[{account:funding,debitMinor:amount,creditMinor:0},{account:clearing,debitMinor:0,creditMinor:amount}]});
+      }
       revenue=await ensureLedgerAccount({code:'platform_revenue',type:'revenue',ownerType:'platform',ownerPublicId:'classic-mart',country,currency});
       let key='payment:'+paymentId,type='payment';if(provider==='cod'){const shipment=await Shipment.create({publicId:'shp_fp_'+index,orderId:order._id,orderPublicId:orderId,country,mode:'standard',status:'delivered',deliveredAt:new Date(),cod:{required:true,amountMinor:amount,currency,collectedMinor:amount,reconciledAt:new Date()}});key='cod:'+shipment.publicId;type='cod_reconciliation';}
       const entries=[{account:clearing,debitMinor:amount,creditMinor:0}];
@@ -127,9 +134,22 @@ test('Finance payments and refunds enforce scoped evidence, reservations and ind
       }finally{stub.mock.restore();await User.updateOne({_id:first.user._id},{$set:{'security.mfaEnabled':true}});}
     });
     await t.test('authorized Customer cancellation refunds remain automatic and isolated to their own frozen order',async()=>{
-      const owned=await fixture({provider:'wallet',owner:customer.user,settlement:true});await Order.updateOne({_id:owned.order._id},{$set:{fulfillmentState:'cancelled',cancellationState:'processing','cancellation.requestedAt':new Date()}});
-      const refund=await createRefund(context(customer),{orderId:owned.order.publicId,reason:'Pre-fulfilment cancellation',idempotencyKey:'cancel:'+owned.order.publicId});assert.equal(refund.status,'completed');assert.equal((await PaymentIntent.findById(owned.intent._id)).refundedMinor,10000);
+      const owned=await fixture({provider:'wallet',owner:customer.user,settlement:true}),line=owned.order.items[0];
+      const stock=await StockItem.create({publicId:'stk_cancel_fp_'+suffix,storeId:line.storeId,warehouseId:new mongoose.Types.ObjectId(),variantId:line.variantId,onHand:9,reserved:0});
+      await InventoryReservation.create({publicId:line.reservationPublicId,idempotencyKey:'inventory:'+owned.order.publicId,storeId:line.storeId,stockItemId:stock._id,variantId:line.variantId,quantity:1,status:'committed',committedAt:new Date(),expiresAt:owned.order.reservationExpiresAt,actorUserId:customer.user._id});
+      const shipment=await Shipment.create({publicId:'shp_cancel_fp_'+suffix,orderId:owned.order._id,orderPublicId:owned.order.publicId,country:'UG',kind:'outbound',mode:'standard',status:'ready'});
+      const security=await customer.client.get('/account/security').expect(200);
+      const cancelled=await customer.client.post('/api/v1/orders/'+owned.order.publicId+'/cancel').set('accept','application/json').set('x-csrf-token',csrf(security.text)).send({reason:'Pre-fulfilment cancellation'}).expect(200);
+      assert.equal(cancelled.body.order.cancellationState,'cancelled');assert.equal(cancelled.body.order.paymentState,'refunded');
+      const refund=await Refund.findOne({idempotencyKey:'cancel:'+owned.order.publicId});assert.ok(refund);assert.equal(refund.status,'completed');assert.equal(refund.settlementMode,'cancellation_remainder');assert.equal((await PaymentIntent.findById(owned.intent._id)).refundedMinor,10000);
+      const frozen=await Order.findById(owned.order._id);assert.ok(frozen.cancellation.requestedAt);assert.ok(frozen.cancellation.inventoryRestoredAt);
+      assert.equal((await Shipment.findById(shipment._id)).status,'cancelled');assert.equal((await StockItem.findById(stock._id)).onHand,10);assert.equal(await InventoryMovement.countDocuments({stockItemId:stock._id,type:'return'}),1);
       const wallet=await LedgerAccount.findOne({code:'customer_wallet',ownerId:customer.user._id,country:'UG',currency:'UGX'});assert.equal(await accountBalanceMinor(wallet._id,null,'liability'),10000);
+      const original=await LedgerTransaction.findOne({idempotencyKey:'payment:'+owned.intent.publicId}),reversal=await LedgerTransaction.findOne({idempotencyKey:'refund:'+refund.publicId});assert.ok(original);assert.ok(reversal);
+      const net=new Map();for(const ledger of [original,reversal])for(const entry of ledger.entries)net.set(String(entry.accountId),(net.get(String(entry.accountId))||0)+entry.debitMinor-entry.creditMinor);assert.ok([...net.values()].every(value=>value===0));
+      const replay=await createRefund(context(customer),{orderId:owned.order.publicId,reason:refund.reason,idempotencyKey:refund.idempotencyKey});assert.equal(replay.publicId,refund.publicId);assert.equal(await LedgerTransaction.countDocuments({idempotencyKey:'refund:'+refund.publicId}),1);
+      await Device.updateOne({_id:customer.device._id},{$set:{revokedAt:new Date()}});
+      try{await assert.rejects(createRefund(context(customer),{orderId:owned.order.publicId,reason:refund.reason,idempotencyKey:refund.idempotencyKey}),error=>error.code==='ACCOUNT_UNAVAILABLE');}finally{await Device.updateOne({_id:customer.device._id},{$unset:{revokedAt:1}});}
       const unfrozen=await fixture({provider:'wallet',owner:customer.user});await assert.rejects(createRefund(context(customer),{orderId:unfrozen.order.publicId,reason:'Invalid direct self refund',idempotencyKey:'cancel:'+unfrozen.order.publicId}),error=>error.code==='REFUND_CANCELLATION_REQUIRED');
     });
     await t.test('provider mismatches cannot alter captured funds and reversal evidence commits atomically',async()=>{
