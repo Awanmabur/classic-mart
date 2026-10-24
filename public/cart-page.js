@@ -7,7 +7,7 @@
   let displayLocale = 'en-UG';
 
   function money(value) {
-    return new Intl.NumberFormat(displayLocale, { style: 'currency', currency: displayCurrency, maximumFractionDigits: displayCurrency === 'UGX' ? 0 : 2 }).format(Number(value) || 0);
+    return new Intl.NumberFormat(displayLocale, { style: 'currency', currency: displayCurrency }).format(Number(value) || 0);
   }
 
   function escapeHtml(value) {
@@ -108,6 +108,8 @@
     $$('[data-total-subtotal]').forEach(element => { element.textContent = money(totals.subtotal); });
     $$('[data-total-shipping]').forEach(element => { element.textContent = totals.shipping ? money(totals.shipping) : 'Free'; });
     $$('[data-total-discount]').forEach(element => { element.textContent = `−${money(totals.discount)}`; });
+    $$('[data-total-tax]').forEach(element => { element.textContent = money(totals.tax); });
+    $$('.tax-summary-row').forEach(row => { row.hidden = !totals.tax; });
     $$('[data-total-final]').forEach(element => { element.textContent = money(totals.total); });
     $$('.discount-summary-row').forEach(row => { row.hidden = !totals.discount; });
   }
@@ -266,9 +268,11 @@
 
   function buildConfirmation() {
     const data = checkoutData();
+    const quotedHours = Number(checkoutReview?.delivery?.slaHours || 0);
+    const estimate = quotedHours > 0 ? ` · Estimated within ${quotedHours} hours` : '';
     const deliveryLabels = {
-      standard: 'Standard delivery · 3–5 business days',
-      express: 'Express delivery · 1–2 business days',
+      standard: 'Standard delivery' + estimate,
+      express: 'Express delivery' + estimate,
       pickup: 'Store pickup · Collection notice will be sent'
     };
     renderConfirmItems();

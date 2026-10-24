@@ -13,6 +13,7 @@ import { COUNTRY_ADMIN_LIVE_ROUTES } from './country-admin-routes.js';
 import { BUSINESS_LIVE_ROUTES } from './business-routes.js';
 import { DELIVERY_ROUTES } from './delivery-routes.js';
 import { SUPER_ADMIN_LIVE_ROUTES } from './super-admin-routes.js';
+import { customerAvatarUrl } from '../services/customer-avatars.js';
 
 /** Personal account data stays scoped to the signed-in user. The surrounding
  * navigation uses current store access, never an account label or saved preview
@@ -44,13 +45,15 @@ export async function accountWorkspaceView(request, section = 'profile') {
       id, label, icon, group, href: routeForPage(id), ready: connected.has(id),
     }));
     const home = navigation.find(item => item.ready);
+    const [unread, avatarUrl] = await Promise.all([customerUnread(request), customerAvatarUrl(request.user._id)]);
     return {
       workspace: primaryWorkspace, initialPage: `${primaryWorkspace}-account`,
       allowedWorkspaces: allowedWorkspacesFor(request.user), accountSupplement: section,
       accountNavigation: navigation, accountHome: home?.href || '/account/security',
-      customerRoutes: { notifications: '/notifications', profile: '/account/security',
+      avatarUrl, profileRoleLabel: config.label,
+      customerRoutes: { notifications: '/notifications', profile: '/account/profile',
         dashboard: home?.href || '/account/security', ...Object.fromEntries(navigation.filter(item => item.ready).map(item => [item.id, item.href])) },
-      liveHeader: { unread: await customerUnread(request), wishlistCount: 0, cartCount: 0, points: 0, balanceMinor: 0, tier: '' },
+      liveHeader: { unread, wishlistCount: 0, cartCount: 0, points: 0, balanceMinor: 0, tier: '' },
       liveAccountWorkspace: { profileRole: config.label, navigation, accountFlow: section,
         search: config.search, quickLabel: config.quickLabel, quickPage: config.quickPage },
     };
@@ -68,13 +71,14 @@ export async function accountWorkspaceView(request, section = 'profile') {
   const navigation = sellerNavigation({ ...request, storeMembership: { role: selected?.role || 'owner' } });
   const home = navigation.find(item => item.id === 'seller-overview' && item.ready) || navigation.find(item => item.ready);
   const settings = navigation.find(item => item.id === 'seller-store' && item.ready);
-  const unread = await customerUnread(request);
+  const [unread, avatarUrl] = await Promise.all([customerUnread(request), customerAvatarUrl(request.user._id)]);
   return {
     workspace: 'seller', initialPage: 'seller-account',
     allowedWorkspaces: [...new Set([...allowedWorkspacesFor(request.user), 'seller'])],
     accountSupplement: section, accountNavigation: navigation, accountHome: home?.href || '/account/security',
+    avatarUrl, profileRoleLabel: 'Seller',
     customerRoutes: { ...CUSTOMER_ROUTES, ...SELLER_LIVE_ROUTES,
-      dashboard: home?.href || '/account/security', profile: settings?.href || '/account/security' },
+      dashboard: home?.href || '/account/security', profile: settings?.href || '/account/profile' },
     liveHeader: { unread, wishlistCount: 0, cartCount: 0, points: 0, balanceMinor: 0, tier: '' },
     liveSeller: { profileRole: 'Seller', store: selected?.store || null, navigation, accountFlow: section },
   };

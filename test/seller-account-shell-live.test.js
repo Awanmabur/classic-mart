@@ -5,6 +5,7 @@ import http from 'node:http';
 import mongoose from 'mongoose';
 import request from 'supertest';
 import { chromium } from '@playwright/test';
+import sharp from 'sharp';
 
 process.env.NODE_ENV = 'test';
 process.env.SIMPLE_LOGIN = 'false';
@@ -33,7 +34,7 @@ test('seller personal account pages use the authorized store shell while custome
   const suffix = crypto.randomBytes(8).toString('hex');
   await mongoose.connect(uri, { dbName: `classicmart_seller_account_shell_test_${suffix}` });
   const { createApp } = await import('../src/app.js');
-  const { User, Store, StoreMember, Device, CountrySetting, PrivacyRequest, SellerContactRequest, Notification } = await import('../src/models/index.js');
+  const { User, Store, StoreMember, Device, CountrySetting, PrivacyRequest, SellerContactRequest, Notification, PlatformGrant } = await import('../src/models/index.js');
   const { hashPassword } = await import('../src/core/crypto.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { getOrCreateStore } = await import('../src/services/store.js');
@@ -46,7 +47,12 @@ test('seller personal account pages use the authorized store shell while custome
     const user = await User.create({ publicId: `usr_shell_${suffix}_${number}`, name: `Shell Actor ${number}`, email, emailNormalized: email,
       phone, phoneNormalized: phone, passwordHash, role, country: 'UG', currency: 'UGX', locale: 'en-UG', emailVerifiedAt: new Date(),
       onboardingCompletedAt: new Date(), roleProfile: { businessName: `Shell Store ${number}` },
-      consents: { terms: true, privacy: true, recordedAt: new Date() } });
+      consents: { terms: true, privacy: true, recordedAt: new Date() },
+      ...(role === 'super_admin' ? { platformAccessManagedAt: new Date(), operationalCountries: ['*'] } : {}) });
+    if (role === 'super_admin') await PlatformGrant.create({ publicId: `pgr_shell_${suffix}_${number}`, userId: user._id, role,
+      operationalCountries: ['*'], startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000),
+      reason: 'Independently approved account shell fixture.', approvalPublicId: `apr_shell_${suffix}_${number}`,
+      approvedByUserId: new mongoose.Types.ObjectId(), status: 'active' });
     const transport = new http.Agent({ localAddress: `127.0.0.${number + 2}`, keepAlive: false });
     transports.push(transport);
     const client = request.agent(app).use(req => req.agent(transport));
@@ -55,7 +61,7 @@ test('seller personal account pages use the authorized store shell while custome
     return { user, client };
   }
   try {
-    await Promise.all([User.init(), Store.init(), StoreMember.init(), Device.init(), CountrySetting.init()]);
+    await Promise.all([User.init(), Store.init(), StoreMember.init(), Device.init(), CountrySetting.init(), PlatformGrant.init()]);
     await CountrySetting.create({ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256', active: true });
     const seller = await actor('seller'), customer = await actor();
     let recoveryCodes;
@@ -109,6 +115,51 @@ test('seller personal account pages use the authorized store shell while custome
       assert.equal((await User.findById(seller.user._id)).role, 'seller');
     });
 
+    await t.test('personal profile and photo changes stay in the seller shell and never expose another account', async () => {
+      const before = await User.findById(seller.user._id).lean();
+      const peer = await User.findById(customer.user._id).lean();
+      const profile = await seller.client.get('/account/profile').expect(200);
+      assertSellerShell(profile);
+      assert.match(profile.text, /<h1>Profile Settings<\/h1>/);
+      assert.match(profile.text, /id="profilePhotoForm"/);
+      assert.match(profile.text, new RegExp(`name="name" value="${seller.user.name}"`));
+      assert.doesNotMatch(profile.text, new RegExp(customer.user.email));
+      const personalForm = profile.text.match(/<form[^>]*action="\/account\/profile"[\s\S]*?<\/form>/)?.[0];
+      assert.ok(personalForm, 'The approved personal profile has a working account form.');
+      assert.match(personalForm, /name="returnTo" value="\/account\/profile"/);
+      await seller.client.post('/account/profile').type('form').send({ _csrf: csrf(profile.text), returnTo: '/account/profile',
+        name: 'Updated Seller Identity', phone: before.phone, country: 'UG', currency: 'UGX', locale: 'en-UG' })
+        .expect(302).expect('location', '/account/profile');
+      const saved = await seller.client.get('/account/profile').expect(200);
+      assertSellerShell(saved);
+      assert.match(saved.text, /name="name" value="Updated Seller Identity"/);
+      assert.equal((await User.findById(seller.user._id)).role, 'seller');
+      assert.equal((await User.findById(customer.user._id)).name, peer.name);
+
+      const avatar = await sharp({ create: { width: 400, height: 400, channels: 3, background: '#ed6c16' } }).png().toBuffer();
+      await seller.client.post('/account/avatar').field('_csrf', csrf(saved.text)).field('returnTo', '/account/profile')
+        .attach('avatar', avatar, { filename: 'seller-avatar.png', contentType: 'image/png' })
+        .expect(302).expect('location', '/account/profile');
+      const withPhoto = await seller.client.get('/account/profile').expect(200);
+      assertSellerShell(withPhoto);
+      const photoUrl = withPhoto.text.match(/id="customerAvatarPreview" src="([^"]+)"/)?.[1];
+      assert.match(photoUrl, /^\/account\/avatar\?v=/);
+      assert.ok(withPhoto.text.includes(`<img src="${photoUrl}"`), 'The shell header uses the same owned personal photo.');
+      const security = await seller.client.get('/account/security').expect(200);
+      assert.ok(security.text.includes(`<img src="${photoUrl}"`));
+      const photo = await seller.client.get(photoUrl).expect(200).expect('content-type', /image\/webp/);
+      assert.match(photo.headers['cache-control'], /private, no-store/);
+      assert.equal((await sharp(photo.body).metadata()).width, 320);
+      await customer.client.get(photoUrl).expect(404);
+      await seller.client.post('/account/avatar/delete').type('form').send({ _csrf: csrf(withPhoto.text), returnTo: '/account/profile' })
+        .expect(302).expect('location', '/account/profile');
+      const withoutPhoto = await seller.client.get('/account/profile').expect(200);
+      assertSellerShell(withoutPhoto);
+      assert.match(withoutPhoto.text.match(/id="customerAvatarPreview" src="([^"]+)"/)?.[1],
+        /^\/approved-dashboard\/assets\/avatar\.svg(?:\?v=[a-f0-9]{16})?$/);
+      await seller.client.get(photoUrl).expect(404);
+    });
+
     await t.test('seller notification navigation and read actions retain the Seller shell and expose only its own account alerts', async () => {
       const own = await Notification.create({ publicId: `ntf_shell_${seller.user.publicId}`, userId: seller.user._id,
         country: 'UG', type: 'account', title: 'SELLER_PRIVATE_ACCOUNT_NOTICE', body: 'Seller account notice.' });
@@ -136,6 +187,13 @@ test('seller personal account pages use the authorized store shell while custome
         assert.doesNotMatch(sidebar(security.text), /Classic Club|My Orders|Wishlist|Rewards|Profile Settings/);
         assert.doesNotMatch(security.text, /aria-label="Wishlist"|aria-label="Cart"|Development preview|role-workspaces\.js/);
         assert.match(security.text, /action="\/account\/mfa\/begin"/);
+        const profile = await identity.client.get('/account/profile').expect(200);
+        assert.match(profile.text, new RegExp(`data-dashboard-workspace="${workspace}"`));
+        assert.match(profile.text, new RegExp(`<small>${label}<\/small>`));
+        assert.match(profile.text, /<h1>Profile Settings<\/h1>/);
+        assert.match(profile.text, new RegExp(`name="name" value="${identity.user.name}"`));
+        assert.doesNotMatch(sidebar(profile.text), /Classic Club|My Orders|Wishlist|Rewards|Profile Settings/);
+        assert.doesNotMatch(profile.text, /aria-label="Wishlist"|aria-label="Cart"/);
         assert.equal(await Store.countDocuments({ ownerUserId: identity.user._id }), 0);
       }
     });
@@ -154,20 +212,35 @@ test('seller personal account pages use the authorized store shell while custome
       assert.equal((await User.findById(seller.user._id)).role, 'seller');
     });
 
-    await t.test('active fulfilment membership keeps the correct MFA shell without promoting customer access and revocation takes effect immediately', async () => {
-      const staff = await actor(), access = await getOrCreateStore(seller.user);
+    await t.test('explicitly selected fulfilment membership keeps the correct MFA shell without promoting customer access and revocation takes effect immediately', async () => {
+      const currentSeller = await User.findById(seller.user._id).select('+security.tokenVersion');
+      const staff = await actor(), access = await getOrCreateStore(currentSeller);
       const membership = await StoreMember.create({ publicId: `stm_shell_${staff.user.publicId}`, storeId: access.store._id, userId: staff.user._id,
         role: 'fulfilment', status: 'active', invitedByUserId: seller.user._id, acceptedAt: new Date() });
-      await staff.client.get('/seller/orders').expect(302).expect('location', '/account/security?next=%2Fseller%2Forders');
+      // Acceptance alone does not switch a Customer into an operational shell.
+      // Complete personal MFA, then make the same explicit store selection the
+      // recipient makes from the accepted invitation's Open store action.
+      await staff.client.get('/seller/orders').expect(403);
+      const personalSecurity = await staff.client.get('/account/security').expect(200);
+      assert.match(personalSecurity.text, /data-dashboard-workspace="customer"/);
+      await staff.client.post('/account/mfa/begin').type('form').send({ currentPassword: password, _csrf: csrf(personalSecurity.text) }).expect(302);
+      const pending = await pendingMfaEnrollment(staff.user._id);
+      const enrollment = await staff.client.get('/account/security').expect(200);
+      await staff.client.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: csrf(enrollment.text) }).expect(302);
+      const enrolledSecurity = await staff.client.get('/account/security').expect(200);
+      await staff.client.post('/seller/workspace').type('form').send({ storePublicId: access.store.publicId, _csrf: csrf(enrolledSecurity.text) })
+        .expect(302).expect('location', '/seller/orders');
       const security = await staff.client.get('/account/security').expect(200);
       assertSellerShell(security);
-      assert.match(security.text, /Required for privileged operations/);
+      assert.match(security.text, /Enabled for this account/);
+      assert.doesNotMatch(security.text, /action="\/account\/mfa\/disable"/);
       assert.match(sidebar(security.text), /href="\/seller\/orders"/);
       assert.doesNotMatch(sidebar(security.text), /href="\/seller\/products"|href="\/seller\/store"/);
       assert.equal((await User.findById(staff.user._id)).role, 'customer');
-      membership.status = 'revoked';
-      membership.revokedAt = new Date();
-      await membership.save();
+      const currentMembership = await StoreMember.findById(membership._id);
+      currentMembership.status = 'revoked';
+      currentMembership.revokedAt = new Date();
+      await currentMembership.save();
       const revoked = await staff.client.get('/account/security').expect(200);
       assert.match(revoked.text, /data-dashboard-workspace="customer"/);
       await staff.client.get('/seller/orders').expect(403);
@@ -205,6 +278,17 @@ test('seller personal account pages use the authorized store shell while custome
           assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'seller');
           assert.equal(await page.getByRole('heading', { name: 'Password & security', exact: true }).count(), 1);
           assert.equal(await page.locator('#sidebar').getByText('Classic Club', { exact: true }).count(), 0);
+          await page.locator('#profileButton').click();
+          await page.locator('#profileMenu [data-page-target="seller-store"]:not([data-profile-tab])').click();
+          await page.waitForURL(base + '/seller/store');
+          assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'seller');
+          await page.locator('#profileButton').click();
+          await page.locator('#profileMenu [data-profile-tab="security"]').click();
+          await page.waitForURL(base + '/account/security');
+          await page.goto(base + '/account/profile');
+          assert.equal(await page.getByRole('heading', { name: 'Profile Settings', exact: true }).count(), 1);
+          assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'seller');
+          await page.goto(base + '/account/security');
           // The approved mobile header hides the bell; keep that design and
           // verify the same personal notifications route directly on mobile.
           if (width === 1366) await page.getByRole('button', { name: 'Notifications', exact: true }).click();

@@ -26,6 +26,7 @@ import approvedDashboardRoutes from './routes/approved-dashboard.js';
 import warehouseRoutes from './routes/warehouse.js';
 import businessPageRoutes from './routes/business-pages.js';
 import deliveryRoutes from './routes/delivery.js';
+import logisticsRoutes from './routes/logistics.js';
 import sellerTeamPageRoutes from './routes/seller-team-pages.js';
 import sellerAffiliatePageRoutes from './routes/seller-affiliate-pages.js';
 import sellerSubscriptionOperationRoutes from './routes/seller-subscription-operations.js';
@@ -118,7 +119,8 @@ export function createApp(redisClient) {
           ],
           styleSrc: ["'self'", "'unsafe-inline'"],
           fontSrc: ["'self'", 'data:'],
-          imgSrc: ["'self'", 'data:'],
+          // Local object URLs let members preview raster uploads before saving.
+          imgSrc: ["'self'", 'data:', 'blob:'],
           connectSrc: ["'self'"],
           upgradeInsecureRequests: env.isProduction ? [] : null,
         },
@@ -216,6 +218,7 @@ export function createApp(redisClient) {
   app.use(aftersalesPageRoutes);
   app.use(businessPageRoutes);
   app.use(deliveryRoutes);
+  app.use(logisticsRoutes);
   app.use(sellerTeamPageRoutes);
   app.use(sellerAffiliatePageRoutes);
   app.use(sellerSubscriptionOperationRoutes);

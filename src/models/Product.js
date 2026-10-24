@@ -126,5 +126,6 @@ productSchema.index({ status: 1, 'moderation.riskLevel': 1, 'moderation.submitte
 productSchema.index({ title: 'text', description: 'text', tags: 'text' });
 
 productSchema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
+productSchema.add({ checkoutReadRevision: { type: Number, min: 0, select: false } });
 
 export const Product = mongoose.model('Product', productSchema);

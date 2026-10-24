@@ -67,14 +67,17 @@ test('public account and seller links preserve the intended journey in the real 
     await Promise.all(Object.values(models).filter(model => typeof model?.init === 'function').map(model => model.init()));
     await CountrySetting.create({ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256', active: true });
 
-    await t.test('seller public Account entries and saved profile URLs open the seller workspace', async () => {
+    await t.test('seller public Account entries and saved profile URLs preserve the seller workspace', async () => {
       const user = await actor('seller'), client = agent();
       await login(client, user);
       const home = await client.get('/').expect(200);
       assert.match(home.text, /class="header-action header-action-link" href="\/account\/profile"/);
       assert.match(home.text, /<a href="\/account\/profile">My Account<\/a>/);
       await client.get('/dashboard').expect(302).expect('location', '/seller/overview');
-      await client.get('/account/profile').expect(302).expect('location', '/seller/overview');
+      const personalProfile = await client.get('/account/profile').expect(200);
+      assert.match(personalProfile.text, /data-dashboard-workspace="seller"/);
+      assert.match(personalProfile.text, /<h1>Profile Settings<\/h1>/);
+      assert.match(personalProfile.text, /name="name" value="Entry Account"/);
       await client.get('/profile').expect(302).expect('location', '/seller/overview');
       await client.get('/dashboard/profile').expect(308).expect('location', '/profile');
       const store = await client.get('/seller/store').expect(200);
@@ -232,7 +235,9 @@ test('public account and seller links preserve the intended journey in the real 
           assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'seller');
           await page.goto(base + '/');
           await page.locator('.header-action-link').click();
-          await page.waitForURL(base + '/seller/overview');
+          await page.waitForURL(base + '/account/profile');
+          assert.equal(await page.getByRole('heading', { name: 'Profile Settings', exact: true }).count(), 1);
+          assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'seller');
           assert.match(await page.locator('#profileButton small').textContent(), /Seller/);
           await page.goto(base + '/profile');
           await page.waitForURL(base + '/seller/overview');

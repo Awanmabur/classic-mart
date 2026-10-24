@@ -31,7 +31,7 @@ export async function rewardMarketActor(user,country,currency,session){
   if(!setting)throw new AppError('The reward market is unavailable.',409,'REWARD_MARKET_UNAVAILABLE');
   if(session?.inTransaction?.()){
     const userFence=await User.updateOne({_id:actor._id,status:'active','security.tokenVersion':actor.security.tokenVersion},{$inc:{rewardReadRevision:1}},{session});
-    const marketFence=await CountrySetting.updateOne({_id:setting._id,__v:setting.__v||0,active:true,currency},{$inc:{__v:1}},{session});
+    const marketFence=await CountrySetting.updateOne({_id:setting._id,__v:setting.__v||0,active:true,currency},{$inc:{checkoutReadRevision:1}},{session,timestamps:false});
     if(userFence.modifiedCount!==1||marketFence.modifiedCount!==1)throw new AppError('Account or reward policy changed. Refresh and retry.',409,'REWARD_SOURCE_CHANGED');
   }
   return setting;

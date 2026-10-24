@@ -67,7 +67,6 @@ export async function transitionSellerAffiliateCampaign(request, id, raw) {
       await assertSellerCapacity(context.store, 'campaigns', { session, excludeId: row._id });
       await validateProducts(context.store, row.productPublicIds, session);
       row.status = 'submitted'; row.submittedAt = new Date(); row.submittedByUserId = context.actor._id; row.reviewReason = ''; row.reviewedByUserId = undefined; row.reviewedAt = undefined;
-      await queueCountryAdminAlert({ country: row.country, kind: 'priority', sourceType: 'campaign', sourcePublicId: row.publicId }, session);
     } else if (input.action === 'resume') {
       if (row.status !== 'paused' || !row.pausedBySeller || !row.reviewedByUserId || !row.reviewedAt || row.endsAt && row.endsAt <= new Date()) throw new AppError('Only a Seller-paused, independently approved campaign can resume without a new review.', 409, 'CAMPAIGN_STATE');
       await assertSellerCapacity(context.store, 'campaigns', { session, excludeId: row._id });
@@ -79,7 +78,9 @@ export async function transitionSellerAffiliateCampaign(request, id, raw) {
       row.pausedBySeller = input.action === 'pause'; if (row.pausedBySeller) row.sellerPausedAt = new Date();
       if (input.action === 'end') await PromoterLink.updateMany({ campaignId: row._id, active: true }, { $set: { active: false }, $inc: { __v: 1 } }, { session });
     }
-    await row.save({ session }); await audit(request, `seller.affiliate_campaign_${input.action}`, context, row, session); return dto(row);
+    await row.save({ session });
+    if (input.action === 'submit') await queueCountryAdminAlert({ country: row.country, kind: 'priority', sourceType: 'campaign', sourcePublicId: row.publicId }, session);
+    await audit(request, `seller.affiliate_campaign_${input.action}`, context, row, session); return dto(row);
   });
   clearSponsoredOfferCache(request.store.country); return result;
 }

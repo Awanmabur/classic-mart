@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import http from 'node:http';
 import mongoose from 'mongoose';
 import request from 'supertest';
 import { chromium } from '@playwright/test';
@@ -19,13 +20,14 @@ test('seller store settings persist through authenticated forms, reject stale ed
   const isolatedDatabase = `classicmart_seller_store_test_${suffix}`;
   await mongoose.connect(uri, { dbName: isolatedDatabase });
   const { createApp } = await import('../src/app.js');
-  const { User, Store, StoreMember, AuditLog } = await import('../src/models/index.js');
-  const { hashPassword } = await import('../src/core/crypto.js');
+  const { User, Store, StoreMember, AuditLog, CountrySetting, Device } = await import('../src/models/index.js');
+  const { hashPassword, hashToken } = await import('../src/core/crypto.js');
   const { pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { saveSellerStoreSettings } = await import('../src/services/seller-store-settings.js');
-  const { getOrCreateStore } = await import('../src/services/store.js');
+  const { getOrCreateStore, sellerStoreAccesses } = await import('../src/services/store.js');
   const password = `Store-${suffix}A1!`;
   const users = [];
+  const transports = [];
   let server, browser;
   const app = createApp(null);
   async function actor(role = 'seller', onboarded = true) {
@@ -35,7 +37,9 @@ test('seller store settings persist through authenticated forms, reject stale ed
     const user = await User.create({ publicId: `usr_store_${suffix}_${index}`, name: `Store Member ${index}`, email, emailNormalized: email, phone, phoneNormalized: phone,
       passwordHash: await hashPassword(password), role, emailVerifiedAt: new Date(), onboardingCompletedAt: onboarded ? new Date() : undefined, country: 'UG', currency: 'UGX', consents: { terms: true, privacy: true, recordedAt: new Date() } });
     users.push(user);
-    const agent = request.agent(app);
+    const transport = new http.Agent({ localAddress: `127.0.0.${index + 50}`, keepAlive: false });
+    transports.push(transport);
+    const agent = request.agent(app).use(req => req.agent(transport));
     const form = await agent.get('/login').expect(200);
     await agent.post('/login').type('form').send({ email, password, _csrf: csrf(form.text) }).expect(302);
     return { user, agent };
@@ -51,12 +55,20 @@ test('seller store settings persist through authenticated forms, reject stale ed
     // carry the same refreshed identity as the authenticated browser session.
     Object.assign(user, await User.findById(user._id));
   }
+  async function serviceRequest(user, store, body) {
+    const sessionID = crypto.randomUUID();
+    const device = await Device.create({ publicId: `dev_store_${suffix}_${crypto.randomBytes(5).toString('hex')}`, userId: user._id,
+      sessionHash: hashToken(sessionID), label: 'Current store settings fixture', userAgent: 'Seller store fixture', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    return { user, store, body, device, sessionID, session: { userId: String(user._id), tokenVersion: user.security.tokenVersion,
+      activeStorePublicId: store.publicId, mfaVerifiedAt: Date.now() }, country: { code: 'UG', currency: 'UGX' }, ip: '127.0.0.1', get: () => '' };
+  }
   try {
     // Importing the application registers all models and automatically starts
     // their collection/index initialization. Wait for that work before this
     // isolated fixture can later drop its database; dropping during a queued
     // index build can crash MongoDB itself rather than report a test failure.
     await Promise.all(Object.values(mongoose.models).map(model => model.init()));
+    await CountrySetting.create({ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256', returnWindowDays: 14, platformFeeBps: 700, taxBps: 1800 });
     await request(app).get('/seller/store').expect(302).expect('location', '/login?next=%2Fseller%2Fstore');
     const customer = await actor('customer');
     const customerProfile = await customer.agent.get('/profile').expect(200);
@@ -77,6 +89,25 @@ test('seller store settings persist through authenticated forms, reject stale ed
     let page = await owner.agent.get('/seller/store').expect(200);
     const store = await Store.findOne({ ownerUserId: owner.user._id });
     assert.equal(store.status, 'pending_verification');
+    const ownerMembership = await StoreMember.findOne({ storeId: store._id, userId: owner.user._id }).lean();
+    assert.ok(ownerMembership);
+    await getOrCreateStore(owner.user);
+    assert.deepEqual(await StoreMember.findById(ownerMembership._id).lean(), ownerMembership, 'ordinary reads preserve owner membership versions and timestamps');
+    for (const override of [{ status: 'revoked' }, { status: 'invited' }, { role: 'admin' }]) {
+      await StoreMember.updateOne({ _id: ownerMembership._id }, { $set: { status: 'active', role: 'owner', ...override } });
+      const deniedMembership = await StoreMember.findById(ownerMembership._id).lean();
+      assert.equal((await sellerStoreAccesses(owner.user)).some(row => row.store.publicId === store.publicId), false);
+      await assert.rejects(getOrCreateStore(owner.user), error => error.status === 403 && error.code === 'SELLER_WORKSPACE_FORBIDDEN');
+      const denied = await owner.agent.get('/seller/store').set('accept', 'application/json').expect(403);
+      assert.equal(denied.body.error.code, 'SELLER_WORKSPACE_FORBIDDEN');
+      assert.deepEqual(await StoreMember.findById(ownerMembership._id).lean(), deniedMembership, 'a request cannot reactivate or upgrade the existing owner row');
+      assert.equal(await Store.countDocuments({ ownerUserId: owner.user._id }), 1);
+    }
+    await StoreMember.updateOne({ _id: ownerMembership._id }, { $set: { status: 'active', role: 'owner' }, $unset: { acceptedAt: 1 } });
+    const legacyMembership = await StoreMember.findById(ownerMembership._id).lean();
+    assert.equal((await getOrCreateStore(owner.user)).membership.role, 'owner');
+    assert.deepEqual(await StoreMember.findById(ownerMembership._id).lean(), legacyMembership, 'a valid legacy owner row remains usable without a read rewriting it');
+    await StoreMember.updateOne({ _id: ownerMembership._id }, { $set: { acceptedAt: ownerMembership.acceptedAt } });
     assert.match(page.text, /Uganda \(\+256\)/);
     assert.match(page.text, /seller-store-live\.js/);
     assert.doesNotMatch(page.text, /Development preview|Stanbic|9421|hello@classicmart.example|\/approved-dashboard\/role-workspaces\.js/);
@@ -114,21 +145,25 @@ test('seller store settings persist through authenticated forms, reject stale ed
     assert.doesNotMatch(otherPage.text, new RegExp(identity.name));
     await other.agent.post('/seller/store/identity').type('form').send({ ...identity, _csrf: csrf(otherPage.text), storeId: String(store._id) }).expect(302);
     assert.equal((await Store.findById(store._id)).__v, saved.__v);
-    const staff = await actor(); await enroll(staff.agent, staff.user);
-    const member = await StoreMember.create({ publicId: `stm_store_${suffix}`, storeId: store._id, userId: staff.user._id, invitedByUserId: owner.user._id, role: 'catalogue', status: 'active' });
-    await staff.agent.get('/seller/store').expect(403);
+    const staff = await actor('customer'); await enroll(staff.agent, staff.user);
+    const member = await StoreMember.create({ publicId: `stm_store_${suffix}`, storeId: store._id, userId: staff.user._id, invitedByUserId: owner.user._id, role: 'catalogue', status: 'active', acceptedAt: new Date() });
     const staffSecurity = await staff.agent.get('/account/security').expect(200);
+    await staff.agent.post('/seller/workspace').set('accept', 'application/json').type('form').send({ storePublicId: store.publicId, _csrf: csrf(staffSecurity.text) }).expect(200);
+    await staff.agent.get('/seller/store').expect(403);
     const staffWrite = await staff.agent.post('/seller/store/identity').set('accept', 'application/json').type('form').send({ ...identity, _csrf: csrf(staffSecurity.text) }).expect(403);
     assert.equal(staffWrite.body.error.code, 'STORE_PERMISSION_DENIED');
     await StoreMember.updateOne({ _id: member._id }, { $set: { status: 'revoked' } });
-    await assert.rejects(saveSellerStoreSettings({ user: staff.user, store, body: { ...identity, version: saved.__v } }, 'identity'), { code: 'STORE_PERMISSION_DENIED' });
+    saved = await Store.findById(store._id);
+    await assert.rejects(saveSellerStoreSettings(await serviceRequest(staff.user, store, { ...identity, version: saved.__v }), 'identity'), { code: 'STORE_PERMISSION_DENIED' });
     const previousName = saved.name;
     t.mock.method(AuditLog, 'create', async () => { throw new Error('Audit unavailable'); });
-    await assert.rejects(saveSellerStoreSettings({ user: owner.user, store, body: { ...identity, name: 'Must roll back', version: saved.__v }, get: () => '' }, 'identity'), /Audit unavailable/);
+    await assert.rejects(saveSellerStoreSettings(await serviceRequest(owner.user, store, { ...identity, name: 'Must roll back', version: saved.__v }), 'identity'), /Audit unavailable/);
     t.mock.restoreAll();
     assert.equal((await Store.findById(store._id)).name, previousName);
     await Store.updateOne({ _id: store._id }, { $set: { status: 'suspended' } });
-    const suspendedPage = await owner.agent.get('/seller/store').expect(200);
+    const suspendedPage = await owner.agent.get('/seller/store');
+    assert.equal(suspendedPage.status, 200, `Suspended settings read: ${JSON.stringify(suspendedPage.body?.error || suspendedPage.text.slice(0, 400))}`);
+    await owner.agent.get('/seller/store/').expect(200);
     await owner.agent.post('/seller/store/identity').type('form').send({ ...identity, version: saved.__v, _csrf: csrf(suspendedPage.text) }).expect(409);
     assert.match((await owner.agent.get('/seller/store')).text, /Settings cannot be changed/);
     await Store.updateOne({ _id: store._id }, { $set: { status: 'pending_verification' } });
@@ -178,6 +213,7 @@ test('seller store settings persist through authenticated forms, reject stale ed
     }
   } finally {
     t.mock.restoreAll();
+    for (const transport of transports) transport.destroy();
     await Promise.allSettled([
       browser?.close(),
       server && new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }),

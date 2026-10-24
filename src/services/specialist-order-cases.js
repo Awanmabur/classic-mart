@@ -297,7 +297,7 @@ async function notifyRecipients(row, session) {
     country: row.country, type: 'specialist_order_case', title: 'Order case awaiting your review',
     body: 'A saved Support request is available within your authorized workspace.',
     href: SPECIALIST_CASE_ROUTES[row.receivingWorkspace] + '?' + new URLSearchParams({ record: row.publicId,
-      ...(row.receivingWorkspace === 'seller' ? {} : { country: row.country }) }) })), { session });
+      ...(row.receivingWorkspace === 'seller' ? {} : { country: row.country }) }) })), { session, ordered: true });
 }
 
 /** Support alone sees private assessments; the buyer projection omits these. */
@@ -314,10 +314,14 @@ export async function supportSpecialistHistory(dispute) {
 }
 
 export async function supportSpecialistEvidence(request, evidenceId, { session = null, write = false, expectedStorageKey } = {}) {
-  const scoped = localRequest(request, 'support'), context = await supportAccess(scoped, { session, country: '' });
   const evidence = await EvidenceDocument.findOne({ publicId: id.parse(evidenceId), contextType: 'specialist_referral',
     documentType: 'specialist_response', status: 'ready' }).select('+storageKey').session(session);
   if (!evidence) throw new AppError('Evidence not found.', 404, 'EVIDENCE_NOT_FOUND');
+  const scoped = localRequest(request, 'support');
+  // A record's actual market must also be used by the second authorization read.
+  // Page preferences and query filters do not change which grant this evidence requires.
+  Object.defineProperty(scoped, 'query', { value: { ...request.query, country: evidence.country } });
+  const context = await supportAccess(scoped, { session });
   const row = await SpecialistReferral.findOne(and(context.countryScope, { publicId: evidence.contextPublicId,
     country: evidence.country, evidenceDocumentIds: evidence._id })).session(session);
   if (!row) throw new AppError('Evidence not found.', 404, 'EVIDENCE_NOT_FOUND');

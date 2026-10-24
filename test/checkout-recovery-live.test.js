@@ -21,13 +21,15 @@ test('HTTP checkout preserves reviewed identity, real reward funding and recover
   const models = await import('../src/models/index.js');
   const { User, Device, CountrySetting, Category, Store, Warehouse, Product, ProductVariant, StockItem,
     CustomerAddress, CustomerReward, Cart, Order, SellerOrder, InventoryReservation, PaymentIntent, LedgerAccount,
-    LedgerTransaction, FinancialDocument, Shipment, LoyaltyEntry, ShippingZone, Refund, PlatformGrant } = models;
+    LedgerTransaction, FinancialDocument, Shipment, LoyaltyEntry, ShippingZone, Refund, PlatformGrant,
+    Brand, PickupPoint, SellerPromotion } = models;
   const { createApp } = await import('../src/app.js');
   const { addLoyaltyPoints } = await import('../src/services/loyalty.js');
   const { redeemCustomerReward } = await import('../src/services/customer-rewards.js');
   const { ensureLedgerAccount, postLedgerTransaction, accountBalanceMinor } = await import('../src/services/money.js');
   const { createRefund } = await import('../src/services/payments.js');
   const { hashToken } = await import('../src/core/crypto.js');
+  const { cancelOrder } = await import('../src/services/checkout.js');
   const app = createApp(null), browser = request.agent(app);
   let sequence = 0, csrf, buyer, password, product, first, second, stock, owner, issued, wallet, financeRequest, buyerRequest;
   const id = prefix => `${prefix}_${suffix}_${++sequence}`;
@@ -64,11 +66,41 @@ test('HTTP checkout preserves reviewed identity, real reward funding and recover
     assert.equal(await InventoryReservation.countDocuments({ status: 'active' }), 0);
     assert.equal((await StockItem.findById(stock._id)).reserved, 0);
   }
+  // Apply a genuine database write after the transaction has read its snapshot
+  // but before it writes this source. Do not change __v or updatedAt: checkout
+  // must conflict with the actual source edit rather than a cooperative writer.
+  function editBeforeSourceFence(Model, row, update) {
+    const original = Model.updateOne;
+    let edited = false;
+    const interceptor = t.mock.method(Model, 'updateOne', function(filter, change, options) {
+      if (!edited && change?.$inc?.checkoutReadRevision === 1 && String(filter._id) === String(row._id)) {
+        edited = true;
+        return Model.collection.updateOne({ _id: row._id }, update)
+          .then(() => original.call(this, filter, change, options));
+      }
+      return original.call(this, filter, change, options);
+    });
+    return { restore: () => interceptor.mock.restore(), edited: () => edited };
+  }
+  function afterOrderRead(orderPublicId, change, transactional = false) {
+    const original = mongoose.Query.prototype.exec;
+    let edited = false;
+    const interceptor = t.mock.method(mongoose.Query.prototype, 'exec', async function(...args) {
+      const row = await original.apply(this, args);
+      if (!edited && this.model === Order && this.op === 'findOne'
+        && this.getQuery().publicId === orderPublicId && Boolean(this.getOptions().session) === transactional) {
+        edited = true;
+        await change();
+      }
+      return row;
+    });
+    return { restore: () => interceptor.mock.restore(), edited: () => edited };
+  }
   async function serviceRequest(user, requiredOperationalWorkspace) {
     const sessionID = id('session'), device = await Device.create({ publicId: id('dev'), userId: user._id,
       sessionHash: hashToken(sessionID), label: 'Actual checkout test session', ipHash: hashToken('127.0.0.1'),
       userAgent: 'Checkout recovery regression', lastSeenAt: new Date() });
-    return { user, device, sessionID, session: { userId: String(user._id), tokenVersion: user.security.tokenVersion },
+    return { id: id('request'), user, device, sessionID, session: { userId: String(user._id), tokenVersion: user.security.tokenVersion },
       country: { code: 'UG', name: 'Uganda', currency: 'UGX' }, ip: '127.0.0.1', query: {}, get: () => '',
       ...(requiredOperationalWorkspace ? { requiredOperationalWorkspace } : {}) };
   }
@@ -80,24 +112,27 @@ test('HTTP checkout preserves reviewed identity, real reward funding and recover
   };
   async function fundedPaidOrder() {
     await cartWith();
-    const body = await reviewed({ paymentMethod: 'wallet', rewardPublicId: issued.publicId });
+    const details = input({ paymentMethod: 'wallet', rewardPublicId: issued.publicId });
+    const review = (await post('/api/v1/checkout/review', details).expect(200)).body;
+    const body = { ...details, checkoutId: review.checkoutId, idempotencyKey: id('order-key') };
     const placed = (await post('/api/v1/orders', body).expect(201)).body.order;
     const payment = (await post(`/api/v1/orders/${placed.id}/payment-intents`, { idempotencyKey: id('wallet-payment') }).expect(201)).body.payment;
     const order = await Order.findOne({ publicId: placed.id }).lean(), sellerOrder = await SellerOrder.findOne({ orderId: order._id }).lean();
-    return { order, sellerOrder, payment, original: await LedgerTransaction.findOne({ idempotencyKey: `payment:${payment.id}` }).lean() };
+    return { order, sellerOrder, payment, review, original: await LedgerTransaction.findOne({ idempotencyKey: `payment:${payment.id}` }).lean() };
   }
   const partialRefund = f => createRefund(financeRequest, { orderId: f.order.publicId, amountMinor: 1001,
     reason: 'Independently reviewed pre-fulfilment line refund', idempotencyKey: id('partial-refund'),
     allocations: [{ storePublicId: f.sellerOrder.storePublicId, orderLineId: f.sellerOrder.items[0].orderLineId, grossMinor: 1001 }] });
   try {
     for (const Model of Object.values(models)) if (Model.init) await Model.init();
-    await CountrySetting.create({ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG',
+    const setting = await CountrySetting.create({ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG',
       timeZone: 'Africa/Kampala', phonePrefix: '+256', taxBps: 0, platformFeeBps: 500,
       growth: { loyaltyEnabled: true, referralEnabled: false, loyaltyPointsPer1000Minor: 10,
         rewardCatalogue: [{ key: 'goods', label: 'Reviewed goods voucher', kind: 'voucher', pointsCost: 100, valueMinor: 1999, validDays: 30 }],
         clubBenefits: [{ tier: 'silver', multiplierBps: 20000, standardShippingDiscountBps: 5000 }] } });
-    await ShippingZone.create({ publicId: id('zone'), country: 'UG', name: 'Recovery Kampala', cities: ['Kampala'],
+    const zone = await ShippingZone.create({ publicId: id('zone'), country: 'UG', name: 'Recovery Kampala', cities: ['Kampala'],
       standardFeeMinor: 2000, expressFeeMinor: 4000, currency: 'UGX' });
+    const pickup = await PickupPoint.create({ publicId: id('pickup'), country: 'UG', name: 'Recovery collection', city: 'Kampala', address: 'Recovery pickup road' });
     owner = await seedActor('seller');
     const reviewerA = await seedActor('moderator'), reviewerB = await seedActor('moderator');
     const store = await Store.create({ publicId: id('sto'), ownerUserId: owner._id, name: 'Recovery supplier',
@@ -106,7 +141,8 @@ test('HTTP checkout preserves reviewed identity, real reward funding and recover
       name: 'Recovery warehouse', country: 'UG', city: 'Kampala', address: 'Warehouse Recovery Road', active: true });
     const category = await Category.create({ publicId: id('cat'), name: 'Reviewed recovery goods', slug: id('category'),
       countries: ['UG'], active: true, restricted: true });
-    product = await Product.create({ publicId: id('prd'), storeId: store._id, ownerUserId: owner._id, categoryId: category._id,
+    const brand = await Brand.create({ publicId: id('brand'), name: 'Reviewed recovery brand', slug: id('brand'), status: 'approved' });
+    product = await Product.create({ publicId: id('prd'), storeId: store._id, ownerUserId: owner._id, categoryId: category._id, brandId: brand._id,
       title: 'Reviewed checkout goods', slug: id('goods'), description: 'Isolated checkout regression product',
       countries: ['UG'], status: 'published', publishedAt: new Date(), moderation: { riskLevel: 'high', secondReviewRequired: false,
         firstApprovalByUserId: reviewerA._id, firstApprovalAt: new Date(), reviewedByUserId: reviewerB._id, reviewedAt: new Date() } });
@@ -164,6 +200,82 @@ test('HTTP checkout preserves reviewed identity, real reward funding and recover
       await ProductVariant.updateOne({ _id: first._id }, { $inc: { priceMinor: 1, __v: 1 } });
       assert.equal((await post('/api/v1/orders', body).expect(409)).body.error.code, 'CHECKOUT_CART_CHANGED');
       await ProductVariant.updateOne({ _id: first._id }, { $set: { priceMinor: 5000 }, $inc: { __v: 1 } });
+      await assertNoReservation();
+    });
+    await t.test('source edits after the checkout snapshot force retry and reject stale reviewed sources', async sourceTest => {
+      const cases = [
+        { Model: ProductVariant, row: first, field: 'priceMinor', changed: 5001, restored: 5000, code: 'CHECKOUT_CART_CHANGED' },
+        { Model: Product, row: product, field: 'status', changed: 'suspended', restored: 'published', code: 'CART_CHANGED' },
+        { Model: Product, row: product, field: 'moderation.secondReviewRequired', changed: true, restored: false, code: 'CART_CHANGED' },
+        { Model: Store, row: store, field: 'status', changed: 'suspended', restored: 'verified', code: 'CART_CHANGED' },
+        { Model: Category, row: category, field: 'active', changed: false, restored: true, code: 'CART_CHANGED' },
+        { Model: Brand, row: brand, field: 'status', changed: 'rejected', restored: 'approved', code: 'CART_CHANGED' },
+        { Model: Warehouse, row: warehouse, field: 'active', changed: false, restored: true, code: 'INSUFFICIENT_STOCK' },
+        { Model: ShippingZone, row: zone, field: 'active', changed: false, restored: true, code: 'DELIVERY_AREA_UNAVAILABLE' },
+        { Model: ShippingZone, row: zone, field: 'standardFeeMinor', changed: 2001, restored: 2000, code: 'CHECKOUT_TOTAL_CHANGED' },
+        { Model: PickupPoint, row: pickup, field: 'active', changed: false, restored: true, code: 'PICKUP_POINT_UNAVAILABLE',
+          input: { deliveryMethod: 'pickup', pickupPointId: pickup.publicId } },
+        { Model: CountrySetting, row: setting, field: 'taxBps', changed: 100, restored: 0, code: 'CHECKOUT_TOTAL_CHANGED' },
+      ];
+      for (const scenario of cases) await sourceTest.test(`${scenario.Model.modelName}.${scenario.field}`, async () => {
+        await cartWith(); const body = await reviewed(scenario.input);
+        const hook = editBeforeSourceFence(scenario.Model, scenario.row, { $set: { [scenario.field]: scenario.changed } });
+        try {
+          const response = await post('/api/v1/orders', body).expect(409);
+          assert.equal(response.body.error.code, scenario.code);
+          assert.equal(hook.edited(), true, 'the edit must land between the snapshot read and its write fence');
+          assert.equal(await Order.countDocuments({ idempotencyKey: body.idempotencyKey }), 0);
+          assert.equal((await Cart.findOne({ userId: buyer._id })).items.length, 1);
+          await assertNoReservation();
+        } finally {
+          hook.restore();
+          await scenario.Model.collection.updateOne({ _id: scenario.row._id }, { $set: { [scenario.field]: scenario.restored } });
+        }
+      });
+    });
+    await t.test('checkout source fences stay private and preserve catalogue UI versions', async () => {
+      const sources = [[Product, product], [ProductVariant, first], [Store, store], [Category, category],
+        [Brand, brand], [Warehouse, warehouse], [ShippingZone, zone], [CountrySetting, setting]];
+      const before = [];
+      for (const [Model, row] of sources) before.push(await Model.findById(row._id).lean());
+      await cartWith(); const body = await reviewed();
+      const placed = (await post('/api/v1/orders', body).expect(201)).body.order;
+      for (let index = 0; index < sources.length; index++) {
+        const [Model, row] = sources[index], current = await Model.findById(row._id).lean();
+        assert.equal(current.checkoutReadRevision, undefined);
+        assert.equal(current.__v, before[index].__v);
+        assert.equal(current.updatedAt.getTime(), before[index].updatedAt.getTime());
+        assert.ok((await Model.findById(row._id).select('+checkoutReadRevision').lean()).checkoutReadRevision > 0);
+      }
+      await post(`/api/v1/orders/${placed.id}/cancel`, { reason: 'Release catalogue version fixture' }).expect(200);
+      await assertNoReservation();
+    });
+    await t.test('cancellation rechecks a revoked customer device after its initial order read', async () => {
+      await cartWith(); const placed = (await post('/api/v1/orders', await reviewed()).expect(201)).body.order;
+      const hook = afterOrderRead(placed.id, () => Device.updateOne({ _id: buyerRequest.device._id }, { $set: { revokedAt: new Date() } }));
+      try {
+        await assert.rejects(cancelOrder(buyerRequest, placed.id), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        assert.equal(hook.edited(), true);
+        assert.equal((await Order.findOne({ publicId: placed.id })).cancellationState, 'none');
+        assert.equal((await StockItem.findById(stock._id)).reserved, 2);
+      } finally {
+        hook.restore();
+        await Device.updateOne({ _id: buyerRequest.device._id }, { $set: { revokedAt: null } });
+      }
+      await post(`/api/v1/orders/${placed.id}/cancel`, { reason: 'Release revoked device fixture' }).expect(200);
+      await assertNoReservation();
+    });
+    await t.test('cancellation does not reuse a tracked-order grant removed after its initial read', async () => {
+      await cartWith(); const placed = (await post('/api/v1/orders', await reviewed()).expect(201)).body.order;
+      const tracked = { session: { orderGrants: { [placed.id]: { level: 'mutate', expiresAt: Date.now() + 60_000 } } }, country: buyerRequest.country };
+      const hook = afterOrderRead(placed.id, async () => { delete tracked.session.orderGrants[placed.id]; });
+      try {
+        await assert.rejects(cancelOrder(tracked, placed.id), error => error.code === 'ORDER_NOT_FOUND');
+        assert.equal(hook.edited(), true);
+        assert.equal((await Order.findOne({ publicId: placed.id })).cancellationState, 'none');
+        assert.equal((await StockItem.findById(stock._id)).reserved, 2);
+      } finally { hook.restore(); }
+      await post(`/api/v1/orders/${placed.id}/cancel`, { reason: 'Release removed grant fixture' }).expect(200);
       await assertNoReservation();
     });
     await t.test('wallet payment funds seller proceeds from actual customer cash plus platform expense and cancels exactly once', async () => {
@@ -224,10 +336,44 @@ test('HTTP checkout preserves reviewed identity, real reward funding and recover
       assert.equal((await StockItem.findById(stock._id)).onHand, 50);
       assert.equal((await PaymentIntent.findOne({ publicId: payment.id })).status, 'cancelled');
     });
+    await t.test('funded review preserves tax after seller promotions and charges only the remaining customer cash', async () => {
+      await CountrySetting.updateOne({ code: 'UG' }, { $set: { taxBps: 1500 }, $inc: { __v: 1 } });
+      const promotion = await SellerPromotion.create({ publicId: id('spr'), storeId: store._id, storePublicId: store.publicId,
+        country: 'UG', currency: 'UGX', type: 'quantity_break', name: 'Seller-funded quantity promotion',
+        minQuantity: 2, fixedDiscountMinor: 1000, status: 'active', startsAt: new Date(Date.now() - 60_000), createdByUserId: owner._id });
+      try {
+        const opening = await accountBalanceMinor(wallet._id), f = await fundedPaidOrder();
+        assert.equal(f.review.delivery.taxMinor, 1650);
+        assert.equal(f.review.totals.taxMinor, 1650, 'tax uses 9000 seller-net goods plus 2000 gross delivery');
+        assert.equal(f.order.totals.taxMinor, 1650);
+        assert.equal(f.order.totals.totalMinor, 9651);
+        assert.equal(f.order.totals.discountMinor, 2999);
+        const line = f.sellerOrder.items[0];
+        assert.equal(line.customerPaidMinor, 7001);
+        assert.equal(line.platformContributionMinor, 1999);
+        assert.equal(line.sellerReceivableMinor + line.platformFeeMinor, 9000);
+        const debit = f.original.entries.reduce((sum, entry) => sum + entry.debitMinor, 0);
+        const credit = f.original.entries.reduce((sum, entry) => sum + entry.creditMinor, 0);
+        assert.equal(debit, f.order.totals.totalMinor + 2999);
+        assert.equal(credit, 9000 + 2000 + 1650);
+        assert.equal(debit, credit);
+        assert.equal(await accountBalanceMinor(wallet._id), opening - 9651);
+        await post(`/api/v1/orders/${f.order.publicId}/cancel`, { reason: 'Release seller and platform funding tax fixture' }).expect(200);
+        assert.equal(await accountBalanceMinor(wallet._id), opening);
+        assert.equal((await CustomerReward.findById(issued._id)).status, 'issued');
+      } finally { await SellerPromotion.updateOne({ _id: promotion._id }, { $set: { status: 'paused' } }); }
+    });
     await t.test('partial refund followed by cancellation reverses exactly the remaining original tax, shipping, fee, seller and subsidy', async () => {
       await CountrySetting.updateOne({ code: 'UG' }, { $set: { taxBps: 1500 }, $inc: { __v: 1 } });
       const opening = await accountBalanceMinor(wallet._id), f = await fundedPaidOrder();
-      assert.ok(f.order.totals.taxMinor > 0);
+      assert.equal(f.review.totals.taxMinor, 1800);
+      assert.equal(f.order.totals.taxMinor, 1800, 'platform goods and shipping funding preserve the 12000 taxable base');
+      assert.equal(f.order.totals.totalMinor, 10801);
+      const originalDebits = f.original.entries.reduce((sum, entry) => sum + entry.debitMinor, 0);
+      const originalCredits = f.original.entries.reduce((sum, entry) => sum + entry.creditMinor, 0);
+      assert.equal(originalDebits, f.order.totals.totalMinor + 2999);
+      assert.equal(originalCredits, 10000 + 2000 + 1800, 'cash plus platform expense funds goods, gross shipping and original tax');
+      assert.equal(originalDebits, originalCredits);
       const partial = await partialRefund(f);
       assert.equal(partial.status, 'completed');
       await assert.rejects(createRefund(financeRequest, { orderId: f.order.publicId, amountMinor: 1,
@@ -253,6 +399,33 @@ test('HTTP checkout preserves reviewed identity, real reward funding and recover
       assert.equal(replay.publicId, remaining.publicId);
       assert.equal(await LedgerTransaction.countDocuments({ idempotencyKey: `refund:${remaining.publicId}` }), 1);
       assert.equal(await accountBalanceMinor(wallet._id), opening);
+    });
+    await t.test('a real refund reserved after the cancellation transaction snapshot forces a fresh-state retry', async () => {
+      const opening = await accountBalanceMinor(wallet._id), f = await fundedPaidOrder();
+      const refundInput = { orderId: f.order.publicId, amountMinor: 1001, reason: 'Independent refund reserved before customer cancellation',
+        idempotencyKey: id('concurrent-partial'), allocations: [{ storePublicId: f.sellerOrder.storePublicId,
+          orderLineId: f.sellerOrder.items[0].orderLineId, grossMinor: 1001 }] };
+      const hook = afterOrderRead(f.order.publicId, async () => {
+        const failure = t.mock.method(FinancialDocument, 'create', async () => { throw new Error('Concurrent refund document temporarily unavailable'); });
+        try { await assert.rejects(createRefund(financeRequest, refundInput), /temporarily unavailable/); }
+        finally { failure.mock.restore(); }
+      }, true);
+      try {
+        await assert.rejects(cancelOrder(buyerRequest, f.order.publicId), error => error.code === 'ORDER_CANCELLATION_STATE');
+        assert.equal(hook.edited(), true);
+        const held = await Order.findById(f.order._id).lean();
+        assert.equal(held.refundState, 'processing');
+        assert.equal(held.cancellationState, 'none');
+        assert.equal(held.fulfillmentState, 'unfulfilled');
+        assert.equal((await StockItem.findById(stock._id)).onHand, 48);
+        assert.notEqual((await Shipment.findOne({ orderId: f.order._id })).status, 'cancelled');
+        assert.equal((await Refund.findOne({ idempotencyKey: refundInput.idempotencyKey })).status, 'processing');
+      } finally { hook.restore(); }
+      await createRefund(financeRequest, refundInput);
+      await post(`/api/v1/orders/${f.order.publicId}/cancel`, { reason: 'Release concurrent partial refund fixture' }).expect(200);
+      assert.equal(await accountBalanceMinor(wallet._id), opening);
+      assert.equal((await CustomerReward.findById(issued._id)).status, 'issued');
+      assert.equal((await StockItem.findById(stock._id)).onHand, 50);
     });
     await t.test('a crashed remaining-refund attempt retains its hold and rejects altered source lineage before a safe retry', async () => {
       const opening = await accountBalanceMinor(wallet._id), f = await fundedPaidOrder(), partial = await partialRefund(f);

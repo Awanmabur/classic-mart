@@ -46,6 +46,17 @@ import {
 } from '../models/index.js';
 
 const RESERVATION_MS = 15 * 60 * 1000;
+
+// A snapshot read alone does not conflict with a later catalogue withdrawal.
+// Taking an actual write on each source makes MongoDB retry the whole checkout
+// against that edit, without invalidating the seller's optimistic UI version.
+async function fenceCheckoutSource(Model, row, session, predicate = {}, code = 'CART_CHANGED') {
+  if (!session) return;
+  const result = await Model.updateOne({ _id: row._id, ...predicate },
+    { $inc: { checkoutReadRevision: 1 } }, { session, timestamps: false });
+  if (result.modifiedCount !== 1) throw new AppError('A checkout source changed. Review checkout again.', 409, code);
+}
+
 function currencyFactor(currency) {
   return ['UGX', 'RWF'].includes(currency) ? 1 : 100;
 }
@@ -83,7 +94,10 @@ async function deliveryQuote({ countryCode, currency, city, method, subtotalMino
     if (method === 'standard' && ((setting.freeStandardShippingThresholdMinor > 0 && subtotalMinor >= setting.freeStandardShippingThresholdMinor) || forceFreeShipping)) shippingMinor = 0;
   }
   const taxableMinor = Math.max(0, subtotalMinor + shippingMinor);
-  const taxMinor = Math.floor(taxableMinor * Number(setting.taxBps || 0) / 10000);
+  const taxMinor = Number(BigInt(taxableMinor) * BigInt(setting.taxBps || 0) / 10000n);
+  await fenceCheckoutSource(CountrySetting, setting, session, { code: countryCode, active: true, currency }, 'CHECKOUT_TOTAL_CHANGED');
+  if (zone) await fenceCheckoutSource(ShippingZone, zone, session, { country: countryCode, active: true, currency }, 'CHECKOUT_TOTAL_CHANGED');
+  if (pickupPoint) await fenceCheckoutSource(PickupPoint, pickupPoint, session, { country: countryCode, active: true }, 'CHECKOUT_TOTAL_CHANGED');
   return {
     shippingMinor,
     taxMinor,
@@ -189,7 +203,7 @@ async function purchasableContext(product, countryCode, { session = null } = {})
   const [store, category, brand, setting] = rows;
   if (!store || !category || !setting || store.currency !== setting.currency || (product.brandId && !brand)
     || !hasPublicProductApproval(product, category, store)) return null;
-  return { store, category, currency: setting.currency };
+  return { store, category, brand, currency: setting.currency };
 }
 
 function matchesSellableVariant(variant, product, context) {
@@ -400,9 +414,10 @@ export async function releaseExpiredReservations() {
               { $set: { status: 'expired' }, $push: { timeline: { type: 'payment.expired', message: 'Purchase order expired before verified Pesapal payment.' } } },
               { session, returnDocument: 'after' },
             ) : null;
-            if (po?.procurementRequestId) {
-              const { syncProcurementStatus } = await import('./business-fulfillment.js');
-              await syncProcurementStatus(po.procurementRequestId, session);
+            if (po) {
+              const { releaseClosedExpiredBusinessCommitment, syncProcurementStatus } = await import('./business-fulfillment.js');
+              await releaseClosedExpiredBusinessCommitment(po._id, session);
+              if (po.procurementRequestId) await syncProcurementStatus(po.procurementRequestId, session);
             }
           }
         }
@@ -450,7 +465,7 @@ function promotionLineDiscounts(items, storePublicId, promo) {
 async function checkoutPricing(request, input, rows, promotionCodes, session = null) {
   const subtotalMinor = rows.reduce((sum, row) => sum + row.priceMinor * row.quantity, 0), currency = rows[0].currency;
   const promo = await countryCouponQuote({ rows, country: request.country.code, currency, codes: promotionCodes || [], userId: request.user?._id, session,
-    base: await promotionQuote({ rows, country: request.country.code, codes: promotionCodes || [] }) });
+    base: await promotionQuote({ rows, country: request.country.code, codes: promotionCodes || [], session }) });
   const quote = await deliveryQuote({ countryCode: request.country.code, currency, city: input.contact.city,
     method: input.deliveryMethod, subtotalMinor: subtotalMinor - promo.discountMinor, pickupPointId: input.pickupPointId,
     paymentMethod: input.paymentMethod, forceFreeShipping: promo.freeShipping, session });
@@ -471,7 +486,9 @@ async function checkoutPricing(request, input, rows, promotionCodes, session = n
   const lineFunding = new Map(rows.map((row, index) => [row.variantId, funding[index]]));
   const shippingMinor = quote.shippingMinor - benefits.fundingSnapshot.rewardShippingMinor - benefits.fundingSnapshot.clubShippingMinor;
   const discountMinor = promo.discountMinor + benefits.fundingSnapshot.rewardGoodsMinor;
-  const taxMinor = Number(BigInt(subtotalMinor - discountMinor + shippingMinor) * BigInt(quote.policy.taxBps) / 10000n);
+  // Platform rewards pay part of the consideration. They do not reduce the
+  // seller-promotion-adjusted goods or gross delivery amount subject to tax.
+  const taxMinor = quote.taxMinor;
   const totals = { subtotalMinor, shippingMinor, discountMinor, taxMinor, totalMinor: subtotalMinor - discountMinor + shippingMinor + taxMinor, currency };
   if (!Object.values(totals).filter(value => typeof value === 'number').every(value => Number.isSafeInteger(value) && value >= 0)) {
     throw new AppError('Checkout totals require reconciliation.', 409, 'CHECKOUT_TOTAL_INVALID');
@@ -566,6 +583,7 @@ export async function placeOrder(request, input) {
       if (freshCart.country !== request.country.code) throw new AppError('The selected country changed. Review checkout again.', 409, 'CART_CHANGED');
       if (String(freshCart.userId) !== String(request.user._id) || freshCart.sessionKey !== key) throw new AppError('This cart belongs to another account.', 403, 'CART_FORBIDDEN');
       const orderItems = [];
+      const warehouseIdsByVariant = new Map();
       for (const item of freshCart.items) {
         if (!Number.isSafeInteger(item.quantity) || item.quantity < 1 || item.quantity > 99) throw new AppError('A cart quantity is invalid.', 409, 'CART_CHANGED');
         const variant = await ProductVariant.findById(item.variantId).session(session).lean();
@@ -573,15 +591,15 @@ export async function placeOrder(request, input) {
         const context = await purchasableContext(product, request.country.code, { session });
         if (!context || !matchesSellableVariant(variant, product, context)) throw new AppError('A cart item is no longer available.', 409, 'CART_CHANGED');
         const store = context.store;
+        await fenceCheckoutSource(ProductVariant, variant, session, { active: true, productId: product._id, storeId: store._id, currency: context.currency, priceMinor: variant.priceMinor });
+        await fenceCheckoutSource(Product, product, session, { status: 'published', storeId: store._id, categoryId: context.category._id, countries: request.country.code });
+        await fenceCheckoutSource(Store, store, session, { status: 'verified', country: request.country.code, currency: context.currency });
+        await fenceCheckoutSource(Category, context.category, session, { active: true });
+        if (context.brand) await fenceCheckoutSource(Brand, context.brand, session, { status: 'approved' });
         const warehouses = await Warehouse.find({ storeId: store._id, active: true, country: request.country.code }).select('_id').session(session).lean();
-        const stock = await StockItem.findOneAndUpdate(
-          mongoose.trusted({ variantId: variant._id, storeId: store._id, warehouseId: { $in: warehouses.map((warehouse) => warehouse._id) }, $expr: { $gte: [{ $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }, item.quantity] } }),
-          { $inc: { reserved: item.quantity, __v: 1 } },
-          { returnDocument: 'after', session },
-        );
-        if (!stock) throw new AppError(`${product.title} no longer has enough stock.`, 409, 'INSUFFICIENT_STOCK');
+        for (const warehouse of warehouses) await fenceCheckoutSource(Warehouse, warehouse, session, { storeId: store._id, active: true, country: request.country.code });
+        warehouseIdsByVariant.set(String(variant._id), warehouses.map(warehouse => warehouse._id));
         const reservationPublicId = publicId('rsv');
-        await InventoryReservation.create([{ publicId: reservationPublicId, idempotencyKey: `${input.idempotencyKey}:${variant.publicId}`, storeId: variant.storeId, stockItemId: stock._id, variantId: variant._id, quantity: item.quantity, status: 'active', expiresAt, actorUserId: request.user?._id || product.ownerUserId }], { session });
         orderItems.push({ linePublicId: publicId('oli'), productId: product._id, variantId: variant._id, storeId: store._id, reservationPublicId, productPublicId: product.publicId, variantPublicId: variant.publicId, storePublicId: store.publicId, title: product.title, variantTitle: variant.title, sku: variant.sku, quantity: item.quantity, unitPriceMinor: variant.priceMinor, unitCostMinor: Number(variant.costMinor || 0), costSnapshotStatus: 'captured', minimumPriceMinor: Number(variant.minimumPriceMinor || 0), lineTotalMinor: variant.priceMinor * item.quantity, currency: variant.currency });
       }
       if (savedReview.cartDigest !== reviewDigest(reviewedCart(orderItems, request.country.code, freshCart.promotionCodes))) {
@@ -592,6 +610,17 @@ export async function placeOrder(request, input) {
       const { promo, quote, benefits, totals, lineDiscounts, lineFunding } = await checkoutPricing(request, input, promoRows, freshCart.promotionCodes, session);
       if (savedReview.pricingDigest !== reviewDigest({ totals, policy: quote.policy, funding: benefits.fundingSnapshot, loyalty: benefits.loyaltySnapshot, promotions: promo.applications }) || quote.zonePublicId !== savedReview.zonePublicId) {
         throw new AppError('Delivery, discount, rewards or tax changed. Review checkout again.', 409, 'CHECKOUT_TOTAL_CHANGED');
+      }
+      // All catalogue and delivery policy fences precede inventory/coupon/reward
+      // holds. A retry rebuilds and checks the original reviewed digests first.
+      for (const item of orderItems) {
+        const stock = await StockItem.findOneAndUpdate(
+          mongoose.trusted({ variantId: item.variantId, storeId: item.storeId, warehouseId: { $in: warehouseIdsByVariant.get(String(item.variantId)) }, $expr: { $gte: [{ $subtract: ['$onHand', { $add: ['$reserved', '$damaged', '$quarantined'] }] }, item.quantity] } }),
+          { $inc: { reserved: item.quantity, __v: 1 } },
+          { returnDocument: 'after', session },
+        );
+        if (!stock) throw new AppError(`${item.title} no longer has enough stock.`, 409, 'INSUFFICIENT_STOCK');
+        await InventoryReservation.create([{ publicId: item.reservationPublicId, idempotencyKey: `${input.idempotencyKey}:${item.variantPublicId}`, storeId: item.storeId, stockItemId: stock._id, variantId: item.variantId, quantity: item.quantity, status: 'active', expiresAt, actorUserId: request.user._id }], { session });
       }
       const couponPublicIds = await reserveCountryCoupons(promo, { userId: request.user?._id, country: request.country.code, currency: totals.currency, session });
       const couponApplications = promo.applications.filter(application => application.type === 'country_coupon').map(application => ({ publicId: application.id, discountMinor: application.discountMinor, allocations: Object.entries(application.allocations).map(([storePublicId,discountMinor]) => ({ storePublicId,discountMinor })), lineAllocations: application.lineAllocations.map(allocation => {
@@ -746,10 +775,12 @@ export async function cancelOrder(request, orderId, reason = 'Customer requested
   try {
     await session.withTransaction(async () => {
       paidOnline = false;
-      order = await Order.findById(order._id).session(session);
+      if (request.user) await currentCustomerAccess(request, { session, write: true });
+      order = await Order.findOne(mongoose.trusted(orderAccessQuery(request, orderId, { requiredLevel: 'mutate' }))).session(session);
       if (!order) throw new AppError('Order not found.', 404, 'ORDER_NOT_FOUND');
       if (order.cancellationState === 'cancelled' || order.status === 'expired' || order.refundState === 'complete') return;
       if (order.cancellationState === 'processing') return;
+      if (['pending','processing'].includes(order.refundState)) throw new AppError('This order already has an active refund or cancellation process.', 409, 'ORDER_CANCELLATION_STATE');
       // Payment may complete after the initial access check or during a retry.
       // Classify the fresh transaction snapshot before freezing fulfilment.
       paidOnline = ['paid','partially_refunded'].includes(order.paymentState)

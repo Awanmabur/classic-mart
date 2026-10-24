@@ -7,9 +7,15 @@ import { Device, User, MobileSession } from '../models/index.js';
 /** Customer controls always operate on the current identity, never a role label. */
 export async function currentCustomerAccess(request, { session = null, write = false } = {}) {
   if (!request.user?._id) throw new AppError('Sign in to manage your account.', 401, 'UNAUTHENTICATED');
-  const actor = await User.findById(request.user._id).session(session);
-  if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion
-    || request.session?.tokenVersion !== undefined && actor.security.tokenVersion !== request.session.tokenVersion
+  // A hydrated schema default must not invent version zero for a sparse or
+  // incorrectly typed legacy identity record.
+  const actor = await User.findById(request.user._id).where({ 'security.tokenVersion': mongoose.trusted({ $type: 'number' }) }).session(session);
+  const actorVersion = actor?.security?.tokenVersion;
+  const callerVersion = request.user.security?.tokenVersion;
+  const sessionVersion = request.session?.tokenVersion;
+  if (!actor || actor.status !== 'active' || !Number.isSafeInteger(actorVersion) || actorVersion < 0
+    || !Number.isSafeInteger(callerVersion) || callerVersion < 0 || actorVersion !== callerVersion
+    || sessionVersion !== undefined && (!Number.isSafeInteger(sessionVersion) || sessionVersion < 0 || actorVersion !== sessionVersion)
     || !env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) {
     throw new AppError('Your verified account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   }

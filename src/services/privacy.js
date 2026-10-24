@@ -9,10 +9,10 @@ import { publicId } from '../core/ids.js';
 import { decryptSensitive, encryptSensitive } from '../core/sensitive.js';
 import {
   AiCartDraft, AiFeedback, AiJob, ApiClient, BusinessMember, BusinessOrganization, Cart,
-  CustomerAddress, CustomerCatalogueState, Device, Dispute, LedgerAccount, LoyaltyAccount, MobileSession,
+  CustomerAddress, CustomerCatalogueState, Device, Dispute, LedgerAccount, LedgerTransaction, LoyaltyAccount, LoyaltyEntry, MobileSession,
   NewsletterSubscription, Notification, Order, OutboxEvent, Payout, PlatformGrant, PlatformStaffInvitation,
   PrivacyRequest, ProductAlert, PushDevice, Refund, ReturnRequest, Review, SearchEvent,
-  SellerContactRequest, Shipment, Store, StoreMember, StoreTeamInvitation, SubscriptionEnrollment, SupportTicket,
+  SellerContactRequest, Shipment, Store, StoreMember, StoreTeamInvitation, SubscriptionCharge, SubscriptionEnrollment, SupportTicket,
   User, VerificationToken, WalletTopUp,
 } from '../models/index.js';
 import { env } from '../config/env.js';
@@ -22,7 +22,7 @@ import { writeAudit } from './audit.js';
 import { queueCustomerAvatarRemoval } from './customer-avatars.js';
 import { CustomerReward } from '../models/CustomerReward.js';
 import { CustomerAvatar } from '../models/CustomerAvatar.js';
-import { customerReturnDto } from './customer-case-projections.js';
+import { customerReturnDto, customerRefundDto } from './customer-case-projections.js';
 import { customerDisputeDto } from './customer-dispute-pages.js';
 import { supportTicketCustomerDto } from './support-ticket-pages.js';
 import { currentCustomerAccess } from './customer-access.js';
@@ -37,9 +37,11 @@ const changed = () => new AppError('The privacy request changed. Reload before c
 const clearLease = { lockedBy: '', lockedUntil: null, leaseToken: '' };
 
 async function currentOwner(request, password, session) {
-  const user = await User.findById(request.user?._id).select('+passwordHash').session(session);
-  if (!user || user.status !== 'active' || user.security.tokenVersion !== request.user?.security?.tokenVersion
-    || (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== user.security.tokenVersion)) {
+  const user = await User.findById(request.user?._id).where({ 'security.tokenVersion': mongoose.trusted({ $type: 'number' }) }).select('+passwordHash').session(session);
+  const tokenVersion = user?.security?.tokenVersion, callerVersion = request.user?.security?.tokenVersion, sessionVersion = request.session?.tokenVersion;
+  if (!user || user.status !== 'active' || !Number.isSafeInteger(tokenVersion) || tokenVersion < 0
+    || !Number.isSafeInteger(callerVersion) || callerVersion < 0 || callerVersion !== tokenVersion
+    || (sessionVersion !== undefined && (!Number.isSafeInteger(sessionVersion) || sessionVersion < 0 || sessionVersion !== tokenVersion))) {
     throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   }
   if (typeof request.sessionID !== 'string' || !request.sessionID) throw new AppError('Sign in again to confirm this request.', 401, 'UNAUTHENTICATED');
@@ -84,18 +86,77 @@ export async function createPrivacyRequest(request, { type, password, details = 
   });
 }
 
+const EXPORT_BATCH_SIZE = 100;
+const EXPORT_MAX_RECORDS = 100_000;
+const EXPORT_MAX_BYTES = 32 * 1024 * 1024;
+const exportFields = (row, fields) => Object.fromEntries(fields.split(' ').map(field => [field, row[field]]));
+const exportTooLarge = () => new AppError('This account requires a supervised privacy export because it exceeds the private download safety limit. No partial download was created.', 413, 'PRIVACY_EXPORT_TOO_LARGE');
+
 async function exportPayload(userId) {
-  const user = await User.findById(userId).select('+operationalCountries').lean();
+  const accountFields = 'publicId name email phone role status country shoppingCountry currency locale timeZone consents roleProfile preferences createdAt updatedAt';
+  const user = await User.findById(userId).select(accountFields).lean();
   if (!user || user.status === 'deleted') throw new AppError('Account not found.', 404, 'ACCOUNT_NOT_FOUND');
-  const [orders, returns, disputes, tickets, reviews, sellerContacts, storeMemberships, businessMemberships, devices, addresses, catalogue, notifications, avatars] = await Promise.all([
-    Order.find({ userId }).lean(), ReturnRequest.find({ userId }).lean(), Dispute.find({ userId }).lean(), SupportTicket.find({ userId }).select('-requesterEmailEncrypted').lean(), Review.find({ userId }).lean(), SellerContactRequest.find({ customerUserId: userId }).lean(), StoreMember.find({ userId }).lean(), BusinessMember.find({ userId }).lean(), Device.find({ userId }).select('-ipHash').lean(), CustomerAddress.find({ userId }).lean(), CustomerCatalogueState.findOne({ userId }).lean(), Notification.find({ userId }).lean(), CustomerAvatar.find({ userId }).select('publicId mimeType sizeBytes width height current status createdAt').lean(),
-  ]);
-  const cleanUser = { publicId: user.publicId, name: user.name, email: user.email, phone: user.phone, role: user.role, status: user.status, country: user.country, shoppingCountry: user.shoppingCountry, currency: user.currency, locale: user.locale, timeZone: user.timeZone, consents: user.consents, roleProfile: user.roleProfile, preferences: user.preferences, createdAt: user.createdAt, updatedAt: user.updatedAt };
-  const personalOrders = orders.map(row => ({ publicId: row.publicId, country: row.country, status: row.status, paymentState: row.paymentState, fulfillmentState: row.fulfillmentState, cancellationState: row.cancellationState, returnState: row.returnState, refundState: row.refundState, deliveryMethod: row.deliveryMethod, paymentMethod: row.paymentMethod, contact: row.contact, totals: row.totals,
-    items: (row.items || []).map(item => ({ orderLineId: item.linePublicId, productPublicId: item.productPublicId, variantPublicId: item.variantPublicId, storePublicId: item.storePublicId, title: item.title, variantTitle: item.variantTitle, sku: item.sku, quantity: item.quantity, deliveredQuantity: item.deliveredQuantity, returnedQuantity: item.returnedQuantity, refundedQuantity: item.refundedQuantity, unitPriceMinor: item.unitPriceMinor, lineTotalMinor: item.lineTotalMinor, currency: item.currency })), timeline: row.timeline, createdAt: row.createdAt, updatedAt: row.updatedAt }));
-  const personalReviews = reviews.map(row => ({ publicId: row.publicId, orderPublicId: row.orderPublicId, productPublicId: row.productPublicId, country: row.country, rating: row.rating, title: row.title, body: row.body, status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, publicMessages: (row.publicMessages || []).map(message => ({ author: message.author, message: message.message, at: message.at })) }));
-  const personalContacts = sellerContacts.map(row => ({ publicId: row.publicId, country: row.country, subject: row.subject, message: row.message, status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, replies: (row.replies || []).map(reply => ({ sender: reply.sender, body: reply.body, at: reply.at })) }));
-  return { generatedAt: new Date().toISOString(), retentionNotice: 'Financial, fraud-prevention and legal records may be retained when required by applicable law or contractual obligations.', account: cleanUser, orders: personalOrders, returns: returns.map(customerReturnDto), disputes: disputes.map(customerDisputeDto), supportTickets: tickets.map(supportTicketCustomerDto), reviews: personalReviews, sellerContacts: personalContacts, storeMemberships, businessMemberships, devices, addresses, catalogue, notifications, avatars };
+  const cleanUser = exportFields(user, accountFields);
+  const budget = { records: 1, bytes: Buffer.byteLength(JSON.stringify(cleanUser)) };
+  // Drain every matching record in bounded Mongo batches. A safety bound fails
+  // the entire job explicitly; it must never publish a silently truncated file.
+  const read = async (Model, fields, filter = { userId }, project = row => exportFields(row, fields)) => {
+    const cursor = Model.find(filter).select(fields).sort({ _id: 1 }).lean().cursor({ batchSize: EXPORT_BATCH_SIZE });
+    const rows = [];
+    try {
+      for await (const source of cursor) {
+        const row = project(source);
+        budget.records++;
+        budget.bytes += Buffer.byteLength(JSON.stringify(row)) + 1;
+        if (budget.records > EXPORT_MAX_RECORDS || budget.bytes > EXPORT_MAX_BYTES) throw exportTooLarge();
+        rows.push(row);
+      }
+    } finally { await cursor.close(); }
+    return rows;
+  };
+  const orderOwners = new Map();
+  const orders = await read(Order, 'publicId country status paymentState fulfillmentState cancellationState returnState refundState deliveryMethod paymentMethod contact totals items timeline createdAt updatedAt', { userId }, row => {
+    orderOwners.set(String(row._id), row.publicId);
+    return { ...exportFields(row, 'publicId country status paymentState fulfillmentState cancellationState returnState refundState deliveryMethod paymentMethod contact totals createdAt updatedAt'),
+      items: (row.items || []).map(item => ({ orderLineId: item.linePublicId, ...exportFields(item, 'productPublicId variantPublicId storePublicId title variantTitle sku quantity deliveredQuantity returnedQuantity refundedQuantity unitPriceMinor lineTotalMinor currency') })),
+      timeline: (row.timeline || []).map(event => exportFields(event, 'type message at')) };
+  });
+  const refunds = orderOwners.size ? await read(Refund, 'publicId orderId returnPublicId amountMinor currency status provider completedAt createdAt updatedAt', { orderId: { $in: [...orderOwners.keys()] } }, row => ({ ...customerRefundDto(row), orderPublicId: orderOwners.get(String(row.orderId)) })) : [];
+  const returns = await read(ReturnRequest, 'publicId orderPublicId country status reason details resolution returnMethod dropoffPointPublicId eligibleUntil policyVersion createdAt updatedAt refundPublicId returnShipmentPublicId replacementOrderPublicId resolutionChange financeReferral inspection items evidenceDocumentIds timeline', { userId }, customerReturnDto);
+  const disputes = await read(Dispute, 'publicId userId orderPublicId country category status subject description priority createdAt updatedAt resolvedAt events resolution', { userId }, customerDisputeDto);
+  const supportTickets = await read(SupportTicket, 'publicId userId country category subject status priority orderPublicId createdAt updatedAt resolvedAt reopenedAt notes', { userId }, supportTicketCustomerDto);
+  const reviews = await read(Review, 'publicId orderPublicId productPublicId country rating title body status createdAt updatedAt publicMessages', { userId }, row => ({ ...exportFields(row, 'publicId orderPublicId productPublicId country rating title body status createdAt updatedAt'), publicMessages: (row.publicMessages || []).map(message => exportFields(message, 'author message at')) }));
+  const sellerContacts = await read(SellerContactRequest, 'publicId country subject message status createdAt updatedAt replies', { customerUserId: userId }, row => ({ ...exportFields(row, 'publicId country subject message status createdAt updatedAt'), replies: (row.replies || []).map(reply => exportFields(reply, 'sender body at')) }));
+  const storeMemberships = await read(StoreMember, 'publicId storeId role status invitedAt acceptedAt revokedAt createdAt updatedAt');
+  const businessMemberships = await read(BusinessMember, 'publicId organizationId role status spendingLimitMinor canApprove invitedAt acceptedAt revokedAt createdAt updatedAt');
+  const devices = await read(Device, 'publicId label lastSeenAt revokedAt createdAt updatedAt');
+  const addresses = await read(CustomerAddress, 'publicId label fullName phone address region postalCode city country note isDefault archivedAt createdAt updatedAt');
+  const [catalogue = null] = await read(CustomerCatalogueState, 'wishlistProductIds comparisonProductIds recentProducts followedStoreIds followedPromoterUserIds createdAt updatedAt');
+  const notifications = await read(Notification, 'publicId country type title body href importance readAt expiresAt createdAt updatedAt');
+  const avatars = await read(CustomerAvatar, 'publicId mimeType sizeBytes width height current status createdAt');
+  const carts = await read(Cart, 'publicId country items promotionCodes createdAt updatedAt');
+  const productAlerts = await read(ProductAlert, 'publicId productPublicId country type targetPriceMinor lastKnownPriceMinor status triggeredAt createdAt updatedAt');
+  const searchHistory = await read(SearchEvent, 'publicId country query category brand seller resultCount clickedProductPublicId zeroResult createdAt updatedAt');
+  const emailHash = crypto.createHash('sha256').update(String(user.email).trim().toLowerCase()).digest('hex');
+  const newsletterSubscriptions = await read(NewsletterSubscription, 'publicId country status source policyVersion consentRecordedAt lastSubscribedAt lastUnsubscribedAt createdAt updatedAt', { $or: [{ userId }, { emailHash }] });
+  const walletTopUps = await read(WalletTopUp, 'publicId country currency amountMinor provider providerReference providerPaymentMethod status paidAt createdAt updatedAt');
+  const accountRows = await read(LedgerAccount, 'publicId code type ownerType country currency active createdAt updatedAt', { $or: [{ ownerId: userId }, { ownerPublicId: user.publicId, ownerId: null }] }, row => ({ _id: row._id, ...exportFields(row, 'publicId code type ownerType country currency active createdAt updatedAt') }));
+  const ownedAccountIds = new Set(accountRows.map(row => String(row._id)));
+  const ledgerAccounts = accountRows.map(({ _id, ...row }) => row);
+  const ledgerTransactions = accountRows.length ? await read(LedgerTransaction, 'publicId referenceType referencePublicId country currency postedAt createdAt entries', { 'entries.accountId': { $in: accountRows.map(row => row._id) } }, row => ({
+    ...exportFields(row, 'publicId referenceType referencePublicId country currency postedAt createdAt'),
+    // A balanced posting also contains platform/merchant/counterparty entries.
+    // Export only this identity's lines; never serialize their accounts or memos.
+    entries: (row.entries || []).filter(entry => ownedAccountIds.has(String(entry.accountId))).map(entry => exportFields(entry, 'accountPublicId debitMinor creditMinor')),
+  })) : [];
+  const loyaltyAccounts = await read(LoyaltyAccount, 'publicId country points lifetimeEarned lifetimeRedeemed reversalDebtPoints tier createdAt updatedAt');
+  const loyaltyEntries = await read(LoyaltyEntry, 'publicId country type pointsDelta balanceAfter earnedPoints reversedPoints debtDelta debtAfter reversalOfEntryPublicId refundPublicId chargebackPublicId referenceType referencePublicId createdAt');
+  const rewards = await read(CustomerReward, 'publicId country currency rewardKey label kind pointsCost valueMinor minimumSpendMinor maximumDiscountMinor multiplierBps trialShippingDiscountBps status expiresAt orderPublicId consumedAt restoredAt createdAt updatedAt');
+  const subscriptionEnrollments = await read(SubscriptionEnrollment, 'publicId planPublicId audience storePublicId country currency priceMinor status startsAt currentPeriodEndsAt cancelledAt terms subscriptionChargePublicId periodStartsAt periodEndsAt cancelAtPeriodEnd cancellationRequestedAt reversedAt createdAt updatedAt');
+  const subscriptionCharges = await read(SubscriptionCharge, 'publicId requestPublicId storePublicId country currency amountMinor terms providerReference status paidAt reversedAt enrollmentPublicId createdAt updatedAt');
+  const payload = { generatedAt: new Date().toISOString(), retentionNotice: 'Financial, fraud-prevention and legal records may be retained when required by applicable law or contractual obligations.', account: cleanUser, orders, refunds, returns, disputes, supportTickets, reviews, sellerContacts, storeMemberships, businessMemberships, devices, addresses, catalogue, notifications, avatars, carts, productAlerts, searchHistory, newsletterSubscriptions, walletTopUps, ledgerAccounts, ledgerTransactions, loyaltyAccounts, loyaltyEntries, rewards, subscriptionEnrollments, subscriptionCharges };
+  if (Buffer.byteLength(JSON.stringify(payload)) > EXPORT_MAX_BYTES) throw exportTooLarge();
+  return payload;
 }
 
 export async function deletionBlockers(userId, { session = null } = {}) {

@@ -1,0 +1,17 @@
+<p class="form-intro">Order <%= returnRequest.orderPublicId %> · <%= returnRequest.returnMethod === 'pickup' ? 'Carrier collection' : 'Warehouse drop off' %></p>
+<% for (const line of returnRequest.items || []) { %><p><strong><%= line.title %></strong> · <%= line.quantity %> returned<% if (line.warehouseInspectionStatus === 'completed') { %> · warehouse inspection recorded<% } %></p><% } %>
+<% if (returnRequest.inspection?.inspectedAt) { %><p class="form-intro">Inspected condition: <%= returnRequest.inspection.condition?.replaceAll('_',' ') %> · <%= formatDate(returnRequest.inspection.inspectedAt) %></p><% } %>
+<% if (returnRequest.refundPublicId) { %><p class="form-intro">Refund <%= returnRequest.refundPublicId %> · <%= returnRequest.status === 'refunded' ? 'Finance confirmed the completed payment.' : 'Awaiting the actual confirmed payment outcome.' %></p><% } else if (returnRequest.financeReferral) { %><p class="form-intro">Finance is reviewing the inspected return. A payment has not been confirmed.</p><% } %>
+<% if (returnRequest.replacementOrderPublicId) { %><p class="form-intro">Exchange order: <%= returnRequest.replacementOrderPublicId %></p><% } %>
+<% if (returnRequest.returnMethod === 'pickup' && ['approved','awaiting_return'].includes(returnRequest.status) && returnRequest.returnShipmentPublicId) { %>
+<div class="policy-box" data-return-pickup>
+  <div><strong>Carrier collection code</strong><p>Request your code when the assigned carrier is ready to collect these goods.</p>
+    <button class="outline-button" type="button" data-return-pickup-code="<%= returnRequest.publicId %>" aria-expanded="false">Show collection code</button>
+    <p data-return-pickup-status role="status" hidden></p>
+    <p data-return-pickup-result hidden><strong data-return-pickup-value></strong><br><span data-return-pickup-purpose></span></p>
+  </div>
+</div>
+<% } %>
+<%- include('customer-refund-proposal', { returnRequest, proposalReturnTo: typeof proposalReturnTo !== 'undefined' ? proposalReturnTo : '/account/returns' }) %>
+<% if (returnRequest.resolutionChange?.status === 'accepted') { %><p class="form-intro">You accepted the original-payment refund alternative. Finance must verify any actual payment.</p><% } else if (returnRequest.resolutionChange?.status === 'declined') { %><p class="form-intro">You kept the exchange by declining the refund alternative.</p><% } %>
+<% for (const event of returnRequest.timeline || []) { %><p class="form-intro"><%= event.message %><br><small><%= formatDate(event.at) %></small></p><% } %>

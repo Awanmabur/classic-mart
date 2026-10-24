@@ -345,7 +345,7 @@ export async function processBusinessRecurrence(now=new Date(),{limit=50}={}){
     if(await ProcurementRun.exists({templateId:row._id,scheduledFor}).session(session)){skipped++;return;}
     const user=await User.findById(row.createdByUserId).session(session);const org=await BusinessOrganization.findById(row.organizationId).session(session);
     if(!user||!org||row.creatorTokenVersion===undefined)throw new AppError('Recurring template creator needs current authorization.',403,'BUSINESS_TEMPLATE_CREATOR_UNAVAILABLE');
-    const request={user:{_id:user._id,security:{tokenVersion:row.creatorTokenVersion}},get:()=>'',ip:''};
+    const request={id:`business-recurrence:${row.publicId}:${scheduledFor.toISOString()}`,user:{_id:user._id,security:{tokenVersion:row.creatorTokenVersion}},get:()=>'',ip:''};
     const context=await businessAccess(request,{session,capability:'templates',organizationPublicId:org.publicId});
     const {fenceBusinessAccess}=await import('./business-access.js');await fenceBusinessAccess(context,session);
     const [run]=await ProcurementRun.create([{publicId:publicId('bprun'),templateId:row._id,templatePublicId:row.publicId,organizationId:row.organizationId,scheduledFor}],{session});
@@ -353,7 +353,7 @@ export async function processBusinessRecurrence(now=new Date(),{limit=50}={}){
     run.status='completed';run.procurementRequestId=procurement._id;run.procurementRequestPublicId=procurement.publicId;run.completedAt=new Date();await run.save({session});
     row.nextDueAt=nextRun(scheduledFor,row.recurrence);await row.save({session});await audit(context,session,'business.recurrence.created',row,{requestPublicId:procurement.publicId,scheduledFor});created++;
   });}catch(error){if(error?.code===11000||error?.name==='VersionError')skipped++;else if(error instanceof AppError&&error.status<500){
-    await session.withTransaction(async()=>{const paused=await ProcurementTemplate.findOneAndUpdate({_id:candidate._id,active:true,__v:candidate.__v,nextDueAt:candidate.nextDueAt},{$set:{active:false,lastFailureAt:new Date(),lastFailureCode:String(error.code||'BUSINESS_TEMPLATE_UNAVAILABLE').slice(0,100)},$inc:{__v:1}},{session,returnDocument:'after'});if(paused)await writeAudit({get:()=>'',ip:''},'business.recurrence.paused',{targetType:'procurement_template',targetPublicId:paused.publicId,metadata:{reason:error.code,organizationId:String(paused.organizationId)},session});});skipped++;
+    await session.withTransaction(async()=>{const paused=await ProcurementTemplate.findOneAndUpdate({_id:candidate._id,active:true,__v:candidate.__v,nextDueAt:candidate.nextDueAt},{$set:{active:false,lastFailureAt:new Date(),lastFailureCode:String(error.code||'BUSINESS_TEMPLATE_UNAVAILABLE').slice(0,100)},$inc:{__v:1}},{session,returnDocument:'after'});if(paused)await writeAudit({id:`business-recurrence-pause:${paused.publicId}:${candidate.nextDueAt.toISOString()}`,get:()=>'',ip:''},'business.recurrence.paused',{targetType:'procurement_template',targetPublicId:paused.publicId,metadata:{reason:error.code,organizationId:String(paused.organizationId)},session});});skipped++;
   }else throw error;}finally{await session.endSession();}}
   return{checked:due.length,created,skipped};
 }

@@ -266,7 +266,7 @@ export async function reconcileSellerSubscriptionCharge(request, id, raw) {
 export async function sellerSubscriptionMaintenance({ limit = 20 } = {}) {
   const now = new Date(), size = Math.max(1, Math.min(50, Number(limit) || 20));
   const expired = await SubscriptionEnrollment.updateMany({ audience: 'seller', status: { $in: ['active', 'trialing'] }, currentPeriodEndsAt: { $lte: now } },
-    [{ $set: { status: { $cond: ['$cancelAtPeriodEnd', 'cancelled', 'expired'] }, cancelledAt: { $cond: ['$cancelAtPeriodEnd', now, '$cancelledAt'] }, __v: { $add: [{ $ifNull: ['$__v', 0] }, 1] } } }]);
+    [{ $set: { status: { $cond: ['$cancelAtPeriodEnd', 'cancelled', 'expired'] }, cancelledAt: { $cond: ['$cancelAtPeriodEnd', now, '$cancelledAt'] }, __v: { $add: [{ $ifNull: ['$__v', 0] }, 1] } } }], { updatePipeline: true });
   const held = await SubscriptionCharge.updateMany({ status: 'submitting', submissionAttemptedAt: { $lte: new Date(now.getTime() - 5 * 60000) } },
     { $set: { status: 'held', holdReason: 'The submission did not finish locally. Reconcile the original reference before another payment.' }, $inc: { __v: 1 } });
   let checked = 0, failed = 0;

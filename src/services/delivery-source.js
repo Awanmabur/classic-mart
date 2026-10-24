@@ -14,6 +14,10 @@ async function fenceSource(Model, row, session, conditions = {}) {
 export async function shipmentSource(shipment, { session = null, warehouseAccess = null, write = false } = {}) {
   const order = await Order.findOne({ _id: shipment.orderId, publicId: shipment.orderPublicId, country: shipment.country }).session(session);
   if (!order || order.totals.currency !== shipment.cod.currency) throw new AppError('Shipment source no longer matches its order.', 409, 'DELIVERY_SOURCE_INVALID');
+  if (write && shipment.kind !== 'return' && ['ready','offered'].includes(shipment.status)) {
+    const funded = ['paid','partially_refunded'].includes(order.paymentState) || order.status === 'confirmed' && (order.paymentMethod === 'cod' && order.paymentState === 'pending' || order.paymentMethod === 'credit_terms' && order.paymentState === 'credit_due');
+    if (!funded || !['confirmed','paid','partially_refunded'].includes(order.status) || !['none','rejected'].includes(order.cancellationState) || ['pending','processing','complete'].includes(order.refundState)) throw new AppError('The original order is not ready for a delivery offer or assignment.',409,'ORDER_NOT_READY');
+  }
   let returned = null, stock, reservations;
   if (shipment.kind === 'return') {
     returned = await ReturnRequest.findOne({ _id: shipment.returnRequestId, orderId: order._id, orderPublicId: order.publicId,

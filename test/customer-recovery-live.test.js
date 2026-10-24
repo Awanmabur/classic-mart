@@ -26,8 +26,8 @@ async function signup(db,name){
 test('owned order histories use stable keysets and server status filters beyond the former limit', {skip:!base||!uri}, async()=>withDatabase(async db=>{
   const {agent,user}=await signup(db,'History Recovery'),{agent:other,user:otherUser}=await signup(db,'Other History');
   const now=new Date(Date.now()-60_000),tag=suffix(),rows=[];
-  for(let index=0;index<69;index++)rows.push({_id:new mongoose.Types.ObjectId(),publicId:`ord_history_${tag}_${index}`,userId:user._id,country:'UG',status:'paid',paymentState:'paid',fulfillmentState:index<35?'processing':index<66?'shipped':'delivered',returnState:'none',totals:{totalMinor:1000,currency:'UGX'},items:[{title:`History purchase ${index}`}],createdAt:now,updatedAt:now});
-  await db.collection('orders').insertMany([...rows,{...rows[0],_id:new mongoose.Types.ObjectId(),publicId:id('ord_foreign'),userId:otherUser._id,items:[{title:'FOREIGN_HISTORY_PRIVATE'}]}]);
+  for(let index=0;index<69;index++)rows.push({_id:new mongoose.Types.ObjectId(),publicId:`ord_history_${tag}_${index}`,sessionKey:`history_${tag}_${index}`,idempotencyKey:`history_${tag}_${index}`,checkoutId:`checkout_${tag}_${index}`,cartPublicId:`cart_${tag}_${index}`,userId:user._id,country:'UG',status:'paid',paymentState:'paid',fulfillmentState:index<35?'processing':index<66?'shipped':'delivered',returnState:'none',totals:{totalMinor:1000,currency:'UGX'},items:[{title:`History purchase ${index}`}],createdAt:now,updatedAt:now});
+  await db.collection('orders').insertMany([...rows,{...rows[0],_id:new mongoose.Types.ObjectId(),publicId:id('ord_foreign'),sessionKey:id('foreign_session'),idempotencyKey:id('foreign_history'),checkoutId:id('foreign_checkout'),cartPublicId:id('foreign_cart'),userId:otherUser._id,items:[{title:'FOREIGN_HISTORY_PRIVATE'}]}]);
   let page=await agent.get('/orders').expect(200),next=older(page.text,'orders');assert.ok(next);assert.doesNotMatch(page.text,/FOREIGN_HISTORY_PRIVATE/);
   const seen=new Set([...page.text.matchAll(/Order #(ord_history_[A-Za-z0-9_]+)/g)].map(row=>row[1]));
   const firstCursor=next;
@@ -63,7 +63,11 @@ test('move to wishlist commits only the selected owned cart variant and survives
   let page=await agent.get('/cart').expect(200);const csrf=token(page.text);
   await other.get('/cart').expect(200);
   const productId=new mongoose.Types.ObjectId(),v1=new mongoose.Types.ObjectId(),v2=new mongoose.Types.ObjectId(),p1=id('var'),p2=id('var'),storeId=new mongoose.Types.ObjectId();
-  await db.collection('productvariants').insertMany([{_id:v1,publicId:p1,productId,storeId,active:true,title:'First variant',priceMinor:1000,currency:'UGX'},{_id:v2,publicId:p2,productId,storeId,active:true,title:'Second variant',priceMinor:1000,currency:'UGX'}]);
+  const variantTime=new Date();
+  await db.collection('productvariants').insertMany([
+    {_id:v1,publicId:p1,productId,storeId,sku:`RECOVERY-${p1.toUpperCase()}`,active:true,title:'First variant',priceMinor:1000,currency:'UGX',__v:0,createdAt:variantTime,updatedAt:variantTime},
+    {_id:v2,publicId:p2,productId,storeId,sku:`RECOVERY-${p2.toUpperCase()}`,active:true,title:'Second variant',priceMinor:1000,currency:'UGX',__v:0,createdAt:variantTime,updatedAt:variantTime},
+  ]);
   await db.collection('carts').updateOne({userId:user._id,country:'UG'},{$set:{items:[{productId,variantId:v1,quantity:2},{productId,variantId:v2,quantity:3}],__v:7}});
   const endpoint='/api/v1/customer/cart/move-to-wishlist';
   const otherToken=token((await other.get('/cart').expect(200)).text);

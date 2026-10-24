@@ -21,6 +21,8 @@ test('Support return receipts, inspections, Finance referrals and escalation dec
     const {User,PlatformGrant,CountrySetting,Store,Category,Product,ProductVariant,Warehouse,StockItem,Order,SellerOrder,Shipment,
       ReturnRequest,WarehouseTask,EvidenceDocument,Dispute,Refund,Notification,AuditLog,SupportTicket,InventoryMovement,InventoryReservation}=await import('../src/models/index.js');
     const trust=await import('../src/services/trust.js'),cases=await import('../src/services/support-case-pages.js');
+    const specialists=await import('../src/services/specialist-order-cases.js');
+    const {SpecialistReferral}=await import('../src/models/SpecialistReferral.js');
     const {mutateWarehouse}=await import('../src/services/warehouse-operations.js');
     const {hashPassword}=await import('../src/core/crypto.js'),{encryptSensitive}=await import('../src/core/sensitive.js'),{totpCode}=await import('../src/services/mfa.js');
     await Promise.all(Object.values(mongoose.models).map(Model=>Model.init()));
@@ -40,8 +42,8 @@ test('Support return receipts, inspections, Finance referrals and escalation dec
         const challenge=await client.get('/mfa').expect(200);await client.post('/mfa').type('form').send({code:totpCode(secret),_csrf:csrf(challenge.text)}).expect(302);}
       return {user,grant,client};
     }
-    const support=await actor('customer',{managed:true,login:true}),second=await actor('support'),buyer=await actor('customer'),warehouseActor=await actor('customer',{managed:'warehouse',login:true}),seller=await actor('seller');
-    const req=(entry=support,query={})=>({id:id('req'),user:entry.user,session:{tokenVersion:entry.user.security.tokenVersion},query,country:{code:'TZ'},ip:'127.0.0.1',get:()=> 'SupportCaseTest/1.0'});
+    const support=await actor('customer',{managed:true,login:true}),second=await actor('support'),buyer=await actor('customer'),warehouseActor=await actor('customer',{managed:'warehouse',login:true}),seller=await actor('seller'),financeSpecialist=await actor('finance');
+    const req=(entry=support,query={})=>({id:id('req'),user:entry.user,session:{tokenVersion:entry.user.security.tokenVersion,mfaVerifiedAt:Date.now()},query,country:{code:'TZ'},ip:'127.0.0.1',get:()=> 'SupportCaseTest/1.0'});
     const category=await Category.create({publicId:id('cat'),name:'Case goods',slug:id('category'),countries:['UG','KE','TZ']});
     const store=await Store.create({publicId:id('sto'),ownerUserId:seller.user._id,name:'Case store',slug:id('store'),country:'UG',currency:'UGX',status:'verified'});
     const product=await Product.create({publicId:id('prd'),storeId:store._id,ownerUserId:seller.user._id,categoryId:category._id,title:'Verified goods',slug:id('product'),description:'Complete return fixture product',countries:['UG'],status:'published'});
@@ -134,7 +136,12 @@ test('Support return receipts, inspections, Finance referrals and escalation dec
     await t.test('real departmental referrals never stand in for completed money or exchange',async()=>{
       const winner=disputed.testWinner,row=await Dispute.findById(disputed._id);
       const referral=await cases.escalateSupportDispute(req(winner),row.publicId,{version:row.__v,department:'finance',reason:'Exact inspected returned goods require an independent payment review.',message:'Finance will review the inspected return before confirming any refund.'});
-      const current=await Dispute.findById(row._id),ticket=await SupportTicket.findOne({publicId:current.escalation.referralTicketPublicId});assert.ok(ticket);assert.equal(ticket.status,'escalated');assert.equal(ticket.source,'staff');assert.equal(referral.status,'investigating');
+      let current=await Dispute.findById(row._id);const ticket=await SupportTicket.findOne({publicId:current.escalation.referralTicketPublicId});assert.ok(ticket);assert.equal(ticket.status,'escalated');assert.equal(ticket.source,'staff');assert.equal(referral.status,'investigating');
+      await assert.rejects(cases.resolveSupportDispute(req(winner),row.publicId,{version:current.__v,decision:'customer_service',summary:'A pending specialist investigation cannot be silently finalized.'}),error=>error.code==='DISPUTE_SPECIALIST_RESPONSE_REQUIRED');
+      const savedReferral=await SpecialistReferral.findOne({disputeId:row._id});
+      const claimed=await specialists.mutateSpecialistOrderCase(req(financeSpecialist),'finance',savedReferral.publicId,'claim',{version:savedReferral.__v});
+      await specialists.mutateSpecialistOrderCase(req(financeSpecialist),'finance',savedReferral.publicId,'respond',{version:claimed.version,finding:'recommendation',summary:'The inspected return still requires actual verified Finance payment before Support can confirm any refund.'});
+      current=await Dispute.findById(row._id);
       await assert.rejects(cases.resolveSupportDispute(req(winner),row.publicId,{version:current.__v,decision:'refund_confirmed',summary:'Claim the refund has been completed without a payment record.'}),error=>error.code==='DISPUTE_REFUND_UNCONFIRMED');
       await assert.rejects(cases.resolveSupportDispute(req(winner),row.publicId,{version:current.__v,decision:'exchange_confirmed',summary:'Claim a replacement exists without any reserved stock.'}),error=>error.code==='DISPUTE_EXCHANGE_UNCONFIRMED');
       const resolved=await cases.resolveSupportDispute(req(winner),row.publicId,{version:current.__v,decision:'customer_service',summary:'The return process and outstanding Finance review were explained; the service question is resolved.'});assert.equal(resolved.status,'resolved');

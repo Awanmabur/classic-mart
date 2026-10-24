@@ -12,7 +12,7 @@ import { setFlash } from '../middleware/view.js';
 import { allowedWorkspacesFor } from '../dashboard/access.js';
 import { DASHBOARD_PAGES } from '../dashboard/registry.js';
 import { WAREHOUSE_ROUTES, warehousePath } from '../dashboard/warehouse-routes.js';
-import { liveAccountHeader } from '../dashboard/live-account-header.js';
+import { liveSellerAccountHeader as liveAccountHeader } from '../dashboard/live-account-header.js';
 import { mutateWarehouse } from '../services/warehouse-operations.js';
 import { loadWarehousePage, warehouseReportRows, warehouseParcelLabel } from '../services/warehouse-dashboard.js';
 import { code39Geometry } from '../dashboard/parcel-barcode.js';

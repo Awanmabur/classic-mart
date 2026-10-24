@@ -20,7 +20,7 @@ test('Business purchasing uses accepted current authority, reviewed commercial t
   const suffix=crypto.randomBytes(8).toString('hex');
   await mongoose.connect(uri,{dbName:'classicmart_business_recovery_test_'+suffix});
   const models=await import('../src/models/index.js');
-  const {User,Device,CountrySetting,PlatformGrant,BusinessOrganization,BusinessMember,BusinessBudget,ProcurementRequest,QuoteRequest,PurchaseOrder,BusinessInvoice,BusinessDocument,Product,ProductVariant,Category,Store,StoreMember,Warehouse,StockItem,Order,SellerOrder,InventoryReservation,ProcurementTemplate,ProcurementRun,LedgerTransaction,Shipment,Parcel,DeliveryProfile,DeliveryOffer,EvidenceDocument,InventoryMovement}=models;
+  const {User,Device,CountrySetting,PlatformGrant,BusinessOrganization,BusinessMember,BusinessBudget,ProcurementRequest,QuoteRequest,PurchaseOrder,BusinessInvoice,BusinessDocument,Product,ProductVariant,Category,Store,StoreMember,Warehouse,StockItem,Order,SellerOrder,InventoryReservation,ProcurementTemplate,ProcurementRun,LedgerTransaction,Shipment,Parcel,DeliveryProfile,DeliveryOffer,EvidenceDocument,InventoryMovement,AuditLog}=models;
   const operations=await import('../src/services/business-operations.js');
   const supplier=await import('../src/services/seller-business.js');
   const {businessAccess}=await import('../src/services/business-access.js');
@@ -44,7 +44,7 @@ test('Business purchasing uses accepted current authority, reviewed commercial t
     let user=await User.create({publicId,name:'Business '+sequence,email,emailNormalized:email,phone,phoneNormalized:phone,passwordHash,role,country:'UG',currency:'UGX',shoppingCountry:'UG',emailVerifiedAt:new Date(),phoneVerifiedAt:new Date(),onboardingCompletedAt:new Date(),consents:{terms:true,privacy:true,recordedAt:new Date()}});
     const pending=await beginMfaEnrollment(user._id,password),verified=await confirmMfaEnrollment(user._id,totpCode(pending.secret));user=verified.user;
     const sessionID=crypto.randomUUID();const device=await Device.create({publicId:id('dev'),userId:user._id,sessionHash:hashToken(sessionID),label:'Business recovery fixture',userAgent:'Business recovery fixture',ipHash:hashToken('127.0.0.1'),lastSeenAt:new Date()});
-    const service={user,device,sessionID,session:{userId:String(user._id),tokenVersion:user.security.tokenVersion,mfaVerifiedAt:Date.now()},get:()=>'',ip:'127.0.0.1',query:{},country:{code:'UG',currency:'UGX'}};
+    const service={id:id('req'),user,device,sessionID,session:{userId:String(user._id),tokenVersion:user.security.tokenVersion,mfaVerifiedAt:Date.now()},get:()=>'',ip:'127.0.0.1',query:{},country:{code:'UG',currency:'UGX'}};
     return{user,service,recovery:verified.codes[0]};
   }
   async function login(person){
@@ -55,7 +55,7 @@ test('Business purchasing uses accepted current authority, reviewed commercial t
   }
   let owner,approver,foreign,seller,staff,org,store,variant,budget,procurement,quote,po,invoice;
   try{
-    for(const Model of [User,Device,CountrySetting,PlatformGrant,BusinessOrganization,BusinessMember,BusinessBudget,ProcurementRequest,QuoteRequest,PurchaseOrder,BusinessInvoice,BusinessDocument,Product,ProductVariant,Category,Store,StoreMember,Warehouse,StockItem,Order,SellerOrder,InventoryReservation,ProcurementTemplate,ProcurementRun,LedgerTransaction,Shipment,Parcel,DeliveryProfile,DeliveryOffer,EvidenceDocument,InventoryMovement])await Model.init();
+    for(const Model of [User,Device,CountrySetting,PlatformGrant,BusinessOrganization,BusinessMember,BusinessBudget,ProcurementRequest,QuoteRequest,PurchaseOrder,BusinessInvoice,BusinessDocument,Product,ProductVariant,Category,Store,StoreMember,Warehouse,StockItem,Order,SellerOrder,InventoryReservation,ProcurementTemplate,ProcurementRun,LedgerTransaction,Shipment,Parcel,DeliveryProfile,DeliveryOffer,EvidenceDocument,InventoryMovement,AuditLog])await Model.init();
     await CountrySetting.create({code:'UG',name:'Uganda',currency:'UGX',locale:'en-UG',timeZone:'Africa/Kampala',phonePrefix:'+256',returnWindowDays:14,platformFeeBps:700,taxBps:1800,policyVersion:'reviewed-business-v1',growth:{loyaltyEnabled:false,referralEnabled:false}});
     owner=await actor();approver=await actor('customer');foreign=await actor();seller=await actor('seller');staff=await actor('country_admin');
     const created=await operations.createBusinessOrganization(owner.service,{companyName:'Real procurement '+suffix,billingEmail:owner.user.email});org=await BusinessOrganization.findOne({publicId:created.publicId});owner.service.session.activeBusinessPublicId=org.publicId;
@@ -163,12 +163,27 @@ test('Business purchasing uses accepted current authority, reviewed commercial t
       assert.equal((await BusinessBudget.findById(budget._id)).spentMinor,1080);assert.equal(await LedgerTransaction.countDocuments({idempotencyKey:'business-credit-delivery:'+order.publicId}),1);
     });
 
+    await t.test('closing a request preserves an accepted unpaid order until actual expiry releases its commitment once',async()=>{
+      const source=await ProcurementRequest.findById(procurement._id);
+      await operations.cancelBusinessProcurement(owner.service,source.publicId,{version:source.__v,reason:'Close the remaining request while its accepted unpaid order expires.'});
+      assert.equal((await BusinessBudget.findById(budget._id)).committedMinor,4720);
+      const order=await Order.findOne({publicId:(await PurchaseOrder.findById(po._id)).orderPublicId}),past=new Date(Date.now()-60000);
+      await Order.updateOne({_id:order._id},{$set:{reservationExpiresAt:past}});
+      await InventoryReservation.updateMany({publicId:{$in:order.items.map(item=>item.reservationPublicId)},status:'active'},{$set:{expiresAt:past}});
+      const {releaseExpiredReservations}=await import('../src/services/checkout.js');await releaseExpiredReservations();
+      assert.equal((await BusinessBudget.findById(budget._id)).committedMinor,0);assert.equal((await BusinessBudget.findById(budget._id)).spentMinor,1080);
+      const expired=await PurchaseOrder.findById(po._id);assert.equal(expired.status,'expired');assert.ok(expired.closedCommitmentReleasedAt);
+      await releaseExpiredReservations();assert.equal((await BusinessBudget.findById(budget._id)).committedMinor,0);
+      const expiryAudits=await AuditLog.find({action:'business.closed_commitment.released',targetPublicId:po.publicId}).lean();assert.equal(expiryAudits.length,1);assert.equal(expiryAudits[0].requestId,'business-po-expiry:'+po.publicId);assert.equal(expiryAudits[0].actorId,undefined);
+    });
+
     await t.test('recurrence creates one fresh independent request and revocation pauses only the unchanged source',async()=>{
       const created=await operations.saveBusinessTemplate(owner.service,{name:'Weekly box request',recurrence:'weekly',budgetId:budget.publicId,items:[{variantPublicId:variant.publicId,quantity:1}],idempotencyKey:id('template')});const template=await ProcurementTemplate.findOne({publicId:created.publicId});const scheduledFor=new Date(Date.now()-60000);await ProcurementTemplate.updateOne({_id:template._id},{$set:{nextDueAt:scheduledFor}});
       const now=new Date();await operations.processBusinessRecurrence(now);await operations.processBusinessRecurrence(now);
       assert.equal(await ProcurementRun.countDocuments({templateId:template._id,scheduledFor}),1);const run=await ProcurementRun.findOne({templateId:template._id,scheduledFor});const generated=await ProcurementRequest.findById(run.procurementRequestId);assert.equal(generated.status,'submitted');assert.equal(generated.approvedAt,undefined);
       await ProcurementTemplate.updateOne({_id:template._id},{$set:{nextDueAt:new Date(Date.now()-60000)},$inc:{__v:1}});await User.updateOne({_id:owner.user._id},{$inc:{'security.tokenVersion':1}});
       const result=await operations.processBusinessRecurrence(new Date());assert.equal(result.created,0);const paused=await ProcurementTemplate.findById(template._id);assert.equal(paused.active,false);assert.equal(paused.lastFailureCode,'BUSINESS_ACCOUNT_UNAVAILABLE');assert.equal(await ProcurementRun.countDocuments({templateId:template._id}),1);
+      const pauseAudit=await AuditLog.findOne({action:'business.recurrence.paused',targetPublicId:template.publicId}).lean();assert.ok(pauseAudit);assert.match(pauseAudit.requestId,/^business-recurrence-pause:/);assert.equal(pauseAudit.actorId,undefined);
       await assert.rejects(operations.submitBusinessProcurement(owner.service,{title:'Revoked token',items:[{variantPublicId:variant.publicId,quantity:1}]}),error=>error.code==='BUSINESS_ACCOUNT_UNAVAILABLE');
     });
   }finally{for(const transport of transports)transport.destroy();for(const storageKey of storageKeys)await deleteMediaObject(storageKey).catch(()=>{});await mongoose.connection.dropDatabase();await mongoose.disconnect();}

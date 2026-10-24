@@ -58,6 +58,8 @@ const countrySettingSchema = new mongoose.Schema(
   { timestamps: true, optimisticConcurrency: true },
 );
 
+countrySettingSchema.add({ checkoutReadRevision: { type: Number, min: 0, select: false } });
+
 export const CountrySetting = mongoose.model(
   'CountrySetting',
   countrySettingSchema,

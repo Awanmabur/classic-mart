@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import { AppError } from '../core/errors.js';
-import { EvidenceDocument, LedgerAccount, LedgerTransaction, PaymentIntent, Refund, ReturnRequest, Shipment, Warehouse, WarehouseTask } from '../models/index.js';
+import { EvidenceDocument, InventoryReservation, LedgerAccount, LedgerTransaction, PaymentIntent, Refund, ReturnRequest, Shipment, StockItem, Warehouse, WarehouseTask } from '../models/index.js';
 import { shipmentSource } from './delivery-source.js';
 
 const same = (a, b) => String(a || '') === String(b || '');
@@ -27,7 +27,7 @@ export async function returnPickupReceipt(row, order, { session = null } = {}) {
 }
 
 /** Stable source identity deliberately excludes workflow versions and refund counters. */
-export async function returnResolutionSource(row, order, financial, { session = null, fence = false } = {}) {
+export async function returnResolutionSource(row, order, financial, { session = null, fence = false, fencePayment = true } = {}) {
   const intent = await PaymentIntent.findOne({ orderId: order._id, orderPublicId: order.publicId, country: row.country,
     currency: order.totals.currency, amountMinor: order.totals.totalMinor, purpose: 'order_payment',
     provider: mongoose.trusted({ $in: ['pesapal', 'wallet', 'cod'] }),
@@ -53,7 +53,7 @@ export async function returnResolutionSource(row, order, financial, { session = 
     || intent.provider === 'wallet' && cash.some(entry => !same(byAccount.get(identifier(entry.accountId)).ownerId, row.userId))
     || intent.provider === 'pesapal' && cash.some(entry => byAccount.get(identifier(entry.accountId)).ownerPublicId !== 'pesapal')
     || intent.provider === 'cod' && cash.some(entry => byAccount.get(identifier(entry.accountId)).ownerPublicId !== 'classic-mart')) throw invalid();
-  const fences = [[PaymentIntent, intent, { status: intent.status, amountMinor: intent.amountMinor, currency: intent.currency }]], items = [];
+  const fences = fencePayment ? [[PaymentIntent, intent, { status: intent.status, amountMinor: intent.amountMinor, currency: intent.currency }]] : [], items = [];
   for (const item of row.items) {
     const task = await WarehouseTask.findOne({ publicId: item.warehouseTaskPublicId, type: 'return_inspection', status: 'completed',
       returnRequestId: row._id, orderId: order._id, returnOrderLineId: item.orderLineId, storeId: item.storeId,
@@ -80,7 +80,12 @@ export async function returnResolutionSource(row, order, financial, { session = 
       receipt: receipt ? { publicId: receipt.publicId, storageKey: receipt.storageKey, size: receipt.size, owner: identifier(receipt.ownerUserId) } : null });
   }
   const pickup = row.returnMethod === 'pickup' ? await returnPickupReceipt(row, order, { session }) : null;
-  if (pickup) fences.push([Shipment, pickup.shipment, { status: 'delivered', 'proof.reference': 'verified' }], [EvidenceDocument, pickup.photo, { status: 'ready' }]);
+  if (pickup) {
+    fences.push([Shipment, pickup.shipment, { status: 'delivered', 'proof.reference': 'verified' }], [EvidenceDocument, pickup.photo, { status: 'ready' }]);
+    for (const entry of pickup.source.reservations) fences.push([InventoryReservation, entry, { status: 'committed', stockItemId: entry.stockItemId, quantity: entry.quantity }]);
+    for (const entry of pickup.source.stock) fences.push([StockItem, entry, { storeId: entry.storeId, warehouseId: entry.warehouseId, variantId: entry.variantId }]);
+    for (const entry of pickup.source.warehouses) fences.push([Warehouse, entry, { active: true, country: row.country, storeId: entry.storeId }]);
+  }
   if (outbound) fences.push([Shipment, outbound, { status: 'delivered', 'proof.reference': 'verified' }]);
   for (const account of accounts) fences.push([LedgerAccount, account, { code: account.code, country: account.country, currency: account.currency }]);
   if (fence) {
@@ -101,7 +106,8 @@ export async function returnResolutionSource(row, order, financial, { session = 
     items, pickup: pickup ? { publicId: pickup.shipment.publicId, deliveredAt: date(pickup.shipment.deliveredAt), proof: pickup.shipment.proof,
       assignedAt: date(pickup.shipment.assignedAt), pickedUpAt: date(pickup.shipment.pickedUpAt), deliveryUserId: identifier(pickup.shipment.deliveryUserId),
       photo: { publicId: pickup.photo.publicId, storageKey: pickup.photo.storageKey, size: pickup.photo.size },
-      stock: pickup.source.stock.map(item => ({ publicId: item.publicId, warehouseId: identifier(item.warehouseId), storeId: identifier(item.storeId), variantId: identifier(item.variantId) })).sort((a,b)=>a.publicId.localeCompare(b.publicId)) } : null };
+      stock: pickup.source.stock.map(item => ({ publicId: item.publicId, warehouseId: identifier(item.warehouseId), storeId: identifier(item.storeId), variantId: identifier(item.variantId) })).sort((a,b)=>a.publicId.localeCompare(b.publicId)),
+      reservations: pickup.source.reservations.map(item => ({ publicId: item.publicId, stockItemId: identifier(item.stockItemId), quantity: item.quantity })).sort((a,b)=>a.publicId.localeCompare(b.publicId)) } : null };
   return { intent, hash: crypto.createHash('sha256').update(JSON.stringify(snapshot)).digest('hex') };
 }
 
@@ -110,7 +116,9 @@ export async function assertAcceptedReturnRefundSource(row, order, financial, { 
   const proposal = row.resolutionChange;
   if (!proposal.respondedAt || !same(proposal.respondedByUserId, row.userId) || same(proposal.proposedByUserId, row.userId)
     || proposal.currency !== order.totals.currency || proposal.amountMinor !== financial.amountMinor) throw invalid();
-  const original = await returnResolutionSource(row, order, financial, { session, fence: Boolean(session?.inTransaction()) });
+  // Finance owns the payment version supplied by its form and fences that intent
+  // itself. Its source check must preserve that version until the reservation.
+  const original = await returnResolutionSource(row, order, financial, { session, fence: Boolean(session?.inTransaction()), fencePayment: false });
   if (original.hash !== proposal.sourceHash || original.intent.publicId !== proposal.paymentIntentPublicId) throw invalid();
 }
 

@@ -264,10 +264,10 @@ export async function secureSubmitPromoterVerification(request, input) {
   return transaction(async session => {
     const access = await programmeAccess(request, session, { verified: false });
     if (!await countryAdminPersonalAccountEligible(access.actor, 'promoter', session)) throw new AppError('A personal Promoter account is required.', 403, 'PROMOTER_WORKSPACE_FORBIDDEN');
-    const device = await currentRequestDevice(request, { userId: access.actor._id, session });
     assertVersion(access.verification, input.verificationVersion, 'Verification');
+    // programmeAccess supplies the current Device; fenceAccess claims that same
+    // snapshot once, together with the account and market, in this transaction.
     await fenceAccess(access, session, { verification: false });
-    if (device) await fence(Device, device, session, { userId: access.actor._id, sessionHash: device.sessionHash, revokedAt: null });
     const row = access.verification || new PromoterVerification({ publicId: publicId('prv'), userId: access.actor._id, country: access.country });
     row.channels = channels; row.niches = niches; row.audienceSize = audienceSize; row.audienceLocation = audienceLocation;
     row.status = 'submitted'; row.disclosureAcceptedAt = new Date(); row.submittedAt = new Date(); row.reason = '';

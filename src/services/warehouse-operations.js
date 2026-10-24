@@ -46,7 +46,7 @@ function version(value) {
 export async function assertWarehouseAccess(request, { mutation = false, session = null } = {}) {
   if (!request.user?._id) throw new AppError('Sign in to access warehouse operations.', 401, 'UNAUTHENTICATED');
   const actor = await User.findById(request.user._id)
-    .select('publicId name role status country emailVerifiedAt phoneVerifiedAt onboardingCompletedAt platformAccessManagedAt security.tokenVersion security.mfaEnabled +operationalCountries').session(session);
+    .select('publicId name role status country emailVerifiedAt phoneVerifiedAt onboardingCompletedAt platformAccessManagedAt security.tokenVersion security.mfaEnabled __v +operationalCountries').session(session);
   if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion ||
     (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) {
     throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');

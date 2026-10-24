@@ -34,8 +34,12 @@ test('real aftersales HTTP consent, specialist departments and private seller or
     const { mutateWarehouse } = await import('../src/services/warehouse-operations.js');
     const { ensureLedgerAccount, postLedgerTransaction } = await import('../src/services/money.js');
     const { hashPassword, hashToken } = await import('../src/core/crypto.js');
-    const { encryptSensitive } = await import('../src/core/sensitive.js');
+    const { encryptSensitive, decryptSensitive } = await import('../src/core/sensitive.js');
     const { totpCode } = await import('../src/services/mfa.js');
+    const { logger } = await import('../src/config/logger.js');
+    t.mock.method(logger, 'error', fields => {
+      if (fields?.err) t.diagnostic(`HTTP ${fields.req?.method || ''} ${fields.req?.path || ''}: ${fields.err.stack || String(fields.err)}`);
+    });
     await Promise.all(Object.values(mongoose.models).map(Model => Model.init()));
     await CountrySetting.create([{ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256' },
       { code: 'KE', name: 'Kenya', currency: 'KES', locale: 'en-KE', timeZone: 'Africa/Nairobi', phonePrefix: '+254' }]);
@@ -131,6 +135,28 @@ test('real aftersales HTTP consent, specialist departments and private seller or
     }
     const primary = await inspectedExchange();
     let proposal;
+    await t.test('buyer collection codes load on request only for the owned currently assigned return shipment', async () => {
+      const fixture = await paidOrder(), html = await buyer.client.get('/returns').expect(200);
+      const result = await buyer.client.post('/api/v1/returns').set('x-csrf-token', csrf(html.text)).send({ orderId: fixture.order.publicId,
+        items: [{ orderLineId: fixture.line, quantity: 1 }], reason: 'damaged', details: 'Actual delivered goods await an assigned carrier collection.', resolution: 'refund', returnMethod: 'pickup' }).expect(201);
+      const returned = await ReturnRequest.findOne({ publicId: result.body.returnRequest.publicId });
+      await post(support, '/support/returns/' + returned.publicId + '/decision', { version: returned.__v, decision: 'approve', note: 'Approved exact delivered goods for explicit carrier collection.' });
+      const shipment = await Shipment.findOne({ returnRequestId: returned._id }).select('+pickupCodeEncrypted +deliveryCodeEncrypted');
+      const path = '/api/v1/customer/returns/' + returned.publicId + '/pickup-code';
+      await buyer.client.get(path).set('accept', 'application/json').expect(404);
+      // This endpoint test supplies an assigned source fixture; physical collection is exercised in delivery-recovery-live.test.js.
+      await Shipment.updateOne({ _id: shipment._id }, { $set: { status: 'assigned', assignedAt: new Date(), deliveryUserId: new mongoose.Types.ObjectId() } });
+      await request(app).get(path).set('accept', 'application/json').expect(401);
+      await otherBuyer.client.get(path).set('accept', 'application/json').expect(404);
+      const code = await buyer.client.get(path).set('accept', 'application/json').expect(200);
+      assert.equal(code.body.pickupCode, decryptSensitive(shipment.pickupCodeEncrypted)); assert.equal(code.body.shipmentPublicId, shipment.publicId);
+      assert.match(code.headers['cache-control'], /private.*no-store/); assert.ok(!Object.hasOwn(code.body, 'deliveryCode'));
+      const page = await buyer.client.get('/account/returns').expect(200); assert.match(page.text, /Show collection code/);
+      assert.ok(!page.text.includes(decryptSensitive(shipment.pickupCodeEncrypted))); assert.ok(!page.text.includes(decryptSensitive(shipment.deliveryCodeEncrypted)));
+      await buyer.client.get('/api/v1/returns/' + returned.publicId + '/pickup-code').set('accept', 'application/json').expect(307).expect('location', path);
+      await Shipment.updateOne({ _id: shipment._id }, { $set: { status: 'picked_up', pickupCodeEncrypted: '' } });
+      await buyer.client.get(path).set('accept', 'application/json').expect(404);
+    });
     await t.test('Support offers an actual original-payment alternative; only the owning buyer can consent', async () => {
       const path = '/support/returns/' + primary.returned.publicId + '/refund-proposal', body = { version: await version(ReturnRequest, primary.returned), reason: 'The inspected goods can instead be refunded to their verified original payment.' };
       await support.client.post(path).set('accept', 'application/json').send(body).expect(403);
@@ -202,6 +228,7 @@ test('real aftersales HTTP consent, specialist departments and private seller or
     await t.test('Finance, Moderation and Country Admin claim and return real departmental assessments', async () => {
       for (const [department, actor, workspace, base] of [['finance', finance, 'finance', '/finance/order-cases'], ['moderation', moderator, 'moderator', '/moderation/order-cases'], ['delivery', admin, 'admin', '/admin/order-cases']]) {
         const fixture = await referredCase(department), selected = base + '?record=' + fixture.referral.publicId;
+        if (department === 'finance') for (const recipient of [finance, financeSecond]) assert.ok(await Notification.exists({ type: 'specialist_order_case', userId: recipient.user._id, href: new RegExp(fixture.referral.publicId) }));
         const html = await actor.client.get(selected).expect(200); assert.match(html.text, /Claim order case/); assert.match(html.headers['cache-control'], /no-store/); assert.match(html.headers['x-robots-tag'], /noindex/);
         const flow = await actor.client.get(selected).set('accept', 'application/json').expect(200); assert.equal(flow.body.metrics.length, 4); assert.equal(flow.body.selected.orderPublicId, fixture.order.publicId);
         await foreignFinance.client.get('/finance/order-cases?record=' + fixture.referral.publicId).set('accept', 'application/json').expect(404);
@@ -236,6 +263,9 @@ test('real aftersales HTTP consent, specialist departments and private seller or
       assert.equal((await SpecialistReferral.findById(fixture.referral._id)).__v, before.__v);
       await otherSeller.client.get(base + '/evidence/' + evidence.publicId).set('accept', 'application/json').expect(404);
       await support.client.get('/support/order-case-evidence/' + evidence.publicId).expect(200).expect('Content-Type', /image\/webp/);
+      await PlatformGrant.updateOne({ _id: support.grant._id }, { $set: { operationalCountries: ['KE'] } });
+      await support.client.get('/support/order-case-evidence/' + evidence.publicId).set('accept', 'application/json').expect(403);
+      await PlatformGrant.updateOne({ _id: support.grant._id }, { $set: { operationalCountries: ['UG'] } });
       await post(seller, base + '/' + fixture.referral.publicId + '/respond', { version: upload.body.referral.version, finding: 'further_action', summary: 'The exact store-owned order lines and private dispatch evidence have been reviewed; Support should decide the buyer response.' }, { page: base });
       assert.equal((await SpecialistReferral.findById(fixture.referral._id)).status, 'responded');
       assert.equal((await Dispute.findById(fixture.dispute._id)).status, 'investigating');
@@ -255,7 +285,7 @@ test('real aftersales HTTP consent, specialist departments and private seller or
       await PlatformGrant.updateOne({ _id: finance.grant._id }, { $set: { operationalCountries: ['UG'] } });
       await SupportTicket.updateOne({ _id: fixture.referral.ticketId }, { $set: { orderPublicId: id('ord') } });
       await assert.rejects(specialists.mutateSpecialistOrderCase(context, 'finance', fixture.referral.publicId, 'claim', { version: fixture.referral.__v }), error => error.code === 'SPECIALIST_SOURCE_MISMATCH');
-      const sessionID = id('session'), device = await Device.create({ publicId: id('dev'), userId: buyer.user._id, sessionHash: hashToken(sessionID), label: 'Revoked fixture browser', userAgent: 'Fixture', ipHash: id('ip'), revokedAt: new Date() });
+      const sessionID = id('session'), device = await Device.create({ publicId: id('dev'), userId: buyer.user._id, sessionHash: hashToken(sessionID), label: 'Revoked fixture browser', userAgent: 'Fixture', ipHash: id('ip'), lastSeenAt: new Date(), revokedAt: new Date() });
       const stale = { ...req(buyer), sessionID, device, session: { userId: buyer.user._id, tokenVersion: buyer.user.security.tokenVersion } };
       await assert.rejects(currentCustomerAccess(stale), error => error.code === 'ACCOUNT_UNAVAILABLE');
       await assert.rejects(tickets.createCustomerSupportTicket(stale, { subject: 'Current session required', category: 'order', priority: 'normal', message: 'A revoked browser cannot create this support conversation.' }), error => error.code === 'ACCOUNT_UNAVAILABLE');
@@ -264,7 +294,8 @@ test('real aftersales HTTP consent, specialist departments and private seller or
     });
   } finally {
     t.mock.restoreAll(); for (const transport of transports) transport.destroy();
-    await Promise.all(Object.values(mongoose.models).map(Model => Model.init()));
-    try { await mongoose.connection.dropDatabase(); } finally { await mongoose.disconnect(); await fs.rm(process.env.UPLOAD_DIR, { recursive: true, force: true }); }
+    try { await mongoose.connection.dropDatabase(); } finally {
+      try { await mongoose.disconnect(); } finally { await fs.rm(process.env.UPLOAD_DIR, { recursive: true, force: true }); }
+    }
   }
 });

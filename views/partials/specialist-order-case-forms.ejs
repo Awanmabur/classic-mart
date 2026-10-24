@@ -1,4 +1,4 @@
-<% const selectedReferral = flow.selected; if (selectedReferral) { %>
+<% const flow = pageFlow, selectedReferral = flow.selected; if (selectedReferral) { %>
 <section class="panel form-panel role-settings-panel">
   <div class="section-heading"><div><h2><%= selectedReferral.publicId %></h2><p class="form-intro"><%= selectedReferral.subject %> · Order <%= selectedReferral.orderPublicId %></p></div><span class="role-status"><%= selectedReferral.status %></span></div>
   <p class="form-intro"><%= selectedReferral.reason %></p>

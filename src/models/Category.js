@@ -67,5 +67,6 @@ const categorySchema = new Schema(
 );
 
 categorySchema.index({ active: 1, name: 1 });
+categorySchema.add({ checkoutReadRevision: { type: Number, min: 0, select: false } });
 
 export const Category = mongoose.model('Category', categorySchema);

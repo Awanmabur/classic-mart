@@ -34,5 +34,6 @@ const brandSchema = new Schema(
 );
 
 brandSchema.index({ status: 1, name: 1 });
+brandSchema.add({ checkoutReadRevision: { type: Number, min: 0, select: false } });
 
 export const Brand = mongoose.model('Brand', brandSchema);

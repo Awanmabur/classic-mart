@@ -140,7 +140,7 @@ export async function markReturnReceived(request,returnId,raw=''){
     if (!['approved','awaiting_return'].includes(doc.status)) throw new AppError('Return is not awaiting receipt.',409,'RETURN_STATE');
     let pickup=null;
     if(doc.returnMethod==='pickup'){
-      try{pickup=await returnPickupReceipt(doc,order,{session});}catch(error){throw new AppError('The return pickup requires its original receiving allocation, verified receiving OTP and private carrier receipt photo.',409,'RETURN_SHIPMENT_NOT_DELIVERED');}
+      try{pickup=await returnPickupReceipt(doc,order,{session});}catch(error){if(!(error instanceof AppError))throw error;throw new AppError('The return pickup requires its original receiving allocation, verified receiving OTP and private carrier receipt photo.',409,'RETURN_SHIPMENT_NOT_DELIVERED');}
       const source=await shipmentSource(pickup.shipment,{session,write:true});
       doc.__v=source.returned.__v;order.__v=source.order.__v;
       const shipmentFence=await Shipment.updateOne({_id:pickup.shipment._id,__v:pickup.shipment.__v||0,status:'delivered','proof.reference':'verified'},{$inc:{__v:1}},{session});
@@ -152,7 +152,7 @@ export async function markReturnReceived(request,returnId,raw=''){
     await fenceSupportAccess(context,session);
     for(const returned of doc.items){
       const item=order.items.find(x=>String(x.linePublicId)===String(returned.orderLineId));if(!item)throw new AppError('Return order line is missing.',409,'RETURN_ORDER_LINE_MISSING');if(Number(item.returnReservedQuantity||0)<returned.quantity)throw new AppError('Return quantity reservation is inconsistent.',409,'RETURN_RESERVATION_CONFLICT');
-      const allocation=pickup?await InventoryReservation.findOne({publicId:item.reservationPublicId,status:'committed',storeId:item.storeId,variantId:item.variantId,quantity:item.quantity}).session(session).lean():null;
+      const allocation=pickup?pickup.source.reservations.find(row=>row.publicId===item.reservationPublicId&&String(row.storeId)===String(item.storeId)&&String(row.variantId)===String(item.variantId)&&row.quantity===item.quantity):null;
       const committedStock=pickup?pickup.source.stock.find(row=>String(row._id)===String(allocation?.stockItemId)):null;
       if(pickup&&!committedStock)throw new AppError('The pickup return must enter its original committed receiving warehouse.',409,'RETURN_RECEIVING_UNAVAILABLE');
       const warehouseRows=await Warehouse.find({storeId:returned.storeId,country:doc.country,active:true,...(pickup?{_id:committedStock.warehouseId}:{publicId:returned.intakeWarehousePublicId})}).sort({createdAt:1}).session(session);if(!warehouseRows.length)throw new AppError(`An active warehouse is required before receiving return line ${returned.sku||returned.orderLineId}.`,409,'RETURN_WAREHOUSE_REQUIRED');

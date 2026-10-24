@@ -68,5 +68,6 @@ const storeSchema = new Schema(
 storeSchema.index({ country: 1, status: 1, createdAt: -1 });
 
 storeSchema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
+storeSchema.add({ checkoutReadRevision: { type: Number, min: 0, select: false } });
 
 export const Store = mongoose.model('Store', storeSchema);

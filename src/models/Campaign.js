@@ -9,5 +9,6 @@ const schema=new Schema({
  allowedChannels:{type:[String],default:[]},facts:{type:[String],default:[]},productPublicIds:{type:[String],default:[]},assets:{type:[assetSchema],default:[]},disclosureText:{type:String,maxlength:300,default:'Sponsored/affiliate promotion for Classic Mart.'},policyVersion:{type:String,maxlength:40,default:'2026-07'},
  startsAt:Date,endsAt:Date,submittedAt:Date,reviewedAt:Date,reviewedByUserId:{type:Schema.Types.ObjectId,ref:'User'},reviewReason:{type:String,maxlength:500,default:''}
 },{timestamps:true,optimisticConcurrency:true});
+schema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
 schema.index({country:1,status:1,createdAt:-1});
 export const Campaign=mongoose.model('Campaign',schema);

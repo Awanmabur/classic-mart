@@ -228,6 +228,24 @@ export async function syncProcurementStatus(procurementId, session = null) {
   return procurement;
 }
 
+/** A closed request cannot reuse approval released by an expired unpaid order. */
+export async function releaseClosedExpiredBusinessCommitment(purchaseOrderId, session) {
+  if (!session?.inTransaction()) throw new AppError('Business commitment release requires the expiry transaction.',500,'BUSINESS_TRANSACTION_REQUIRED');
+  const po = await PurchaseOrder.findOne({ _id: purchaseOrderId, status: 'expired', paymentTerms: 'immediate', orderPublicId: mongoose.trusted({ $type: 'string', $ne: '' }) }).session(session);
+  if (!po || po.closedCommitmentReleasedAt) return null;
+  const procurement = await ProcurementRequest.findOne({ _id: po.procurementRequestId, organizationId: po.organizationId, closedAt: mongoose.trusted({ $type: 'date' }), approvedAt: mongoose.trusted({ $type: 'date' }) }).session(session);
+  if (!procurement?.budgetId) return null;
+  const amount = Number(po.approvedAmountMinor);
+  if (!Number.isSafeInteger(amount) || amount < po.totalMinor) throw new AppError('The expired order has no valid approved commitment.',409,'BUSINESS_BUDGET_CONFLICT');
+  await fenceBusinessRecord(ProcurementRequest, procurement, session, { closedAt: procurement.closedAt });
+  const budget = await BusinessBudget.updateOne({ _id: procurement.budgetId, organizationId: po.organizationId, currency: po.currency, committedMinor: mongoose.trusted({ $gte: amount }) }, { $inc: { committedMinor: -amount, __v: 1 } }, { session });
+  if (budget.modifiedCount !== 1) throw new AppError('The expired approved commitment could not be released safely.',409,'BUSINESS_BUDGET_CONFLICT');
+  po.closedCommitmentReleasedAt = new Date(); po.timeline.push({ type: 'budget.commitment_released', message: 'The closed request’s approved commitment was released after its unpaid order expired.' });
+  await po.save({ session });
+  await writeAudit({ id: `business-po-expiry:${po.publicId}`, get: () => '', ip: '' }, 'business.closed_commitment.released', { targetType: 'purchase_order', targetPublicId: po.publicId, country: po.country, metadata: { releasedMinor: amount, procurementRequestPublicId: procurement.publicId }, session });
+  return { publicId: po.publicId, releasedMinor: amount };
+}
+
 export async function ageBusinessInvoices(now = new Date(), { limit = 250 } = {}) {
   const rows = await BusinessInvoice.find({ status: 'open', dueAt: { $lte: now } }).sort({ dueAt: 1 }).limit(limit).select('_id');
   let overdue = 0;
@@ -462,6 +480,6 @@ export async function recordBusinessDelivery({ orderId, actorUserId, session, re
   await order.save({ session });
   await invoice.save({ session });
   await issueDeliveryNoteDocument({order,invoice,purchaseOrder:po,shipment,issuedByUserId:actorUserId,session});
-  await writeAudit(request || {user:{_id:actorUserId},get:()=>'',ip:''},'business.delivery.reconciled',{targetType:'purchase_order',targetPublicId:po.publicId,country:po.country,metadata:{orderPublicId:order.publicId,invoicePublicId:invoice.publicId,shipmentPublicId:shipment.publicId},session});
+  await writeAudit(request || {id:`business-delivery:${shipment.publicId}`,user:{_id:actorUserId},get:()=>'',ip:''},'business.delivery.reconciled',{targetType:'purchase_order',targetPublicId:po.publicId,country:po.country,metadata:{orderPublicId:order.publicId,invoicePublicId:invoice.publicId,shipmentPublicId:shipment.publicId},session});
   return invoice;
 }

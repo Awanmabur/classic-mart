@@ -1,10 +1,10 @@
 import mongoose from 'mongoose';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
-import { CountrySetting, Notification, PlatformGrant, Product, PromoterVerification, SellerVerification, Store, User } from '../models/index.js';
+import { Campaign, CountrySetting, Notification, PlatformGrant, Product, PromoterVerification, SellerVerification, Store, User } from '../models/index.js';
 
 const SOURCES={product:{Model:Product,path:'/admin/products'},seller_verification:{Model:SellerVerification,path:'/admin/seller-approvals'},
-  promoter_verification:{Model:PromoterVerification,path:'/admin/promoter-approvals'},review:{path:'/admin/reviews'}};
+  promoter_verification:{Model:PromoterVerification,path:'/admin/promoter-approvals'},review:{path:'/admin/reviews'},campaign:{Model:Campaign,path:'/admin/campaigns'}};
 const same=(a,b)=>String(a || '') === String(b || '');
 async function recordedSource(type,id,country,kind,session) {
   const config=SOURCES[type];if(!config)return null;
@@ -19,6 +19,16 @@ async function recordedSource(type,id,country,kind,session) {
     return {row,Model:Review,path:config.path,countries:[...new Set([country,store.country])],records:[[Review,row],[Order,order],[Product,product],[Store,store]]};
   }
   const row=await config.Model.findOne({publicId:id}).session(session);if(!row)return null;
+  if(type === 'campaign') {
+    const store=await Store.findOne({_id:row.storeId,ownerUserId:row.ownerUserId,country,status:'verified'}).session(session);
+    const owner=store && await User.findOne({_id:store.ownerUserId,role:'seller',status:'active',platformAccessManagedAt:null}).session(session);
+    if(kind !== 'priority' || row.country !== country || row.scope !== 'seller' || row.systemManaged || row.status !== 'submitted'
+      || !row.submittedAt || !row.submittedByUserId || !row.facts.length || !row.disclosureText || !store || !owner
+      || await PlatformGrant.exists({userId:owner._id}).session(session))return null;
+    const products=await Product.find({publicId:mongoose.trusted({$in:row.productPublicIds}),storeId:store._id,ownerUserId:owner._id,countries:country,status:mongoose.trusted({$in:['approved','published']})}).session(session);
+    if(!products.length || products.length !== row.productPublicIds.length)return null;
+    return {row,Model:Campaign,path:config.path,countries:[country],records:[[Campaign,row],[Store,store],...products.map(product=>[Product,product])]};
+  }
   if(type === 'promoter_verification') {
     const owner=await User.findOne({_id:row.userId,role:'promoter',status:'active',platformAccessManagedAt:null,emailVerifiedAt:mongoose.trusted({$type:'date'}),onboardingCompletedAt:mongoose.trusted({$type:'date'})}).session(session);
     if(!owner || row.country !== country || row.status !== 'appealed' || !row.submittedAt || !row.disclosureAcceptedAt || !row.appeal?.submittedAt || !row.appeal?.originalReviewerUserId || !row.appeal?.message || kind !== 'escalation')return null;
@@ -66,7 +76,7 @@ export async function queueCountryAdminAlert({country,kind='priority',sourceType
     const grantFence=await PlatformGrant.updateOne({_id:recipient.grant._id,userId:recipient._id,role:'country_admin',status:'active',startsAt:mongoose.trusted({$lte:new Date()}),expiresAt:mongoose.trusted({$gt:new Date()}),__v:recipient.grant.__v || 0},{$inc:{__v:1}},{session,timestamps:false});
     if(grantFence.modifiedCount !== 1)continue;
     await Notification.create([{publicId:publicId('ntf'),userId:recipient._id,country,type:'country_admin_work',
-      title:kind === 'priority'?'High risk Country Admin work awaiting review':'Country Admin appeal or dispute awaiting review',
+      title:sourceType === 'campaign'?'Seller affiliate campaign awaiting review':kind === 'priority'?'High risk Country Admin work awaiting review':'Country Admin appeal or dispute awaiting review',
       body:'A recorded marketplace source requires independent review in your authorized country.',importance:kind === 'priority'?'high':'normal',
       href:source.path+'?'+new URLSearchParams({record:sourcePublicId,country})}],{session});count++;
   }

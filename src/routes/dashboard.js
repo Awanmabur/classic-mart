@@ -22,6 +22,7 @@ const router=Router();
 function accountOnly(request,_response,next){if(!hasPermission(request.user,'account:read'))return next(new AppError('Customer account access is not available.',403,'CUSTOMER_DASHBOARD_ONLY'));return next();}
 const gates=[noStore,requireAuth,requireVerified,requireOnboarding,accountOnly];
 const paths=(path)=>[path,path.replace(/^\/dashboard/, '')];
+const avatarReturn=request=>request.body?.returnTo==='/account/profile'?'/account/profile':'/profile';
 const pickupCodeLimit=rateLimit({scope:'customer-return-pickup-code',windowMs:10*60_000,limit:30,standardHeaders:'draft-8',legacyHeaders:false});
 
 router.get('/api/v1/customer/returns/:publicId/pickup-code',...gates,pickupCodeLimit,asyncHandler(async(request,response)=>{
@@ -54,10 +55,10 @@ router.post('/account/avatar',...gates,asyncHandler(async(request,response)=>{
   }));
   await updateCustomerAvatar(request,request.file);
   setFlash(request,'success','Profile photo updated.');
-  response.redirect('/profile');
+  response.redirect(avatarReturn(request));
 }));
 router.post('/account/avatar/delete',...gates,asyncHandler(async(request,response)=>{
-  await deleteCustomerAvatar(request);setFlash(request,'success','Profile photo removed.');response.redirect('/profile');
+  await deleteCustomerAvatar(request);setFlash(request,'success','Profile photo removed.');response.redirect(avatarReturn(request));
 }));
 router.get(paths('/dashboard/wallet/return'),...gates,asyncHandler(async(request,response)=>{
   const tracking=String(request.query.OrderTrackingId||request.query.orderTrackingId||'').trim();

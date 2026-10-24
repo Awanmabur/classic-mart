@@ -13,11 +13,21 @@ const capabilityMap = Object.freeze({
 export function storeCapabilities(role) { return new Set(capabilityMap[role] || []); }
 
 async function ensureOwnerMembership(store, user) {
-  return StoreMember.findOneAndUpdate(
-    { storeId: store._id, userId: user._id },
-    { $set: { role: 'owner', status: 'active', acceptedAt: store.createdAt || new Date() }, $setOnInsert: { publicId: publicId('stm'), invitedByUserId: user._id, invitedAt: store.createdAt || new Date() } },
-    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
-  );
+  const identity = { storeId: store._id, userId: user._id };
+  let membership = await StoreMember.findOne(identity);
+  if (!membership) {
+    try {
+      membership = await StoreMember.create({ ...identity, publicId: publicId('stm'), role: 'owner', status: 'active',
+        acceptedAt: store.createdAt || new Date(), invitedByUserId: user._id, invitedAt: store.createdAt || new Date() });
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+      // Concurrent first visits can bootstrap the same unique owner membership.
+      membership = await StoreMember.findOne(identity);
+      if (!membership) throw error;
+    }
+  }
+  if (membership.status !== 'active' || membership.role !== 'owner') throw new AppError('Selected seller workspace membership is inactive.', 403, 'SELLER_WORKSPACE_FORBIDDEN');
+  return membership;
 }
 
 export async function sellerStoreAccesses(user) {
@@ -27,15 +37,19 @@ export async function sellerStoreAccesses(user) {
     || await PlatformGrant.exists({ userId: actor._id })) throw new AppError('This account cannot access a seller workspace.', 403, 'SELLER_IDENTITY_FORBIDDEN');
   const [ownedStores, memberships] = await Promise.all([
     actor.role === 'seller' ? Store.find({ ownerUserId: actor._id, status: { $in: ['pending_verification', 'verified', 'suspended'] } }).sort({ createdAt: 1 }).lean() : [],
-    StoreMember.find({ userId: actor._id, status: 'active', acceptedAt: { $type: 'date' } }).sort({ acceptedAt: 1 }).lean(),
+    StoreMember.find({ userId: actor._id }).sort({ acceptedAt: 1 }).lean(),
   ]);
-  const memberStoreIds = memberships.map((row) => row.storeId);
+  const memberStoreIds = memberships.filter(row => row.status === 'active' && row.acceptedAt instanceof Date).map((row) => row.storeId);
   const memberStores = memberStoreIds.length
     ? await Store.find({ _id: { $in: memberStoreIds }, status: { $in: ['pending_verification', 'verified', 'suspended'] } }).lean()
     : [];
   const membershipByStore = new Map(memberships.map((row) => [String(row.storeId), row]));
   const access = new Map();
-  for (const store of ownedStores) access.set(store.publicId, { store, role: 'owner', membership: membershipByStore.get(String(store._id)) || null });
+  for (const store of ownedStores) {
+    const membership = membershipByStore.get(String(store._id));
+    if (membership && (membership.status !== 'active' || membership.role !== 'owner')) continue;
+    access.set(store.publicId, { store, role: 'owner', membership: membership || null });
+  }
   for (const store of memberStores) {
     if (access.has(store.publicId)) continue;
     const membership = membershipByStore.get(String(store._id));
@@ -60,7 +74,8 @@ export async function getOrCreateStore(user, { preferredStorePublicId = '', stri
   const preferred = String(preferredStorePublicId || '').trim();
   let selected = preferred ? accesses.find((row) => row.store.publicId === preferred) : null;
   if (preferred && !selected && strictPreferred) throw new AppError('Selected seller workspace is unavailable.', 403, 'SELLER_WORKSPACE_FORBIDDEN');
-  selected ||= accesses[0] || null;
+  selected ||= accesses.find(row => row.role === 'owner') || null;
+  if (!selected && accesses.length) throw new AppError('Select the accepted store from your store invitations before opening its workspace.', 403, 'SELLER_WORKSPACE_REQUIRED');
 
   if (!selected) {
     if (user.role !== 'seller') throw new AppError('You are not an active member of a seller store.', 403, 'SELLER_STORE_ACCESS_REQUIRED');

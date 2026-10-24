@@ -40,5 +40,6 @@ const warehouseSchema = new Schema(
 
 warehouseSchema.index({ storeId: 1, name: 1 }, { unique: true });
 warehouseSchema.index({ active: 1, country: 1, name: 1 });
+warehouseSchema.add({ checkoutReadRevision: { type: Number, min: 0, select: false } });
 
 export const Warehouse = mongoose.model('Warehouse', warehouseSchema);

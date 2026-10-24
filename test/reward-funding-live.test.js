@@ -153,7 +153,11 @@ test('funded rewards use actual wallet cash, immutable seller economics and exac
       await assert.rejects(revoked.pay(), error => error.code === 'ACCOUNT_UNAVAILABLE');
       assert.equal(await accountBalanceMinor(revoked.wallet._id), 20000);
       assert.equal(await LedgerTransaction.countDocuments({ referenceType: 'payment', referencePublicId: { $in: (await PaymentIntent.find({ orderId: revoked.order._id }).lean()).map(row => row.publicId) } }), 0);
-      const corrupt = await fixture(); await SellerOrder.updateOne({ _id: corrupt.sellerOrder._id }, { $inc: { 'items.0.platformContributionMinor': 1 } });
+      const corrupt = await fixture();
+      // Deliberately corrupt persisted storage; ordinary model updates correctly
+      // protect this immutable settlement field and cannot inject this failure.
+      const changed = await SellerOrder.collection.updateOne({ _id: corrupt.sellerOrder._id }, { $inc: { 'items.0.platformContributionMinor': 1 } });
+      assert.equal(changed.modifiedCount, 1);
       await assert.rejects(corrupt.pay(), error => ['ORDER_FUNDING_INVALID', 'ORDER_FUNDING_UNBALANCED', 'SELLER_SETTLEMENT_SNAPSHOT_MISSING'].includes(error.code));
       assert.equal(await accountBalanceMinor(corrupt.wallet._id), 20000);
       assert.equal(await InventoryReservation.countDocuments({ publicId: { $in: corrupt.order.items.map(row => row.reservationPublicId) }, status: 'active' }), 2);

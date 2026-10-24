@@ -9,6 +9,64 @@ for(const root of roots)if(fs.existsSync(root))walk(root);
 const failures=[];
 const privateKey=/-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/;
 const highRiskKey=/(?:AKIA[0-9A-Z]{16}|sk_live_[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{30,})/;
+// Reviewed, static partial calls. Both the caller and the complete expression
+// are fixed: a new argument, dynamic path or raw data expression still fails.
+const recoveredIncludes = new Map([
+  ['views/approved-dashboard.ejs', [
+    "include('partials/super-admin-main')",
+    "include('partials/business-main')",
+    "include('partials/delivery-live')",
+    "include('partials/delivery-operations-live')",
+    "include('partials/store-invitations-live')",
+    "include('partials/customer-live-pages', { pageId: 'profile', pageData, walletIdempotencyKey: '' })",
+  ]],
+  ['views/partials/approved-account-returns.ejs', [
+    "include('customer-return-details',{returnRequest:row,proposalReturnTo:'/account/returns'})",
+  ]],
+  ['views/partials/business-main.ejs', [
+    "include('business-procurement-forms',{flow,money,link,statusTone})",
+    "include('business-quote-forms',{flow,money,link,statusTone})",
+    "include('business-invoice-forms',{flow,money,link,statusTone})",
+    "include('business-settings-forms',{flow,money,link,statusTone})",
+  ]],
+  ['views/partials/customer-case-history.ejs', [
+    "include('customer-history-navigation',{historyPage:pageData.pagination?.refunds,historyLabel:'refunds'})",
+    "include('customer-history-navigation',{historyPage:pageData.pagination?.disputes,historyLabel:'disputes'})",
+    "include('customer-history-navigation',{historyPage:pageData.pagination?.cases,historyLabel:'reports'})",
+  ]],
+  ['views/partials/customer-live-pages.ejs', [
+    "include('customer-reward-catalogue',{pageData,walletIdempotencyKey})",
+    "include('customer-history-navigation',{historyPage:wallet.pagination,historyLabel:'transactions'})",
+    "include('customer-history-navigation',{historyPage:wallet.topUpsPagination,historyLabel:'top-ups'})",
+    "include('customer-return-details',{returnRequest:item,proposalReturnTo:'/returns'})",
+    "include('customer-history-navigation',{historyPage:pageData.pagination,historyLabel:pageId==='orders'?'orders':pageId==='wishlist'?'saved products':pageId==='rewards'?'points entries':'notifications'})",
+    "include('customer-history-navigation',{historyPage:pageData.pagination?.tickets,historyLabel:'tickets'})",
+    "include('customer-history-navigation',{historyPage:pageData.pagination?.orders,historyLabel:'orders to select'})",
+    "include('customer-history-navigation',{historyPage:pageData.pagination?.returns,historyLabel:'return requests'})",
+    "include('customer-history-navigation',{historyPage:pageData.pagination?.eligible,historyLabel:'delivered orders'})",
+    "include('customer-case-history',{pageData})",
+  ]],
+  ['views/partials/customer-return-details.ejs', [
+    "include('customer-refund-proposal', { returnRequest, proposalReturnTo: typeof proposalReturnTo !== 'undefined' ? proposalReturnTo : '/account/returns' })",
+  ]],
+  ['views/partials/country-admin-main.ejs', ["include('specialist-order-case-forms')"]],
+  ['views/partials/finance-standard-live.ejs', ["include('specialist-order-case-forms')"]],
+  ['views/partials/moderation-standard-live.ejs', ["include('specialist-order-case-forms')"]],
+  ['views/partials/seller-affiliate-forms.ejs', [
+    "include('seller-affiliate-editor-fields', { draft: {} })",
+    "include('seller-affiliate-editor-fields', { draft: campaign })",
+  ]],
+  ['views/partials/seller-growth-forms.ejs', ["include('seller-subscription-billing')"]],
+  ['views/partials/seller-standard-live.ejs', [
+    "include('specialist-order-case-forms')",
+    "include('seller-team-forms')",
+    "include('seller-affiliate-forms')",
+    "include('seller-policy-case-forms')",
+    "include('seller-business-forms')",
+  ]],
+  ['views/partials/super-admin-main.ejs', ["include('super-admin-forms')"]],
+  ['views/partials/warehouse-live.ejs', ["include('warehouse-measured-report', { measured: flow.measured })"]],
+].map(([file, expressions]) => [path.normalize(file), new Set(expressions)]));
 for(const file of files){
   const text=fs.readFileSync(file,'utf8');
   if(privateKey.test(text))failures.push(`${file}: committed private key material`);
@@ -18,6 +76,7 @@ for(const file of files){
   if(file.startsWith('views'+path.sep)){
     const raw=[...text.matchAll(/<%-(.*?)%>/gs)].map(match=>match[1].trim());
     const allowed=new Set(["include(\"partials/product-preview-modal\")","include(\"partials/social-links\")","include(\"partials/storefront-header\")","include(\"partials/storefront-footer\")","include(\"social-links\")", "include('partials/brand-icons')", 'include("partials/seo-meta")']);
+    for (const expression of recoveredIncludes.get(file) || []) allowed.add(expression);
     if(file.startsWith('views'+path.sep)) {
       for (const expression of raw) {
         if (file === path.join('views', 'partials', 'seo-meta.ejs') && expression === 'pageMetadata.jsonLd') allowed.add(expression);

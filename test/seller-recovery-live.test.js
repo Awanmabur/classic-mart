@@ -48,12 +48,15 @@ test('Seller recovery uses current accepted store authority, independent reviews
   process.env.PESAPAL_IPN_ID = 'local-seller-test-ipn';
   await mongoose.connect(uri, { dbName: 'classicmart_seller_recovery_test_' + suffix });
   const models = await import('../src/models/index.js');
-  const { User, Device, CountrySetting, PlatformGrant, Store, StoreMember, StoreTeamInvitation, SubscriptionPlan, SubscriptionChangeRequest, SubscriptionCharge, SubscriptionEnrollment, LedgerTransaction, Category, Product, ProductVariant, Campaign, CampaignApplication, PromoterVerification, PromoterLink, AttributionTouch, TrustCase, EvidenceDocument } = models;
+  const { User, Device, CountrySetting, PlatformGrant, Store, StoreMember, StoreTeamInvitation, SubscriptionPlan, SubscriptionChangeRequest, SubscriptionCharge, SubscriptionEnrollment, LedgerTransaction, Category, Product, ProductVariant, Campaign, CampaignApplication, PromoterVerification, PromoterLink, AttributionTouch, TrustCase, EvidenceDocument, AuditLog } = models;
   const team = await import('../src/services/seller-team-pages.js');
   const billing = await import('../src/services/seller-subscription-operations.js');
   const affiliate = await import('../src/services/seller-affiliate-pages.js');
   const { sellerEntitlements } = await import('../src/services/seller-entitlements.js');
   const { sellerOperationsAccess, sellerTransaction } = await import('../src/services/seller-operations-access.js');
+  const { saveSellerStoreSettings } = await import('../src/services/seller-store-settings.js');
+  const { sellerStoreReadAccess } = await import('../src/services/seller-store-read-access.js');
+  const { sellerBusinessAccess } = await import('../src/services/seller-business-access.js');
   const { decideCountryAffiliateCampaign } = await import('../src/services/country-admin-growth-pages.js');
   const { secureApplyToCampaign, secureCreatePromoterLink } = await import('../src/services/promoter-campaign-pages.js');
   const { hashPassword, hashToken } = await import('../src/core/crypto.js');
@@ -99,6 +102,14 @@ test('Seller recovery uses current accepted store authority, independent reviews
     await ProductVariant.create({ publicId: id('var'), productId: product._id, storeId: store._id, sku: id('SKU').toUpperCase(), title: 'Published exact offer', priceMinor: 1000, currency: 'UGX', active: true });
     ownerHttp = await login(owner); recipientHttp = await login(recipient); adminHttp = await login(administrator);
 
+    await t.test('team, affiliate and billing pages render their real forms in the approved private Seller shell', async () => {
+      for (const [href, form] of [['/seller/team', 'Invite a team member'], ['/seller/affiliate', 'Create campaign'], ['/seller/subscription', 'Payment and renewal']]) {
+        const page = await ownerHttp.client.get(href).expect(200);
+        assert.match(page.text, /data-dashboard-workspace="seller"/); assert.ok(page.text.includes(form));
+        assert.match(page.headers['cache-control'], /no-store/); assert.match(page.headers['x-robots-tag'], /noindex/);
+      }
+    });
+
     await t.test('reviewed frozen terms require exact verified provider money and an unknown submission cannot charge twice', async () => {
       await ownerHttp.client.post('/seller/team/invitations').set('Accept', 'application/json').send({ email: recipient.user.email, role: 'finance', _csrf: ownerHttp.token }).expect(409);
       await ownerHttp.client.get('/seller/analytics/summary.csv').set('Accept', 'application/json').expect(403);
@@ -135,21 +146,42 @@ test('Seller recovery uses current accepted store authority, independent reviews
       assert.equal((await sellerEntitlements(foreignStore)).seatLimit, 1, 'a fabricated enrollment with no settled linked charge grants no typed benefits');
     });
 
+    await t.test('an explicit renewal buys one future immutable period and cannot stack another pending renewal', async () => {
+      const change = await SubscriptionChangeRequest.findOne({ storeId: store._id, status: 'approved' });
+      const started = await ownerHttp.client.post('/seller/subscription/payments').set('Accept', 'application/json').send({ requestPublicId: change.publicId, version: change.__v, idempotencyKey: id('renewal'), _csrf: ownerHttp.token }).expect(200);
+      assert.equal(started.body.charge.amountMinor, 2500, 'renewal retains the reviewed price after the catalogue was edited');
+      const renewal = await SubscriptionCharge.findOne({ publicId: started.body.charge.publicId });
+      providerRecords.get(renewal.providerTrackingId).payment_status_description = 'COMPLETED';
+      await billing.verifySellerSubscriptionPayment(renewal.publicId, renewal.providerTrackingId);
+      const firstPeriod = await SubscriptionEnrollment.findById(charge.enrollmentId), nextPeriod = await SubscriptionEnrollment.findOne({ subscriptionChargeId: renewal._id });
+      assert.equal(nextPeriod.startsAt.getTime(), firstPeriod.currentPeriodEndsAt.getTime()); assert.ok(nextPeriod.currentPeriodEndsAt > nextPeriod.startsAt);
+      await assert.rejects(billing.startSellerSubscriptionPayment(owner.service, { requestPublicId: change.publicId, version: await revision(SubscriptionChangeRequest, change), idempotencyKey: id('third-period') }), error => error.code === 'SUBSCRIPTION_RENEWAL_ALREADY_PAID');
+      assert.equal(submissions, 2);
+    });
+
     await t.test('verified exact recipients accept atomically, keep their identity role and explicitly select a workspace', async () => {
       const invited = await ownerHttp.client.post('/seller/team/invitations').set('Accept', 'application/json').send({ email: recipient.user.email, role: 'finance', _csrf: ownerHttp.token }).expect(200);
       const invitation = await StoreTeamInvitation.findOne({ publicId: invited.body.publicId });
       assert.equal(await StoreMember.countDocuments({ storeId: store._id, userId: recipient.user._id }), 0);
       await assert.rejects(team.decideStoreTeamInvitation(outsider.service, invitation.publicId, { decision: 'accept', version: invitation.__v }), error => error.code === 'STORE_INVITATION_NOT_FOUND');
+      await User.updateOne({ _id: recipient.user._id }, { $unset: { emailVerifiedAt: 1 }, $inc: { __v: 1 } });
+      await recipientHttp.client.post('/account/store-invitations/' + invitation.publicId + '/accept').set('Accept', 'application/json').send({ version: invitation.__v, _csrf: recipientHttp.token }).expect(403);
+      await User.updateOne({ _id: recipient.user._id }, { $set: { emailVerifiedAt: new Date() }, $inc: { __v: 1 } });
       await recipientHttp.client.post('/account/store-invitations/' + invitation.publicId + '/accept').set('Accept', 'application/json').send({ version: invitation.__v + 1, _csrf: recipientHttp.token }).expect(409);
       const accepted = await Promise.all([1, 2].map(() => recipientHttp.client.post('/account/store-invitations/' + invitation.publicId + '/accept').set('Accept', 'application/json').send({ version: invitation.__v, _csrf: recipientHttp.token })));
       assert.deepEqual(accepted.map(row => row.status).sort(), [200, 409]);
       assert.equal(await StoreMember.countDocuments({ storeId: store._id, userId: recipient.user._id, status: 'active' }), 1); assert.equal((await User.findById(recipient.user._id)).role, 'customer');
+      await recipientHttp.client.get('/seller/team').set('Accept', 'application/json').expect(403);
       const workspace = await recipientHttp.client.post('/seller/workspace').set('Accept', 'application/json').send({ storePublicId: store.publicId, _csrf: recipientHttp.token }).expect(200);
       assert.equal(workspace.body.landing, '/seller/earnings'); await recipientHttp.client.get('/seller/earnings').expect(200); await recipientHttp.client.get('/seller/team').set('Accept', 'application/json').expect(403);
       const adminInvite = await team.inviteStoreTeamMember(owner.service, { email: administrator.user.email, role: 'admin' });
       await adminHttp.client.post('/account/store-invitations/' + adminInvite.publicId + '/accept').set('Accept', 'application/json').send({ version: adminInvite.version, _csrf: adminHttp.token }).expect(200);
       await adminHttp.client.post('/seller/workspace').set('Accept', 'application/json').send({ storePublicId: store.publicId, _csrf: adminHttp.token }).expect(200);
       administrator.service.store = store;
+      const seats = await Promise.all([1, 2].map(index => ownerHttp.client.post('/seller/team/invitations').set('Accept', 'application/json').send({ email: `last-seat-${index}-${suffix}@example.com`, role: 'support', _csrf: ownerHttp.token })));
+      assert.deepEqual(seats.map(row => row.status).sort(), [200, 409], 'concurrent invitations cannot reserve the last paid seat twice');
+      const reserved = seats.find(row => row.status === 200).body;
+      await team.revokeStoreTeamInvitation(owner.service, reserved.publicId, { version: reserved.version });
       await assert.rejects(team.inviteStoreTeamMember(administrator.service, { email: outsider.user.email, role: 'admin' }), error => error.code === 'STORE_OWNER_REQUIRED');
       const ownerMember = await StoreMember.findOne({ storeId: store._id, role: 'owner' });
       await assert.rejects(team.updateStoreTeamMember(administrator.service, ownerMember.publicId, { action: 'revoke', version: ownerMember.__v }), error => error.code === 'STORE_OWNER_PROTECTED');
@@ -157,6 +189,7 @@ test('Seller recovery uses current accepted store authority, independent reviews
       let adminMember = await StoreMember.findOne({ storeId: store._id, userId: administrator.user._id });
       await team.updateStoreTeamMember(owner.service, adminMember.publicId, { action: 'role', role: 'support', version: adminMember.__v });
       assert.equal((await StoreTeamInvitation.findOne({ publicId: pending.publicId })).status, 'revoked');
+      assert.equal(await team.prepareStoreTeamInvitationDelivery({ aggregatePublicId: pending.publicId, payload: { country: 'UG' } }), null);
       await assert.rejects(team.decideStoreTeamInvitation(outsider.service, pending.publicId, { decision: 'accept', version: 0 }), error => ['SELLER_VERSION_CONFLICT', 'STORE_INVITATION_EXPIRED'].includes(error.code));
       await Device.updateOne({ _id: recipient.service.device._id }, { $set: { revokedAt: new Date() } }); recipient.service.store = store;
       await assert.rejects(sellerOperationsAccess(recipient.service, 'finance'), error => error.code === 'ACCOUNT_UNAVAILABLE');
@@ -164,6 +197,7 @@ test('Seller recovery uses current accepted store authority, independent reviews
       await team.updateStoreTeamMember(owner.service, adminMember.publicId, { action: 'role', role: 'admin', version: adminMember.__v });
       const tokenInvite = await team.inviteStoreTeamMember(administrator.service, { email: outsider.user.email, role: 'support' });
       await User.updateOne({ _id: administrator.user._id }, { $inc: { 'security.tokenVersion': 1 } });
+      assert.equal(await team.prepareStoreTeamInvitationDelivery({ aggregatePublicId: tokenInvite.publicId, payload: { country: 'UG' } }), null);
       await assert.rejects(team.decideStoreTeamInvitation(outsider.service, tokenInvite.publicId, { decision: 'accept', version: tokenInvite.version }), error => error.code === 'STORE_INVITATION_UNAVAILABLE');
       const pendingRow = await StoreTeamInvitation.findOne({ publicId: tokenInvite.publicId }); await team.revokeStoreTeamInvitation(owner.service, pendingRow.publicId, { version: pendingRow.__v });
     });
@@ -228,7 +262,50 @@ test('Seller recovery uses current accepted store authority, independent reviews
       assert.equal((await SubscriptionCharge.findById(charge._id)).status, 'reversed'); assert.equal(await LedgerTransaction.countDocuments({ referencePublicId: charge.publicId, referenceType: 'subscription_reversal' }), 1);
       assert.equal((await sellerEntitlements(store)).analyticsExport, false);
     });
+
+    await t.test('settings and supplier access recheck accepted staff, current devices, ownership and market without stale writes', async () => {
+      const settingsOwner = await actor('seller'), settingsAdmin = await actor();
+      const settingsStore = await Store.create({ publicId: id('str'), ownerUserId: settingsOwner.user._id, name: 'Settings authority store', slug: id('settings-store'), country: 'UG', currency: 'UGX', status: 'verified' });
+      await StoreMember.create({ publicId: id('stm'), storeId: settingsStore._id, userId: settingsOwner.user._id, role: 'owner', status: 'active', acceptedAt: new Date(), invitedByUserId: settingsOwner.user._id });
+      const membership = await StoreMember.create({ publicId: id('stm'), storeId: settingsStore._id, userId: settingsAdmin.user._id, role: 'admin', status: 'active', acceptedAt: new Date(), invitedByUserId: settingsOwner.user._id });
+      settingsAdmin.service.store = settingsStore; settingsAdmin.service.session.activeStorePublicId = settingsStore.publicId;
+      settingsAdmin.service.body = { version: settingsStore.__v, name: 'Current administrator saved this', description: 'Authorized settings update.', supportEmail: 'HELP@example.com', supportPhoneCountry: 'UG', supportPhone: '+256781977217' };
+      const saved = await saveSellerStoreSettings(settingsAdmin.service, 'identity');
+      assert.equal(saved.__v, settingsStore.__v + 1); assert.equal(saved.operations.supportEmail, 'help@example.com');
+      assert.equal(await AuditLog.countDocuments({ targetPublicId: saved.publicId, action: 'seller.store_settings_updated' }), 1);
+      const snapshot = async () => ({ store: await Store.collection.findOne({ _id: settingsStore._id }), audits: await AuditLog.countDocuments({ targetPublicId: settingsStore.publicId }) });
+      async function denied(code) {
+        const before = await snapshot();
+        await assert.rejects(saveSellerStoreSettings(settingsAdmin.service, 'identity'), error => error.code === code);
+        assert.deepEqual(await snapshot(), before, 'a denied write rolls back Store and audit effects');
+      }
+      await denied('STORE_VERSION_CONFLICT'); settingsAdmin.service.body.version = saved.__v;
+      await StoreMember.updateOne({ _id: membership._id }, { $unset: { acceptedAt: 1 }, $inc: { __v: 1 } });
+      await denied('STORE_PERMISSION_DENIED'); await assert.rejects(sellerStoreReadAccess(settingsAdmin.service), error => error.code === 'STORE_PERMISSION_DENIED');
+      await StoreMember.updateOne({ _id: membership._id }, { $set: { acceptedAt: new Date() }, $inc: { __v: 1 } });
+      await Device.updateOne({ _id: settingsAdmin.service.device._id }, { $set: { revokedAt: new Date() }, $inc: { __v: 1 } });
+      await denied('ACCOUNT_UNAVAILABLE'); await assert.rejects(sellerStoreReadAccess(settingsAdmin.service), error => error.code === 'ACCOUNT_UNAVAILABLE');
+      await Device.updateOne({ _id: settingsAdmin.service.device._id }, { $unset: { revokedAt: 1 }, $inc: { __v: 1 } });
+      await User.updateOne({ _id: settingsOwner.user._id }, { $set: { status: 'suspended' }, $inc: { __v: 1 } });
+      await denied('STORE_PERMISSION_DENIED'); await assert.rejects(sellerBusinessAccess(settingsAdmin.service), error => error.code === 'SELLER_BUSINESS_FORBIDDEN');
+      await User.updateOne({ _id: settingsOwner.user._id }, { $set: { status: 'active' }, $inc: { __v: 1 } });
+      await User.updateOne({ _id: settingsOwner.user._id }, { $set: { platformAccessManagedAt: new Date() }, $inc: { __v: 1 } });
+      await denied('STORE_PERMISSION_DENIED'); await assert.rejects(sellerStoreReadAccess(settingsAdmin.service), error => error.code === 'STORE_PERMISSION_DENIED');
+      await User.updateOne({ _id: settingsOwner.user._id }, { $unset: { platformAccessManagedAt: 1 }, $inc: { __v: 1 } });
+      await CountrySetting.updateOne({ code: 'UG' }, { $set: { active: false }, $inc: { __v: 1 } });
+      await denied('STORE_MARKET_UNAVAILABLE'); await assert.rejects(sellerStoreReadAccess(settingsAdmin.service), error => error.code === 'STORE_MARKET_UNAVAILABLE');
+      await CountrySetting.updateOne({ code: 'UG' }, { $set: { active: true }, $inc: { __v: 1 } });
+      const unselected = { ...settingsAdmin.service, store: undefined, session: { ...settingsAdmin.service.session } }; delete unselected.session.activeStorePublicId;
+      await assert.rejects(sellerBusinessAccess(unselected), error => error.code === 'SELLER_WORKSPACE_REQUIRED');
+      assert.equal((await sellerBusinessAccess(settingsAdmin.service)).store.publicId, settingsStore.publicId);
+      const initial = await snapshot();
+      t.mock.method(AuditLog, 'create', async () => { throw new Error('Settings audit unavailable'); });
+      try { await assert.rejects(saveSellerStoreSettings(settingsAdmin.service, 'identity'), /Settings audit unavailable/); }
+      finally { t.mock.restoreAll(); }
+      assert.deepEqual(await snapshot(), initial, 'an audit failure rolls back the shared authority fence and settings mutation');
+    });
   } finally {
+    t.mock.restoreAll();
     for (const transport of transports) transport.destroy();
     await mongoose.connection.dropDatabase(); await mongoose.disconnect();
     await new Promise(resolve => provider.close(resolve));

@@ -24,8 +24,9 @@ export function requireStoreCapability(capability) {
       const path = request.path.toLowerCase().replace(/\/$/, '');
       const policyCase = /^\/seller\/trust-cases(?:\/|$)/.test(path);
       const billingRead = request.method === 'GET' && path === '/seller/subscription';
+      const lockedSettingsRead = request.method === 'GET' && path === '/seller/store';
       const billingControl = request.method === 'POST' && /^\/seller\/subscription\/(?:enrollments\/[^/]+\/cancel|payments\/[^/]+\/reconcile)$/.test(path);
-      if (!policyCase && !billingRead && !billingControl) return next(new AppError('Trading is suspended. Review your private policy cases.', 409, 'STORE_LOCKED'));
+      if (!policyCase && !billingRead && !lockedSettingsRead && !billingControl) return next(new AppError('Trading is suspended. Review your private policy cases.', 409, 'STORE_LOCKED'));
     }
     const granted = storeCapabilities(request.storeMembership?.role);
     if (granted.has('*') || granted.has(capability)) return next();

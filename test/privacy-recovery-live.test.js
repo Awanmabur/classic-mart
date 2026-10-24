@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createServer } from 'node:http';
 import mongoose from 'mongoose';
 import request from 'supertest';
 
@@ -23,6 +24,7 @@ test('verified privacy requests enforce real restrictions, obligation checks and
   assert.match(new URL(uri).pathname, /test|verification/i);
   const suffix = crypto.randomBytes(7).toString('hex');
   let exportDirectory = '';
+  let httpServer;
   try {
   await mongoose.connect(uri, { dbName: `classicmart_privacy_test_${suffix}` });
   const { env } = await import('../src/config/env.js');
@@ -38,8 +40,17 @@ test('verified privacy requests enforce real restrictions, obligation checks and
   const { hashPassword, hashToken, hashValue, normalizeEmail } = await import('../src/core/crypto.js');
   const { ensureLedgerAccount, postLedgerTransaction } = await import('../src/services/money.js');
   const { createApp } = await import('../src/app.js');
-  const { User, CountrySetting, Device, PlatformGrant, PlatformStaffInvitation, PrivacyRequest, CustomerAddress, CustomerCatalogueState, AiJob, NewsletterSubscription, OutboxEvent, PushDevice, Order, Store, StoreMember, StoreTeamInvitation, BusinessMember, AuditLog } = models;
+  const { currentCustomerAccess } = await import('../src/services/customer-access.js');
+  const { User, CountrySetting, Device, PlatformGrant, PlatformStaffInvitation, PrivacyRequest, CustomerAddress, CustomerCatalogueState, AiJob, NewsletterSubscription, OutboxEvent, PushDevice, Order, Store, StoreMember, StoreTeamInvitation, BusinessMember, AuditLog, WalletTopUp, LedgerTransaction, LoyaltyAccount, LoyaltyEntry, CustomerReward, SupportTicket } = models;
   const app = createApp(null), password = `Privacy-${suffix}-A1!`, passwordHash = await hashPassword(password);
+  // Every client uses this one owned server. Supertest must not create an
+  // untracked listener when a fixture or assertion fails between requests.
+  httpServer = createServer(app);
+  await new Promise((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(0, '127.0.0.1', resolve);
+  });
+  const base = `http://127.0.0.1:${httpServer.address().port}`;
   let sequence = 0;
   const id = prefix => `${prefix}_privacy_${suffix}_${++sequence}`;
     for (const Model of Object.values(mongoose.models)) await Model.init();
@@ -53,7 +64,7 @@ test('verified privacy requests enforce real restrictions, obligation checks and
       return { user, scoped };
     }
     const buyer = await identity(), other = await identity(), reviewer = await identity('country_admin'), foreign = await identity('country_admin', 'KE');
-    const client = request.agent(app), otherClient = request.agent(app);
+    const client = request.agent(base), otherClient = request.agent(base);
     for (const [agent, entry] of [[client, buyer], [otherClient, other]]) {
       const form = await agent.get('/login').expect(200);
       await agent.post('/login').type('form').send({ email: entry.user.email, password, _csrf: csrf(form.text) }).expect(302);
@@ -92,6 +103,82 @@ test('verified privacy requests enforce real restrictions, obligation checks and
       assert.equal(await privacy.processPrivacyRequests({ workerId: 'privacy-failed-test' }), 1);
       assert.equal((await PrivacyRequest.findById(failed._id)).status, 'ready');
       assert.ok(otherPage.text.includes('Privacy'));
+    });
+
+    await t.test('exports drain every owned financial record across batches and markets without counterparty or internal data', async () => {
+      const owner = await identity(), outsider = await identity();
+      const wallet = await ensureLedgerAccount({ code: 'customer_wallet', type: 'liability', ownerType: 'customer', ownerId: owner.user._id, ownerPublicId: owner.user.publicId, country: 'UG', currency: 'UGX' });
+      const secondMarket = await ensureLedgerAccount({ code: 'customer_wallet', type: 'liability', ownerType: 'customer', ownerId: owner.user._id, ownerPublicId: owner.user.publicId, country: 'KE', currency: 'KES' });
+      const clearing = await ensureLedgerAccount({ code: 'private_export_clearing', type: 'asset', ownerType: 'platform', ownerPublicId: 'PRIVATE_COUNTERPARTY_ACCOUNT', country: 'UG', currency: 'UGX' });
+      const secondClearing = await ensureLedgerAccount({ code: 'private_export_clearing', type: 'asset', ownerType: 'platform', ownerPublicId: 'PRIVATE_COUNTERPARTY_ACCOUNT', country: 'KE', currency: 'KES' });
+      const foreignWallet = await ensureLedgerAccount({ code: 'customer_wallet', type: 'liability', ownerType: 'customer', ownerId: outsider.user._id, ownerPublicId: outsider.user.publicId, country: 'UG', currency: 'UGX' });
+      const transactions = Array.from({ length: 205 }, (_, index) => ({
+        publicId: id('ltx'), idempotencyKey: id('export_posting'), referenceType: 'privacy_fixture', referencePublicId: `owned_posting_${index}`,
+        country: index === 204 ? 'KE' : 'UG', currency: index === 204 ? 'KES' : 'UGX', description: 'INTERNAL_LEDGER_DESCRIPTION', entries: [
+          { accountId: index === 204 ? secondMarket._id : wallet._id, accountPublicId: index === 204 ? secondMarket.publicId : wallet.publicId, debitMinor: 0, creditMinor: 10, memo: 'INTERNAL_LEDGER_MEMO' },
+          { accountId: index === 204 ? secondClearing._id : clearing._id, accountPublicId: index === 204 ? secondClearing.publicId : clearing.publicId, debitMinor: 10, creditMinor: 0, memo: 'PRIVATE_COUNTERPARTY_MEMO' },
+        ],
+      }));
+      const foreignPosting = { ...transactions[0], publicId: id('ltx'), idempotencyKey: id('export_posting'), referencePublicId: 'FOREIGN_LEDGER_SECRET', entries: [{ accountId: foreignWallet._id, accountPublicId: foreignWallet.publicId, debitMinor: 0, creditMinor: 10 }, transactions[0].entries[1]] };
+      await LedgerTransaction.insertMany([...transactions, foreignPosting]);
+      const topUps = Array.from({ length: 17 }, (_, index) => ({ publicId: id('wtu'), userId: owner.user._id, userPublicId: owner.user.publicId, country: index === 16 ? 'KE' : 'UG', currency: index === 16 ? 'KES' : 'UGX', amountMinor: 10, idempotencyKey: id('topup'), providerReference: id('provider'), status: 'succeeded', providerTrackingId: 'PRIVATE_PROVIDER_TRACKING', checkoutUrl: 'https://example.invalid/?token=PRIVATE_PAYMENT_SECRET' }));
+      await WalletTopUp.insertMany([...topUps, { ...topUps[0], publicId: id('wtu'), userId: outsider.user._id, userPublicId: outsider.user.publicId, idempotencyKey: id('topup'), providerReference: 'FOREIGN_TOPUP_SECRET' }]);
+      await LoyaltyAccount.create([{ publicId: id('loy'), userId: owner.user._id, country: 'UG', points: 205, lifetimeEarned: 205 }, { publicId: id('loy'), userId: owner.user._id, country: 'KE', points: 0 }, { publicId: id('loy'), userId: outsider.user._id, country: 'UG', points: 1 }]);
+      const loyalty = Array.from({ length: 205 }, (_, index) => ({ publicId: id('lye'), idempotencyKey: id('loyalty'), userId: owner.user._id, country: 'UG', type: 'manual_adjustment', pointsDelta: 1, balanceAfter: index + 1, referenceType: 'privacy_fixture', referencePublicId: `owned_points_${index}`, reason: 'INTERNAL_LOYALTY_NOTE', actorUserId: reviewer.user._id }));
+      await LoyaltyEntry.insertMany([...loyalty, { ...loyalty[0], publicId: id('lye'), idempotencyKey: id('loyalty'), userId: outsider.user._id, referencePublicId: 'FOREIGN_LOYALTY_SECRET' }]);
+      const rewards = Array.from({ length: 15 }, () => ({ publicId: id('rwd'), idempotencyKey: id('reward'), userId: owner.user._id, country: 'UG', currency: 'UGX', rewardKey: 'fixture-voucher', label: 'Owned export voucher', kind: 'voucher', pointsCost: 1, valueMinor: 10, expiresAt: new Date(Date.now() + 86_400_000) }));
+      await CustomerReward.insertMany([...rewards, { ...rewards[0], publicId: id('rwd'), idempotencyKey: id('reward'), userId: outsider.user._id, label: 'FOREIGN_REWARD_SECRET' }]);
+      const orderId = new mongoose.Types.ObjectId(), orderPublicId = id('ord');
+      await Order.collection.insertOne({ _id: orderId, publicId: orderPublicId, sessionKey: id('session'), idempotencyKey: id('order'), userId: owner.user._id, country: 'UG', status: 'paid', paymentState: 'paid', fulfillmentState: 'delivered', contact: { fullName: 'Export fixture', email: owner.user.email }, totals: { totalMinor: 10, currency: 'UGX' }, items: [{ linePublicId: id('line'), title: 'Owned purchase', unitPriceMinor: 10, unitCostMinor: 987654321, costSnapshotStatus: 'captured' }], policySnapshot: { internalNote: 'INTERNAL_MERCHANT_NOTE' } });
+      await SupportTicket.collection.insertOne({ publicId: id('tkt'), userId: owner.user._id, country: 'UG', subject: 'Owned support request', notes: [{ internal: false, message: 'Customer-visible reply', actorUserId: owner.user._id }, { internal: true, message: 'INTERNAL_SUPPORT_NOTE', actorUserId: reviewer.user._id }] });
+      const requested = await privacy.createPrivacyRequest(owner.scoped(), { type: 'export', password });
+      assert.equal(await privacy.processPrivacyRequests({ workerId: 'privacy-complete-export' }), 1);
+      const ready = await PrivacyRequest.findById(requested._id).select('+storageKey');
+      assert.equal(ready.status, 'ready');
+      const text = await privacy.privacyExportPayload(ready, { request: owner.scoped() }), data = JSON.parse(text);
+      assert.equal(data.walletTopUps.length, 17);
+      assert.deepEqual(new Set(data.walletTopUps.map(row => row.country)), new Set(['UG', 'KE']));
+      assert.deepEqual(new Set(data.ledgerAccounts.map(row => row.publicId)), new Set([wallet.publicId, secondMarket.publicId]));
+      assert.equal(data.ledgerTransactions.length, 205);
+      assert.deepEqual(new Set(data.ledgerTransactions.map(row => row.referencePublicId)), new Set(transactions.map(row => row.referencePublicId)));
+      assert.ok(data.ledgerTransactions.every(row => row.entries.length === 1 && row.entries[0].accountPublicId === (row.country === 'KE' ? secondMarket.publicId : wallet.publicId)));
+      assert.deepEqual(new Set(data.ledgerTransactions.map(row => row.country)), new Set(['UG', 'KE']));
+      assert.equal(data.ledgerTransactions.reduce((total, row) => total + row.entries[0].creditMinor, 0), 2050);
+      assert.deepEqual(new Set(data.loyaltyAccounts.map(row => row.country)), new Set(['UG', 'KE']));
+      assert.equal(data.loyaltyEntries.length, 205); assert.equal(data.rewards.length, 15);
+      assert.equal(data.orders[0].publicId, orderPublicId); assert.equal(data.supportTickets[0].notes[0].message, 'Customer-visible reply');
+      assert.doesNotMatch(text, /FOREIGN_|PRIVATE_COUNTERPARTY|INTERNAL_|987654321|unitCostMinor|costSnapshotStatus|PRIVATE_PAYMENT_SECRET|PRIVATE_PROVIDER_TRACKING|idempotencyKey|passwordHash|sessionHash|actorUserId/);
+      assert.ok(!text.includes(clearing.publicId)); assert.ok(!text.includes(secondClearing.publicId)); assert.ok(!text.includes(foreignWallet.publicId));
+    });
+
+    await t.test('current access rejects invalid caller, session and authoritative identity token versions', async () => {
+      const owner = await identity();
+      for (const value of [undefined, null, -1, 0.5, '0', Number.MAX_SAFE_INTEGER + 1]) {
+        const scoped = owner.scoped(); scoped.user = { _id: owner.user._id, security: { tokenVersion: value } };
+        await assert.rejects(currentCustomerAccess(scoped), error => error.code === 'ACCOUNT_UNAVAILABLE');
+      }
+      for (const value of [null, -1, 0.5, '0']) {
+        const scoped = owner.scoped(); scoped.session.tokenVersion = value;
+        await assert.rejects(currentCustomerAccess(scoped), error => error.code === 'ACCOUNT_UNAVAILABLE');
+      }
+      try {
+        await User.collection.updateOne({ _id: owner.user._id }, { $set: { security: null } });
+        await assert.rejects(currentCustomerAccess(owner.scoped()), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        await assert.rejects(privacy.createPrivacyRequest(owner.scoped(), { type: 'export', password }), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        await User.collection.updateOne({ _id: owner.user._id }, { $unset: { security: '' } });
+        await assert.rejects(currentCustomerAccess(owner.scoped()), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        await assert.rejects(privacy.createPrivacyRequest(owner.scoped(), { type: 'export', password }), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        await User.collection.updateOne({ _id: owner.user._id }, { $set: { security: { tokenVersion: '0' } } });
+        await assert.rejects(currentCustomerAccess(owner.scoped()), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        await assert.rejects(privacy.createPrivacyRequest(owner.scoped(), { type: 'export', password }), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        for (const value of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+          await User.collection.updateOne({ _id: owner.user._id }, { $set: { security: { tokenVersion: value } } });
+          const scoped = owner.scoped(); scoped.user = { _id: owner.user._id, security: { tokenVersion: value } }; scoped.session.tokenVersion = value;
+          await assert.rejects(currentCustomerAccess(scoped), error => error.code === 'ACCOUNT_UNAVAILABLE');
+          await assert.rejects(privacy.createPrivacyRequest(scoped, { type: 'export', password }), error => error.code === 'ACCOUNT_UNAVAILABLE');
+        }
+      } finally { await User.collection.updateOne({ _id: owner.user._id }, { $set: { security: { tokenVersion: 0 } } }); }
+      assert.equal(String((await currentCustomerAccess(owner.scoped()))._id), String(owner.user._id));
     });
 
     await t.test('private reads recheck revocation after storage and cleanup cannot clear a newer export', async () => {
@@ -173,8 +260,9 @@ test('verified privacy requests enforce real restrictions, obligation checks and
       await client.post(`/account/privacy/${doc.publicId}/cancel`).type('form').send({ _csrf: csrf(page.text) }).expect(409);
       doc = await PrivacyRequest.findById(doc._id);
       await client.post('/api/v1/newsletter/subscribe').set('accept', 'application/json').send({ email: buyer.user.email, _csrf: csrf(page.text) }).expect(403);
-      const anonymous = request.agent(app), publicPage = await anonymous.get('/').expect(200);
-      await anonymous.post('/api/v1/newsletter/subscribe').send({ email: buyer.user.email, _csrf: csrf(publicPage.text) }).expect(201);
+      const anonymous = request.agent(base), publicCart = await anonymous.get('/api/v1/cart').expect(200);
+      assert.ok(publicCart.body.csrfToken);
+      await anonymous.post('/api/v1/newsletter/subscribe').send({ email: buyer.user.email, _csrf: publicCart.body.csrfToken }).expect(201);
       // The authenticated attempt above cannot silently reactivate a subscription.
       assert.equal(await NewsletterSubscription.countDocuments({ userId: buyer.user._id, status: 'active' }), 0);
       const search = await client.get('/api/v1/storefront/search?q=private-fixture').expect(200);
@@ -231,6 +319,14 @@ test('verified privacy requests enforce real restrictions, obligation checks and
     });
   } finally {
     try {
+      if (httpServer?.listening) {
+        await new Promise((resolve, reject) => {
+          httpServer.close(error => error ? reject(error) : resolve());
+          httpServer.closeAllConnections();
+        });
+      }
+    } finally {
+    try {
       if (mongoose.connection.readyState === 1) {
         if (exportDirectory) {
           const docs = await mongoose.connection.db.collection('privacyrequests').find({}).project({ storageKey: 1, exportArtifacts: 1 }).toArray();
@@ -242,5 +338,6 @@ test('verified privacy requests enforce real restrictions, obligation checks and
         await mongoose.connection.dropDatabase();
       }
     } finally { await mongoose.disconnect(); }
+    }
   }
 });

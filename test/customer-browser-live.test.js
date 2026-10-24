@@ -21,6 +21,17 @@ test('live approved customer UI supports signup, address submission, mobile navi
     assert.equal(await page.locator('#roleSwitcher').count(),0);
     assert.equal(await page.locator('#workspaceLabel,.workspace-switcher').count(),0);
     assert.ok(await page.locator('#searchForm').isVisible());
+    // Use the actual popup controls: stopping propagation inside this menu
+    // previously prevented all three delegated actions from reaching the router.
+    await page.locator('#profileButton').click();
+    await page.locator('#profileMenu [data-profile-tab="security"]').click();
+    await page.waitForURL(base+'/account/security');
+    assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'),'customer');
+    assert.equal(await page.getByRole('heading',{name:'Password & security',exact:true}).count(),1);
+    await page.locator('#profileButton').click();
+    await page.locator('#profileMenu [data-page-target="profile"]:not([data-profile-tab])').click();
+    await page.waitForURL(base+'/profile');
+    assert.equal(await page.getByRole('heading',{name:'Profile Settings',exact:true}).count(),1);
     await page.locator('.side-link[data-page-target="addresses"]').click();
     await page.waitForURL('**/addresses*');
     for (const [name,value] of Object.entries({fullName:'Browser Customer',phone:'+256700000003',address:'Browser verified address',city:'Kampala',region:'Central Region',postalCode:'256'})) await page.locator(`#addressForm [name="${name}"]`).fill(value);
@@ -49,15 +60,15 @@ test('live approved customer UI supports signup, address submission, mobile navi
     assert.match(await page.locator('#customerAvatarPreview').getAttribute('src'),/^\/account\/avatar\?v=/);
     await page.waitForFunction(()=>document.querySelector('#customerAvatarPreview')?.naturalWidth===320);
     await Promise.all([page.waitForNavigation(),page.locator('form[action="/account/avatar/delete"] button').click()]);
-    assert.equal(await page.locator('#customerAvatarPreview').getAttribute('src'),'/approved-dashboard/assets/avatar.svg');
+    assert.match(await page.locator('#customerAvatarPreview').getAttribute('src'),/^\/approved-dashboard\/assets\/avatar\.svg(?:\?v=[a-f0-9]{16})?$/);
     await page.setViewportSize({width:390,height:844});
     await page.locator('#mobileMenuBtn').click();
     assert.equal(await page.locator('#sidebarOverlay').evaluate(el=>el.classList.contains('show')),true);
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#sidebar').evaluate(el=>el.classList.contains('open')),false);
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2));
-    await page.locator('#mobileMenuBtn').click();
-    await page.locator('.logout-button').click();
+    await page.locator('#profileButton').click();
+    await page.locator('#profileMenu [data-action="logout"]').click();
     await page.waitForURL('**/login');
     await page.goto(base+'/dashboard');
     assert.match(page.url(),/\/login/);

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
+import { loadCustomerDashboardPage } from '../dashboard/customer-data.js';
 import { mfaContinuation, mfaSecurityPath } from '../dashboard/mfa-continuation.js';
 import { dashboardLanding } from '../dashboard/landing.js';
 import { PUBLIC_ACCOUNT_TYPES, publicAccountType, assertPublicRegistrationOpen } from '../core/registration.js';
@@ -13,7 +14,7 @@ import { noStore } from '../middleware/request.js';
 import { setFlash } from '../middleware/view.js';
 import { writeAudit } from '../services/audit.js';
 import { enrollCustomerAsSeller, sellerEnrollmentPreview } from '../services/seller-enrollment.js';
-import { getCountries, getCountry } from '../services/country.js';
+import { getCountry } from '../services/country.js';
 import { changePassword } from '../services/auth.js';
 import { beginMfaEnrollment, confirmMfaEnrollment, disableMfa, mfaRequiredForUser, pendingMfaEnrollment, regenerateRecoveryCodes, verifyMfa } from '../services/mfa.js';
 import { currentCustomerAccess, customerTransaction } from '../services/customer-access.js';
@@ -158,14 +159,15 @@ async function postedMfaContinuation(request) {
   return { view, continuation: mfaContinuation(request.body.next, request.user, view) };
 }
 
-async function renderAccountPage(request, response, requestedSection = 'profile') {
+async function renderAccountPage(request, response, requestedSection = 'profile', existingView = null) {
   const allowedSections = new Set(['profile', 'security', 'messages']);
   const section = allowedSections.has(requestedSection) ? requestedSection : 'profile';
   const size = 50;
   const data = accountCenterDefaults();
+  const view = existingView || await accountWorkspaceView(request, section);
 
   if (section === 'profile') {
-    data.countries = await getCountries();
+    data.pageData = view.pageData || await loadCustomerDashboardPage(request, 'profile');
   }
 
   if (section === 'security') {
@@ -202,7 +204,6 @@ async function renderAccountPage(request, response, requestedSection = 'profile'
     data.queuePages.promoterContacts = promoterPage.page;
   }
 
-  const view = await accountWorkspaceView(request, section);
   response.render('approved-dashboard', {
     ...view, section,
     ...data,
@@ -214,9 +215,11 @@ async function renderAccountPage(request, response, requestedSection = 'profile'
 
 router.get(
   '/account/profile',
-  asyncHandler((request, response) =>
-    response.redirect(dashboardLanding(request.user) === '/dashboard' ? '/profile' : dashboardLanding(request.user)),
-  ),
+  asyncHandler(async (request, response) => {
+    const view = await accountWorkspaceView(request, 'profile');
+    if (view.workspace === 'customer') return response.redirect('/profile');
+    return renderAccountPage(request, response, 'profile', view);
+  }),
 );
 router.get(
   '/account/security',

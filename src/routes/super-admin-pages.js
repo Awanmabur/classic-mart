@@ -26,7 +26,7 @@ function action(operation,destination,message){return asyncHandler(async(request
   verifyDeferredCsrf(request);
   requireSuperAdminStepUp(request);
   const result=await operation(request,body(request));
-  if(request.accepts(['html','json'])==='json')return response.json(result);
+  if(request.accepts(['html','json'])==='json')return response.json(JSON.parse(JSON.stringify(result,(key,value)=>/(?:Encrypted|Hash|Hashes|Secret)$|^(?:storageKey|exportArtifacts|leaseToken|lockedBy)$/.test(key)?undefined:value)));
   setFlash(request,'success',message);
   return response.redirect(303,typeof destination==='function'?destination(request,result):destination);
 });}

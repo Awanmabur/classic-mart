@@ -160,12 +160,23 @@ export async function sellerGrowthWorkspace(request){
   return {promotions:promotionsPage.items,schedules:schedulesPage.items,broadcasts:broadcastsPage.items,quotes:quotesPage.items,variants:variantsPage.items,purchaseOrders:purchaseOrdersPage.items,products:productsPage.items,queuePages:{promotions:promotionsPage.page,schedules:schedulesPage.page,broadcasts:broadcastsPage.page,quotes:quotesPage.page,variants:variantsPage.page,purchaseOrders:purchaseOrdersPage.page,products:productsPage.page}};
 }
 
-export async function promotionQuote({rows,country,codes=[]}){
+export async function promotionQuote({rows,country,codes=[],session=null}){
+  if(session && !session.inTransaction())throw new AppError('Promotion reservations require the checkout transaction.',500,'PROMOTION_TRANSACTION_REQUIRED');
   if(!rows.length)return {discountMinor:0,freeShipping:false,applications:[],storeDiscounts:{}};
-  const now=new Date();const storeIds=[...new Set(rows.map(r=>r.storeId))];const promos=await SellerPromotion.find({country,...activeWindowQuery(now),storePublicId:{$in:storeIds}}).lean();const codeSet=new Set(codes.map(v=>String(v).trim().toUpperCase()).filter(Boolean));let discount=0;let freeShipping=false;const applications=[];const storeDiscounts={};
+  const now=new Date();const storeIds=[...new Set(rows.map(r=>r.storeId))];const promos=await SellerPromotion.find({country,...activeWindowQuery(now),storePublicId:{$in:storeIds}}).session(session).lean();const codeSet=new Set(codes.map(v=>String(v).trim().toUpperCase()).filter(Boolean));let discount=0;let freeShipping=false;const applications=[];const storeDiscounts={};
   const byStore=new Map();const capacity=new Map();for(const row of rows){const arr=byStore.get(row.storeId)||[];arr.push(row);byStore.set(row.storeId,arr);const key=`${row.storeId}:${row.variantId||row.productId}`;const floor=Math.min(Number(row.priceMinor||0),Math.max(0,Number(row.minimumPriceMinor||0)));capacity.set(key,Math.max(0,(Number(row.priceMinor||0)-floor)*Number(row.quantity||0)));}
   for(const promo of promos){const items=byStore.get(promo.storePublicId)||[];if(!items.length)continue;const eligible=promo.productPublicIds.length?items.filter(i=>promo.productPublicIds.includes(i.productId)):items;const eligibleSubtotal=eligible.reduce((sum,item)=>sum+Number(item.priceMinor||0)*Number(item.quantity||0),0);const eligibleQty=eligible.reduce((sum,item)=>sum+Number(item.quantity||0),0);if(!eligible.length||eligibleSubtotal<promo.minSubtotalMinor||eligibleQty<promo.minQuantity)continue;if(promo.type==='voucher'&&!codeSet.has(promo.code))continue;if(promo.type==='bundle'&&!promo.productPublicIds.every(id=>items.some(i=>i.productId===id)))continue;if(promo.type==='free_shipping'){freeShipping=true;applications.push({id:promo.publicId,type:promo.type,name:promo.name,discountMinor:0});continue;}if(promo.type==='sponsored')continue;
     const raw=Math.max(Number(promo.fixedDiscountMinor||0),Math.floor(eligibleSubtotal*Number(promo.discountBps||0)/10000));const availableCapacity=eligible.reduce((sum,row)=>sum+(capacity.get(`${row.storeId}:${row.variantId||row.productId}`)||0),0);let value=Math.min(eligibleSubtotal,raw,availableCapacity);if(value<=0)continue;const applied=value;for(const row of eligible){if(value<=0)break;const key=`${row.storeId}:${row.variantId||row.productId}`;const remaining=capacity.get(key)||0;const consume=Math.min(remaining,value);capacity.set(key,remaining-consume);value-=consume;}discount+=applied;storeDiscounts[promo.storePublicId]=(storeDiscounts[promo.storePublicId]||0)+applied;applications.push({id:promo.publicId,type:promo.type,name:promo.name,discountMinor:applied});}
+  if(session){
+    const appliedIds=new Set(applications.map(application=>application.id));
+    for(const promo of promos.filter(row=>appliedIds.has(row.publicId))){
+      // Checkout and a concurrent pause/edit must conflict on the same source.
+      // Preserve Seller form revisions and updatedAt for this private read fence.
+      const claimed=await SellerPromotion.updateOne({_id:promo._id,publicId:promo.publicId,storeId:promo.storeId,storePublicId:promo.storePublicId,country,
+        __v:promo.__v===undefined?{$exists:false}:promo.__v,...activeWindowQuery(new Date())},{$inc:{checkoutReadRevision:1}},{session,timestamps:false});
+      if(claimed.modifiedCount!==1)throw new AppError('A Seller offer changed. Review checkout again.',409,'PROMOTION_CHANGED');
+    }
+  }
   return {discountMinor:discount,freeShipping,applications,storeDiscounts};
 }
 export function marketplacePromoterCampaignPublicId(country) {

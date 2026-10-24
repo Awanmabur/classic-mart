@@ -15,7 +15,7 @@ import { reviewSellerSubscriptionRequest } from './seller-subscription-operation
 import { sellerPlanTerms } from './seller-subscription-operations.js';
 import { countryAdminPersonalAccountEligible } from './country-admin-people-actions.js';
 
-const version=z.coerce.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),reason=z.string().trim().min(10).max(1000);
+const version=z.union([z.number(),z.string().regex(/^\d+$/)]).pipe(z.coerce.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)),reason=z.string().trim().min(10).max(1000);
 const boolean=value=>[true,'true','on','1'].includes(value);
 const list=value=>[...new Set((Array.isArray(value)?value:String(value||'').split(',')).map(item=>String(item).trim()).filter(Boolean))];
 const changed=()=>new AppError('This source changed. Reload before continuing.',409,'SUPER_ADMIN_SOURCE_CHANGED');

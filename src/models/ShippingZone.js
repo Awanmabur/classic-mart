@@ -13,4 +13,5 @@ const shippingZoneSchema=new Schema({
  active:{type:Boolean,default:true,index:true},
 },{timestamps:true});
 shippingZoneSchema.index({country:1,name:1},{unique:true});
+shippingZoneSchema.add({checkoutReadRevision:{type:Number,min:0,select:false}});
 export const ShippingZone=mongoose.model('ShippingZone',shippingZoneSchema);

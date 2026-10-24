@@ -15,7 +15,8 @@ test('seller settings require current account, session and store-staff authority
   const suffix = crypto.randomBytes(8).toString('hex');
   const database = `classicmart_seller_settings_authority_test_${suffix}`;
   await mongoose.connect(uri, { dbName: database });
-  const { User, Store, StoreMember, AuditLog } = await import('../src/models/index.js');
+  const { User, Store, StoreMember, AuditLog, CountrySetting, Device } = await import('../src/models/index.js');
+  const { hashToken } = await import('../src/core/crypto.js');
   const { saveSellerStoreSettings } = await import('../src/services/seller-store-settings.js');
   const { settleModelInitialization } = await import('../scripts/live-test-model-lifecycle.js');
   let sequence = 0;
@@ -32,15 +33,21 @@ test('seller settings require current account, session and store-staff authority
     const owner = await user('seller'), admin = await user();
     const store = await Store.create({ publicId: nextId('str'), ownerUserId: owner._id, name: 'Original Store Identity',
       slug: `settings-${suffix}-${sequence}`, country: 'UG', currency: 'UGX', status: 'verified' });
+    await StoreMember.create({ publicId: nextId('stm'), storeId: store._id, userId: owner._id,
+      role: 'owner', status: 'active', invitedByUserId: owner._id, acceptedAt: new Date() });
     const membership = await StoreMember.create({ publicId: nextId('stm'), storeId: store._id, userId: admin._id,
       role: 'admin', status: 'active', invitedByUserId: owner._id, acceptedAt: new Date() });
     const body = section === 'identity'
       ? { version: store.__v, name: 'Permitted Store Identity', description: 'Current store administrator update.',
         supportEmail: 'SUPPORT@example.test', supportPhoneCountry: 'UG', supportPhone: '+256781977217' }
       : { version: store.__v, primaryCategory: 'Electronics', pickupCity: 'Kampala', fulfillmentMode: 'hybrid' };
-    const request = { user: admin, store, body, session: { tokenVersion: admin.security.tokenVersion },
+    const sessionID = crypto.randomUUID();
+    const device = await Device.create({ publicId: nextId('dev'), userId: admin._id, sessionHash: hashToken(sessionID),
+      label: 'Current settings test device', userAgent: 'Settings authority fixture', ipHash: hashToken('127.0.0.1'), lastSeenAt: new Date() });
+    const request = { user: admin, store, body, device, sessionID,
+      session: { userId: String(admin._id), tokenVersion: admin.security.tokenVersion, activeStorePublicId: store.publicId, mfaVerifiedAt: Date.now() },
       id: nextId('req'), country: { code: 'UG' }, ip: '127.0.0.1', get: () => '' };
-    return { admin, store, membership, request, section };
+    return { owner, admin, store, membership, device, request, section };
   }
   const snapshot = async store => ({
     store: await Store.collection.findOne({ _id: store._id }),
@@ -53,6 +60,7 @@ test('seller settings require current account, session and store-staff authority
   }
   try {
     await settleModelInitialization(mongoose.connection);
+    await CountrySetting.create({ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256', returnWindowDays: 14, platformFeeBps: 700, taxBps: 1800 });
     for (const section of ['identity', 'operations']) {
       await t.test(`current delegated administrator can save ${section} with one atomic audit`, async () => {
         const current = await fixture(section);
@@ -93,6 +101,26 @@ test('seller settings require current account, session and store-staff authority
       const current = await fixture();
       current.request.session.tokenVersion += 1;
       await rejectedUnchanged(current, 'ACCOUNT_UNAVAILABLE');
+    });
+    await t.test('revoked current device cannot save a still-active account', async () => {
+      const current = await fixture();
+      await Device.updateOne({ _id: current.device._id }, { $set: { revokedAt: new Date() } });
+      await rejectedUnchanged(current, 'ACCOUNT_UNAVAILABLE');
+    });
+    await t.test('an active staff row without recipient acceptance grants no settings authority', async () => {
+      const current = await fixture();
+      await StoreMember.updateOne({ _id: current.membership._id }, { $unset: { acceptedAt: 1 } });
+      await rejectedUnchanged(current, 'STORE_PERMISSION_DENIED');
+    });
+    await t.test('platform-managed identities cannot exercise a Customer store membership', async () => {
+      const current = await fixture();
+      await User.updateOne({ _id: current.admin._id }, { $set: { platformAccessManagedAt: new Date() } });
+      await rejectedUnchanged(current, 'SELLER_IDENTITY_FORBIDDEN');
+    });
+    await t.test('delegated access stops when the real Seller owner becomes unavailable', async () => {
+      const current = await fixture();
+      await User.updateOne({ _id: current.owner._id }, { $set: { status: 'suspended' } });
+      await rejectedUnchanged(current, 'STORE_PERMISSION_DENIED');
     });
     await t.test('removed authenticator enrollment fails closed for delegated staff with a Customer role', async () => {
       const current = await fixture('operations');
