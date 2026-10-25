@@ -67,6 +67,24 @@ test('Super Admin uses current global grants, genuine MFA, source records and in
     const decide=(entry,approval,status=200)=>post(entry,'/super/approvals/'+approval.publicId+'/decision',{decision:'approve',reason:'Verified independently against the unchanged source record.',version:approval.__v||0},status);
     const reviewReason='Independently reviewed current source and operating policy.';
 
+    await t.test('strict login guides a current Super Admin grant into real authenticator enrollment without exposing operational data',async()=>{
+      const pending=await identity('super_admin',{managed:true,enroll:false,login:true});
+      const destination='/super/settings?tab=countries&country=UG';
+      await pending.client.get(destination).expect(302).expect('location','/account/security?next='+encodeURIComponent(destination));
+      const security=await pending.client.get('/account/security?next='+encodeURIComponent(destination)).expect(200);
+      assert.match(security.text,/data-dashboard-workspace="superadmin"/);
+      assert.match(security.text,/Required for privileged operations/);
+      const denied=await pending.client.get('/super/overview').set('accept','application/json').expect(403);
+      assert.equal(denied.body.error.code,'MFA_ENROLLMENT_REQUIRED');
+      assert.doesNotMatch(denied.text,/totalUsers|platformAccessManagedAt|rows/);
+      const phone=await identity('super_admin',{managed:true,login:true});
+      await User.updateOne({_id:phone.user._id},{$set:{phoneVerifiedAt:null}});
+      await phone.client.get('/super/overview').expect(302).expect('location','/verify-phone');
+      await phone.client.get('/verify-phone').expect(200);
+      const identityDenied=await phone.client.get('/super/overview').set('accept','application/json').expect(403);
+      assert.equal(identityDenied.body.error.code,'SUPER_ADMIN_IDENTITY_REQUIRED');
+    });
+
     await t.test('all 21 destinations use the approved shell and reject raw roles and malformed filters',async()=>{
       assert.equal(Object.keys(SUPER_ADMIN_LIVE_ROUTES).length,21);
       for(const[pageId,path]of Object.entries(SUPER_ADMIN_LIVE_ROUTES)){

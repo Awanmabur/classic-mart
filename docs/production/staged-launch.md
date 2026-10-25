@@ -22,12 +22,17 @@ and 24px photos. Dashboard buttons use the frozen approved typography, padding,
 colors and corners, with narrow adapters for real forms and mobile placement.
 The genuine homepage cart/red-bag artwork supplies all favicons and PWA icons.
 
-The cleanup removes 27 confirmed obsolete files (470,090 bytes), including the
+The earlier cleanup removed 27 confirmed obsolete files (470,090 bytes), including the
 superseded Customer dashboard implementation, unused asset engines and stale
 generated manifests. Approved design references and engineering tests stay in
 the source archive; runtime production packages exclude previews, prototype
 engines, development seeds, tests, local state and secrets. Future domain code
 that is still referenced by tests or services is retained.
+The current cleanup also removes 18 unused PNG copies (213,874 bytes): nine
+unreferenced assets duplicated between the preview and public asset folders.
+No runtime template, stylesheet, script or approved preview references those
+images, including dynamically constructed asset paths. Referenced artwork and
+the approved preview remain available for visual verification.
 
 ## Configuration and startup
 
@@ -38,18 +43,19 @@ Set the actual public HTTPS origin as `BASE_URL`, select `LAUNCH_COUNTRIES`,
 and supply a full deployed Git commit as `BUILD_SHA`.
 
 Production needs transaction-capable managed MongoDB; Redis; private R2; mounted
-temporary export storage; scanning; SMTP; eSMS Africa; Pesapal; SIEM; and the
+temporary export storage; scanning; SMTP; Yoola SMS; Pesapal; SIEM; and the
 session, encryption, token and integrity keys required by environment validation.
 For Gmail, use an app password with account two-step verification and TLS SMTP
 (465 with `SMTP_SECURE=true`, or 587 with STARTTLS). Provider acceptance and
 actual inbox/SMS delivery must be tested with the configured account and sender.
-The SMS provider is eSMS Africa; there is no Twilio fallback.
+The SMS provider is Yoola; there is no fallback to a previous SMS provider.
 
 Run `npm run mail:verify` and `npm run sms:verify` with credentials supplied only
-through the environment. These commands verify SMTP TLS/authentication and eSMS
-authentication/available credit without sending an email or SMS. They do not
-verify actual message delivery; complete that separately with the configured
-account, approved sender and intended test recipient.
+through the environment. The email check verifies SMTP TLS/authentication;
+the SMS command reports its exact verification scope as documented in `SMS.md`.
+Configuration or authentication success does not establish delivery. Complete
+real delivery checks with the configured account, approved sender and intended
+test recipient before enabling public registration.
 
 Keep ClamAV definitions current. Local scanning rejects databases older than its
 native two-day limit; private-daemon scanning validates loaded signature metadata
@@ -253,7 +259,7 @@ volume or verified trends and are never automatically injected into pages.
 ## Current verification limits
 
 The local environment has no configured public domain or real production
-MongoDB/Redis/R2, Gmail, eSMS or Pesapal credentials. Local isolated fixtures
+MongoDB/Redis/R2, Gmail, Yoola or Pesapal credentials. Local isolated fixtures
 exercise application behavior; real provider delivery, production load,
 infrastructure protection, disaster recovery and independent sign-offs remain
 launch prerequisites. Consult the checkpoint verification record for actual

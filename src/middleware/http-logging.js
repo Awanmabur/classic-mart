@@ -19,9 +19,17 @@ export function createHttpLogging({ log = logger, accessLogs = process.env.LOG_H
       log[level](fields, statusCode >= 500 ? 'HTTP request failed' : 'HTTP request completed');
     });
     response.once('close', () => {
-      if (finished || response.writableFinished) return;
+      if (finished || response.writableFinished || request[requestErrorLogged]) return;
       const { id: requestId, method, route } = safeRequest(request);
-      log.warn({ requestId, method, route, durationMs: Math.round(performance.now() - started) }, 'HTTP response interrupted');
+      // Navigating away or replacing a product preview commonly cancels its
+      // public image downloads. Keep those diagnostics available at debug;
+      // failed responses and interrupted operational pages remain visible.
+      const expectedMediaCancellation = ['GET', 'HEAD'].includes(method)
+        && route === '/media/catalogue/:publicId' && response.statusCode < 400;
+      log[expectedMediaCancellation ? 'debug' : 'warn'](
+        { requestId, method, route, durationMs: Math.round(performance.now() - started) },
+        expectedMediaCancellation ? 'Catalogue image download cancelled' : 'HTTP response interrupted',
+      );
     });
     next();
   };

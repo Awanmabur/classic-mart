@@ -21,7 +21,7 @@ const checked = value => [true, 'true', 'on', '1'].includes(value);
     <% if (countries.length) { %><form class="support-country-filter" method="get" action="<%= supportPage.href %>"><input type="hidden" name="section" value="<%= section %>"><label class="sr-only" for="supportSettingsCountry">Country scope</label><select id="supportSettingsCountry" name="country"><option value="" <%= selectedCountry === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= country.code === selectedCountry ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select><button class="plain-link" type="submit">Apply</button></form><% } %>
     <a class="outline-button icon-button" href="/account/security"><svg aria-hidden="true"><use href="#i-shield"></use></svg>Security centre</a>
   </div></div>
-  <% if (settings.error) { %><p class="server-flash error" role="alert"><%= settings.error %></p><% } %>
+  <% if (settings.error) { %><p class="server-flash error platform-flash" role="alert"><%= settings.error %></p><% } %>
   <div class="profile-layout role-settings-layout role-profile-settings">
     <aside class="panel profile-summary role-profile-summary">
       <div class="profile-avatar-wrap role-profile-avatar-wrap"><span class="role-profile-avatar"><%= initials %></span></div>

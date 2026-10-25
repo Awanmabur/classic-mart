@@ -44,7 +44,7 @@
     <div><span class="eyebrow">Fulfilment</span><h1><%= isDetail ? 'Order ' + order.publicId : isShipping ? 'Shipping & Delivery' : 'Seller Orders' %></h1><p><%= isDetail ? 'Prepare your items and follow this store’s parcel through pickup and delivery.' : isShipping ? 'Manage pickup addresses, courier handover, tracking, and delivery performance.' : 'Accept, prepare, ship, and complete customer orders within marketplace service levels.' %></p></div>
     <a class="outline-button icon-button" href="<%= isDetail || isShipping ? '/seller/orders' : '/seller/shipping' %>"><svg aria-hidden="true"><use href="#<%= isDetail || isShipping ? 'i-clipboard' : 'i-truck' %>"></use></svg><%= isDetail || isShipping ? 'View Orders' : 'Shipping & Delivery' %></a>
   </div>
-  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error" role="alert"><%= flow.error %></div><% } %>
+  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error platform-flash" role="alert"><%= flow.error %></div><% } %>
   <% if (!isDetail) { %>
     <section class="role-metric-grid" aria-label="Store order summary">
       <% metricCards.forEach(([name, value, detail, icon], index) => { %><article class="role-metric panel"><span class="role-metric-icon tone-<%= index + 1 %>"><svg aria-hidden="true"><use href="#<%= icon %>"></use></svg></span><div><small><%= name %></small><strong><%= Number(value).toLocaleString('en-UG') %></strong><span><%= detail %></span></div></article><% }); %>

@@ -1,7 +1,7 @@
 <% const flow = liveSeller.reviewFlow; const record = flow.record; %>
 <section class="app-page active role-page" data-page="moderator-sellers" data-role="moderator">
   <div class="page-heading role-page-heading"><div><span class="eyebrow">Marketplace trust</span><h1>Seller Verification Review</h1><p>Review evidence only for your assigned countries. Claim a case before recording an independent decision.</p></div><a class="outline-button icon-button" href="/moderation/verifications">Review Queue</a></div>
-  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error" role="alert"><%= flow.error %></div><% } %>
+  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error platform-flash" role="alert"><%= flow.error %></div><% } %>
   <% if (!record) { %>
     <section class="panel role-table-panel"><div class="role-panel-head"><div><h2>Awaiting review</h2><p><%= flow.items.length %> cases on this page</p></div></div>
       <div class="role-table-wrap"><table class="role-table"><thead><tr><th>Store</th><th>Country</th><th>Legal name</th><th>Status</th><th>Submitted</th><th>Action</th></tr></thead><tbody>

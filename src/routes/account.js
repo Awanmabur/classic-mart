@@ -149,7 +149,11 @@ function accountCenterDefaults() {
 }
 
 function accountMfaRequired(request, view) {
-  return mfaRequiredForUser(request.user, env.security.privilegedMfaRequired)
+  // Global administration always requires its own authenticator, including in
+  // development. Its account controls must agree with superAdminAccess rather
+  // than offering to disable the very factor needed to re-enter the workspace.
+  return request.user.role === 'super_admin'
+    || mfaRequiredForUser(request.user, env.security.privilegedMfaRequired)
     || Boolean(!env.auth.simpleLogin && env.security.privilegedMfaRequired
       && view.liveSeller?.navigation.some(item => item.ready));
 }

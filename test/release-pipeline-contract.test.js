@@ -17,8 +17,10 @@ test('CI scans the production container and attests release provenance/SBOM',()=
 test('deployment promotion requires certified exact SHA across staging canary and production',()=>{
   const deploy=read('.github/workflows/deploy.yml');
   assert.match(deploy,/actions\/workflows\/ci\.yml\/runs\?head_sha=\$\{PROMOTE_SHA\}&status=success/);
-  assert.match(deploy,/git merge-base --is-ancestor \"\$PROMOTE_SHA\" origin\/main/);
-  assert.match(deploy,/\.event == \"push\" and \.head_branch == \"main\"/);
+  assert.match(deploy,/git fetch origin refs\/heads\/master:refs\/remotes\/origin\/master/);
+  assert.match(deploy,/git merge-base --is-ancestor \"\$PROMOTE_SHA\" origin\/master/);
+  assert.match(deploy,/\.event == \"push\" and \.head_branch == \"master\"/);
+  assert.doesNotMatch(deploy,/origin\/main|head_branch == \"main\"/);
   assert.match(deploy,/environment: staging/);
   assert.match(deploy,/environment: canary/);
   assert.match(deploy,/environment: production/);

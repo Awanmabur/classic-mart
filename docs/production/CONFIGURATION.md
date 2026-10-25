@@ -21,7 +21,7 @@ Production requires a MongoDB deployment that supports multi-document transactio
 |---|---|
 | `MONGO_MODE` | Production is environment-driven; local bootstrap is not used |
 | `MONGO_URI` | Explicit transaction-capable URI |
-| `AUDIT_MONGO_URI` | Optional isolated audit DB URI; otherwise audit derives a guarded `*-audit-test` DB |
+| `AUDIT_MONGO_URI` | Optional isolated audit DB URI; used only by isolated engineering integration audits, never the live application database |
 
 From the source or clean package, run `npm run db:verify` before launch. That engineering command is deliberately absent from the production ZIP and Docker image; their startup validates transaction-capable MongoDB directly. The application must not be deployed against standalone MongoDB because payment, refund, delivery, B2B and ledger transitions rely on transactions.
 
@@ -51,7 +51,8 @@ SMTP variables:
 `MAIL_MODE`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`.
 
 SMS variables:
-`SMS_MODE=esms`, `ESMS_API_KEY`, optional approved `ESMS_SENDER_ID`.
+`SMS_MODE=yoola`, `YOOLA_API_KEY`.
+See [SMS configuration](SMS.md) for account setup and the provider verification scope.
 
 Development may log mail/SMS; production must not pretend a logged message was delivered to a user.
 
@@ -140,6 +141,6 @@ Do not place the metrics token in browser JavaScript.
 
 ## Administrator bootstrap
 
-Production bootstrap credentials must be explicitly supplied. Do not use known/default passwords. A second Super Admin may be configured as an approval reviewer so four-eyes workflows have independent actors from first launch.
+Production bootstrap credentials must be explicitly supplied. Do not use known/default passwords. Provision a second independently verified Super Admin by running the trusted bootstrap separately with that operator's own `ADMIN_*` bindings; see [staff provisioning](staged-launch.md#provision-staff-without-an-unfinished-admin-screen). Each operator must enroll their own authenticator so approval workflows have independent actors from first launch.
 
 After bootstrap, operators should use normal staff-access approval rather than editing MongoDB roles manually.

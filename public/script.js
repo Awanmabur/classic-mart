@@ -564,13 +564,8 @@
     target.innerHTML = recentProducts.map(productCard).join('');
   }
 
-  function showToast(message) {
-    const toast = qs('#toast');
-    if (!toast) return;
-    toast.textContent = message;
-    toast.classList.add('show');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove('show'), 2200);
+  function showToast(message, options) {
+    window.ClassicMartFlash.show(message, options);
   }
 
   async function copyShareLink(value) {
@@ -626,7 +621,7 @@
       showToast(`${requestedQuantity} × ${product.name}${selectedVariant?.title && selectedVariant.title !== 'Default' ? ` (${selectedVariant.title})` : ''} added to your cart`);
       return savedItems;
     } catch (error) {
-      showToast(error.message || 'Item could not be added to your cart.');
+      showToast(error.message || 'Item could not be added to your cart.', { type: 'error' });
       return null;
     }
   }
@@ -637,7 +632,7 @@
       await window.ClassicMartCart.setQuantity(id, nextQuantity);
       state.cart = window.ClassicMartCart.asLegacyCart();
       updateCartUI();
-    } catch (error) { showToast(error.message || 'Cart could not be updated.'); }
+    } catch (error) { showToast(error.message || 'Cart could not be updated.', { type: 'error' }); }
   }
 
   async function removeFromCart(id) {
@@ -648,7 +643,7 @@
       state.cart = window.ClassicMartCart.asLegacyCart();
       updateCartUI();
       showToast(product ? `${product.name} removed` : 'Item removed');
-    } catch (error) { showToast(error.message || 'Item could not be removed.'); }
+    } catch (error) { showToast(error.message || 'Item could not be removed.', { type: 'error' }); }
   }
 
   function cartEntries() {
@@ -1893,7 +1888,7 @@
         setTimeout(closeAllModals, 450);
       } catch (error) {
         if (status) status.textContent = error.message;
-        showToast(error.message);
+        showToast(error.message, { type: 'error' });
       }
     });
 

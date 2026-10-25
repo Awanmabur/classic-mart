@@ -10,6 +10,7 @@
 <title>Cart &amp; Checkout — Classic Mart</title>
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
+<%- include('partials/flash-assets') %>
 </head>
 <body class="storefront-page checkout-page" data-checkout-entry="<%= typeof checkoutEntry !== 'undefined' && checkoutEntry ? 'true' : 'false' %>" data-signed-in="<%= user ? 'true' : 'false' %>">
 <a class="skip-link" href="#cartContent">Skip to checkout</a><%- include("partials/storefront-header") %>
@@ -191,7 +192,7 @@
 <label class="sr-only" for="newsletterEmail">Email address</label>
 <input autocomplete="email" id="newsletterEmail" maxlength="254" name="email" placeholder="Enter your email address" required type="email"/>
 <button type="submit">Subscribe</button>
-<p aria-live="polite" class="newsletter-status" data-newsletter-status></p>
+
 </form>
 <div class="newsletter-perks"><span><img alt="" src="/assets/icons/percent.svg"/><b>Exclusive Deals</b></span><span><img alt="" src="/assets/icons/gift.svg"/><b>New Arrivals</b></span><span><img alt="" src="/assets/icons/location-dot.svg"/><b>Shopping Tips</b></span></div>
 </div>

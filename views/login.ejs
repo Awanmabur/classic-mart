@@ -10,6 +10,7 @@
 <title>Sign In — Classic Mart</title>
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
+<%- include('partials/flash-assets') %>
 </head>
 <body class="storefront-page auth-standalone-page">
 <a class="skip-link" href="#authContent">Skip to sign in</a>
@@ -53,8 +54,7 @@
 <div class="auth-row">
 <a class="auth-text-link" href="/forgot-password" id="forgotPassword">Forgot password?</a>
 </div>
-<p aria-live="polite" class="auth-message<%= pageError ? ' error' : '' %>" id="authMessage" role="status"><%= pageError || flash?.message || '' %></p>
-<% if (flash?.details) { %><p class="auth-message"><%= flash.details %></p><% } %>
+<p aria-live="polite" class="auth-message<%= pageError ? ' error' : '' %> platform-flash" id="authMessage" role="status"><%= pageError || flash?.message || '' %><% if (flash?.details) { %><small><%= flash.details %></small><% } %></p>
 <button class="auth-submit" type="submit">Sign In to Classic Mart</button>
 </form>
 <p class="auth-switch">New to Classic Mart? <a href="<%= typeof signupHref === 'undefined' ? '/signup' : signupHref %>">Create your free account</a></p>

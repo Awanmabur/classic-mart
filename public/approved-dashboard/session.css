@@ -1,5 +1,3 @@
-.dashboard-message { padding: 16px 20px; margin-bottom: 18px; border-left: 4px solid var(--orange); }
-.dashboard-message-error { border-left-color: #d82939; }
 [data-notification-type][hidden] { display: none; }
 
 /* The removed workspace field leaves this space to the approved search. */

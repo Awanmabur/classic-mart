@@ -30,6 +30,7 @@ test('reviewed raw partial calls remain bound to their caller and exact argument
 
     for (const expression of [
       "include('partials/customer-live-pages', { pageId: 'profile', pageData: request.body, walletIdempotencyKey: '' })",
+      "include('partials/flash-assets', request.body)",
       'include(request.query.partial)',
       'pageData.html',
     ]) {
@@ -38,6 +39,9 @@ test('reviewed raw partial calls remain bound to their caller and exact argument
       assert.equal(result.status, 1, 'Unreviewed arguments, dynamic includes and raw data must remain rejected.');
       assert.match(result.stderr, /unapproved raw EJS output/);
     }
+    fs.writeFileSync(view, "<%- include('partials/flash-assets') %>\n");
+    result = run();
+    assert.equal(result.status, 0, 'The shared static asset partial needs no raw data or dynamic arguments.');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

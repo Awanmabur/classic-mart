@@ -1,3 +1,4 @@
+import { approvedAssetWithSharedFlash } from './approved-ui-fidelity.js';
 import test, { before, after } from 'node:test';
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -26,9 +27,11 @@ const cases = {
   business: 'business-overview', delivery: 'delivery-overview',
 };
 
-test('approved stylesheet, scripts, and images match the supplied preview exactly', () => {
+test('approved assets match the supplied preview except the requested shared flash adapter', () => {
   for (const name of ['styles.css', 'design-system.css', 'role-workspaces.css', 'script.js', 'enhancements.js', ...fs.readdirSync(path.join(root, 'dashboard-preview/final19/assets')).map(name => 'assets/' + name)]) {
-    assert.deepEqual(fs.readFileSync(path.join(root, 'public/approved-dashboard', name)), fs.readFileSync(path.join(root, 'dashboard-preview/final19', name)), name);
+    const actual = fs.readFileSync(path.join(root, 'public/approved-dashboard', name));
+    const expected = approvedAssetWithSharedFlash(name, fs.readFileSync(path.join(root, 'dashboard-preview/final19', name)));
+    assert.deepEqual(actual, expected, name);
   }
 });
 

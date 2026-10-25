@@ -21,7 +21,7 @@ The hosting platform must expose the deployed Git commit through one of `BUILD_S
 
 ## Promotion sequence
 
-`workflow_dispatch` receives the full Git commit SHA to promote. The workflow rejects a SHA that is not already an ancestor of `main`, and it requires a successful CI `push` run for that exact SHA on `main`.
+`workflow_dispatch` receives the full Git commit SHA to promote. The workflow rejects a SHA that is not already an ancestor of `master`, and it requires a successful CI `push` run for that exact SHA on `master`. Configure deployment targets to build that exact commit from `master`; a hook that deploys a different branch or newer revision fails the runtime SHA check.
 
 1. **Staging** — deploy hook, readiness wait, version/SHA proof, public smoke.
 2. **Canary** — separate deployment target, same exact SHA proof and smoke. This must be a real isolated canary/preview service, not the production URL under another name.

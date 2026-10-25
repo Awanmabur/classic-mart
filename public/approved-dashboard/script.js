@@ -1,20 +1,14 @@
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 
-const toast = $('#toast');
-let toastTimer;
 let rewardPoints = 320;
 let walletBalance = 85000;
 let cartCount = 3;
 let wishlistCount = 5;
 let editingAddressCard = null;
 
-function showToast(message) {
-  if (!message || !toast) return;
-  toast.textContent = message;
-  toast.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
+function showToast(message, options) {
+  window.ClassicMartFlash.show(message, options);
 }
 
 function formatMoney(value) {

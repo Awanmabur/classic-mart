@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 
 <html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>"><head>
-<%- include('partials/brand-icons') %><base href="/"/><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/><meta content="#ff6200" name="theme-color"/><%- include("partials/seo-meta") %><link href="/styles.css" rel="stylesheet"/><link href="/storefront-pages.css" rel="stylesheet"/><link href="/shared-shell.css" rel="stylesheet"/><link href="/marketplace-pages.css" rel="stylesheet"/><link href="/profile-pages.css" rel="stylesheet"/></head><body class="profile-body"><a class="skip-link" href="#mainContent">Skip to content</a><%- include("partials/storefront-header") %>
+<%- include('partials/brand-icons') %><base href="/"/><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/><meta content="#ff6200" name="theme-color"/><%- include("partials/seo-meta") %><link href="/styles.css" rel="stylesheet"/><link href="/storefront-pages.css" rel="stylesheet"/><link href="/shared-shell.css" rel="stylesheet"/><link href="/marketplace-pages.css" rel="stylesheet"/><link href="/profile-pages.css" rel="stylesheet"/><%- include('partials/flash-assets') %>
+</head><body class="profile-body"><a class="skip-link" href="#mainContent">Skip to content</a><%- include("partials/storefront-header") %>
 <main class="profile-main" id="mainContent">
 <section class="profile-hero" id="profileHero"><div class="container profile-hero-grid">
 <div class="profile-identity"><img alt="<%= typeof initialProfile !== 'undefined' ? initialProfile.name : '' %>" src="<%= typeof initialProfile !== 'undefined' ? initialProfile.image : '/assets/image-placeholder.svg' %>" id="profileAvatar"/><div><span class="verified-pill"><img alt="" src="/assets/icons/circle-check.svg"/>Verified profile</span><h1 id="profileName"><%= typeof initialProfile !== 'undefined' ? initialProfile.name : 'Profile' %></h1><p id="profileRole"><%= typeof initialProfile !== 'undefined' ? 'Verified seller · ' + initialProfile.country : '' %></p><div class="profile-tags" id="profileTags"></div></div></div>
@@ -22,7 +23,7 @@
 <label class="sr-only" for="newsletterEmail">Email address</label>
 <input autocomplete="email" id="newsletterEmail" maxlength="254" name="email" placeholder="Enter your email address" required type="email"/>
 <button type="submit">Subscribe</button>
-<p aria-live="polite" class="newsletter-status" data-newsletter-status></p>
+
 </form>
 <div class="newsletter-perks"><span><img alt="" src="/assets/icons/percent.svg"/><b>Exclusive Deals</b></span><span><img alt="" src="/assets/icons/gift.svg"/><b>New Arrivals</b></span><span><img alt="" src="/assets/icons/location-dot.svg"/><b>Shopping Tips</b></span></div>
 </div>

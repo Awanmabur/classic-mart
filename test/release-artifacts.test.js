@@ -34,7 +34,9 @@ function isolatedSource() {
   write('dashboard-preview/final19/assets/avatar.png', 'original image bytes');
   write('DASHBOARD_PREVIEW.md', 'Preview instructions\n');
   write('README.md', 'Application instructions\n');
-  write('docs/production/staged-launch.md', 'Actual operating instructions\n');
+  for (const name of ['staged-launch.md', 'LAUNCH.md', 'CONFIGURATION.md', 'SMS.md', 'PESAPAL.md']) {
+    write(`docs/production/${name}`, `Operating instructions for ${name}\n`);
+  }
   write('.env', 'PRIVATE_RUNTIME_VALUE=must-stay-out\n');
   write('.env.example', 'NODE_ENV=development\n');
   write('.env.production.example', 'NODE_ENV=production\n');
@@ -71,7 +73,9 @@ test('production release contains live assets and launch operations while exclud
   for (const relative of ['public/approved-dashboard/customer-live.js', 'public/approved-dashboard/session-entry.js',
     'public/approved-dashboard/assets/avatar.png', 'scripts/check-r2.js', 'scripts/launch-evidence.js',
     'scripts/staff-access.js', 'scripts/operator-input.js', 'scripts/verify-mail.js', 'scripts/verify-sms.js', 'scripts/runtime-package.js',
-    'docs/production/staged-launch.md']) assert.ok(exists(stage, relative), relative);
+    ...['staged-launch.md', 'LAUNCH.md', 'CONFIGURATION.md', 'SMS.md', 'PESAPAL.md'].map(name => `docs/production/${name}`)]) {
+    assert.deepEqual(fs.readFileSync(path.join(stage, relative)), fs.readFileSync(path.join(directory, relative)), relative);
+  }
   for (const relative of ['dashboard-preview', 'test', 'tests', '.github', '.env', '.env.example',
     'src/core/local-mongo.js', 'src/config/initial-catalogue.js', 'public/assets/products',
     'scripts/seed-initial-catalogue.js', 'scripts/seed.js', 'CLEAN_MANIFEST.json', 'RELEASE_MANIFEST.json',
@@ -94,7 +98,9 @@ test('clean app release preserves deliberate catalogue setup without shipping pr
   const stage = build(directory, 'build-clean-app-release.js', '-clean');
   for (const relative of ['scripts/seed-initial-catalogue.js', 'src/config/initial-catalogue.js',
     'scripts/launch-evidence.js', 'scripts/check-r2.js', 'scripts/staff-access.js', 'scripts/operator-input.js',
-    'scripts/verify-mail.js', 'scripts/verify-sms.js', 'scripts/runtime-package.js', 'docs/production/staged-launch.md']) assert.ok(exists(stage, relative), relative);
+    'scripts/verify-mail.js', 'scripts/verify-sms.js', 'scripts/runtime-package.js', ...['staged-launch.md', 'LAUNCH.md', 'CONFIGURATION.md', 'SMS.md', 'PESAPAL.md'].map(name => `docs/production/${name}`)]) {
+    assert.deepEqual(fs.readFileSync(path.join(stage, relative)), fs.readFileSync(path.join(directory, relative)), relative);
+  }
   for (const relative of ['dashboard-preview', 'test', 'tests', '.github', '.env', 'src/core/local-mongo.js',
     'scripts/seed.js', 'PRODUCTION_MANIFEST.json', 'RELEASE_MANIFEST.json',
     ...prototypes.map(name => `public/approved-dashboard/${name}`)]) assert.equal(exists(stage, relative), false, relative);

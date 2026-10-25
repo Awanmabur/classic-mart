@@ -79,10 +79,10 @@ if (nodeEnv === 'production') {
       'Production requires SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM with MAIL_MODE=smtp.',
     );
   }
-  const smsMode = process.env.SMS_MODE || (process.env.ESMS_API_KEY ? 'esms' : 'disabled');
-  const smsConfigured = smsMode === 'esms' && process.env.ESMS_API_KEY?.startsWith('esms_live_');
+  const smsMode = process.env.SMS_MODE || (process.env.YOOLA_API_KEY?.trim() ? 'yoola' : 'disabled');
+  const smsConfigured = smsMode === 'yoola' && Boolean(process.env.YOOLA_API_KEY?.trim());
   if (smsMode !== 'disabled' && !smsConfigured) {
-    throw new Error('Production requires eSMS Africa with a live ESMS_API_KEY for phone verification.');
+    throw new Error('Production SMS requires SMS_MODE=yoola and YOOLA_API_KEY, or SMS_MODE=disabled until configured.');
   }
   if (!['clamd', 'clamscan'].includes(process.env.MALWARE_SCAN_MODE || '')) {
     throw new Error('Production requires MALWARE_SCAN_MODE=clamd or clamscan for untrusted uploads.');
@@ -252,9 +252,8 @@ export const env = Object.freeze({
       '',
   }),
   sms: Object.freeze({
-    mode: process.env.SMS_MODE || (process.env.ESMS_API_KEY ? 'esms' : (nodeEnv === 'production' ? 'disabled' : 'log')),
-    esmsApiKey: process.env.ESMS_API_KEY || '',
-    esmsSenderId: process.env.ESMS_SENDER_ID || '',
+    mode: process.env.SMS_MODE || (process.env.YOOLA_API_KEY?.trim() ? 'yoola' : (nodeEnv === 'production' ? 'disabled' : 'log')),
+    yoolaApiKey: process.env.YOOLA_API_KEY?.trim() || '',
   }),
   pesapal: Object.freeze({
     baseUrl: process.env.PESAPAL_BASE_URL || (boolean(process.env.PESAPAL_SANDBOX, true) ? 'https://cybqa.pesapal.com/pesapalv3' : 'https://pay.pesapal.com/v3'),

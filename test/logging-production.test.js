@@ -78,6 +78,19 @@ test('Pino cannot promote an implicit raw Error message into the log message', (
   assert.doesNotMatch(JSON.stringify(records), /private-reset-token|private@example/);
 });
 
+test('cancelled public image downloads are debug diagnostics while failed media and operational responses stay visible', () => {
+  const { log, records } = captureLogger();
+  const middleware = createHttpLogging({ log, accessLogs: false });
+  const media = request({ route: { path: '/media/catalogue/:publicId' } });
+  complete(middleware, media, 200, { interrupted: true });
+  complete(middleware, media, 503, { interrupted: true });
+  complete(middleware, request({ route: { path: '/business/orders' } }), 200, { interrupted: true });
+  complete(middleware, request({ [requestErrorLogged]: true }), 500, { interrupted: true });
+  assert.deepEqual(records.map(record => record.level), [20, 40, 40]);
+  assert.equal(records[0].msg, 'Catalogue image download cancelled');
+  assert.doesNotMatch(JSON.stringify(records), /private-/);
+});
+
 test('HTTP fallback avoids duplicate handled errors; opt-in access logs still withhold health/static successes and all raw targets', () => {
   const { log, records } = captureLogger();
   const middleware = createHttpLogging({ log, accessLogs: true });

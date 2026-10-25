@@ -11,6 +11,7 @@
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
 <link href="<%= assetUrl('/phone-country.css') %>" rel="stylesheet"/>
+<%- include('partials/flash-assets') %>
 </head>
 <body class="storefront-page auth-standalone-page">
 <a class="skip-link" href="#authContent">Skip to account creation</a>
@@ -71,7 +72,7 @@
 </div>
 <label class="auth-check"><input id="acceptTerms" name="acceptTerms" required="" type="checkbox"/>I agree to the Terms of Service and Privacy Policy.</label>
 <label class="auth-check"><input name="marketing" type="checkbox"/>Send me useful offers (optional).</label>
-<p aria-live="polite" class="auth-message<%= pageError ? ' error' : '' %>" id="authMessage" role="status"><%= pageError || '' %></p>
+<p aria-live="polite" class="auth-message<%= pageError ? ' error' : '' %> platform-flash" id="authMessage" role="status"><%= pageError || '' %></p>
 <button class="auth-submit" type="submit">Create My Account</button>
 </form>
 <p class="auth-switch">Already have an account? <a href="/login">Sign in here</a></p>

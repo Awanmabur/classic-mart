@@ -16,9 +16,9 @@ test('phone selector derives its complete country list and codes from phone meta
   assert.throws(() => canonicalPhone('+256700000000', 'US'), { code: 'INVALID_PHONE' });
 });
 
-test('an eSMS key selects the real adapter when SMS_MODE is omitted', () => {
-  const settings = { ...process.env, NODE_ENV: 'test', ESMS_API_KEY: 'esms_test_fixture' };
+test('a Yoola key selects the real adapter when SMS_MODE is omitted', () => {
+  const settings = { ...process.env, NODE_ENV: 'test', YOOLA_API_KEY: 'yoola_test_fixture' };
   delete settings.SMS_MODE;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', "const { env } = await import('./src/config/env.js'); console.log(env.sms.mode)"], { cwd: process.cwd(), env: settings, encoding: 'utf8' });
-  assert.equal(result.status, 0); assert.equal(result.stdout.trim(), 'esms');
+  assert.equal(result.status, 0); assert.equal(result.stdout.trim(), 'yoola');
 });

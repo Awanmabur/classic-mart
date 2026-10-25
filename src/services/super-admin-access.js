@@ -8,8 +8,15 @@ export async function superAdminAccess(request, { session = null, write = false,
     || actor.role !== 'super_admin' || context.grant.operationalCountries.length !== 1 || context.grant.operationalCountries[0] !== '*') {
     throw new AppError('A current global Super Admin staff grant is required.', 403, 'SUPER_ADMIN_GRANT_REQUIRED');
   }
-  if (!actor.emailVerifiedAt || !actor.phoneVerifiedAt || !actor.onboardingCompletedAt || !actor.security.mfaEnabled) {
-    throw new AppError('Complete verified staff identity and authenticator enrollment first.', 403, 'SUPER_ADMIN_IDENTITY_REQUIRED');
+  const identityStep = !actor.emailVerifiedAt ? '/verify-email'
+    : !actor.onboardingCompletedAt ? '/onboarding'
+      : !actor.phoneVerifiedAt ? '/verify-phone'
+        : !actor.security?.mfaEnabled ? '/account/security' : '';
+  if (identityStep) {
+    // Keep service/API authorization closed. The HTML page gate may guide the
+    // already-authorized account to the missing setup step without reading any
+    // privileged records or treating development login as verified identity.
+    throw new AppError('Complete verified staff identity and authenticator enrollment first.', 403, 'SUPER_ADMIN_IDENTITY_REQUIRED', { identityStep });
   }
   if (request.sessionID !== undefined && !context.device) throw new AppError('Your staff session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   if (write) {

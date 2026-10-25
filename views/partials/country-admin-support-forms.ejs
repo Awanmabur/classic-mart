@@ -20,7 +20,7 @@ const supportLabel = value => String(value || '').replaceAll('_',' ');
 <% if(supportTicket){ %>
 <section class="panel role-form-section" id="country-admin-support-conversation" aria-labelledby="country-admin-support-heading">
   <div class="role-panel-head compact"><div><span class="eyebrow">Saved support request</span><h2 id="country-admin-support-heading"><%= supportTicket.subject %></h2><p class="form-intro"><%= supportTicket.publicId %> · <%= supportTicket.country %> · <%= supportLabel(supportTicket.status) %></p></div><a class="plain-link" href="/admin/support?country=<%= supportAdmin.country || '' %>">Close conversation</a></div>
-  <% if(supportAdmin.error){ %><p class="flash error" role="alert"><%= supportAdmin.error %></p><% } %>
+  <% if(supportAdmin.error){ %><p class="flash error platform-flash" role="alert"><%= supportAdmin.error %></p><% } %>
   <div class="role-form-grid">
     <label>Requester<input readonly value="<%= supportTicket.requester.name %>"></label><label>Contact<input readonly value="<%= supportTicket.requester.emailMasked %>"></label>
     <label>Owner<input readonly value="<%= supportTicket.owner?.name || 'Unassigned' %>"></label><label>Queue and priority<input readonly value="<%= supportTicket.queue + ' · ' + supportTicket.priority %>"></label>

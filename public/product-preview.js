@@ -172,13 +172,8 @@
     };
   }
 
-  function showToast(message) {
-    const toast = qs('#catalogToast') || qs('#pageToast') || qs('[role="status"].page-toast');
-    if (!toast) return;
-    toast.textContent = String(message || '');
-    toast.classList.add('show');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove('show'), 2400);
+  function showToast(message, options) {
+    window.ClassicMartFlash.show(message, options);
   }
 
   async function ensureCatalogue() {
@@ -576,7 +571,7 @@
     } catch (error) {
       if (operation !== state.operation) return;
       closeModal();
-      showToast(error.message || 'Product preview could not be opened.');
+      showToast(error.message || 'Product preview could not be opened.', { type: 'error' });
     }
   }
 
@@ -601,7 +596,7 @@
         updatePurchaseSummary();
       }
     } catch (error) {
-      showToast(error.message || 'Product could not be added.');
+      showToast(error.message || 'Product could not be added.', { type: 'error' });
     } finally {
       if (button && document.body.contains(button)) button.innerHTML = previous;
       updatePurchaseSummary();
@@ -619,7 +614,7 @@
       showToast(`${product.name} added to cart`);
       button.textContent = 'Added ✓';
     } catch (error) {
-      showToast(error.message || 'Product could not be added.');
+      showToast(error.message || 'Product could not be added.', { type: 'error' });
       button.innerHTML = previous;
     } finally {
       setTimeout(() => {

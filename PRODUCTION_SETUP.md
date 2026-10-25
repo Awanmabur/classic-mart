@@ -1,5 +1,8 @@
 # Classic Mart Production Launch Setup
 
+Start with the [launch handoff](docs/production/LAUNCH.md) for the complete
+configuration, migration, administrator, provider and deployment checklist.
+
 Read [staged launch operations](docs/production/staged-launch.md) for released
 registration types, staff provisioning, MFA-protected launch evidence, current
 worker readiness, logging and verification limits. Use the actual HTTPS domain
@@ -14,7 +17,7 @@ This production package contains no development database bootstrap, reset toolin
 3. HTTPS public domain in `BASE_URL`.
 4. Live Pesapal API 3.0 merchant key/secret with `PESAPAL_SANDBOX=false`. The first HTTPS deploy may start without `PESAPAL_IPN_ID`; checkout remains fail-closed until you register `BASE_URL/webhooks/pesapal`, store the returned IPN ID, and redeploy.
 5. SMTP credentials for transactional email.
-6. eSMS Africa live credentials for phone verification.
+6. Yoola SMS credentials and an approved sender for phone verification.
 7. ClamAV scanning for untrusted uploads. The production Docker image includes `clamscan` and fetches signed definitions during image build. Keep definitions current through frequent rebuilds or a managed, continuously updated private `clamd` service; build-time freshness does not last indefinitely. Uploads reject stale definitions. See the scanner freshness requirements in the operating guide.
 8. Private Cloudflare R2 bucket for marketplace media. Production requires `MEDIA_STORAGE_DRIVER=r2`, the Cloudflare S3 endpoint, bucket name, Access Key ID and Secret Access Key. Keep the bucket private; do not enable `r2.dev` or public access for this launch because KYC/evidence shares the storage boundary.
 9. Durable mounted filesystem at `PERSISTENT_STORAGE_ROOT` for temporary exports/privacy files only. Marketplace uploads are stored in R2. On Render, mount `/var/data` and use `/var/data/classic-mart` as the root for those temporary operational files.

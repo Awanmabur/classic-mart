@@ -18,7 +18,7 @@
 %>
 <section class="app-page active role-page promoter-profile-live" data-page="promoter-profile" data-role="promoter">
   <div class="page-heading role-page-heading"><div><span class="eyebrow">Account preferences</span><h1>Promoter Profile</h1><p>Manage channels, audience details, payout information, preferences, and security.</p></div><a class="outline-button icon-button" href="/account/security"><svg><use href="#i-shield"></use></svg>Security centre</a></div>
-  <% if (promoterProfile.error) { %><div class="panel dashboard-message dashboard-message-error" role="alert"><%= promoterProfile.error %></div><% } %>
+  <% if (promoterProfile.error) { %><div class="panel dashboard-message dashboard-message-error platform-flash" role="alert"><%= promoterProfile.error %></div><% } %>
   <div class="profile-layout role-settings-layout role-profile-settings">
     <aside class="panel profile-summary role-profile-summary">
       <div class="profile-avatar-wrap role-profile-avatar-wrap"><span class="role-profile-avatar"><%= String(profileActor.name || 'CM').slice(0, 2).toUpperCase() %></span></div>

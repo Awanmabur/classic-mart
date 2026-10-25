@@ -11,6 +11,7 @@
   <link href="/storefront-pages.css" rel="stylesheet"/>
   <link href="/onboarding-role.css" rel="stylesheet"/>
   <link href="/server-ui.css" rel="stylesheet"/>
+<%- include('partials/flash-assets') %>
 </head>
 <body class="role-onboarding-page">
   <main class="role-onboarding-shell">
@@ -56,7 +57,7 @@
           <label class="role-field">Team size<input maxlength="30" name="teamSize" placeholder="Business buyers or teams" value="<%= values.teamSize || '' %>"/></label>
           <label class="role-field full">About this profile<textarea maxlength="1000" name="bio" placeholder="A short, accurate description" rows="4"><%= values.bio || '' %></textarea></label>
         </div>
-        <p class="role-server-message<%= pageError ? ' error' : '' %>"><%= pageError || flash?.message || '' %></p>
+        <p class="role-server-message<%= pageError ? ' error' : '' %> platform-flash"><%= pageError || flash?.message || '' %></p>
         <div class="role-step-actions server-role-actions">
           <a class="role-back" href="/">Back to marketplace</a>
           <button class="role-next" type="submit"><%= sellerStart ? 'Start My Seller Account' : 'Complete Secure Setup' %></button>

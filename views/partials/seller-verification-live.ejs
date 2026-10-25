@@ -1,7 +1,7 @@
 <% const flow = liveSeller.verificationFlow; const record = flow.record; const draft = flow.draft || {}; const editable = ['draft','rejected'].includes(record.status); %>
 <section class="app-page active role-page" data-page="seller-store" data-role="seller">
   <div class="page-heading role-page-heading"><div><span class="eyebrow">Store compliance</span><h1>Seller Verification</h1><p>Upload your evidence and submit accurate business details for independent review.</p></div><a class="outline-button icon-button" href="/seller/store">Store Settings</a></div>
-  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error" role="alert"><%= flow.error %></div><% } %>
+  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error platform-flash" role="alert"><%= flow.error %></div><% } %>
   <section class="panel form-panel role-form-section"><div class="section-heading"><div><h2>Verification status</h2><p class="form-intro"><%= record.status === 'approved' ? 'Your store has been verified.' : record.status === 'submitted' || record.status === 'appealed' ? 'Your evidence is awaiting review. Documents are locked while review is in progress.' : 'Upload current documents before completing the submission below.' %></p></div><span class="member-pill"><%= record.status %></span></div>
     <% if (record.submittedAt) { %><p>Submitted: <%= formatDate(record.submittedAt) %></p><% } %>
     <% if (record.reviewedAt) { %><p>Last review: <%= formatDate(record.reviewedAt) %></p><% } %>

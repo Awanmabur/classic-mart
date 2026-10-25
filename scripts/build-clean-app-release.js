@@ -14,7 +14,7 @@ const zipPath = path.join(outRoot, `${folderName}.zip`);
 
 const allow = [
   'package.json','package-lock.json','Dockerfile','.dockerignore','.env.example','.env.production.example',
-  'README.md','PRODUCTION_SETUP.md','docs/production/staged-launch.md','render.yaml','src','public','views',
+  'README.md','PRODUCTION_SETUP.md','docs/production/staged-launch.md','docs/production/LAUNCH.md','docs/production/CONFIGURATION.md','docs/production/SMS.md','docs/production/PESAPAL.md','render.yaml','src','public','views',
   'scripts/runtime-package.js','scripts/run-production.js','scripts/bootstrap-production.js','scripts/migrate-production.js',
   'scripts/pesapal-register-ipn.js','scripts/launch-check.js','scripts/check-production-data.js',
   'scripts/deploy-smoke.js','scripts/backup-drill.js','scripts/check-r2.js','scripts/verify-mail.js','scripts/verify-sms.js','scripts/verify-mongo.js',
@@ -62,7 +62,7 @@ fs.writeFileSync(path.join(stage,'README.md'),[
   '# Classic Mart', '',
   'This package includes the application and deliberate initial catalogue setup.',
   'Use Node.js 24 and install the committed lockfile with `npm ci`.', '',
-  'Read [production setup](PRODUCTION_SETUP.md) and',
+  'Start with the [launch handoff](docs/production/LAUNCH.md), [production setup](PRODUCTION_SETUP.md) and',
   '[staged launch operations](docs/production/staged-launch.md) for configuration,',
   'released roles, staff access, launch evidence and remaining verification requirements.', '',
   'Configure transaction-capable MongoDB, Redis and private R2 through your environment manager.',
@@ -70,7 +70,7 @@ fs.writeFileSync(path.join(stage,'README.md'),[
   'Initial catalogue import is explicit: `INITIAL_CATALOGUE_CONFIRM=SEED_REAL_CLASSIC_MART npm run db:setup`.',
   'Never import development data into an existing production database.', '',
   'Production startup uses `npm run start:production`; launch sign-off uses `npm run launch:check`.',
-  'Real Gmail/eSMS/Pesapal delivery and production infrastructure require configured credentials and verification.',
+  'Real Gmail/Yoola/Pesapal delivery and production infrastructure require configured credentials and verification.',
   'The full source, design references and engineering tests are in the source release.', '',
 ].join('\n'));
 for (const required of ['scripts/seed-initial-catalogue.js','src/config/initial-catalogue.js']) {

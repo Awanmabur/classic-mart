@@ -56,12 +56,13 @@ test('Stage 9 integration audit proves end-to-end administrative controls',()=>{
 });
 
 
-test('Stage 9 optional reviewer bootstrap enables four-eyes without default privileged credentials',()=>{
+test('Stage 9 engineering reviewer seeding remains explicit and absent from runtime templates',()=>{
   const env=read('src/config/env.js');
   const seed=read('scripts/seed.js');
   const example=read('.env.example');
   assert.match(env,/adminReviewer/);
   assert.match(seed,/ADMIN_REVIEWER_EMAIL, ADMIN_REVIEWER_PHONE and ADMIN_REVIEWER_PASSWORD/);
   assert.match(seed,/role: 'super_admin'/);
-  assert.match(example,/ADMIN_REVIEWER_PASSWORD=\n/);
+  assert.doesNotMatch(example,/^ADMIN_REVIEWER_/m);
+  assert.doesNotMatch(read('.env.production.example'),/^ADMIN_REVIEWER_/m);
 });

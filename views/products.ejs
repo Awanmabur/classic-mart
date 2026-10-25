@@ -11,6 +11,7 @@
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
 <link href="/marketplace-pages.css" rel="stylesheet"/>
+<%- include('partials/flash-assets') %>
 </head>
 <body class="catalog-body" data-page-mode="products" data-initial-category="<%= typeof initialCategory !== 'undefined' && initialCategory ? initialCategory.id : '' %>">
 <a class="skip-link" href="#catalogMain">Skip to products</a><%- include("partials/storefront-header") %>
@@ -67,7 +68,7 @@
 <label class="sr-only" for="newsletterEmail">Email address</label>
 <input autocomplete="email" id="newsletterEmail" maxlength="254" name="email" placeholder="Enter your email address" required type="email"/>
 <button type="submit">Subscribe</button>
-<p aria-live="polite" class="newsletter-status" data-newsletter-status></p>
+
 </form>
 <div class="newsletter-perks"><span><img alt="" src="/assets/icons/percent.svg"/><b>Exclusive Deals</b></span><span><img alt="" src="/assets/icons/gift.svg"/><b>New Arrivals</b></span><span><img alt="" src="/assets/icons/location-dot.svg"/><b>Shopping Tips</b></span></div>
 </div>

@@ -67,13 +67,8 @@
 
   function persistProduct(product) { snapshots[product.id] = product; }
 
-  function showToast(message) {
-    const toast = $('#pageToast');
-    if (!toast) return;
-    toast.textContent = message;
-    toast.classList.add('show');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove('show'), 2300);
+  function showToast(message, options) {
+    window.ClassicMartFlash.show(message, options);
   }
 
   function imageMarkup(product) {
@@ -179,7 +174,7 @@
       const next = Math.max(0, Math.min(99, (Number(cart[id]) || 0) + difference));
       await requireCartService('setQuantity').setQuantity(id, next);
       refreshCartFromStore();
-    } catch (error) { showToast(error.message); }
+    } catch (error) { showToast(error.message, { type: 'error' }); }
   }
 
   async function removeItem(id, announce = true) {
@@ -188,7 +183,7 @@
       await requireCartService('remove').remove(id);
       refreshCartFromStore();
       if (announce) showToast(`${product.name} removed from your cart`);
-    } catch (error) { showToast(error.message); }
+    } catch (error) { showToast(error.message, { type: 'error' }); }
   }
 
   async function addItem(id) {
@@ -199,7 +194,7 @@
       refreshCartFromStore();
       renderRecommendations();
       showToast(`${product.name} added to your cart`);
-    } catch (error) { showToast(error.message); }
+    } catch (error) { showToast(error.message, { type: 'error' }); }
   }
 
   function renderRecommendations() {
@@ -384,7 +379,7 @@
         if ([...select.options].some(option => option.value === current)) select.value = current;
       }
       $$('input[name="payment"]').forEach(input => { input.disabled = data.payments?.[input.value] === false; });
-    } catch (error) { showToast(error.message || 'Checkout options could not be loaded.'); }
+    } catch (error) { showToast(error.message || 'Checkout options could not be loaded.', { type: 'error' }); }
   }
 
   function updateChoiceStyles() {
@@ -446,7 +441,7 @@
         refreshCartFromStore();
         checkoutReview = null;
         showToast('Item saved to your wishlist');
-      } catch (error) { showToast(error.message); }
+      } catch (error) { showToast(error.message, { type: 'error' }); }
       finally { save.disabled = false; }
       return;
     }
@@ -466,7 +461,7 @@
       await requireCartService('clear').clear();
       refreshCartFromStore();
       showToast('Your cart has been cleared');
-    } catch (error) { showToast(error.message); }
+    } catch (error) { showToast(error.message, { type: 'error' }); }
   });
 
   $('#couponForm')?.addEventListener('submit', async event => {
@@ -516,7 +511,7 @@
       await loadCheckoutProfile();
       await loadCheckoutOptions();
       setStep(2);
-    } catch (error) { showToast(error.message || 'Checkout could not start.'); }
+    } catch (error) { showToast(error.message || 'Checkout could not start.', { type: 'error' }); }
   });
 
   $('#checkoutDetailsForm')?.addEventListener('submit', async event => {
@@ -546,7 +541,7 @@
         $$('.discount-summary-row').forEach(row => { row.hidden = !(payload.totals.discountMinor || 0); });
       }
       setStep(3);
-    } catch (error) { showToast(error.message || 'Checkout review failed.'); }
+    } catch (error) { showToast(error.message || 'Checkout review failed.', { type: 'error' }); }
   });
 
   document.addEventListener('change', event => {

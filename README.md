@@ -1,27 +1,28 @@
 # Classic Mart
 
-Current staged dashboard checkpoint: **v2.13.74 — approved role workspaces**.
+Current application version: **v2.13.74**. Identify the current launch candidate
+by its full Git commit on `master`; a merge does not establish production sign-off.
 
-The current cleanup, restored image/button styling and staged launch controls are
-documented in [staged launch operations](docs/production/staged-launch.md).
-Production sign-off still requires configured real services and current evidence.
-See the [current verification record](docs/production/2026-10-15-refund-review.md)
-for independent refund review, retained reservations and remaining launch requirements.
+Start with the [launch handoff](docs/production/LAUNCH.md),
+[environment settings](.env.production.example) and
+[latest fixes and verification](docs/audits/2026-10-25-launch-fixes.md).
+[Staged launch operations](docs/production/staged-launch.md) covers staff,
+independent approvals and the production evidence gate.
 
 Classic Mart is a server-authoritative multi-vendor marketplace built with Node.js 24, Express 5, EJS, MongoDB, Redis, Pesapal and Cloudflare R2. The approved **Unified Role Dashboard — Polished Final 19** design is connected one workspace at a time to the existing marketplace backend.
 
 ## Connected dashboards
 
-- Customer uses `/dashboard` and canonical shopping/account routes. Seller has 17 connected `/seller/...` destinations; Promoter has 15 `/promoter/...` destinations; Finance and Support each have nine connected destinations. Moderation has eight connected `/moderation/...` destinations. Country Admin has 16 connected `/admin/...` destinations. Warehouse has nine connected receiving, inventory, fulfilment, returns and reporting destinations.
+- Customer uses `/dashboard` and canonical shopping/account routes. Seller, Promoter, Finance, Support, Moderation, Country Admin and Warehouse use their own connected routes and approved workspace navigation. Business procurement, assigned Delivery operations and Super Admin controls also have separate authorized workspaces. Route maps under `src/dashboard` define the exact connected destinations.
 - Current server-side roles, staff grants and primary workspace determine login landing and access. There is no demo role selector or browser-owned business state. Seller accounts land in the Seller workspace; Finance staff grants do not render a Customer dashboard even when their stored identity role is Customer.
-- Original approved base styles, scripts and images remain byte-for-byte unchanged. Live records and saved workflows use the approved layouts, with scoped additions for forms and responsive record text.
+- Approved layouts and used images are preserved. The requested shared flash component replaces the old notification styles; fidelity checks allow that specific change while comparing the remaining base styles exactly with the original preview. Live forms and responsive record text use scoped additions.
 - Finance includes real refund reservation/completion, independent payout review/settlement, COD/provider reconciliation, chargeback controls, scoped reports/audit and weekly report delivery. Transfers and provider delivery are not simulated as successes.
 - Support uses `/support/overview` and scoped staff pages. Customer conversations remain at `/support`. Real replies, private notes, customer appeals, receipt-backed Warehouse returns and independently completed Finance refunds use the approved layouts.
 - Moderation starts at `/moderation/overview`. Product and seller verification, purchased reviews, risk cases/signals, audit, reports, independent QA and saved settings use current grants, actual source records and transactional decisions. Customer reports/replies/appeals and Seller review disputes connect to those same records.
 - Country Admin starts at `/admin/overview`. Its catalogue/people, commerce, growth/content, Support, reports and settings pages use current staff grants and source-country transactions. Coupons redeem through real checkout; CMS publication requires independent approval; campaigns recheck consent at delivery; manual refunds require independent operators and actual disbursement evidence.
 - Classic Wallet uses verified payment and liability accounting. Authenticated checkout debits actual funds atomically; Wallet refunds return to the same owner's wallet.
 - Personal security, messages, privacy, notifications and connected apps preserve the current identity and workspace navigation. Configured MFA is required before privileged operations; enrollment retains its validated continuation.
-- Pending Sellers can read all 17 connected store destinations and see how to complete verification; fulfilment and external order APIs still require an approved store. See the [hero, photo and control repairs](docs/ui/2026-10-14-repairs.md) for the latest UI checks.
+- Pending Sellers can read their connected store destinations and see how to complete verification; fulfilment and external order APIs still require an approved store. See the [hero, photo and control repairs](docs/ui/2026-10-14-repairs.md) for the design scope and the latest verification record above for current checks.
 - See [architecture](docs/architecture.md), [Seller contracts](docs/seller/workspace-pages.md), [Promoter contracts](docs/promoter/workspace-pages.md), [Finance contracts](docs/finance/workspace-pages.md), [Support contracts](docs/support/workspace-pages.md), [Moderation contracts](docs/moderation/workspace-pages.md) and [Country Admin contracts](docs/country-admin/workspace-pages.md) for exact routes, operations, tests and remaining production limits. Other workspaces continue through their own implementation stages.
 
 ## External-service-first development
@@ -55,7 +56,8 @@ For a fresh real Classic Mart database, configure an explicit database name in `
 NODE_ENV=development
 MONGO_MODE=external
 MONGO_URI=mongodb+srv://.../classic-mart?retryWrites=true&w=majority
-REDIS_URL=redis://127.0.0.1:6379
+# Leave blank for local development unless Redis is running.
+REDIS_URL=
 MEDIA_STORAGE_DRIVER=r2
 R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 R2_BUCKET=classic-mart-media
@@ -115,7 +117,7 @@ All real uploaded marketplace media uses the object-storage boundary. With `MEDI
 
 Production remains fail-closed. It requires managed MongoDB, Redis, private Cloudflare R2, HTTPS, live Pesapal API 3.0 credentials, SMTP, SMS, malware scanning, production secrets, explicit launch countries and security/DR configuration. Production bootstrap creates only platform primitives and categories; production data gates block legacy development/demo markers while accepting the official initial catalogue.
 
-Use the generated **production launch package** for Render against the same explicit real Atlas database. Follow `PRODUCTION_SETUP.md` for deployment, Pesapal IPN registration and the final launch gate.
+Use the generated **production launch package** for Render against the same explicit real Atlas database. Start with the [launch handoff](docs/production/LAUNCH.md) and [production setup](PRODUCTION_SETUP.md) for configuration, administrator setup, Pesapal IPN registration and the final launch gate.
 
 ## Security
 

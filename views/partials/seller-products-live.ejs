@@ -29,7 +29,7 @@
 %>
 <section class="app-page active role-page seller-product-page seller-fidelity-page" data-page="<%= flow.mode === 'create' ? 'seller-add-product' : 'seller-products' %>" data-role="seller">
   <div class="page-heading role-page-heading"><div><span class="eyebrow">Catalogue</span><h1><%= flow.mode === 'list' ? 'My Products' : flow.mode === 'create' ? 'Add a Product' : product.title %></h1><p><%= flow.mode === 'list' ? 'Manage product information, publishing status, prices, images, and marketplace visibility.' : flow.mode === 'create' ? 'Create a complete product listing with pricing, stock, variants, media, and delivery details.' : 'Keep your listing accurate, complete its images and stock, then submit it for independent review.' %></p></div><a class="<%= flow.mode === 'list' ? 'primary-button' : 'outline-button' %> icon-button" href="<%= flow.mode === 'list' ? '/seller/products/new' : '/seller/products' %>"><svg aria-hidden="true"><use href="#<%= flow.mode === 'list' ? 'i-plus' : 'i-box' %>"></use></svg><%= flow.mode === 'list' ? 'Add Product' : 'View Products' %></a></div>
-  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error" role="alert"><%= flow.error %></div><% } %>
+  <% if (flow.error) { %><div class="panel dashboard-message dashboard-message-error platform-flash" role="alert"><%= flow.error %></div><% } %>
   <% if (flow.mode === 'list') {
     const filters = flow.filters || {};
     const items = flow.items || [];

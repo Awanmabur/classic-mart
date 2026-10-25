@@ -15,7 +15,7 @@ const pageLink = after => { const query = new URLSearchParams(filterParams); if 
 %>
 <section class="app-page active role-page seller-standard-live seller-fidelity-page" data-page="<%= sellerPage.id %>" data-role="seller" data-page-kind="<%= sellerPage.kind %>">
   <div class="page-heading role-page-heading"><div><span class="eyebrow"><%= sellerPage.eyebrow %></span><h1><%= sellerPage.title %></h1><p><%= sellerPage.description %></p></div><% if (flow.create) { %><a class="primary-button icon-button" href="<%= localHref(flow.create.href) %>"><svg aria-hidden="true"><use href="#i-plus"></use></svg><%= flow.create.label %></a><% } %></div>
-  <% if (flow.error) { %><p class="server-flash error" role="alert"><%= flow.error %></p><% } %>
+  <% if (flow.error) { %><p class="server-flash error platform-flash" role="alert"><%= flow.error %></p><% } %>
   <section class="role-metric-grid"><% for (const [index, metric] of metrics.entries()) { %><article class="role-metric panel"><span class="role-metric-icon tone-<%= index % 4 + 1 %>"><svg aria-hidden="true"><use href="#<%= ['i-eye','i-clipboard','i-wallet','i-award'][index % 4] %>"></use></svg></span><div><small><%= metric.label %></small><strong><%= metric.value %></strong><span><%= metric.detail || '' %></span></div></article><% } %></section>
   <div class="role-content-grid">
     <div class="role-side-stack">

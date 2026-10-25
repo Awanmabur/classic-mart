@@ -1,3 +1,4 @@
+import { approvedAssetWithSharedFlash } from './approved-ui-fidelity.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -37,11 +38,11 @@ const routes = Object.freeze({
   'moderator-settings': '/moderation/settings',
 });
 
-test('Moderation retains the approved shared design and original image assets', () => {
+test('Moderation retains the approved shared design and images except the requested flash adapter', () => {
   for (const name of ['styles.css', 'design-system.css', 'role-workspaces.css', 'script.js', 'enhancements.js',
     ...fs.readdirSync(path.join(root, 'dashboard-preview/final19/assets')).map(name => 'assets/' + name)]) {
     assert.deepEqual(fs.readFileSync(path.join(root, 'public/approved-dashboard', name)),
-      fs.readFileSync(path.join(root, 'dashboard-preview/final19', name)), name);
+      approvedAssetWithSharedFlash(name, fs.readFileSync(path.join(root, 'dashboard-preview/final19', name))), name);
   }
 });
 

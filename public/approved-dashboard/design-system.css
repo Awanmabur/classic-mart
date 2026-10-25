@@ -971,12 +971,6 @@ body:not([data-workspace="customer"]) .dashboard.page-host {
 .profile-menu button { border-radius: 8px; font-size: 12px; }
 .profile-menu button:hover { background: #fff7f2; color: #d95700; }
 
-.toast {
-  border-radius: 10px;
-  background: #172033;
-  box-shadow: var(--shadow-raised);
-  font-size: 12.5px;
-}
 
 /* Classic AI drawer */
 .ai-drawer {

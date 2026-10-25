@@ -12,6 +12,7 @@
 <%- include("partials/seo-meta") %>
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
+<%- include('partials/flash-assets') %>
 </head>
 <body class="home-page">
 <a class="skip-link" href="#mainContent">Skip to content</a>
@@ -155,7 +156,7 @@
 <label class="sr-only" for="newsletterEmail">Email address</label>
 <input autocomplete="email" id="newsletterEmail" maxlength="254" name="email" placeholder="Enter your email address" required type="email"/>
 <button type="submit">Subscribe</button>
-<p aria-live="polite" class="newsletter-status" data-newsletter-status></p>
+
 </form>
 <div class="newsletter-perks"><span><img alt="" src="/assets/icons/percent.svg"/><b>Exclusive Deals</b></span><span><img alt="" src="/assets/icons/gift.svg"/><b>New Arrivals</b></span><span><img alt="" src="/assets/icons/location-dot.svg"/><b>Shopping Tips</b></span></div>
 </div>
@@ -172,7 +173,7 @@
 <section aria-labelledby="locationTitle" aria-modal="true" class="modal compact-modal" hidden="" id="locationModal" role="dialog">
 <button aria-label="Close dialog" class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
 <div class="modal-heading"><span><img alt="" src="/assets/icons/location-dot.svg"/></span><div><h2 id="locationTitle">Choose delivery location</h2><p>We’ll use this to estimate delivery availability.</p></div></div>
-<form class="stack-form" id="locationForm"><label>Delivery city<input id="locationInput" placeholder="e.g. Kampala" required="" minlength="2" maxlength="120" type="text" value="<%= deliveryCity || '' %>"/></label><small>Country is controlled separately. Classic Mart validates this city against configured delivery zones; final fees are recalculated at checkout.</small><button class="button button-primary" type="submit">Save Location</button><p class="form-status" id="locationStatus" role="status"></p></form>
+<form class="stack-form" id="locationForm"><label>Delivery city<input id="locationInput" placeholder="e.g. Kampala" required="" minlength="2" maxlength="120" type="text" value="<%= deliveryCity || '' %>"/></label><small>Country is controlled separately. Classic Mart validates this city against configured delivery zones; final fees are recalculated at checkout.</small><button class="button button-primary" type="submit">Save Location</button><p class="form-status platform-flash" id="locationStatus" role="status"></p></form>
 </section>
 <section aria-labelledby="trackTitle" aria-modal="true" class="modal compact-modal" hidden="" id="trackModal" role="dialog">
 <button aria-label="Close dialog" class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>

@@ -9,6 +9,7 @@
   <link href="/styles.css" rel="stylesheet"/>
   <link href="/storefront-pages.css" rel="stylesheet"/>
   <link href="/server-ui.css" rel="stylesheet"/>
+<%- include('partials/flash-assets') %>
 </head>
 <body class="storefront-page auth-compact-page auth-standalone-page">
   <a class="skip-link" href="#authContent">Skip to email verification</a>
@@ -39,8 +40,7 @@
             <span>Verification code</span>
             <span class="auth-input-wrap"><img alt="" src="/assets/icons/circle-check.svg"/><input autocomplete="one-time-code" inputmode="numeric" maxlength="6" name="code" pattern="\d{6}" placeholder="Six-digit code" required type="text"/></span>
           </label>
-          <p aria-live="polite" class="auth-message<%= pageError ? ' error' : '' %>" role="status"><%= pageError || flash?.message || '' %></p>
-          <% if (flash?.details) { %><p class="auth-message"><%= flash.details %></p><% } %>
+          <p aria-live="polite" class="auth-message<%= pageError ? ' error' : '' %> platform-flash" role="status"><%= pageError || flash?.message || '' %><% if (flash?.details) { %><small><%= flash.details %></small><% } %></p>
           <button class="auth-submit" type="submit">Verify My Email</button>
         </form>
         <form action="/verify-email/resend" class="auth-form compact-server-form" method="post">

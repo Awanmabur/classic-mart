@@ -71,13 +71,8 @@
       : '';
   }
 
-  function showToast(message) {
-    const toast = qs('#catalogToast');
-    if (!toast) return;
-    toast.textContent = message;
-    toast.classList.add('show');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove('show'), 2_200);
+  function showToast(message, options) {
+    window.ClassicMartFlash.show(message, options);
   }
 
   async function api(path, options = {}) {
@@ -117,7 +112,7 @@
       if (button) button.textContent = 'Added ✓';
       return true;
     } catch (error) {
-      showToast(error.message || 'Product could not be added.');
+      showToast(error.message || 'Product could not be added.', { type: 'error' });
       if (button) button.innerHTML = previous;
       return false;
     } finally {
@@ -537,7 +532,7 @@
         try {
           await toggleWishlist(wishlist.dataset.catalogWishlist);
         } catch (error) {
-          if (error.message !== 'Authentication required') showToast(error.message);
+          if (error.message !== 'Authentication required') showToast(error.message, { type: 'error' });
         }
         return;
       }
@@ -546,7 +541,7 @@
         try {
           await toggleComparison(comparison.dataset.catalogCompare);
         } catch (error) {
-          if (error.message !== 'Authentication required') showToast(error.message);
+          if (error.message !== 'Authentication required') showToast(error.message, { type: 'error' });
         }
         return;
       }
@@ -632,7 +627,7 @@
     } catch (error) {
       qs('#catalogResultCount').textContent =
         'Products could not be loaded. Refresh to try again.';
-      showToast(error.message);
+      showToast(error.message, { type: 'error' });
     }
   }
 

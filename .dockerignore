@@ -14,6 +14,7 @@ npm-debug.log*
 *.sha256
 
 storage/exports/
+storage/privacy/
 
 # Engineering references, tests and generated packages never enter the image context.
 dashboard-preview/

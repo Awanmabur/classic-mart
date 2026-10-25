@@ -446,8 +446,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .filter-drawer select { width: 100%; height: 40px; border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; }
 .filter-drawer .button { width: 100%; margin-bottom: 8px; }
 
-.toast { position: fixed; left: 50%; bottom: 24px; z-index: 700; min-width: 220px; max-width: calc(100% - 32px); border-radius: 8px; background: var(--navy); color: #fff; padding: 11px 16px; text-align: center; font-size: 10px; box-shadow: var(--shadow-lg); transform: translate(-50%, 20px); opacity: 0; visibility: hidden; transition: .25s ease; }
-.toast.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 .back-to-top { position: fixed; right: 22px; bottom: 22px; z-index: 250; width: 40px; height: 40px; border: 0; border-radius: 50%; background: var(--orange); box-shadow: 0 8px 20px rgba(255,101,0,.3); display: grid; place-items: center; cursor: pointer; opacity: 0; visibility: hidden; transform: translateY(8px); transition: .2s ease; }
 .back-to-top.show { opacity: 1; visibility: visible; transform: none; }
 .back-to-top img { width: 12px; filter: brightness(0) invert(1); }
@@ -3275,18 +3273,6 @@ body { font-size: 15px; line-height: 1.55; }
 }
 .newsletter-form button:hover { background: var(--orange-dark); }
 .newsletter-form button:disabled { opacity: .72; cursor: wait; }
-.newsletter-status {
-  position: absolute;
-  left: 6px;
-  top: calc(100% + 4px);
-  z-index: 2;
-  margin: 0;
-  color: #fff;
-  font-size: 10px;
-  line-height: 1.25;
-}
-.newsletter-status.is-error { color: #fff2b8; }
-
 /* Product preview must remain in front of the fixed utility/header navigation. */
 .modal-backdrop { z-index: 5000; }
 .modal { z-index: 5010; }
@@ -3762,7 +3748,6 @@ body { font-size: 15px; line-height: 1.55; }
     filter: invert(49%) sepia(97%) saturate(3695%) hue-rotate(359deg) brightness(101%) contrast(105%);
   }
   .back-to-top { bottom: 86px; }
-  .toast { bottom: 88px; }
 }
 
 @media (max-width: 430px) {

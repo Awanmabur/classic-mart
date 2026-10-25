@@ -1,51 +1,72 @@
-# eSMS Africa and phone country selection
+# Yoola SMS and phone country selection
 
-Phone dropdowns use `libphonenumber-js` country/calling-code metadata and Node's
-international country names. The list is generated once, with no hand-written
-country table or remote country request during signup. Market country settings
-remain separate from a person's phone country. Signup and seller support contacts
-validate country-specific possible lengths and persist E.164 numbers. Seller
-forms display the national number separately from the calling code, while saved
-contacts retain their complete international number. The closed rounded control
-displays only the selected calling code, such as
-`+256`. Opening the native dropdown shows alphabetical country names and calling
-codes, such as `Uganda (+256)`. Keyboard and touch selection, reset and browser
-back restoration keep the displayed code synchronized. Without JavaScript, the
-native control retains readable country labels.
-
-The only external SMS adapter is eSMS Africa. Deployment examples and the Render
-blueprint use it. Configure secrets in the server environment, never in frontend
-JavaScript or Git:
+Configure the server environment, then restart the web and worker processes:
 
 ```dotenv
-SMS_MODE=esms
-ESMS_API_KEY=<live key from eSMS Africa>
-ESMS_SENDER_ID=<optional approved sender ID>
+SMS_MODE=yoola
+YOOLA_API_KEY=
 ```
 
-If `SMS_MODE` is omitted, configuring `ESMS_API_KEY` automatically selects eSMS.
-An explicit `SMS_MODE=log` remains a development-only sink; it does not send SMS
-and the phone page now states that clearly. Production refuses test keys and log
-mode. Phone verification remains optional for ordinary shopping and is requested
-separately after email verification.
+Keep the actual key in the private runtime environment, never browser JavaScript,
+Git or chat. The provider's default sender is used; there is no sender-ID setting.
+If `SMS_MODE` is omitted, a nonempty `YOOLA_API_KEY` selects Yoola. Production may
+use `SMS_MODE=disabled` until the account is ready. Disabled or missing delivery
+configuration cannot send or verify a phone. Development/test `SMS_MODE=log`
+does not send an SMS and cannot run as production delivery. eSMS is removed.
 
-Restart the web process after changing environment settings. Run `npm run
-sms:verify` to check API authentication and available credit without sending a
-message. An accepted message is not a delivery receipt. The phone page therefore
-reports acceptance for sending rather than confirmed delivery. Use a live key,
-sufficient balance and an approved sender or the provider's default route sender.
-The dropdown includes all supported phone countries; actual SMS destinations
-depend on the routes enabled on the eSMS account.
+## API reference and verification limits
 
-Authentication, insufficient-credit and rate-limit failures have distinct safe
-errors. Provider bodies, credentials and codes are not exposed in error messages.
-Malformed/rejected responses fail closed; failed sends invalidate their OTP.
-Sends are not automatically retried because a timeout can follow a billed send.
-The existing OTP expiry, guess limits, resend cooldown, single-use checks and CSRF
-protections remain active.
+This adapter matches the owner's existing integration in
+[Awanmabur/chariot-sms-test, commit e694237](https://github.com/Awanmabur/chariot-sms-test/blob/e694237edf03c2445c722f1f4b3bf5801a2740d2/src/lib/provider.js)
+and its
+[protocol fixture](https://github.com/Awanmabur/chariot-sms-test/blob/e694237edf03c2445c722f1f4b3bf5801a2740d2/tests/provider.test.js).
+These are reference application sources, not an independently verified official
+provider specification. Yoola's public documentation could not be retrieved in
+this environment. No live Yoola authentication or handset delivery is established
+by the local fixture tests.
 
-On 2026-10-08, this cloud environment had no eSMS API key. The configuration probe
-returned `SMS_NOT_CONFIGURED`; no real SMS was sent. Adapter tests check the
-provider's documented protocol and error behavior. Browser checks exercise
-country selection and visible calling codes at desktop and mobile sizes. Live
-phone delivery must still be verified after credentials are configured.
+Sending uses HTTPS `POST https://yoolasms.com/api/v1/send` with JSON
+`{api_key, phone, message}`. The stored E.164 number is sent as international digits
+without its leading `+`. There is no bearer header. Only an explicit positive
+status (`success`, `accepted`, `queued` or `ok`) together with a nonempty, bounded
+`message_id` counts as acceptance. Errors, unknown status, missing identifiers and
+malformed responses fail closed. Acceptance never sets `delivered: true` and does
+not mark the user's phone verified; only a correct single-use OTP does that.
+
+Run `npm run sms:verify` after supplying the key. It makes an HTTPS POST to
+`/api/v1/balance` with only the API key and requires an explicit `success` or `ok`
+status without an error. It sends no SMS. The balance value/unit schema has not
+been independently established, so the probe reports credit availability as
+unknown rather than inventing a numeric balance or asserting sufficient credit.
+Successful account authentication is separate from actual delivery. Complete a
+real phone-verification journey to a number you control and check receipt before
+enabling SMS-dependent staff onboarding. Check supported countries, sender route
+and available credit in the Yoola account.
+
+Requests prohibit redirects, expire after ten seconds and accept at most 16 KiB
+of response data. API keys, OTPs, phone numbers and raw provider responses are not
+printed by the adapter or verification command. Authentication, insufficient-credit
+and rate-limit HTTP failures receive distinct safe errors. Sends are not retried
+automatically: a timeout can follow an accepted, billed SMS. A failed send
+invalidates the newly issued OTP; it cannot mark a phone verified.
+
+## Signup and phone controls
+
+Email verification is required for ordinary signup. Phone verification is a
+separate optional step for ordinary shoppers; privileged staff still require the
+verified identity and authenticator checks enforced by their workspace.
+
+Phone dropdowns use `libphonenumber-js` country/calling-code metadata and Node's
+international country names, with no handwritten country table or remote request
+during signup. Market settings remain separate from the person's phone country.
+The closed rounded native selector shows only a calling code such as `+256`;
+its opened list shows alphabetical country names and calling codes. Keyboard,
+touch, reset and back navigation keep the visible calling code synchronized.
+Country-specific possible lengths are checked before saving a normalized E.164
+number, whose maximum is 15 digits. Format and length do not establish ownership
+or a working carrier route; the SMS challenge establishes number control.
+
+OTP values are hashed, expire after ten minutes, allow five incorrect guesses,
+and are atomically claimed once. Tokens bind to the phone number they were sent
+to. Changing the phone invalidates the old token's usefulness. CSRF, session,
+resend cooldown, user/IP limits and privileged MFA remain enabled.

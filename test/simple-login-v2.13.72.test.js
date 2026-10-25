@@ -55,6 +55,6 @@ test('production retains required OTP and privileged MFA configuration checks',(
   const env=read('src/config/env.js');
   assert.match(env,/smsMode !== 'disabled' && !smsConfigured/);
   assert.match(env,/nodeEnv === 'production' \? 'disabled' : 'log'/);
-  assert.match(env,/smsMode === 'esms' && process\.env\.ESMS_API_KEY\?\.startsWith\('esms_live_'\)/);
+  assert.match(env,/smsMode === 'yoola' && Boolean\(process\.env\.YOOLA_API_KEY\?\.trim\(\)\)/);
   assert.match(env,/if \(!simpleLoginMode && !boolean\(process\.env\.PRIVILEGED_MFA_REQUIRED, true\)\)/);
 });

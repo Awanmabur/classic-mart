@@ -74,7 +74,7 @@
     const response = await fetch(target, { method: person.followed ? 'DELETE' : 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'x-csrf-token': csrfToken } });
     if (response.status === 401) { location.href = `/login?next=${encodeURIComponent(location.pathname + location.search)}`; return; }
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) { const toast = document.querySelector('#catalogToast'); toast.textContent = payload.error?.message || `${singular} follow could not be updated.`; toast.classList.add('show'); return; }
+    if (!response.ok) { window.ClassicMartFlash.show(payload.error?.message || `${singular} follow could not be updated.`, { type: 'error' }); return; }
     person.followed = payload.followed; render();
   }
 

@@ -42,11 +42,12 @@ test('clean app release excludes local state and old local bootstrap tooling', (
   assert.match(gitignore, /storage\/uploads\//);
 });
 
-test('Redis may be local in development and is mandatory in production', () => {
+test('Redis is opt-in for development and mandatory in production', () => {
   const env = read('src/config/env.js');
   const redis = read('src/config/redis.js');
   const session = read('src/middleware/session.js');
-  assert.match(read('.env.example'), /^REDIS_URL=redis:\/\/127\.0\.0\.1:6379$/m);
+  assert.match(read('.env.example'), /^REDIS_URL=$/m);
+  assert.match(read('.env.production.example'), /^REDIS_URL=rediss:\/\//m);
   assert.match(env, /Production requires REDIS_URL/);
   assert.match(redis, /if \(!env\.redisUrl\) return null/);
   assert.match(session, /MongoStore\.create/);

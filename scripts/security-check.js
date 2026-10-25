@@ -75,7 +75,7 @@ for(const file of files){
   if(!isSecurityChecker(file)&&/new\s+Function\s*\(/.test(text))failures.push(`${file}: new Function() is forbidden`);
   if(file.startsWith('views'+path.sep)){
     const raw=[...text.matchAll(/<%-(.*?)%>/gs)].map(match=>match[1].trim());
-    const allowed=new Set(["include(\"partials/product-preview-modal\")","include(\"partials/social-links\")","include(\"partials/storefront-header\")","include(\"partials/storefront-footer\")","include(\"social-links\")", "include('partials/brand-icons')", 'include("partials/seo-meta")']);
+    const allowed=new Set(["include(\"partials/product-preview-modal\")","include(\"partials/social-links\")","include(\"partials/storefront-header\")","include(\"partials/storefront-footer\")","include(\"social-links\")", "include('partials/brand-icons')", "include('partials/flash-assets')", 'include("partials/seo-meta")']);
     for (const expression of recoveredIncludes.get(file) || []) allowed.add(expression);
     if(file.startsWith('views'+path.sep)) {
       for (const expression of raw) {

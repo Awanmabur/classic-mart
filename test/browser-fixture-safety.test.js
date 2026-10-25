@@ -60,7 +60,7 @@ function rejectedFixture(options, environment = {}) {
       GITHUB_ACTIONS: '', GITHUB_ENV: '', CI: '', RUNNER_TEMP: controlDirectory,
       SESSION_SECRET: secret + '-session', TOKEN_PEPPER: secret + '-token',
       DATA_ENCRYPTION_KEY: crypto.randomBytes(32).toString('hex'), SECURITY_INTEGRITY_KEY: secret + '-integrity',
-      SMTP_PASSWORD: secret, ESMS_API_KEY: secret, PESAPAL_CONSUMER_SECRET: secret,
+      SMTP_PASSWORD: secret, YOOLA_API_KEY: secret, PESAPAL_CONSUMER_SECRET: secret,
       DOTENV_CONFIG_PATH: path.join(controlDirectory, 'unused.env'), DOTENV_CONFIG_QUIET: 'true',
       ...environment,
     },
