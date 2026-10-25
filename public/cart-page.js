@@ -394,12 +394,17 @@
 
   async function loadCatalog() {
     try {
-      const response = await fetch('/api/v1/storefront/catalogue', {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' }
-      });
-      if (!response.ok) throw new Error('Could not load catalog');
-      const data = await response.json();
+      // The shared header and cart recommendations use the same public read.
+      // Cart quantities and checkout authority still come from their own APIs.
+      if (!window.ClassicMartSharedCataloguePromise) {
+        window.ClassicMartSharedCataloguePromise = fetch('/api/v1/storefront/catalogue', {
+          credentials: 'same-origin', headers: { Accept: 'application/json' }
+        }).then(async response => {
+          if (!response.ok) throw new Error('Could not load catalog');
+          return response.json();
+        });
+      }
+      const data = await window.ClassicMartSharedCataloguePromise;
       catalog = data.products || [];
       csrfToken = data.csrfToken || window.ClassicMartCart?.getCsrfToken?.() || csrfToken;
       if (data.country?.currency) displayCurrency = data.country.currency;

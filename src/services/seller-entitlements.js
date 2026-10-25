@@ -15,8 +15,9 @@ export async function sellerEntitlements(store, { session = null, at = new Date(
     startsAt: { $lte: at }, $or: [{ currentPeriodEndsAt: { $gt: at } }, { currentPeriodEndsAt: null }],
     'terms.entitlements': { $exists: true } }).sort({ createdAt: -1, _id: -1 }).session(session).lean();
   const result = { ...DEFAULT_SELLER_ENTITLEMENTS };
-  const charges = await SubscriptionCharge.find({ _id: { $in: rows.map(row => row.subscriptionChargeId).filter(Boolean) }, storeId: store._id,
-    storePublicId: store.publicId, country: store.country, currency: store.currency, status: 'succeeded', paidAt: { $type: 'date' }, reversedAt: null }).session(session).lean();
+  const chargeIds = rows.map(row => row.subscriptionChargeId).filter(Boolean);
+  const charges = chargeIds.length ? await SubscriptionCharge.find({ _id: { $in: chargeIds }, storeId: store._id,
+    storePublicId: store.publicId, country: store.country, currency: store.currency, status: 'succeeded', paidAt: { $type: 'date' }, reversedAt: null }).session(session).lean() : [];
   for (const row of rows) {
     const charge = charges.find(item => String(item._id) === String(row.subscriptionChargeId) && String(item.enrollmentId) === String(row._id)
       && item.publicId === row.subscriptionChargePublicId && item.enrollmentPublicId === row.publicId && item.amountMinor === row.priceMinor

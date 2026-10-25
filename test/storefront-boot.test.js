@@ -15,8 +15,11 @@ for (const country of supportedCountries) {
     const threshold = country.freeStandardShippingThresholdMinor;
     const context = {
       document: {
+        body: { dataset: { storefrontAuthenticated: 'false' } },
         getElementById: () => ({ textContent: JSON.stringify({
           country,
+          categories: [],
+          brands: [],
           products: [
             { id: 'with-currency', currency: country.currency, freeStandardShippingThreshold: threshold },
             { id: 'country-currency', freeStandardShippingThreshold: threshold },

@@ -8,6 +8,7 @@ import { absoluteUrl, breadcrumbSchema, canonicalUrl, collectionSchema, hasDupli
 import { publishedCms, publishedCmsList } from '../services/stage9.js';
 import { Review, User } from '../models/index.js';
 import { activeSponsoredProducts } from '../services/seller-growth.js';
+import { homeHero } from '../services/home-hero.js';
 
 const router = Router();
 
@@ -114,6 +115,7 @@ router.get('/', async (request, response, next) => {
           publishedTestimonials(request.country?.code, 3),
         ])
       : [emptyCatalogue, null, null, null, [], [], []];
+    const hero = homeHero({ publishedSlides: homeHeroSlides, catalogue, country: request.country });
     publicCache(response);
     setSeo(request, response, { schema: [
       { '@context': 'https://schema.org', '@type': 'Organization', '@id': absoluteUrl('/') + '#organization', name: 'Classic Mart', url: absoluteUrl('/') },
@@ -121,8 +123,8 @@ router.get('/', async (request, response, next) => {
     ] });
     return response.render('index', {
       initialStorefront: catalogue,
-      initialStorefrontJson: JSON.stringify(catalogue).replace(/</g, '\u003c'),
-      cmsBanner, cmsHomeModule, cmsCollection, homeHeroSlides, pressArticles, homeTestimonials,
+      initialStorefrontJson: jsonForHtml(catalogue),
+      cmsBanner, cmsHomeModule, cmsCollection, homeHeroSlides: hero.slides, homeHeroSource: hero.source, pressArticles, homeTestimonials,
     });
   } catch (error) { return next(error); }
 });
@@ -157,7 +159,7 @@ router.get('/products', async (request, response, next) => {
     const catalogue = await publicCatalogue(request);
     setSeo(request, response, { schema: [collectionSchema(request, 'Marketplace products', catalogue.products.slice(0,12).map(product => [product.name, '/products/' + encodeURIComponent(product.id)]))] });
     publicCache(response);
-    return response.render('products', { initialCatalogue: catalogue, initialCategory: null });
+    return response.render('products', { initialCatalogue: catalogue, initialCatalogueJson: jsonForHtml(catalogue), initialCategory: null });
   } catch (error) { next(error); }
 });
 router.get('/categories', async (request, response, next) => {
@@ -165,7 +167,7 @@ router.get('/categories', async (request, response, next) => {
     const catalogue = await publicCatalogue(request);
     setSeo(request, response, { schema: [collectionSchema(request, 'Product categories', catalogue.categories.filter(category => category.count > 0).map(category => [category.name, '/categories/' + encodeURIComponent(category.id)]))] });
     publicCache(response);
-    return response.render('categories', { initialCatalogue: catalogue });
+    return response.render('categories', { initialCatalogue: catalogue, initialCatalogueJson: jsonForHtml(catalogue) });
   } catch (error) { next(error); }
 });
 router.get('/categories/:slug', async (request, response, next) => {
@@ -177,7 +179,7 @@ router.get('/categories/:slug', async (request, response, next) => {
     const title = `${category.name} — Classic Mart${request.country?.name ? ' · ' + request.country.name : ''}`;
     setSeo(request, response, { title, description: `${category.note || category.name}. Browse published ${category.name.toLowerCase()} listings, current prices and availability from verified marketplace sellers.`, noindex: !scoped.products.length || hasDuplicateQuery(request), schema: [collectionSchema(request, category.name, scoped.products.slice(0,12).map(product => [product.name, '/products/' + encodeURIComponent(product.id)])), breadcrumbSchema([['Home','/'],['Categories','/categories'],[category.name,request.path]], request.country?.code)] });
     publicCache(response);
-    return response.render('products', { initialCatalogue: scoped, initialCategory: category });
+    return response.render('products', { initialCatalogue: scoped, initialCatalogueJson: jsonForHtml(scoped), initialCategory: category });
   } catch (error) { next(error); }
 });
 router.get('/search', (_request, response) => response.render('search'));

@@ -588,6 +588,14 @@
     return Array.isArray(payload.products) ? payload.products : [];
   }
 
+  function initialCatalogueSnapshot() {
+    try {
+      const node = qs('#initialStorefrontData');
+      const data = node?.textContent ? JSON.parse(node.textContent) : null;
+      return data && Array.isArray(data.products) && Array.isArray(data.categories) && data.country?.code ? data : null;
+    } catch { return null; }
+  }
+
   async function hydrateCatalog() {
     try {
       const searchParameters = new URLSearchParams();
@@ -603,7 +611,12 @@
         ? `/api/v1/storefront/search?${searchParameters}`
         : '/api/v1/storefront/catalogue';
       const visualProducts = await transferredVisualResults();
-      const payload = await api(endpoint);
+      const snapshot = !shouldSearch && visualProducts === null ? initialCatalogueSnapshot() : null;
+      let payload = snapshot || await api(endpoint);
+      if (snapshot && document.body.dataset.storefrontAuthenticated === 'true') {
+        const personal = await api('/api/v1/storefront/state?summary=1');
+        payload = { ...snapshot, state: personal.state, csrfToken: personal.csrfToken };
+      }
       state.products = visualProducts ?? payload.products ?? [];
       state.categories = payload.categories || [];
       state.wishlist = new Set(payload.state?.wishlist || []);
@@ -624,14 +637,18 @@
         if (breadcrumb) breadcrumb.textContent = 'Visual search results';
         if (description) description.textContent = 'Products matched to the image you selected.';
       }
+      return payload;
     } catch (error) {
       qs('#catalogResultCount').textContent =
         'Products could not be loaded. Refresh to try again.';
       showToast(error.message, { type: 'error' });
+      return null;
     }
   }
 
   configurePage();
   bindEvents();
-  hydrateCatalog();
+  // Product previews consume this page's already-resolved public snapshot and
+  // saved-state request. Opening one still fetches its fresh product detail.
+  window.ClassicMartCatalogueReady = hydrateCatalog();
 })();

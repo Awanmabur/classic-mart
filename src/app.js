@@ -1,7 +1,6 @@
 import discoveryRoutes from './routes/discovery.js';
 import { isVersionedAsset, versionHtmlAssets } from './core/public-assets.js';
 import path from 'node:path';
-import mongoose from 'mongoose';
 import { fileURLToPath } from 'node:url';
 import compression from 'compression';
 import express from 'express';
@@ -75,6 +74,7 @@ import promoterFinancePageRoutes from './routes/promoter-finance-pages.js';
 import promoterRelationshipPageRoutes from './routes/promoter-relationship-pages.js';
 import sellerPromoterConversationRoutes from './routes/seller-promoter-conversations.js';
 import mediaRoutes from './routes/media.js';
+import publicCatalogueMediaRoutes from './routes/public-catalogue-media.js';
 import storefrontRoutes from './routes/storefront.js';
 import newsletterRoutes from './routes/newsletter.js';
 import checkoutRoutes from './routes/checkout.js';
@@ -85,7 +85,7 @@ import publicRoutes from './routes/public.js';
 import rewardsRoutes from './routes/rewards.js';
 import aiRoutes from './routes/ai.js';
 import stage11Routes from './routes/stage11.js';
-import { activeFeatureMap } from './services/stage9.js';
+import { featureContext } from './middleware/feature-context.js';
 import { originGuard, securityShield } from './services/security.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -165,6 +165,11 @@ export function createApp(redisClient) {
     scope: 'global', windowMs: 60_000, limit: 240,
     standardHeaders: 'draft-8', legacyHeaders: false,
   }));
+  // Published photographs have no account-dependent representation. Resolve
+  // their current publication policy before loading browser sessions, identity,
+  // account navigation and HTML metadata for every image on a page. The router
+  // falls through for private previews, which retain the full authenticated path.
+  app.use(publicCatalogueMediaRoutes);
   app.use(
     express.urlencoded({
       extended: false,
@@ -182,13 +187,6 @@ export function createApp(redisClient) {
   app.use(enforcePrivilegedMfaEnrollment);
   app.use(countryContext);
   app.use(seoContext);
-  app.use(async (request, response, next) => {
-    try {
-      const identity = request.user?.publicId || request.session?.cartKey || request.ip || 'anonymous';
-      const features = mongoose.connection.readyState === 1 ? await activeFeatureMap({ country: request.country?.code, role: request.user?.role || 'customer', identity }) : {};
-      request.features = features; response.locals.features = features; next();
-    } catch (error) { next(error); }
-  });
   app.use(viewLocals);
   app.use((request, response, next) => {
     const original = response.render.bind(response);
@@ -272,6 +270,10 @@ export function createApp(redisClient) {
   app.use(aiRoutes);
   app.use(stage11Routes);
   app.use(mediaRoutes);
+  // These response DTOs consume rollout flags; guarded AI entry points attach
+  // the same context in their own router. Unrelated pages/images do not wait
+  // for a feature-definition refresh or a feature-store outage.
+  app.get(['/api/v1/storefront/state', '/api/v1/storefront/sellers/:slug'], featureContext);
   app.use(storefrontRoutes);
   app.use(newsletterRoutes);
   app.use(checkoutRoutes);

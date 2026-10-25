@@ -180,12 +180,15 @@
     if (state.loaded) return;
     if (state.loading) return state.loading;
     state.loading = (async () => {
-      const response = await fetch('/api/v1/storefront/catalogue', {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error?.message || 'Products could not be loaded.');
+      let payload = window.ClassicMartCatalogueReady ? await window.ClassicMartCatalogueReady : null;
+      if (!payload || !Array.isArray(payload.products)) {
+        const response = await fetch('/api/v1/storefront/catalogue', {
+          credentials: 'same-origin',
+          headers: { Accept: 'application/json' },
+        });
+        payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error?.message || 'Products could not be loaded.');
+      }
       state.products = (payload.products || []).map(normalizeProduct);
       state.categories = payload.categories || [];
       state.wishlist = payload.state?.wishlist || [];
@@ -550,20 +553,17 @@
       if (!product) throw new Error('This product is no longer available.');
       content.innerHTML = '<div class="product-preview-loading" role="status">Loading product preview…</div>';
       openModal(returnFocus);
-      try {
-        const response = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, {
-          credentials: 'same-origin', headers: { Accept: 'application/json' },
-        });
-        if (response.ok) {
-          const payload = await response.json();
-          if (operation !== state.operation) return;
-          product = normalizeProduct({ ...product, ...(payload.product || {}) });
-          const index = state.products.findIndex((item) => item.id === product.id);
-          if (index >= 0) state.products[index] = product;
-        }
-      } catch {
-        // Keep the live catalogue card data if product detail enrichment is temporarily unavailable.
+      const response = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, {
+        credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (operation !== state.operation) return;
+      if (!response.ok || payload.product?.id !== id) {
+        throw new Error(payload.error?.message || 'This product could not be refreshed. Please try again.');
       }
+      product = normalizeProduct(payload.product);
+      const index = state.products.findIndex((item) => item.id === product.id);
+      if (index >= 0) state.products[index] = product;
       if (operation !== state.operation) return;
       renderProduct(product);
       recordRecent(product.id);

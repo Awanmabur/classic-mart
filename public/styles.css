@@ -3878,8 +3878,8 @@ body { font-size: 15px; line-height: 1.55; }
 
 /* The small banners beside the hero are the only homepage frames whose
    geometry changes. Category circles and product-card corners stay approved. */
-.promo-stack .promo-card { border-radius: 32px; }
-.promo-stack .promo-card > img { border-radius: 24px; }
+.promo-stack .promo-card { border-radius: 36px; }
+.promo-stack .promo-card > img { border-radius: 32px; clip-path: var(--promo-photo-clip, none); }
 
 /* Supporting photos follow their own approved frame, including responsive
    gallery and checkout radii. Keep quantity badges outside the photo clip. */
@@ -3890,4 +3890,24 @@ body { font-size: 15px; line-height: 1.55; }
 .checkout-mini-item > span > img,
 .confirm-item > span > img {
   border-radius: inherit;
+}
+
+/* The server-rendered product remains readable without JavaScript. Its photo
+   follows the homepage product corners and stays inside the viewport. */
+.product-preview-gallery > img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 23px;
+}
+
+/* Real catalogue names and descriptions can exceed editorial banner copy.
+   Keep their product link reachable without changing short copy or CMS slides. */
+.hero-slider[data-hero-source="catalogue"] .hero-copy :is(h1, h2, p) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }

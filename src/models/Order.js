@@ -116,6 +116,8 @@ orderSchema.index({ userId: 1, createdAt: -1 });
 
 orderSchema.index({ userId: 1, paymentState: 1, createdAt: -1 });
 orderSchema.index({ userId: 1, fulfillmentState: 1, createdAt: -1 });
+// Public sales metrics first narrow to the displayed products before unwinding.
+orderSchema.index({ country: 1, status: 1, 'items.productId': 1 });
 
 orderSchema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
 

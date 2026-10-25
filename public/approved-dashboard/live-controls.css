@@ -22,6 +22,22 @@ body[data-dashboard-live="true"] button.plain-link[data-cart-clear] {
   justify-content: center;
 }
 
+/* Live product photographs use the homepage's 23px corners. Keep original
+   image dimensions, containment, card borders and action placement intact. */
+body[data-dashboard-live="true"] :is(.product-image img, .wishlist-item img, .seller-product-image) {
+  border-radius: 23px;
+  clip-path: var(--catalogue-photo-clip, none);
+}
+
+/* Category identities keep the same circle as their homepage counterparts. */
+body[data-dashboard-live="true"] .category-card > span {
+  overflow: hidden;
+}
+
+body[data-dashboard-live="true"] .category-card img {
+  border-radius: 50%;
+}
+
 /* A real form adds an extra box to action rows that the static preview lacks. */
 body[data-dashboard-live="true"] :is(.card-actions, .row-actions):has(> form) {
   flex-wrap: wrap;

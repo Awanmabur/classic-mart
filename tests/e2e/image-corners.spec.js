@@ -115,11 +115,11 @@ test('homepage retains approved image shapes while only small promotional banner
     await expectPhotos(page.locator(`${selector} > img`));
   }
   await expectPhotos(page.locator('.hero-product'), 24);
-  await expectFrames(page.locator('.promo-card'), 32);
-  await expectPhotos(page.locator('.promo-card > img'), 24);
+  await expectFrames(page.locator('.promo-card'), 36);
+  await expectPhotos(page.locator('.promo-card > img'), 32);
   await page.locator('.promo-card').first().hover();
-  await expectFrames(page.locator('.promo-card'), 32);
-  await expectPhotos(page.locator('.promo-card > img'), 24);
+  await expectFrames(page.locator('.promo-card'), 36);
+  await expectPhotos(page.locator('.promo-card > img'), 32);
 
   const search = page.getByRole('combobox', { name: 'Search products', exact: true });
   await search.fill('Classic');
@@ -205,8 +205,8 @@ test('customer wishlist and comparison photographs retain clean corners across s
   await firstProduct.locator('[data-catalog-compare]').click();
   await expect(firstProduct.locator('[data-catalog-compare]')).toHaveText('Compared');
   for (const { pathname, frame, photo, radius, frameRadius = radius } of [
-    // Approved dashboard photos keep their inset shape inside a 32px card.
-    { pathname: '/wishlist', frame: '.product-card', photo: '.product-image img', radius: 0, frameRadius: 32 },
+    // The requested rounded inset photo keeps its existing 32px card.
+    { pathname: '/wishlist', frame: '.product-card', photo: '.product-image img', radius: 23, frameRadius: 32 },
     { pathname: '/compare', frame: '.wishlist-card', photo: '.wishlist-card-image > img', radius: 0, frameRadius: 19 },
   ]) {
     await page.goto(pathname, { waitUntil: 'networkidle' });
@@ -215,5 +215,119 @@ test('customer wishlist and comparison photographs retain clean corners across s
     await expectPhotos(page.locator(photo), radius);
     await page.reload({ waitUntil: 'networkidle' });
     await expectPhotos(page.locator(photo), radius);
+  }
+});
+
+
+test('Customer overview photos round their own pixels while category and profile images remain circular', async ({ page }) => {
+  test.skip(process.env.E2E_IMAGE_SIGNUP !== 'true', 'Requires the isolated customer signup fixture.');
+  await signUpCustomer(page);
+  await page.goto('/products', { waitUntil: 'networkidle' });
+  const wishlist = page.locator('.catalog-product-card').first().locator('[data-catalog-wishlist]');
+  await wishlist.click();
+  await expect(wishlist).toHaveClass(/active/);
+  await page.goto('/dashboard', { waitUntil: 'networkidle' });
+  await expectPhotos(page.locator('.wishlist-item > div > img'), 23);
+  await expect(page.locator('.profile-button > img')).toHaveCSS('border-radius', '50%');
+  await page.goto('/categories', { waitUntil: 'networkidle' });
+  await expectPhotos(page.locator('.category-card > span > img'), '50%');
+  await expect(page.locator('.dashboard-brand-logo')).toHaveCSS('border-radius', '0px');
+});
+
+test('server-rendered product photo keeps rounded corners and fits the viewport without JavaScript', async ({ browser, baseURL, page }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false, baseURL, viewport: page.viewportSize() });
+  try {
+    const readable = await context.newPage();
+    const listing = await readable.goto('/products');
+    expect(listing.status()).toBe(200);
+    const productPath = await readable.locator('.catalog-product-image').first().getAttribute('href');
+    const detail = await readable.goto(productPath);
+    expect(detail.status()).toBe(200);
+    const photo = readable.locator('.product-preview-gallery > img');
+    await expectPhotos(photo, 23);
+    const geometry = await photo.evaluate(image => {
+      const box = image.getBoundingClientRect();
+      return { left: box.left, right: box.right, viewport: document.documentElement.clientWidth };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
+  } finally { await context.close(); }
+});
+
+test('contained dashboard photos round the visible wide and portrait photograph without cropping or resizing it', async ({ page }) => {
+  // Exercise the real dashboard stylesheet and controller against deterministic
+  // aspect ratios. The inset is the letterbox, so fitting evidence photos does
+  // not require switching object-fit to cover or changing approved card sizes.
+  const fixturePath = '/__image-corners-fixture';
+  const photo = (width, height) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#407090"/></svg>`)}`;
+  await page.route(`**${fixturePath}`, route => route.fulfill({
+    contentType: 'text/html',
+    body: `<!doctype html><html><head><link rel="stylesheet" href="/approved-dashboard/live-controls.css"></head>
+      <body data-dashboard-live="true"><main id="pageHost">
+        <img id="wide" class="seller-product-image" src="${photo(400, 100)}" style="display:block;width:200px;height:120px;object-fit:contain;object-position:50% 50%" alt="Wide evidence photograph">
+        <img id="portrait" class="seller-product-image" src="${photo(100, 400)}" style="display:block;width:200px;height:120px;object-fit:contain;object-position:50% 50%" alt="Portrait evidence photograph">
+        <img id="identity" src="${photo(80, 80)}" style="width:40px;height:40px;border-radius:50%;object-fit:cover" alt="Identity avatar">
+        <img id="icon" src="${photo(24, 24)}" style="width:24px;height:24px;object-fit:contain" alt="Toolbar icon">
+      </main><script src="/approved-dashboard/customer-live.js"></script></body></html>`,
+  }));
+  await page.goto(fixturePath);
+  const clip = id => page.locator(`#${id}`).evaluate(image => image.style.getPropertyValue('--catalogue-photo-clip'));
+  await expect.poll(() => clip('wide')).toBe('inset(35.000px 0.000px round 23.000px)');
+  // A 30px-wide rendered photograph must cap a 23px corner at 15px.
+  await expect.poll(() => clip('portrait')).toBe('inset(0.000px 85.000px round 15.000px)');
+  for (const id of ['wide', 'portrait']) {
+    const geometry = await page.locator(`#${id}`).evaluate(image => {
+      const box = image.getBoundingClientRect(), style = getComputedStyle(image);
+      return { width: box.width, height: box.height, fit: style.objectFit, clip: style.clipPath };
+    });
+    expect(geometry.width).toBe(200);
+    expect(geometry.height).toBe(120);
+    expect(geometry.fit).toBe('contain');
+    expect(geometry.clip).toMatch(/^inset\(/);
+  }
+  // Both responsive geometry and a changed source refresh the inset. The
+  // controller uses one observer plus load handlers, with no mutation polling.
+  await page.locator('#wide').evaluate(image => { image.style.height = '80px'; });
+  await expect.poll(() => clip('wide')).toBe('inset(15.000px 0.000px round 23.000px)');
+  await page.locator('#wide').evaluate((image, source) => { image.src = source; }, photo(100, 400));
+  await expect.poll(() => clip('wide')).toBe('inset(0.000px 90.000px round 10.000px)');
+  await expect(page.locator('#identity')).toHaveCSS('border-radius', '50%');
+  await expect(page.locator('#identity')).toHaveCSS('clip-path', 'none');
+  await expect(page.locator('#icon')).toHaveCSS('border-radius', '0px');
+  await expect(page.locator('#icon')).toHaveCSS('clip-path', 'none');
+});
+
+test('homepage small promotional banners round the visible wide and portrait photo inside their original contain boxes', async ({ page }) => {
+  for (const [name, width, height] of [['wide', 400, 100], ['portrait', 100, 400]]) {
+    await page.route(`**/__promo-${name}.svg`, route => route.fulfill({ contentType: 'image/svg+xml',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#407090"/></svg>` }));
+  }
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const images = page.locator('.promo-stack .promo-card > img');
+  expect(await images.count()).toBeGreaterThanOrEqual(2);
+  const describe = image => {
+    const box = image.getBoundingClientRect(), style = getComputedStyle(image);
+    return { width: box.width, height: box.height, fit: style.objectFit, position: style.position,
+      right: style.right, bottom: style.bottom, radius: style.borderTopLeftRadius };
+  };
+  const before = await images.evaluateAll(photos => photos.slice(0, 2).map(image => {
+    const box = image.getBoundingClientRect(), style = getComputedStyle(image);
+    return { width: box.width, height: box.height, fit: style.objectFit, position: style.position,
+      right: style.right, bottom: style.bottom, radius: style.borderTopLeftRadius };
+  }));
+  for (const [index, name, naturalWidth, naturalHeight] of [[0, 'wide', 400, 100], [1, 'portrait', 100, 400]]) {
+    const image = images.nth(index);
+    await image.evaluate((node, src) => { node.src = src; }, `/__promo-${name}.svg`);
+    await expect.poll(() => image.evaluate(node => [node.naturalWidth, node.naturalHeight])).toEqual([naturalWidth, naturalHeight]);
+    const expected = await image.evaluate((node, ratio) => {
+      const style = getComputedStyle(node), width = Number.parseFloat(style.width), height = Number.parseFloat(style.height);
+      const photoWidth = Math.min(width, height * ratio), photoHeight = photoWidth / ratio;
+      return `inset(${Math.max(0, (height - photoHeight) / 2).toFixed(3)}px ${Math.max(0, (width - photoWidth) / 2).toFixed(3)}px round ${Math.min(32, photoWidth / 2, photoHeight / 2).toFixed(3)}px)`;
+    }, naturalWidth / naturalHeight);
+    await expect.poll(() => image.evaluate(node => node.style.getPropertyValue('--promo-photo-clip'))).toBe(expected);
+    await expect(image).toHaveCSS('clip-path', /^inset\(/);
+    expect(await image.evaluate(describe)).toEqual(before[index]);
+    expect(before[index].fit).toBe('contain');
+    expect(before[index].radius).toBe('32px');
   }
 });

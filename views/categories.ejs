@@ -13,7 +13,7 @@
 <link href="/marketplace-pages.css" rel="stylesheet"/>
 <%- include('partials/flash-assets') %>
 </head>
-<body class="catalog-body" data-page-mode="categories">
+<body class="catalog-body" data-storefront-authenticated="<%= user ? 'true' : 'false' %>" data-page-mode="categories">
 <a class="skip-link" href="#catalogMain">Skip to products</a><%- include("partials/storefront-header") %>
 <main class="catalog-main" id="catalogMain">
 <section class="catalog-hero">
@@ -73,6 +73,7 @@
 <div class="newsletter-perks"><span><img alt="" src="/assets/icons/percent.svg"/><b>Exclusive Deals</b></span><span><img alt="" src="/assets/icons/gift.svg"/><b>New Arrivals</b></span><span><img alt="" src="/assets/icons/location-dot.svg"/><b>Shopping Tips</b></span></div>
 </div>
 </section><%- include("partials/storefront-footer") %><script src="/cart-store.js"></script>
+<script id="initialStorefrontData" type="application/json"><%- typeof initialCatalogueJson !== 'undefined' ? initialCatalogueJson : '{}' %></script>
 <script src="/catalog-page.js"></script>
 <script src="/product-preview.js"></script>
 <script src="/shared-shell.js"></script><script src="/image-fallback.js"></script><script src="/country-switcher.js"></script><script src="/search-tools.js"></script><script src="/newsletter.js"></script></body>

@@ -25,9 +25,11 @@ function reportingPeriod(request) {
 }
 
 router.get('/seller/overview', ...access, asyncHandler(async (request, response) => {
-  const overviewFlow = await loadSellerOverview(request, { period: reportingPeriod(request) });
-  if (request.accepts(['html', 'json']) === 'json') return response.json(overviewFlow);
-  const header = await liveAccountHeader(request);
+  const json = request.accepts(['html', 'json']) === 'json';
+  const [overviewFlow, header] = await Promise.all([
+    loadSellerOverview(request, { period: reportingPeriod(request) }), json ? null : liveAccountHeader(request),
+  ]);
+  if (json) return response.json(overviewFlow);
   return response.render('approved-dashboard', { ...header, workspace: 'seller', initialPage: 'seller-overview',
     customerRoutes: { ...header.customerRoutes, ...SELLER_LIVE_ROUTES }, allowedWorkspaces: allowedWorkspacesFor(request.user),
     liveSeller: { profileRole: 'Seller', store: overviewFlow.store, navigation: sellerNavigation(request), overviewFlow } });

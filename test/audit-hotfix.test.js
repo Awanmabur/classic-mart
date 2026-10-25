@@ -38,7 +38,7 @@ test('public storefront state summary does not require authentication', () => {
   assert.ok(start >= 0 && end > start);
   assert.doesNotMatch(chunk, /requireAuth/);
   assert.match(chunk, /authenticated:\s*Boolean\(request\.user\)/);
-  assert.match(chunk, /if \(request\.user\) \{[\s\S]*recommendationsFor/);
+  assert.match(chunk, /if \(request\.user && !summaryOnly\) \{[\s\S]*recommendationsFor/);
   assert.match(chunk, /recommendations:\s*\[\]/);
 });
 

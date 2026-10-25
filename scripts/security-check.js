@@ -109,6 +109,9 @@ for(const file of files){
         if (/^include\('approved-dashboard', \{ workspace: '(customer|seller|promoter|business|warehouse|support|moderator|finance|admin|superadmin)', initialPage: '[a-z-]+', allowedWorkspaces: \['[a-z]+'\] \}\)$/.test(expression)) allowed.add(expression);
       }
     }
+    if (['products.ejs', 'categories.ejs'].some(name => file === path.join('views', name))) {
+      allowed.add("typeof initialCatalogueJson !== 'undefined' ? initialCatalogueJson : '{}'");
+    }
     if(file===path.join('views','index.ejs')){
       allowed.add("productMeta.jsonLd");
       allowed.add("typeof initialStorefrontJson !== 'undefined' ? initialStorefrontJson : '{}'");

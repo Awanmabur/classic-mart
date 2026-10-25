@@ -42,6 +42,18 @@ test('reviewed raw partial calls remain bound to their caller and exact argument
     fs.writeFileSync(view, "<%- include('partials/flash-assets') %>\n");
     result = run();
     assert.equal(result.status, 0, 'The shared static asset partial needs no raw data or dynamic arguments.');
+
+    fs.rmSync(view);
+    const catalogueView = path.join(root, 'views', 'products.ejs');
+    const reviewedJson = "typeof initialCatalogueJson !== 'undefined' ? initialCatalogueJson : '{}'";
+    fs.writeFileSync(catalogueView, `<script type="application/json"><%- ${reviewedJson} %></script>\n`);
+    result = run();
+    assert.equal(result.status, 0, 'Only the reviewed HTML-safe catalogue serialization is allowed.');
+    for (const expression of ['request.body', 'initialCatalogue', 'JSON.stringify(initialCatalogue)', "typeof initialCatalogueJson !== 'undefined' ? request.body : '{}'"]) {
+      fs.writeFileSync(catalogueView, `<%- ${expression} %>\n`);
+      result = run();
+      assert.equal(result.status, 1, 'Raw catalogue objects and unreviewed fallback expressions stay rejected.');
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

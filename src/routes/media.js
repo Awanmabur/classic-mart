@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asyncHandler } from '../core/errors.js';
+import { AppError, asyncHandler } from '../core/errors.js';
 import { noStore } from '../middleware/request.js';
 import { isMediaObjectNotFound } from '../services/object-storage.js';
 import { readVerificationDocumentBuffer } from '../services/verification-media.js';
@@ -28,26 +28,29 @@ async function sendFirstStoredMedia(response, keys, options) {
   return false;
 }
 
-router.get('/media/catalogue/:publicId', asyncHandler(async (request, response) => {
-  const { media, isPublic } = await readableSellerProductImage(request, request.params.publicId);
+export async function sendCatalogueImage(request, response, { media, isPublic }, authorize) {
   if (!isPublic) response.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   const preferredKey = request.query.size === 'thumb' ? media.thumbnailStorageKey : media.storageKey;
   const sent = await sendFirstStoredMedia(response, [preferredKey, media.storageKey], {
     cacheControl: isPublic ? 'public, max-age=60, must-revalidate' : 'private, no-store',
     contentType: 'image/webp',
-    authorize: async () => {
-      const current = await readableSellerProductImage(request, request.params.publicId);
-      if (current.isPublic !== isPublic || current.media.storageKey !== media.storageKey || current.media.thumbnailStorageKey !== media.thumbnailStorageKey) {
-        const error = new Error('Image access changed. Reload before continuing.');
-        error.status = 404; error.code = 'MEDIA_NOT_FOUND'; throw error;
-      }
-    },
+    authorize,
   });
   if (sent) return;
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('Content-Type', 'image/svg+xml');
   response.setHeader('X-Classic-Mart-Media-Fallback', 'missing-object');
   return response.sendFile(productPlaceholder);
+}
+
+router.get('/media/catalogue/:publicId', asyncHandler(async (request, response) => {
+  const initial = await readableSellerProductImage(request, request.params.publicId);
+  return sendCatalogueImage(request, response, initial, async () => {
+      const current = await readableSellerProductImage(request, request.params.publicId);
+      if (current.isPublic !== initial.isPublic || current.media.storageKey !== initial.media.storageKey || current.media.thumbnailStorageKey !== initial.media.thumbnailStorageKey) {
+        throw new AppError('Image not found.', 404, 'MEDIA_NOT_FOUND');
+      }
+  });
 }));
 
 router.get('/media/verification/:publicId', noStore, asyncHandler(async (request, response) => {

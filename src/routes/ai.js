@@ -8,6 +8,7 @@ import { requireAuth, requireOnboarding, requirePermission, requireVerified } fr
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { loadSellerStore, requireStoreCapability } from '../middleware/store.js';
 import { noStore } from '../middleware/request.js';
+import { featureContext } from '../middleware/feature-context.js';
 import { setFlash } from '../middleware/view.js';
 import {
   AiEvaluationRun,AiJob,AiModelRegistry,AiPromptVersion,Campaign,CampaignApplication,Product,SupportTicket,TrustCase,
@@ -34,9 +35,9 @@ function adminOnly(req,_res,next){return adminRoles.has(req.user?.role)?next():n
 function countryScope(req){return operationalCountryScope(req.user,'country');}
 function requireAiFeature(key){return (req,_res,next)=>req.features?.[key]===false?next(new AppError('This Classic AI feature is not enabled for your account/country.',404,'AI_FEATURE_DISABLED')):next();}
 
-router.get('/ask-classic',noStore,requireAiFeature('classic_ai.ask'),async(req,res,next)=>{try{const recommendations=await recommendationsFor(req,{limit:8});res.render('ask-classic',{result:null,recommendations,visualResults:[],question:''});}catch(e){next(e);}});
+router.get('/ask-classic',noStore,featureContext,requireAiFeature('classic_ai.ask'),async(req,res,next)=>{try{const recommendations=await recommendationsFor(req,{limit:8});res.render('ask-classic',{result:null,recommendations,visualResults:[],question:''});}catch(e){next(e);}});
 
-router.post('/ask-classic',noStore,aiLimit,requireAiFeature('classic_ai.ask'),async(req,res,next)=>{try{const input=z.object({question:z.string().trim().min(2).max(2000)}).parse(req.body);const [result,recommendations]=await Promise.all([askClassic(req,input.question),recommendationsFor(req,{limit:8})]);res.render('ask-classic',{result,recommendations,visualResults:[],question:input.question});}catch(e){next(e);}});
+router.post('/ask-classic',noStore,aiLimit,featureContext,requireAiFeature('classic_ai.ask'),async(req,res,next)=>{try{const input=z.object({question:z.string().trim().min(2).max(2000)}).parse(req.body);const [result,recommendations]=await Promise.all([askClassic(req,input.question),recommendationsFor(req,{limit:8})]);res.render('ask-classic',{result,recommendations,visualResults:[],question:input.question});}catch(e){next(e);}});
 
 router.post('/ask-classic/cart-drafts/:id/apply',noStore,async(req,res,next)=>{try{await applyCartDraft(req,req.params.id);setFlash(req,'success','AI cart draft was revalidated against live stock and added to your server cart.');res.redirect('/cart');}catch(e){next(e);}});
 
@@ -52,6 +53,6 @@ router.get('/api/v1/ai/recommendations',aiLimit,async(req,res,next)=>{try{res.se
 
 router.get('/api/v1/ai/products/:id/review-summary',aiLimit,async(req,res,next)=>{try{res.json({summary:await latestReviewSummary(req.country,req.params.id)});}catch(e){next(e);}});
 
-router.post('/ask-classic/visual',noStore,aiLimit,requireAiFeature('classic_ai.ask'),imageUpload,async(req,res,next)=>{try{verifyDeferredCsrf(req);if(req.user)await assertOptionalProcessing(req.user._id);if(!req.file?.buffer)throw new AppError('Choose a product image.',422,'AI_IMAGE_REQUIRED');await scanUpload(req.file.buffer);const normalized=await sharp(req.file.buffer,{failOn:'warning',limitInputPixels:25_000_000}).rotate().resize({width:768,height:768,fit:'inside',withoutEnlargement:true}).jpeg({quality:80}).toBuffer();const described=await describeImage({dataUrl:`data:image/jpeg;base64,${normalized.toString('base64')}`,instructions:'Describe only visible product/category/style/material/color/function details useful for shopping search.',country:req.country.code,role:req.user?.role||'customer'});const results=await hybridSearch(req.country,{query:described.text,limit:16});const recommendations=await recommendationsFor(req,{limit:8});res.render('ask-classic',{result:null,recommendations,visualResults:results.products,question:`Visual search: ${described.text}`});}catch(e){next(e);}});
+router.post('/ask-classic/visual',noStore,aiLimit,featureContext,requireAiFeature('classic_ai.ask'),imageUpload,async(req,res,next)=>{try{verifyDeferredCsrf(req);if(req.user)await assertOptionalProcessing(req.user._id);if(!req.file?.buffer)throw new AppError('Choose a product image.',422,'AI_IMAGE_REQUIRED');await scanUpload(req.file.buffer);const normalized=await sharp(req.file.buffer,{failOn:'warning',limitInputPixels:25_000_000}).rotate().resize({width:768,height:768,fit:'inside',withoutEnlargement:true}).jpeg({quality:80}).toBuffer();const described=await describeImage({dataUrl:`data:image/jpeg;base64,${normalized.toString('base64')}`,instructions:'Describe only visible product/category/style/material/color/function details useful for shopping search.',country:req.country.code,role:req.user?.role||'customer'});const results=await hybridSearch(req.country,{query:described.text,limit:16});const recommendations=await recommendationsFor(req,{limit:8});res.render('ask-classic',{result:null,recommendations,visualResults:results.products,question:`Visual search: ${described.text}`});}catch(e){next(e);}});
 
 export default router;

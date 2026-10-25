@@ -14,6 +14,14 @@ import {
 } from '../models/index.js';
 
 const MAX_PRODUCTS = 300;
+// Catalogue cards/previews do not need private moderation history, internal
+// variant costs or category form definitions. Keep wire reads explicit.
+const PRODUCT_FIELDS = 'publicId storeId ownerUserId categoryId brandId title slug description countries tags attributes videoUrl status qualityScore publishedAt moderation.riskLevel moderation.secondReviewRequired moderation.firstApprovalByUserId moderation.reviewedByUserId';
+const VARIANT_FIELDS = 'publicId productId storeId sku barcode title options priceMinor compareAtMinor currency active weightGrams';
+const MEDIA_FIELDS = 'publicId productId source originalName altText position createdAt status';
+const CATEGORY_FIELDS = 'publicId name slug description active restricted countries';
+const BRAND_FIELDS = 'publicId name slug status';
+const STORE_FIELDS = 'publicId ownerUserId slug name description country currency status verifiedAt';
 const CACHE_TTL_MS = 30_000;
 const STALE_CACHE_TTL_MS = 5 * 60_000;
 const cache = new Map();
@@ -375,6 +383,7 @@ async function hydrateProducts(products, country, { brandMetrics = [] } = {}) {
       active: true,
       $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: country.code }],
     })
+      .select(CATEGORY_FIELDS)
       .sort({ name: 1 })
       .lean();
     return assembleStorefront({
@@ -390,38 +399,27 @@ async function hydrateProducts(products, country, { brandMetrics = [] } = {}) {
     });
   }
 
-  const [variants, media] = await Promise.all([
-    ProductVariant.find({ productId: mongoose.trusted({ $in: productIds }), active: true })
-      .sort({ productId: 1, priceMinor: 1, _id: 1 })
-      .lean(),
-    ProductMedia.find({
-      productId: mongoose.trusted({ $in: productIds }),
-      status: 'approved',
-    })
-      .sort({ productId: 1, position: 1, createdAt: 1 })
-      .lean(),
-  ]);
-  const [stock, categories, brands, stores, reviewMetrics, salesMetrics] = await Promise.all([
-    fulfillableStockAvailability(variants, country.code),
-    Category.find({
-      active: true,
-      $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: country.code }],
-    })
-      .sort({ name: 1 })
-      .lean(),
-    Brand.find({ status: 'approved' }).sort({ name: 1 }).lean(),
-    Store.find({
-      _id: mongoose.trusted({ $in: products.map((product) => product.storeId) }),
-      status: 'verified',
-      country: country.code,
-      currency: country.currency,
-    }).lean(),
+  // Metadata, media and metrics are independent of variant retrieval. Start
+  // them together; only stock needs the resolved variants. Remote database
+  // latency is paid for two dependency waves instead of three.
+  const variantsPromise = ProductVariant.find({ productId: mongoose.trusted({ $in: productIds }), active: true })
+    .select(VARIANT_FIELDS).sort({ productId: 1, priceMinor: 1, _id: 1 }).lean().exec();
+  const [variants, media, stock, categories, brands, stores, reviewMetrics, salesMetrics] = await Promise.all([
+    variantsPromise,
+    ProductMedia.find({ productId: mongoose.trusted({ $in: productIds }), status: 'approved' })
+      .select(MEDIA_FIELDS).sort({ productId: 1, position: 1, createdAt: 1 }).lean(),
+    variantsPromise.then(rows => fulfillableStockAvailability(rows, country.code)),
+    Category.find({ active: true, $or: [{ countries: mongoose.trusted({ $size: 0 }) }, { countries: country.code }] })
+      .select(CATEGORY_FIELDS).sort({ name: 1 }).lean(),
+    Brand.find({ status: 'approved' }).select(BRAND_FIELDS).sort({ name: 1 }).lean(),
+    Store.find({ _id: mongoose.trusted({ $in: products.map((product) => product.storeId) }), status: 'verified', country: country.code, currency: country.currency })
+      .select(STORE_FIELDS).lean(),
     Review.aggregate([
       { $match: { productId: { $in: productIds }, status: 'published', verifiedPurchase: true } },
       { $group: { _id: '$productId', reviews: { $sum: 1 }, rating: { $avg: '$rating' } } },
     ]),
     Order.aggregate([
-      { $match: { country: country.code, status: { $in: ['confirmed', 'paid', 'partially_refunded'] } } },
+      { $match: { country: country.code, status: { $in: ['confirmed', 'paid', 'partially_refunded'] }, 'items.productId': { $in: productIds } } },
       { $unwind: '$items' },
       { $match: { 'items.productId': { $in: productIds } } },
       { $group: { _id: '$items.productId', sold: { $sum: '$items.quantity' } } },
@@ -455,6 +453,7 @@ async function loadStorefront(country) {
       status: 'published',
       countries: country.code,
     })
+      .select(PRODUCT_FIELDS)
       .sort({ publishedAt: -1, _id: -1 })
       .limit(MAX_PRODUCTS)
       .lean(),
@@ -532,7 +531,7 @@ export async function searchStorefront(
   let totalResults = 0;
   if (!trimmedQuery) {
     [products, totalResults] = await Promise.all([
-      Product.find(base).sort({ publishedAt: -1, _id: -1 }).limit(80).lean(),
+      Product.find(base).select(PRODUCT_FIELDS).sort({ publishedAt: -1, _id: -1 }).limit(80).lean(),
       eligibleProductCount(base, country),
     ]);
   } else {
@@ -551,7 +550,7 @@ export async function searchStorefront(
     let textRows = [];
     try {
       [textRows, totalResults] = await Promise.all([
-        Product.find(textFilter, { score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' }, publishedAt: -1 }).limit(120).lean(),
+        Product.find(textFilter).select(PRODUCT_FIELDS).select({ score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' }, publishedAt: -1 }).limit(120).lean(),
         eligibleProductCount(textFilter, country),
       ]);
     } catch {
@@ -564,7 +563,7 @@ export async function searchStorefront(
     const exactVariantRows = await ProductVariant.find({ active: true, $or: [{ sku: new RegExp(`^${escaped}$`, 'i') }, { barcode: new RegExp(`^${escaped}$`, 'i') }] }).select('productId').limit(40).lean();
     const exactIds = [...new Set(exactVariantRows.map((row) => key(row.productId)))].map((id) => new mongoose.Types.ObjectId(id));
     let identifierProducts = [];
-    if (exactIds.length) identifierProducts = await Product.find({ ...base, _id: mongoose.trusted({ $in: exactIds }) }).limit(40).lean();
+    if (exactIds.length) identifierProducts = await Product.find({ ...base, _id: mongoose.trusted({ $in: exactIds }) }).select(PRODUCT_FIELDS).limit(40).lean();
 
     const combined = new Map();
     for (const row of identifierProducts) combined.set(key(row._id), { ...row, _searchScore: 10_000 });
@@ -574,7 +573,7 @@ export async function searchStorefront(
     if (!combined.size && tokens.length) {
       const prefix = tokens[0].slice(0, Math.max(2, tokens[0].length - 1)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const fallbackScope = { ...base, title: new RegExp(prefix, 'i') };
-      const fallbackRows = await Product.find(fallbackScope).sort({ publishedAt: -1 }).limit(80).lean();
+      const fallbackRows = await Product.find(fallbackScope).select(PRODUCT_FIELDS).sort({ publishedAt: -1 }).limit(80).lean();
       for (const row of fallbackRows) combined.set(key(row._id), { ...row, _searchScore: 1 });
       totalResults = await eligibleProductCount(fallbackScope, country);
     }
@@ -595,7 +594,7 @@ export function clearStorefrontCache() {
 export async function publishedProductsByPublicIds(publicIds, country) {
   const ids = [...new Set((publicIds || []).map((value) => String(value)).filter(Boolean))].slice(0, 200);
   if (!ids.length) return [];
-  const products = await Product.find({ publicId: mongoose.trusted({ $in: ids }), status: 'published', countries: country.code }).lean();
+  const products = await Product.find({ publicId: mongoose.trusted({ $in: ids }), status: 'published', countries: country.code }).select(PRODUCT_FIELDS).lean();
   const hydrated = await hydrateProducts(products, country);
   const byId = new Map(hydrated.products.map((product) => [product.id, product]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
@@ -662,4 +661,19 @@ export async function publicIdsForMongoIds(productIds) {
   ).lean();
   const byId = new Map(products.map((product) => [key(product._id), product.publicId]));
   return productIds.map((id) => byId.get(key(id))).filter(Boolean);
+}
+
+/** Resolve only public identity/visibility for the caller's bounded saved lists.
+ * This does not load variants, stock, media, descriptions, reviews or orders.
+ * Callers supply IDs from their server-owned state, never client ownership claims.
+ */
+export async function publicCatalogueIdentityMap(productIds, country) {
+  const ids = [...new Map((productIds || []).slice(0, 554).map(id => [String(id), id])).values()];
+  if (!ids.length) return new Map();
+  const rows = await Product.aggregate([
+    { $match: { _id: { $in: ids }, status: 'published', countries: country.code } },
+    ...publicEligibilityStages(country),
+    { $project: { _id: 1, publicId: 1 } },
+  ]);
+  return new Map(rows.map(row => [String(row._id), row.publicId]));
 }

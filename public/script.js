@@ -48,15 +48,20 @@
 
   function readInitialStorefront() {
     const node = document.getElementById('initialStorefrontData');
-    if (!node?.textContent) return {};
-    try { return JSON.parse(node.textContent); }
+    if (!node?.textContent) return null;
+    try {
+      const data = JSON.parse(node.textContent);
+      return data && Array.isArray(data.products) && Array.isArray(data.categories) && Array.isArray(data.brands) && data.country?.code ? data : null;
+    }
     catch (error) {
       console.error('Classic Mart initial storefront payload is invalid:', error);
-      return {};
+      return null;
     }
   }
 
-  const initialStorefront = readInitialStorefront();
+  const serverCatalogue = readInitialStorefront();
+  const initialStorefront = serverCatalogue || {};
+  const authenticatedStorefront = document.body.dataset.storefrontAuthenticated === 'true';
   let displayLocale = initialStorefront.country?.locale || "en-UG";
   let displayCurrency = initialStorefront.country?.currency || "UGX";
   let categories = Array.isArray(initialStorefront.categories) ? initialStorefront.categories : [];
@@ -67,7 +72,7 @@
     wishlist: [],
     recent: [],
     filteredProducts: products.slice(0, 12),
-    csrfToken: '',
+    csrfToken: authenticatedStorefront ? (qs('meta[name="csrf-token"]')?.content || '') : '',
     heroIndex: 0,
     heroTimer: null,
     lastFocused: null,
@@ -88,8 +93,43 @@
       !element.matches(':hover') && !element.contains(document.activeElement);
   }
 
+  function configureCataloguePriceRange() {
+    const priceRange = qs('#priceRange');
+    if (!priceRange) return;
+    const roundedMax = Math.ceil(Math.max(1, ...products.map(product => Number(product.price) || 0)));
+    priceRange.min = '0'; priceRange.max = String(roundedMax); priceRange.value = String(roundedMax);
+    if (qs('#priceOutput')) qs('#priceOutput').textContent = money(roundedMax);
+  }
+
+  function applySavedCatalogueState(payload) {
+    state.wishlist = Array.isArray(payload.state?.wishlist) ? payload.state.wishlist : [];
+    state.recent = Array.isArray(payload.state?.recent) ? payload.state.recent : [];
+    state.csrfToken = payload.csrfToken || '';
+    // Personal state must not replace every product/photo node after the SSR
+    // catalogue was already rendered. Only its controls and recent row change.
+    qsa('[data-wishlist]').forEach(button => {
+      const wished = state.wishlist.includes(button.dataset.wishlist);
+      button.classList.toggle('active', wished);
+      button.setAttribute('aria-pressed', String(wished));
+      button.setAttribute('aria-label', `${wished ? 'Remove from' : 'Add to'} wishlist`);
+    });
+    renderRecentlyViewed();
+    document.querySelectorAll('[data-wishlist-count]').forEach(badge => { badge.textContent = String(state.wishlist.length); });
+  }
+
   async function hydrateOnlineCatalog() {
     try {
+      if (serverCatalogue) {
+        // The server has already read and serialized this public catalogue,
+        // including a legitimately empty market. Do not download it again.
+        if (authenticatedStorefront) {
+          const response = await fetch('/api/v1/storefront/state?summary=1', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error?.message || 'Saved shopping state could not be loaded.');
+          applySavedCatalogueState(payload);
+        }
+        return;
+      }
       const response = await fetch("/api/v1/storefront/catalogue", { credentials: "same-origin", headers: { Accept: "application/json" } });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message || "Catalogue request failed");
@@ -98,17 +138,8 @@
       brands = Array.isArray(payload.brands) ? payload.brands : [];
       displayLocale = payload.country?.locale || displayLocale;
       displayCurrency = payload.country?.currency || displayCurrency;
-      const priceRange = qs('#priceRange');
-      if (priceRange) {
-        const maxCataloguePrice = Math.max(1, ...products.map(product => Number(product.price) || 0));
-        const roundedMax = Math.ceil(maxCataloguePrice);
-        priceRange.min = '0'; priceRange.max = String(roundedMax); priceRange.value = String(roundedMax);
-        if (qs('#priceOutput')) qs('#priceOutput').textContent = money(roundedMax);
-      }
-      state.wishlist = Array.isArray(payload.state?.wishlist) ? payload.state.wishlist : [];
-      state.recent = Array.isArray(payload.state?.recent) ? payload.state.recent : [];
-      state.csrfToken = payload.csrfToken || "";
       state.filteredProducts = products.slice(0, 12);
+      configureCataloguePriceRange();
       renderCategories();
       renderBrands();
       renderHeaderCategories();
@@ -118,12 +149,11 @@
       renderBestSellers();
       renderBudgetPicks();
       renderFreshFinds();
-      renderRecentlyViewed();
+      applySavedCatalogueState(payload);
       updateCartUI();
-      document.querySelectorAll("[data-wishlist-count]").forEach(badge => { badge.textContent = String(state.wishlist.length); });
     } catch (error) {
       console.error("Classic Mart catalogue could not be loaded:", error);
-      showToast("Products could not be loaded. Refresh to try again.");
+      showToast(serverCatalogue ? 'Saved shopping state could not be loaded. Refresh to try again.' : 'Products could not be loaded. Refresh to try again.');
     }
   }
 
@@ -721,17 +751,34 @@
     const returnFocus = qs('#productModal.open') ? state.lastFocused : document.activeElement;
     let product = productById(id);
     if (!product) return;
+    const currentModal = qs('#productModal');
+    // Show the existing preview immediately, with no previous purchase controls
+    // while current price, stock and publication are being checked.
+    previewState.productId = '';
+    previewState.variantId = '';
+    qs('#productModalContent').innerHTML = '<div class="product-preview-loading" role="status"><h2 id="productModalTitle">Loading product preview…</h2><p id="productModalDescription">Checking current product details.</p></div>';
+    for (const button of [qs('#productModalShare'), qs('#productModalWishlist')]) if (button) button.disabled = true;
+    const pendingShareMenu = qs('#productShareMenu');
+    if (pendingShareMenu) pendingShareMenu.hidden = true;
+    qs('#productModalShare')?.setAttribute('aria-expanded', 'false');
+    openModal('productModal', returnFocus);
     try {
-      const detailResponse = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-      if (detailResponse.ok) {
-        const detailPayload = await detailResponse.json();
-        if (operation !== state.previewOperation) return;
-        product = normalizeProduct({ ...product, ...(detailPayload.product || {}) });
-        const productIndex = products.findIndex((item) => String(item.id) === String(product.id));
-        if (productIndex >= 0) products[productIndex] = product;
+      const detailResponse = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, {
+        credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store',
+      });
+      const detailPayload = await detailResponse.json().catch(() => ({}));
+      if (operation !== state.previewOperation) return;
+      if (!detailResponse.ok || String(detailPayload.product?.id || '') !== String(id)) {
+        throw new Error(detailPayload.error?.message || 'This product could not be refreshed. Please try again.');
       }
-    } catch {
-      // Preserve the already-rendered catalogue card when the detail request is temporarily unavailable.
+      product = normalizeProduct(detailPayload.product);
+      const productIndex = products.findIndex((item) => String(item.id) === String(product.id));
+      if (productIndex >= 0) products[productIndex] = product;
+    } catch (error) {
+      if (operation !== state.previewOperation) return;
+      if (currentModal && !currentModal.hidden && !currentModal.inert) closeAllModals();
+      showToast(error.message || 'Product preview could not be opened.', { type: 'error' });
+      return;
     }
     if (operation !== state.previewOperation) return;
     const wished = state.wishlist.includes(product.id);
@@ -763,6 +810,7 @@
     const topShare = qs('#productModalShare');
     const topWishlist = qs('#productModalWishlist');
     if (topShare) {
+      topShare.disabled = false;
       topShare.dataset.shareProduct = product.id;
       topShare.dataset.shareUrl = shareUrl;
     }
@@ -774,6 +822,7 @@
     if (shareCopy) shareCopy.dataset.shareUrl = shareUrl;
     if (shareWhatsApp) shareWhatsApp.href = `https://wa.me/?text=${encodeURIComponent(`Take a look at ${product.name} on Classic Mart. ${shareUrl}`)}`;
     if (topWishlist) {
+      topWishlist.disabled = false;
       topWishlist.dataset.wishlist = product.id;
       topWishlist.classList.toggle('active', wished);
       topWishlist.setAttribute('aria-pressed', String(wished));
@@ -1641,6 +1690,48 @@
     if (event.target.closest('[data-close-modal]')) closeAllModals();
   }
 
+  function roundPromoPhotographs() {
+    const photos = qsa('.promo-stack .promo-card > img');
+    if (!photos.length) return;
+    const pending = new Set();
+    let frame = 0;
+    const refresh = () => {
+      frame = 0;
+      const updates = [...pending].map(image => {
+        if (!image.isConnected || !image.naturalWidth || !image.naturalHeight) return [image, ''];
+        const style = getComputedStyle(image);
+        if (style.objectFit !== 'contain' || style.objectPosition !== '50% 50%') return [image, ''];
+        const width = Number.parseFloat(style.width), height = Number.parseFloat(style.height);
+        if (!(width > 0 && height > 0)) return [image, ''];
+        const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+        const photoWidth = image.naturalWidth * scale, photoHeight = image.naturalHeight * scale;
+        const x = Math.max(0, (width - photoWidth) / 2), y = Math.max(0, (height - photoHeight) / 2);
+        const radius = Math.min(Number.parseFloat(style.borderTopLeftRadius) || 0, photoWidth / 2, photoHeight / 2);
+        return [image, `inset(${y.toFixed(3)}px ${x.toFixed(3)}px round ${radius.toFixed(3)}px)`];
+      });
+      pending.clear();
+      // Round the photograph inside its letterbox; preserve the original box,
+      // positioning and contain fit. Read all geometry before writing clips.
+      for (const [image, clip] of updates) {
+        if (clip) {
+          if (image.style.getPropertyValue('--promo-photo-clip') !== clip) image.style.setProperty('--promo-photo-clip', clip);
+        } else image.style.removeProperty('--promo-photo-clip');
+      }
+    };
+    const queue = image => { pending.add(image); if (!frame) frame = requestAnimationFrame(refresh); };
+    const observer = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(entries => entries.forEach(entry => queue(entry.target))) : null;
+    const observe = () => photos.forEach(image => { observer?.observe(image); queue(image); });
+    photos.forEach(image => {
+      image.addEventListener('load', () => queue(image));
+      image.addEventListener('error', () => queue(image));
+    });
+    observe();
+    if (!observer) window.addEventListener('resize', observe, { passive: true });
+    window.addEventListener('pagehide', () => { observer?.disconnect(); cancelAnimationFrame(frame); frame = 0; pending.clear(); });
+    window.addEventListener('pageshow', event => { if (event.persisted) observe(); });
+  }
+
   function startPromoAnimations() {
     const cards = qsa('.promo-card');
     const motions = ['slide-left', 'slide-right', 'slide-up', 'slide-down', 'zoom-in', 'zoom-out', 'fade'];
@@ -1961,6 +2052,7 @@
   }
 
   async function init() {
+    configureCataloguePriceRange();
     renderCategories();
     renderHeaderCategories();
     renderTrending(products.slice(0, 12));
@@ -1978,6 +2070,7 @@
     bindEvents();
     observeSections();
     goToHero(0);
+    roundPromoPhotographs();
     startPromoAnimations();
     await hydrateOnlineCatalog();
     openProductFromUrl();

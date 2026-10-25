@@ -30,10 +30,13 @@ const filtersFor = request => ({ status: String(request.query.status || '').slic
 
 async function orderPage(request, response, mode = 'detail', error = '') {
   const filters = filtersFor(request);
-  const data = mode === 'detail' ? await sellerOrderDetail(request)
-    : await sellerOrderList(request, { after: request.query.after, status: filters.status, q: filters.search, shipping: mode === 'shipping' });
-  if (request.accepts(['html', 'json']) === 'json') return response.json(data);
-  const header = await liveAccountHeader(request);
+  const json = request.accepts(['html', 'json']) === 'json';
+  const [data, header] = await Promise.all([
+    mode === 'detail' ? sellerOrderDetail(request)
+      : sellerOrderList(request, { after: request.query.after, status: filters.status, q: filters.search, shipping: mode === 'shipping' }),
+    json ? null : liveAccountHeader(request),
+  ]);
+  if (json) return response.json(data);
   return response.render('approved-dashboard', {
     ...header, workspace: 'seller', initialPage: mode === 'shipping' ? 'seller-shipping' : 'seller-orders',
     customerRoutes: { ...header.customerRoutes, ...SELLER_LIVE_ROUTES }, allowedWorkspaces: allowedWorkspacesFor(request.user),

@@ -27,18 +27,29 @@ export async function sellerOperationsActor(request, { session = null, write = f
 /** Current device, identity, membership, owner and active market share the write transaction. */
 export async function sellerOperationsAccess(request, capability, { session = null, write = false, allowSuspended = false, storePublicId } = {}) {
   if (!storePublicId && !request.store?._id) throw new AppError('Select an available seller store.', 403, 'SELLER_STORE_ACCESS_REQUIRED');
-  const actor = await sellerOperationsActor(request, { session, write });
-  const store = await Store.findOne(storePublicId ? { publicId: storePublicId } : { _id: request.store._id }).session(session);
+  const actorQuery = () => sellerOperationsActor(request, { session, write });
+  const storeQuery = () => Store.findOne(storePublicId ? { publicId: storePublicId } : { _id: request.store._id }).session(session);
+  // Independent reads can overlap outside a transaction. MongoDB transaction
+  // operations remain ordered, including every write fence below.
+  const [actor, store] = session ? [await actorQuery(), await storeQuery()]
+    : await Promise.all([actorQuery(), storeQuery()]);
   if (!store || !['pending_verification', 'verified', ...(allowSuspended ? ['suspended'] : [])].includes(store.status)) throw new AppError('This store is unavailable for trading.', 409, 'STORE_LOCKED');
-  const member = await StoreMember.findOne({ storeId: store._id, userId: actor._id, status: 'active' }).session(session);
-  const owner = await User.findOne({ _id: store.ownerUserId, role: 'seller', status: 'active', platformAccessManagedAt: null }).session(session);
+  const owns = sameSellerId(store.ownerUserId, actor._id);
+  const memberQuery = () => StoreMember.findOne({ storeId: store._id, userId: actor._id, status: 'active' }).session(session);
+  const ownerQuery = () => User.findOne({ _id: store.ownerUserId, role: 'seller', status: 'active', platformAccessManagedAt: null }).session(session);
+  const grantQuery = () => PlatformGrant.exists({ userId: store.ownerUserId }).session(session);
+  const countryQuery = () => CountrySetting.findOne({ code: store.country, currency: store.currency, active: true }).session(session);
+  const [member, owner, ownerGrant, country] = session
+    ? [await memberQuery(), await ownerQuery(), await grantQuery(), await countryQuery()]
+    : await Promise.all([memberQuery(), owns ? actor.role === 'seller' ? actor : null : ownerQuery(),
+      // sellerOperationsActor just checked this same current actor's grants.
+      owns ? null : grantQuery(), countryQuery()]);
   const capabilities = storeCapabilities(member?.role);
-  if (!owner || !member || await PlatformGrant.exists({ userId: store.ownerUserId }).session(session)
+  if (!owner || !member || ownerGrant
     || member.role !== 'owner' && !(member.acceptedAt instanceof Date)
     || capability && !capabilities.has('*') && !capabilities.has(capability)
     || member.role === 'owner' && (!sameSellerId(store.ownerUserId, actor._id) || actor.role !== 'seller')
     || sameSellerId(store.ownerUserId, actor._id) && member.role !== 'owner') throw new AppError('Your current store role does not allow this action.', 403, 'STORE_PERMISSION_DENIED');
-  const country = await CountrySetting.findOne({ code: store.country, currency: store.currency, active: true }).session(session);
   if (!country) throw new AppError('The store market is unavailable.', 409, 'STORE_MARKET_UNAVAILABLE');
   if (!storePublicId && (store.country !== request.store.country || store.currency !== request.store.currency)) throw sellerConflict();
   if (write) {

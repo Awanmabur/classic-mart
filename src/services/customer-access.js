@@ -9,7 +9,18 @@ export async function currentCustomerAccess(request, { session = null, write = f
   if (!request.user?._id) throw new AppError('Sign in to manage your account.', 401, 'UNAUTHENTICATED');
   // A hydrated schema default must not invent version zero for a sparse or
   // incorrectly typed legacy identity record.
-  const actor = await User.findById(request.user._id).where({ 'security.tokenVersion': mongoose.trusted({ $type: 'number' }) }).session(session);
+  const actorQuery = () => User.findById(request.user._id).where({ 'security.tokenVersion': mongoose.trusted({ $type: 'number' }) }).session(session);
+  const needsDevice = request.sessionID !== undefined || Boolean(request.device?._id);
+  const deviceQuery = () => Device.findOne({ userId: request.user._id, sessionHash: hashToken(request.sessionID), revokedAt: null,
+    ...(request.device?._id ? { _id: request.device._id } : {}) }).select('+sessionHash').session(session).lean();
+  let actor, device = null, deviceLoaded = false;
+  if (!session && needsDevice && typeof request.sessionID === 'string' && request.sessionID
+    && (request.session?.userId === undefined || String(request.session.userId) === String(request.user._id))) {
+    // Both lookup keys come from the current request. Validate the freshly read
+    // identity and device below; never reuse either result across access checks.
+    [actor, device] = await Promise.all([actorQuery(), deviceQuery()]);
+    deviceLoaded = true;
+  } else actor = await actorQuery();
   const actorVersion = actor?.security?.tokenVersion;
   const callerVersion = request.user.security?.tokenVersion;
   const sessionVersion = request.session?.tokenVersion;
@@ -19,20 +30,18 @@ export async function currentCustomerAccess(request, { session = null, write = f
     || !env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) {
     throw new AppError('Your verified account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   }
-  let device = null;
   let mobile = null;
   if (request.mobileSession) {
     mobile = await MobileSession.findOne({ _id: request.mobileSession._id, userId: actor._id,
       userTokenVersion: actor.security.tokenVersion, revokedAt: null, accessExpiresAt: mongoose.trusted({ $gt: new Date() }) }).session(session).lean();
     if (!mobile || mobile.publicId !== request.mobileSession.publicId) throw new AppError('Your connected app session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   }
-  if (request.sessionID !== undefined || request.device?._id) {
+  if (needsDevice) {
     if (typeof request.sessionID !== 'string' || !request.sessionID
       || request.session?.userId !== undefined && String(request.session.userId) !== String(actor._id)) {
       throw new AppError('Your account session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
     }
-    device = await Device.findOne({ userId: actor._id, sessionHash: hashToken(request.sessionID), revokedAt: null,
-      ...(request.device?._id ? { _id: request.device._id } : {}) }).select('+sessionHash').session(session).lean();
+    if (!deviceLoaded) device = await deviceQuery();
     if (!device) throw new AppError('Your account session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   }
   if (write) {

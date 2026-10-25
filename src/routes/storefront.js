@@ -24,6 +24,7 @@ import {
 import {
   getStorefront,
   publicIdsForMongoIds,
+  publicCatalogueIdentityMap,
   publishedProduct,
   publishedProductsByPublicIds,
   publishedSeller,
@@ -118,13 +119,24 @@ async function statePayload(userId, country, includeProducts = false) {
     };
   }
   const state =
-    (await CustomerCatalogueState.findOne({ userId })) ||
+    (await CustomerCatalogueState.findOne({ userId }).select('wishlistProductIds comparisonProductIds recentProducts followedStoreIds').lean()) ||
     {
       wishlistProductIds: [],
       comparisonProductIds: [],
       recentProducts: [],
       followedStoreIds: [],
     };
+  if (!includeProducts) {
+    const wishlistIds = (state.wishlistProductIds || []).slice(0, 500);
+    const comparisonIds = (state.comparisonProductIds || []).slice(0, 4);
+    const recentIds = (state.recentProducts || []).slice(0, 50).map(item => item.productId);
+    const [publicIds, followed] = await Promise.all([
+      publicCatalogueIdentityMap([...wishlistIds, ...comparisonIds, ...recentIds], country),
+      state.followedStoreIds?.length ? Store.find({ _id: { $in: state.followedStoreIds.slice(0, 100) }, status: 'verified' }, { slug: 1 }).lean() : [],
+    ]);
+    const visible = ids => ids.map(id => publicIds.get(String(id))).filter(Boolean);
+    return { wishlist: visible(wishlistIds), comparison: visible(comparisonIds), recent: visible(recentIds), followedStores: followed.map(store => store.slug) };
+  }
   const [wishlist, comparison, recent] = await Promise.all([
     publicIdsForMongoIds(state.wishlistProductIds),
     publicIdsForMongoIds(state.comparisonProductIds),
@@ -444,10 +456,11 @@ router.get(
   async (request, response, next) => {
     try {
       response.set('Cache-Control', request.user ? 'private, no-store' : 'public, max-age=10');
+      const summaryOnly = request.query.summary === '1';
       const baseState = request.user
-        ? await statePayload(request.user._id, request.country, true)
+        ? await statePayload(request.user._id, request.country, !summaryOnly)
         : { wishlist: [], comparison: [], recent: [], followedStores: [], wishlistProducts: [], comparisonProducts: [], recentProducts: [], recommendations: [] };
-      if (request.user) {
+      if (request.user && !summaryOnly) {
         baseState.recommendations = await recommendationsFor(request, { limit: 8 });
       }
       response.json({

@@ -51,8 +51,12 @@ export async function loadUser(request, response, next) {
     const user = actor;
     request.user = user;
     request.device = device;
-    await hydrateBusinessAuthorization(request);
-    await hydrateSellerAuthorization(request);
+    // Both read the already resolved identity and attach independent navigation
+    // properties. Operational handlers still reload/fence current authority.
+    await Promise.all([
+      hydrateBusinessAuthorization(request),
+      hydrateSellerAuthorization(request),
+    ]);
     response.locals.user = user;
     return next();
   } catch (error) {

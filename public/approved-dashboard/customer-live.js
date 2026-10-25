@@ -1,4 +1,49 @@
 (() => {
+  // Contained photos can be letterboxed inside their original image element.
+  // Round the rendered photograph, including those inset pixels, without
+  // cropping review evidence or changing the approved image/card dimensions.
+  const roundedPhotos = [...document.querySelectorAll('#pageHost :is(.product-image img, .wishlist-item img, .seller-product-image)')];
+  const pendingPhotos = new Set();
+  let photoFrame = 0;
+  const refreshPhotoCorners = () => {
+    photoFrame = 0;
+    const updates = [...pendingPhotos].map(image => {
+      if (!image.isConnected || !image.naturalWidth || !image.naturalHeight) return [image, ''];
+      const style = getComputedStyle(image);
+      if (style.objectFit !== 'contain' || style.objectPosition !== '50% 50%') return [image, ''];
+      const width = Number.parseFloat(style.width), height = Number.parseFloat(style.height);
+      if (!(width > 0 && height > 0)) return [image, ''];
+      const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+      const photoWidth = image.naturalWidth * scale, photoHeight = image.naturalHeight * scale;
+      const horizontalInset = Math.max(0, (width - photoWidth) / 2);
+      const verticalInset = Math.max(0, (height - photoHeight) / 2);
+      const radius = Math.min(Number.parseFloat(style.borderTopLeftRadius) || 0, photoWidth / 2, photoHeight / 2);
+      return [image, `inset(${verticalInset.toFixed(3)}px ${horizontalInset.toFixed(3)}px round ${radius.toFixed(3)}px)`];
+    });
+    pendingPhotos.clear();
+    // Batch style reads above before writes; no observer or network work is
+    // needed for logos, icons, avatars or the already circular category photos.
+    for (const [image, clip] of updates) {
+      if (clip) {
+        if (image.style.getPropertyValue('--catalogue-photo-clip') !== clip) image.style.setProperty('--catalogue-photo-clip', clip);
+      } else image.style.removeProperty('--catalogue-photo-clip');
+    }
+  };
+  const queuePhotoCorners = image => {
+    pendingPhotos.add(image);
+    if (!photoFrame) photoFrame = requestAnimationFrame(refreshPhotoCorners);
+  };
+  const photoObserver = roundedPhotos.length && typeof ResizeObserver === 'function'
+    ? new ResizeObserver(entries => entries.forEach(entry => queuePhotoCorners(entry.target))) : null;
+  const observePhotos = () => roundedPhotos.forEach(image => { photoObserver?.observe(image); queuePhotoCorners(image); });
+  roundedPhotos.forEach(image => {
+    image.addEventListener('load', () => queuePhotoCorners(image));
+    image.addEventListener('error', () => queuePhotoCorners(image));
+  });
+  observePhotos();
+  if (roundedPhotos.length && !photoObserver) window.addEventListener('resize', observePhotos, { passive: true });
+  window.addEventListener('pagehide', () => { photoObserver?.disconnect(); cancelAnimationFrame(photoFrame); photoFrame = 0; pendingPhotos.clear(); });
+  window.addEventListener('pageshow', event => { if (event.persisted) observePhotos(); });
   const sidebar=document.getElementById('sidebar');
   const sidebarOverlay=document.getElementById('sidebarOverlay');
   const closeSidebar=()=>{sidebar?.classList.remove('open');sidebarOverlay?.classList.remove('show');document.body.style.overflow='';document.getElementById('mobileMenuBtn')?.setAttribute('aria-expanded','false');};

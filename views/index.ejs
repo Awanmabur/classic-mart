@@ -14,7 +14,7 @@
 <link href="/storefront-pages.css" rel="stylesheet"/>
 <%- include('partials/flash-assets') %>
 </head>
-<body class="home-page">
+<body class="home-page" data-storefront-authenticated="<%= user ? 'true' : 'false' %>">
 <a class="skip-link" href="#mainContent">Skip to content</a>
 <%- include("partials/storefront-header") %>
 <main id="mainContent">
@@ -34,12 +34,12 @@
 <button data-category="groceries" type="button"><img alt="" aria-hidden="true" src="/assets/icons/basket-shopping.svg"/><span>Groceries</span></button>
 <a class="view-all" href="#categories"><img alt="" aria-hidden="true" src="/assets/icons/table-cells-large.svg"/><span>View All Categories</span><img alt="" aria-hidden="true" src="/assets/icons/chevron-right.svg"/></a>
 </aside>
-<div class="hero-slider" id="heroSlider">
+<div class="hero-slider" id="heroSlider" data-hero-source="<%= typeof homeHeroSource === 'string' ? homeHeroSource : 'empty' %>">
 <div class="hero-track" id="heroTrack">
 <% const heroRows = (typeof homeHeroSlides !== 'undefined' && homeHeroSlides?.length) ? homeHeroSlides : []; %>
 <% if (heroRows.length) { heroRows.forEach((slide, index) => { %>
 <article aria-hidden="<%= index === 0 ? 'false' : 'true' %>" class="hero-slide hero-slide-<%= ['a','b','c'][index % 3] %> <%= index===0?'is-active':'' %>" <%= index === 0 ? '' : 'inert' %>>
-<div class="hero-copy"><span class="eyebrow"><%= slide.data?.eyebrow || 'Classic Mart' %></span><<%= index===0?'h1':'h2' %>><%= slide.title %></<%= index===0?'h1':'h2' %>><p><%= slide.body %></p><button class="button button-light" data-category-jump="<%= slide.data?.category || 'all' %>" type="button"><%= slide.data?.action || 'Browse products' %></button></div>
+<div class="hero-copy"><span class="eyebrow"><%= slide.data?.eyebrow || 'Classic Mart' %></span><<%= index===0?'h1':'h2' %>><%= slide.title %></<%= index===0?'h1':'h2' %>><p><%= slide.body %></p><a class="button button-light" href="<%= slide.data?.href || '/products' %>"><%= slide.data?.action || 'Browse products' %></a></div>
 <div aria-hidden="true" class="hero-products"><img alt="" class="hero-product hero-headphones" decoding="async" fetchpriority="<%= index === 0 ? 'high' : 'low' %>" src="<%= slide.data?.image || '/assets/product-placeholder.svg' %>"/></div>
 </article>
 <% }); } else { %>

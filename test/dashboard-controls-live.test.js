@@ -273,21 +273,34 @@ test('live dashboard actions and photos preserve approved appearance on every co
             if (uploads.some(upload => !upload.centered || !upload.followsCopy)) failures.push(`${member.workspace} ${href} at ${width}px: upload action must stay centered below its instructions`);
             const photos = await page.locator('#pageHost :is(.product-image img, .wishlist-item img, .category-card img, .cart-item > img, .seller-product-image)').evaluateAll(nodes => {
               const visible = nodes.filter(node => node.checkVisibility());
-              const radii = node => {
-                const style = getComputedStyle(node);
-                return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius];
+              const geometry = node => {
+                const style = getComputedStyle(node), box = node.getBoundingClientRect();
+                return {
+                  corners: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius],
+                  width: box.width, height: box.height, fit: style.objectFit,
+                };
               };
-              const actual = visible.map(radii);
+              const actual = visible.map(geometry);
               const liveSheets = [...document.styleSheets].filter(sheet => sheet.href?.includes('/approved-dashboard/live-controls.css'));
               const previous = liveSheets.map(sheet => sheet.disabled);
               try {
                 liveSheets.forEach(sheet => { sheet.disabled = true; });
-                return visible.map((node, index) => ({ actual: actual[index], approved: radii(node) }));
+                return visible.map((node, index) => ({
+                  actual: actual[index], approved: geometry(node),
+                  requestedCorners: node.matches('.category-card img') ? ['50%', '50%', '50%', '50%']
+                    : node.matches('.product-image img, .wishlist-item img, .seller-product-image') ? ['23px', '23px', '23px', '23px'] : null,
+                }));
               } finally {
                 liveSheets.forEach((sheet, index) => { sheet.disabled = previous[index]; });
               }
             });
-            for (const photo of photos) assert.deepEqual(photo.actual, photo.approved, href + ' photo keeps its approved component corners');
+            for (const photo of photos) {
+              assert.deepEqual(photo.actual.corners, photo.requestedCorners || photo.approved.corners,
+                href + ' photo uses requested homepage corners or retains its existing rounded component');
+              assert.equal(photo.actual.width, photo.approved.width, href + ' photo keeps its approved width');
+              assert.equal(photo.actual.height, photo.approved.height, href + ' photo keeps its approved height');
+              assert.equal(photo.actual.fit, photo.approved.fit, href + ' photo keeps its approved aspect-ratio treatment');
+            }
             photoCount += photos.length;
             const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
             if (overflow > 1) failures.push(`${activeVisit}: document overflows horizontally by ${overflow}px`);

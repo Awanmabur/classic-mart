@@ -17,10 +17,17 @@ controlled unavailable response instead of rendering another role's dashboard.
 
 Homepage and category photographs retain their original component geometry,
 including circular category pictures, product frames and gallery thumbnails.
-Only the small homepage promotional banners have larger corners: 32px frames
-and 24px photos. Dashboard buttons use the frozen approved typography, padding,
+The small homepage promotional banners use 36px frames and 32px photos.
+Live inset Customer and operational product photographs use the homepage
+product radius of 23px; category pictures and avatars retain their circles. Dashboard buttons use the frozen approved typography, padding,
 colors and corners, with narrow adapters for real forms and mobile placement.
 The genuine homepage cart/red-bag artwork supplies all favicons and PWA icons.
+
+The homepage hero reads published editorial content and otherwise uses real
+available products from the current market. See [Homepage content](HOMEPAGE_CONTENT.md)
+for publication and inventory conditions, and the
+[25 October hero/performance audit](../audits/2026-10-25-hero-images-performance.md)
+for request measurements and the retained authorization boundaries.
 
 The earlier cleanup removed 27 confirmed obsolete files (470,090 bytes), including the
 superseded Customer dashboard implementation, unused asset engines and stale

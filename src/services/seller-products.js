@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { z } from 'zod';
-import { Product, ProductVariant, ProductMedia, Store, StoreMember, Category, Brand, Warehouse, StockItem, InventoryLot, InventoryMovement, Notification, User } from '../models/index.js';
+import { Product, ProductVariant, ProductMedia, Store, StoreMember, Category, Brand, CountrySetting, Warehouse, StockItem, InventoryLot, InventoryMovement, Notification, User } from '../models/index.js';
 import { AppError } from '../core/errors.js';
 import { publicId, slugify } from '../core/ids.js';
 import { hasPermission } from '../core/roles.js';
@@ -535,12 +535,17 @@ export async function readableSellerProductImage(value, imageId) {
   const user = request.user;
   const media = await ProductMedia.findOne({ publicId: id.parse(imageId) }).select('+storageKey +thumbnailStorageKey');
   if (!media) throw new AppError('Image not found.', 404, 'MEDIA_NOT_FOUND');
-  const product = await Product.findOne({ _id: media.productId, storeId: media.storeId });
-  const store = product ? await Store.findById(product.storeId).select('country status ownerUserId currency') : null;
+  const [product, store] = await Promise.all([
+    Product.findOne({ _id: media.productId, storeId: media.storeId }),
+    Store.findById(media.storeId).select('country status ownerUserId currency'),
+  ]);
   if (!product || !store) throw new AppError('Image not found.', 404, 'MEDIA_NOT_FOUND');
-  const category = await Category.findOne({ _id: product.categoryId, ...categoryCountryScope(store) }).select('restricted');
-  const brand = product.brandId ? await Brand.exists({ _id: product.brandId, status: 'approved' }) : true;
-  const isPublic = media.status === 'approved' && product.status === 'published' && store.status === 'verified' && Boolean(category) && Boolean(brand) && hasPublicProductApproval(product, category, store) && product.countries.includes(store.country);
+  const [category, brand, market] = await Promise.all([
+    Category.findOne({ _id: product.categoryId, ...categoryCountryScope(store) }).select('restricted'),
+    product.brandId ? Brand.exists({ _id: product.brandId, status: 'approved' }) : true,
+    CountrySetting.exists({ code: store.country, currency: store.currency, active: true }),
+  ]);
+  const isPublic = media.status === 'approved' && product.status === 'published' && store.status === 'verified' && Boolean(category) && Boolean(brand) && Boolean(market) && hasPublicProductApproval(product, category, store) && product.countries.includes(store.country);
   if (!isPublic) {
     if (!user || !await User.exists({ _id: user._id, status: 'active', 'security.tokenVersion': user.security?.tokenVersion ?? -1 })) throw new AppError('Image not found.', 404, 'MEDIA_NOT_FOUND');
     if (env.security.privilegedMfaRequired && !user.security?.mfaEnabled) throw new AppError('Authenticator enrollment is required to preview unpublished product images.', 403, 'MFA_ENROLLMENT_REQUIRED');

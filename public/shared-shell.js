@@ -58,7 +58,7 @@
 
   async function loadSharedCatalogue() {
     if (!window.ClassicMartSharedCataloguePromise) {
-      window.ClassicMartSharedCataloguePromise = fetch('/api/v1/storefront/catalogue', {
+      window.ClassicMartSharedCataloguePromise = window.ClassicMartCatalogueReady || fetch('/api/v1/storefront/catalogue', {
         credentials: 'same-origin', headers: { Accept: 'application/json' },
       }).then(async (response) => {
         const payload = await response.json().catch(() => ({}));
@@ -71,7 +71,12 @@
       const categorySelect = document.querySelector('#searchCategory');
       if (categorySelect && Array.isArray(catalogue.categories)) {
         const selected = categorySelect.value || 'all';
-        categorySelect.innerHTML = '<option value="all">All Categories</option>' + catalogue.categories.map((category) => `<option value="${String(category.id || category.slug || '').replace(/"/g, '&quot;')}">${String(category.name || '')}</option>`).join('');
+        const option = (value, label) => {
+          const node = document.createElement('option');
+          node.value = String(value); node.textContent = String(label);
+          return node;
+        };
+        categorySelect.replaceChildren(option('all', 'All Categories'), ...catalogue.categories.map(category => option(category.id || category.slug || '', category.name || '')));
         if ([...categorySelect.options].some((option) => option.value === selected)) categorySelect.value = selected;
       }
       document.querySelectorAll('a[href="/categories"] .tiny-badge').forEach((badge) => { badge.textContent = String(catalogue.categories?.length || 0); });
@@ -84,12 +89,19 @@
 
   async function updateWishlistBadges() {
     try {
-      const response = await fetch('/api/v1/storefront/state', {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
-      });
-      if (!response.ok) return;
-      const payload = await response.json();
+      const authenticated = document.querySelector('[data-storefront-authenticated="true"]');
+      if (!authenticated) return;
+      // Catalogue controllers already resolve the current user's summary. The
+      // common header consumes that request rather than loading it twice.
+      const existing = window.ClassicMartCatalogueReady || window.ClassicMartSharedCataloguePromise;
+      let payload = existing ? await existing : null;
+      if (!payload?.state) {
+        const response = await fetch('/api/v1/storefront/state?summary=1', {
+          credentials: 'same-origin', headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) return;
+        payload = await response.json();
+      }
       const count = payload.state?.wishlist?.length || 0;
       document.querySelectorAll('[data-wishlist-count]').forEach(badge => {
         badge.textContent = String(count);
