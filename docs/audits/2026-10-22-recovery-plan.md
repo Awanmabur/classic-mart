@@ -1,8 +1,10 @@
 # Recovery of the end-to-end remediation
 
-The [25 October verification checkpoint](2026-10-25-verification.md) records
-the passing complete regression, separately exercised live-server cases and
-remaining launch blockers. Rows below describe the feature-scoped evidence.
+The [25 October launch fixes](2026-10-25-launch-fixes.md) records current
+verification and the launch handoff. The earlier
+[recovery checkpoint](2026-10-25-verification.md) records the initial complete
+regression and separately exercised server cases. Rows below describe the
+feature-scoped evidence.
 
 The environment reset removed the uncommitted v2.14 working copy. The last
 durable baseline is `ae0936589e6ef1144ef8ba5495e2d40571b52ebc` (v2.13.74)

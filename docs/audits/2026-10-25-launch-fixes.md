@@ -86,8 +86,30 @@ instructions.
 - Import/syntax/project checks, security scan (671 files), frontend and functional
   audits (40 EJS views), and dependency audit passed; zero known vulnerabilities
   were reported by `npm audit --audit-level=high`.
-- The complete canonical regression is running. Its outcome will be recorded
-  before this change is committed.
+- Complete canonical regression on application checkpoint `048dc58`: 1,411 tests,
+  1,396 passed, zero failures or cancellations, and 15 cases requiring explicit
+  live HTTP base URLs skipped in that invocation. Runtime was 1,326,395 ms.
+  All 15 were subsequently matched by name to fresh passing HTTP/browser cases;
+  each selected server-context suite reported zero failures and zero skips.
+- Public layout: 72 route/viewport cases, 42 measured controls, zero browser,
+  clipping, alignment or overflow issues. Live public SEO checks passed published
+  product links, canonical/schema output, no-JavaScript readability, missing-page
+  404/noindex, published-only sitemap and private noindex behavior.
+- The MongoDB integration audit passed all 12 stages with 11 balanced ledger
+  transactions. The native concurrency audit passed the 20-way payment, refund,
+  payout, shipment, procurement, return and Warehouse races.
+- Current public accessibility scan: 42 cases, 15 passed, 26 failed and one
+  project-specific skip. Every remaining violation ID is `color-contrast`; there
+  were no rate-limit or other violation types. These are real failing launch
+  checks, not accepted passes. The requested palette remains unchanged.
+- The complete saved installer ran successfully with the frozen lockfile and
+  confirmed the owned MongoDB/Redis fixtures ready. This establishes local setup;
+  saving its cloud draft does not publish or restore a future environment.
+- All three actual archive builders completed with their secret/path guards:
+  production (748 files), clean application (754 files) and engineering source
+  (1,111 files), each with a SHA-256 sidecar. This is packaging verification, not
+  a production deployment or a release approval. Runtime archives carry the
+  launch, configuration, SMS and Pesapal instructions.
 
 The previous [complete recovery verification](2026-10-25-verification.md) remains
 historical evidence for its application checkpoint. Its external provider and

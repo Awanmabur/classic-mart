@@ -1,5 +1,10 @@
 # Recovery verification, 25 October 2026
 
+Historical recovery evidence follows. The later
+[launch fixes and current verification](2026-10-25-launch-fixes.md) records the
+Super Admin/outage corrections, Yoola migration, shared flashes and `master`
+integration. Use the current launch handoff for deployment settings.
+
 The recovered application is verified on `recovery/end-to-end-20261023`.
 It remains an unreleased recovery based on v2.13.74. Production launch is
 blocked by the approved palette's accessibility contrast failures and the
