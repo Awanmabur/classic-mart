@@ -69,3 +69,25 @@ Chromium, not a falsely claimed download of CI's distribution. The new hosted
 run must establish the actual managed-browser result. The earlier full
 application run remains 1,427 passed plus 15 separately verified live-context
 cases, with 56 passing desktop/mobile browser cases; it does not certify CI.
+
+## Hosted follow-up — 26 October, Africa/Kampala
+
+Run [40225260444](https://github.com/Awanmabur/classic-mart/actions/runs/40225260444)
+for `092495182a5a0206e8d7270e027a6b83a34b01e3` successfully installed and
+resolved managed Chromium and passed the static/security/frontend/functionality
+gates. The new failure annotations expose five live suites rejecting the old
+CI MongoDB port: `27018 !== 27019`. This is retrieved assertion evidence,
+separate from the earlier source-only browser diagnosis.
+
+The workflow now consistently starts its disposable replica set on port 27019,
+including its replica member, readiness probes and all application/live-fixture
+URIs. Application/browser fixtures retain `classic_mart_ci`; destructive live
+tests retain the separate `classic_mart_ci_test` database and their individually
+named disposable databases. Redis remains isolated in database 15 for live
+tests. No fixture safety guard or mandatory gate is relaxed. The pipeline
+contract also checks that the listener and replica member match the live URI.
+
+The five affected suites and release contracts pass against the existing
+isolated loopback replica set: 57 passed, no failures or skips. The hosted
+result still needs to establish the subsequent integration,
+browser/accessibility and release gates.

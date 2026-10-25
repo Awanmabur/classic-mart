@@ -26,32 +26,32 @@ jobs:
         run: node scripts/prepare-ci-browser.js
       - name: Start MongoDB replica set and Redis
         run: |
-          docker run -d --name classic-mart-mongo --network host mongo:8 mongod --port 27018 --replSet rs0 --bind_ip_all
+          docker run -d --name classic-mart-mongo --network host mongo:8 mongod --port 27019 --replSet rs0 --bind_ip_all
           docker run -d --name classic-mart-redis --network host redis:8-alpine
-          for i in $(seq 1 60); do docker exec classic-mart-mongo mongosh --port 27018 --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1 && break; sleep 1; done
-          docker exec classic-mart-mongo mongosh --port 27018 --quiet --eval 'try{rs.status()}catch(e){rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27018"}]})}'
-          for i in $(seq 1 60); do docker exec classic-mart-mongo mongosh --port 27018 --quiet --eval 'if(!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1 && break; sleep 1; done
+          for i in $(seq 1 60); do docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1 && break; sleep 1; done
+          docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'try{rs.status()}catch(e){rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27019"}]})}'
+          for i in $(seq 1 60); do docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'if(!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1 && break; sleep 1; done
       - name: Static, security, frontend and functional gates
         run: npm run check && npm run security:check && npm run frontend:audit && npm run functionality:audit
         env: &testenv
           NODE_ENV: test
-          MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci?replicaSet=rs0
+          MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci?replicaSet=rs0
           REDIS_URL: redis://127.0.0.1:6379
       - name: Automated unit, live database and workspace browser tests
         run: npm test
         env:
           NODE_ENV: test
-          MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci?replicaSet=rs0
+          MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci?replicaSet=rs0
           REDIS_URL: redis://127.0.0.1:6379
           # The runner serializes live fixtures and preloads model initialization
           # cleanup before each disposable test database is dropped.
-          CLASSIC_MART_LIVE_TEST_MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci_test?replicaSet=rs0
+          CLASSIC_MART_LIVE_TEST_MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci_test?replicaSet=rs0
           CLASSIC_MART_LIVE_TEST_REDIS_URL: redis://127.0.0.1:6379/15
       - name: Database topology, integration and concurrency audits
         run: npm run db:verify && npm run audit:integration && npm run audit:concurrency
         env: &databaseenv
           NODE_ENV: test
-          MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci?replicaSet=rs0
+          MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci?replicaSet=rs0
           REDIS_URL: redis://127.0.0.1:6379
           CLASSIC_MART_TEST_MONGO_OVERRIDE: '1'
       - name: Migration dry run
@@ -66,7 +66,7 @@ jobs:
         run: node scripts/seed.js
         env: &browserenv
           NODE_ENV: test
-          MONGO_URI: mongodb://127.0.0.1:27018/classic_mart_ci?replicaSet=rs0
+          MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci?replicaSet=rs0
           REDIS_URL: redis://127.0.0.1:6379
           ADMIN_EMAIL: admin@classicmart.local
           ADMIN_PHONE: '+256700000001'
