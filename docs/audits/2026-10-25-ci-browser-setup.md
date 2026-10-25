@@ -122,3 +122,17 @@ image/catalogue journeys were already verified in the previous application
 checkpoint. These skips are not represented as passes in this CI-style run.
 The local browser is system Chromium and video capture is off; hosted managed
 Chromium and all remaining release gates still require their own actual result.
+
+Run [40241652231](https://github.com/Awanmabur/classic-mart/actions/runs/40241652231)
+for `403efdebc6f09821e2a3aedcac8c92f7cdde2de6` provides the actual hosted startup
+cause through the new annotation: MongoDB exits 1, with `OOMKilled: false`, and
+logs **MongoDB cannot start: Linux kernel versions 6.19 and newer has a known
+incompatibility with this version of MongoDB** (`SERVER-121912`). Redis is
+running normally. CI now explicitly uses `ubuntu-24.04` rather than following
+the `ubuntu-latest` migration to Ubuntu 26. The tested database image, port
+safety guards, readiness checks and all release gates remain in place. This
+runner compatibility fix is independent of the approved-colour WCAG failures.
+GitHub's [current Ubuntu 24.04 image manifest](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md)
+reports image `20261023.334.3`, Ubuntu 24.04.5 and kernel
+`6.17.0-1022-azure`, below MongoDB's rejected range. The new hosted run must
+confirm its assigned runner and result; the label is not a permanent kernel pin.

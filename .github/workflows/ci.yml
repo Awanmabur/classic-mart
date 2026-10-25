@@ -11,7 +11,9 @@ permissions:
   artifact-metadata: write
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # MongoDB's tested image rejects Linux kernels >=6.19 (SERVER-121912).
+    # Keep the compatible runner explicit instead of following Ubuntu 26.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

@@ -70,6 +70,7 @@ test('CI activates isolated live database fixtures with Chromium and the model l
   const ci=read('.github/workflows/ci.yml');
   const runner=read('scripts/run-tests.js');
   assert.match(ci,/branches: \[master\]/);
+  assert.match(ci,/runs-on: ubuntu-24\.04/);
   // Live suites refuse any other listener to protect application databases.
   assert.match(ci,/mongod --port 27019 --replSet rs0/);
   assert.match(ci,/host:"127\.0\.0\.1:27019"/);
