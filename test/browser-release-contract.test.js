@@ -55,6 +55,10 @@ test('Node 24 CI installs the browser, seeds data, runs the gate and uploads dia
   assert.match(workflow, /node scripts\/seed-browser-accounts\.js/);
   assert.match(workflow, /SIMPLE_LOGIN: 'false'/);
   assert.match(workflow, /PRIVILEGED_MFA_REQUIRED: 'true'/);
+  assert.match(workflow, /CLASSIC_MART_E2E_LOOPBACK_ISOLATION: '1'/);
+  for (const file of ['accessibility', 'critical-flows', 'image-corners', 'marketing-motion']) {
+    assert.match(read(`tests/e2e/${file}.spec.js`), /from '\.\/browser-fixture\.js'/);
+  }
   assert.match(workflow, /playwright install --with-deps chromium/);
   assert.match(workflow, /npm run browser:check/);
   assert.match(workflow, /classic-mart-browser-diagnostics/);

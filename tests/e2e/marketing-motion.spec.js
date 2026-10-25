@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './browser-fixture.js';
 
 const start = new Date('2026-10-11T00:00:00Z');
 
@@ -21,7 +21,8 @@ async function openHome(page, reducedMotion = 'no-preference') {
       }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
     });
   });
-  await page.goto('/', { waitUntil: 'networkidle' });
+  const response = await page.goto('/', { waitUntil: 'networkidle' });
+  expect(response.status(), 'the homepage must load before testing its slide controls').toBe(200);
   expect(pageErrors, 'homepage scripts initialize from the published catalogue').toEqual([]);
   expect(await page.locator('.hero-slide').count()).toBeGreaterThan(1);
   expect(await page.locator('.promo-card').count()).toBeGreaterThan(0);

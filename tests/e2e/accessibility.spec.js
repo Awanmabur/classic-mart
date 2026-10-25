@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './browser-fixture.js';
 import AxeBuilder from '@axe-core/playwright';
 
 const publicPages = [

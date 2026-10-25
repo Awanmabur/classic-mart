@@ -71,6 +71,7 @@ jobs:
           CLASSIC_MART_TEST_MONGO_OVERRIDE: '1'
           SIMPLE_LOGIN: 'false'
           PRIVILEGED_MFA_REQUIRED: 'true'
+          CLASSIC_MART_E2E_LOOPBACK_ISOLATION: '1'
           MAIL_MODE: log
           SMS_MODE: log
           AI_ENABLED: 'false'

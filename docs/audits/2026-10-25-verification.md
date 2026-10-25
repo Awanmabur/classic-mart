@@ -1,138 +1,123 @@
 # Recovery verification, 25 October 2026
 
-The working branch is `recovery/end-to-end-20261023`. It remains a recovery
-branch based on v2.13.74, not a production release. This checkpoint supersedes
-the outstanding-check list in the 23 October checkpoint. Counts below include
-parent tests where Node reports them; they are not counts of distinct features.
+The recovered application is verified on `recovery/end-to-end-20261023`.
+It remains an unreleased recovery based on v2.13.74. Production launch is
+blocked by the approved palette's accessibility contrast failures and the
+environment-specific production verification described below.
 
-The first complete canonical run finished with **1,248 passing, 94 failing and
-13 skipped checks** out of 1,355. Its log is
-`/tmp/classicmart-first-full-1248-pass-94-fail-13-skip.log`. The failures included obsolete fixtures
-and real product defects. It was a failed run and does not establish release
-readiness. The thirteen skips require running the separate live HTTP/browser
-fixtures with their external base URLs. The expanded Customer recovery adds
-two such externally configured cases; its eight-check wrapper run below
-executes them.
+The complete canonical run on application checkpoint
+`f2cb355f91544ac6e0157d43097ebfc3e171a177` executed **1,386 checks:
+1,371 passed, zero failed/cancelled and 15 required a separate live-server
+fixture**. Every one of those 15 cases subsequently passed in its configured
+HTTP/browser suite. Their names were matched against the canonical skip list;
+none was treated as an unexplained or ignored skip.
 
-The second complete run, using the patched dependency set, finished with
-**1,352 passing, two failing and 15 skipped checks** out of 1,369. Both failures
-were obsolete static contracts: the former shared privileged browser account
-and an exact Nodemailer 10.0.16 pin. Their replacements check separate role
-accounts and the patched address-parser version floor. All 31 checks in their
-combined rerun passed, including 16 actual fixture safety cases. Logs:
-`/tmp/classicmart-second-full-1352-pass-2-static-fail-15-skip.log` and
-`/tmp/classicmart-ci-safety-mail-contracts-31-pass.log`. The second full run
-remains a failed invocation; a final complete rerun is still required.
+After that complete run, changes only strengthened browser-test infrastructure
+and its HTTP status assertion; production application behavior was unchanged.
+The four new network cases passed alongside the 31 existing fixture-safety,
+browser-contract and mail-version checks. The resulting **35-check targeted
+run passed with zero failures or skips**. Counts include parent tests where
+Node reports them; they are not counts of distinct product features.
 
-Subsequent fixes preserve current authorization checks and the approved UI:
-
-- Scheduled CMS publication reloads the exact approving grant, token and
-  revision digest, handles global Super Admin authority and approved rollback,
-  and advances a bounded durable scan past blocked or future records.
-- Business approval uses the explicit `canApprove` permission for nonowners,
-  including the rendered controls and current transactional membership fence.
-- Seller finance, relationships and review disputes use current canonical
-  account, Device, accepted membership, owner, store and market authorization.
-  Invalid Seller support forms retain that authenticated context when rendered
-  again, preserving 422 validation and 409 stale-update responses.
-- Seller account navigation rejects unavailable or managed owners. MFA
-  continuation retains the owned store-invitation inbox. Suspended stores keep
-  private case access while fulfilment remains locked.
-- Finance history keeps the original currency and verified source lineage
-  after a market currency change. Provider-event searches resolve source IDs
-  before filtering. COD reconciliation is available after independent Warehouse
-  cash review. Historical reads do not relax current payout mutation policy.
-- Staff invitation auditing records one transactional event rather than a
-  duplicate CLI event.
-- Customer wallet, reward and aftersales references resolve actual owned source
-  lineage in bounded batches. Focused records remain accessible beyond the
-  first page, with original reward currency, effective expiry and no forged
-  source IDs. Signed keysets retain complete owned histories.
-- Optional email and push apply current notification preferences at queue and
-  dispatch time. Offers additionally require marketing consent. Alert claims
-  and push queue creation are atomic; unknown historical email work and obsolete
-  progress updates cancel. Required security, access, receipts and requested
-  service messages remain available.
-- Authentication and fulfilment regressions now use actual accounts, Devices,
-  accepted store selection, reviewed checkout contacts, independent campaign
-  and carrier approval, and private delivery-photo uploads.
-
-Completed targeted runtime evidence after the first full run:
-
-| Complete suites exercised | Result and log |
+| Current executable evidence | Outcome |
 | --- | --- |
-| Current live-server identity, Customer, phone selector, order filters and retired-dashboard checks | All 11 checks passed across the six HTTP wrapper suites; their `/tmp/classicmart-production-*-live.log`, phone-selector and retired-cleanup logs record the individual results |
-| Current twelve-stage integration and twenty-way financial/fulfilment concurrency audits | Both passed after the dependency upgrades: `/tmp/classicmart-patched-integration-12-stages-pass.log` and `/tmp/classicmart-patched-concurrency-20-way-pass.log` |
-| Reusable CI role fixtures and actual critical browser flows | The tracked test-only seeder created separate Seller/managed Moderator accounts with real MFA; 16 checks passed with four intentional project-specific skips in `/tmp/classicmart-ci-role-browser-16-pass-4-project-skips.log` |
-| Public critical browser flows, dedicated Seller/Moderator MFA sessions, strict cross-role denial and mobile Seller product cards | 16 passed, 4 deliberate project-specific skips: `/tmp/classicmart-critical-browser-16-pass-4-project-skips.log`; this preceded the dependency upgrade below |
-| Image shapes and hero/promotional motion on desktop/mobile | 18 passed in `/tmp/classicmart-image-motion-18-pass-cart-guest-fixture-failures.log`; its two obsolete guest-checkout fixtures were corrected and passed separately on both viewports in `/tmp/classicmart-cart-checkout-image-2-pass.log` using the upgraded dependencies |
-| Customer source links, receipts/refund browser navigation, all five 67-record aftersales histories, addresses, exact wishlist moves, wallet CSV and private avatar recovery | 8 passed, zero failures/skips: `/tmp/classicmart-customer-source-history-8-pass.log` |
-| Actual Customer Chromium signup, account controls, address edit, avatar lifecycle, mobile navigation and logout | 1 passed, zero failures/skips: `/tmp/classicmart-customer-browser-20261025-pass.log` |
-| Notification choices, campaign consent, privacy restrictions, Seller orders/relationships and Warehouse operations | 41 passed, zero failures/skips: `/tmp/classicmart-notification-privacy-seller-warehouse-41-pass.log`; final notification hardening separately passed all 6 checks in `/tmp/classicmart-notification-final-6-pass.log` |
-| Finance reports and reconciliation, including original-currency historical source links and CSV | 24 passed, zero failures/skips: `/tmp/classicmart-finance-history-reconciliation-24-pass.log` |
-| Seller orders and inventory, including payment gates, delivery proof, current staff MFA and revocation | 13 passed, zero failures/skips: `/tmp/classicmart-seller-orders-inventory-pass.log` |
-| Country Admin settings and all 17 destinations; Finance's 10 destinations; Moderation trust and all 9 destinations; pending Seller and all 23 Seller destinations | These complete suites passed in `/tmp/classicmart-navigation-79-pass-relationship-fixture-failure.log`; the invocation had 79 passes and one separate Seller relationship failure, subsequently fixed |
-| Promoter campaigns, Seller relationships and Warehouse operations | These complete suites passed in `/tmp/classicmart-warehouse-promoter-relationship-22-pass-seller-audit-fixture-failure.log`; the invocation had 22 passes and one separate Seller orders audit-fixture failure, subsequently fixed |
-| Seller payouts | All checks passed inside `/tmp/classicmart-seller-finance-pass-inventory-stale-fixture.log`; that invocation still failed an Inventory fixture, subsequently fixed |
-| Aftersales, Business, Seller account shell/MFA, Finance payouts, gift cards and Super Admin | Complete suites passed inside `/tmp/classicmart-core-followup-83-pass-finance-fixtures.log`; its remaining Finance fixture failures were subsequently fixed and passed the separate 24-check rerun |
-| Country growth, Promoter attribution, Seller product browser and Warehouse parcel options | Complete suites passed inside `/tmp/classicmart-fulfilment-promoter-50-pass-fixture-failures.log`; that invocation's remaining unrelated failures were fixed in later runs |
-| Seller growth and overview, and nine updated static contract suites | Complete suites passed inside `/tmp/classicmart-static-seller-requests-fixture-failures.log` or `/tmp/classicmart-seller-finance-inventory-two-fixture-failures.log`; the remaining Seller finance/inventory fixtures were subsequently fixed |
+| Complete canonical regression | 1,371 passed, zero failures, 15 separately configured cases; `/tmp/classicmart-final-full-1371-pass-15-context-skips.log` |
+| All canonical cases requiring external base URLs | All 15 matched cases passed; `/tmp/classicmart-external-context-15-pass.json` records their actual passing suite |
+| Customer source links, five 67-record aftersales histories, addresses, exact wishlist movement, complete wallet CSV and private avatar recovery | All 8 passed in `/tmp/classicmart-production-customer-recovery-live.log` |
+| Live identity, Customer state, Chromium signup/account actions, country-code controls, order filters and retired assets | All 11 passed across the six `production-web-checks.mjs http` suites; Customer Chromium also passed the final recovery invocation |
+| Separate Seller/Moderator MFA sessions, cross-role denial, catalogue/search/cart and mobile Seller cards | 16 passed, four intentional project-specific skips; `/tmp/classicmart-isolated-ci-browser-16-pass-4-project-skips.log` |
+| Approved image shapes, cart/checkout photography, hero controls and promotional motion | All 20 desktop/mobile cases passed in one isolated run; `/tmp/classicmart-final-image-motion-20-pass.log` |
+| Public layout | All 72 route/viewport cases passed, 42 measured controls, no page errors, overflow or clipped/unbalanced controls; `/tmp/classicmart-final-public-layout-72-pass.log` |
+| Browser fixture safety, real network isolation and release/mail contracts | All 35 passed; `/tmp/classicmart-browser-network-safety-contracts-35-pass.log` |
+| MongoDB integration | All 12 stages passed and all 11 resulting ledger transactions balanced; `/tmp/classicmart-patched-integration-12-stages-pass.log` |
+| Native MongoDB concurrency | Twenty-way payment, refund, payout, shipment, procurement, return and Warehouse races passed; `/tmp/classicmart-patched-concurrency-20-way-pass.log` |
+| Public SEO and crawl controls | Live published-product links, canonical/schema output, readable no-JavaScript content, missing-product 404, published-only sitemap, robots/llms guidance and private noindex passed |
 
-Mixed invocations above are deliberately not described as passing runs. The
-earlier checkpoint retains the separately completed checkout, privacy, funded
-reward, Customer browser, Delivery, twelve-stage balanced-ledger integration,
-twenty-way native MongoDB concurrency and 72-case public layout evidence.
+The full run also exercised the actual connected Customer, Seller, Promoter,
+Finance, Support, Moderation, Country Admin and Warehouse layouts at 1366,
+390 and 320 pixels. Business, Delivery and Super Admin have their separate
+authenticated recovery suites. No preview dashboard was used as proof of a
+working production flow.
 
-The full public accessibility suite was executed with Chromium on desktop and
-mobile: **15 passed, 26 failed and one desktop-only touch-target case skipped**.
-Failures were real contrast findings and small hero-dot targets, including
-opened previews, search suggestions and filters. The existing approved bright
-orange/white and pale-label combinations contribute to the contrast findings.
-The scan remains enabled; it has not been weakened or reported as passing.
-Log: `/tmp/classicmart-a11y-approved-palette-and-controls-failures.log`.
-The hero targets were subsequently expanded to actual nonoverlapping 24px
-buttons while retaining the visible dot/pill shapes. All ten motion checks
-passed, including actual corner clicks on the expanded targets. Broader
-palette changes await the user's preference; the accessibility suite remains
-a release blocker and needs its final rerun.
+The recovered fixes include:
 
-The HTTP recovery run also passed the current published-product canonical,
-structured-data, no-JavaScript content, 404, sitemap and private noindex checks.
-Current remaining work includes the second complete canonical regression,
-current public browser/image/motion checks and final source/dependency gates.
-The accessibility contrast findings remain unresolved pending the user's
-palette preference. Complete source changes are not a production release until
-their required gates pass.
+- Scheduled CMS publication and rollback reload the exact current approving
+  grant/token and revision digest, preserve independent authorship, support
+  global Super Admin authority and advance a durable scan past blocked work.
+- Business nonowner approvals require the explicit current `canApprove`
+  permission in both controls and transactional service authorization.
+- Seller finance, customer relationships and review disputes use canonical
+  account, Device, accepted membership, owner, store and market checks.
+  Invalid support forms preserve their authenticated context and return real
+  422/409 responses with retained input in the correct Seller shell.
+- Seller navigation rejects unavailable or managed owners. MFA continuation
+  retains the owned invitation inbox. Suspended stores retain private case
+  access while fulfilment stays locked.
+- Finance retains verified historical source links and original currencies;
+  provider-event searches resolve source IDs before filtering. COD requires
+  independent Warehouse cash review. Historical reads do not relax current
+  payout mutation policy.
+- Customer history sources resolve owned order/payment/refund/return/reward
+  lineage in bounded batches. Old focused records remain reachable; forged
+  IDs, expired reward actions and wrong-currency checkout actions are excluded.
+- Optional notification preferences affect queueing and dispatch. Offers require
+  marketing consent; offer emails also require a currently verified address.
+  Product-alert claims and push
+  queueing are atomic. Obsolete progress emails and unknown legacy work
+  cancel; security, access, receipts and requested service notices remain.
+- CI creates separate Seller/managed Moderator accounts with real MFA.
+  Test seeding refuses production/remote/unapproved databases and unsafe
+  credential output. It masks individual recovery codes as well as complete
+  lists. Browser tests use distinct real loopback TCP peers; HTTP data and
+  cookies remain intact and application rate limits remain enabled.
+- Hero dots have actual nonoverlapping 24px targets while retaining their
+  visible 8px dots, 20px active pill, colours and vertical placement.
+
+Local response-time measurements used 20 warm samples per route after one
+initial request, through an owned loopback fixture:
+
+| Route | First request | Warm p50 | Warm p95 |
+| --- | ---: | ---: | ---: |
+| Home | 274.5 ms | 16.0 ms | 29.5 ms |
+| Products | 9.3 ms | 8.0 ms | 10.9 ms |
+| Categories | 8.9 ms | 7.2 ms | 9.7 ms |
+
+These are local HTTP measurements, not production capacity, global latency,
+search ranking or Core Web Vitals. Raw results are in
+`artifacts/production/local-http-1792913441717.json`.
 
 The dependency audit initially found seven advisories, including five high
-severity findings. Registry metadata provided official patched releases even
-though the first audit did not offer an automatic fix for exact package pins.
-The application now pins Express 5.3.0, Multer 2.5.0, Nodemailer 10.2.1 and
-Zod 4.6.7; the lockfile resolves body-parser 2.4.0 and ip-address 10.7.4.
-`npm audit --audit-level=high` subsequently reported **zero vulnerabilities**.
-The compressed-body parser and constrained-array validation paths were
-reachable, so these upgrades address real exposure rather than suppressing
-the audit. Package integrity and TLS verification stayed enabled.
+severity findings. Official patched releases were available despite the first
+audit not offering an automatic fix for exact pins. Express 5.3.0, Multer
+2.5.0, Nodemailer 10.2.1 and Zod 4.6.7 are now pinned; the lockfile resolves
+body-parser 2.4.0 and ip-address 10.7.4. The final dependency audit reports
+**zero vulnerabilities**. Integrity and TLS verification stayed enabled.
 
-The complete reusable installer was rerun against that lockfile: frozen
-dependency installation, 698 import/export checks, 730 syntax files, the
-project gate, and guarded MongoDB/Redis readiness passed. The current security
-static gate scanned 668 files; both 40-view frontend/functionality audits
-passed. Log: `/tmp/classicmart-production-install-ci-final.log`.
-The complete runtime regression must still validate the upgraded dependency
-set before release.
+The complete reusable installer passed frozen dependency installation,
+700 import/export checks, 732 syntax checks, the project gate and guarded
+MongoDB/Redis readiness. The security static gate scanned 669 files; both
+40-view frontend/functionality audits passed.
+Log: `/tmp/classicmart-production-install-verified-final.log`.
 
-CI now seeds separate role accounts before its browser gate, rather than
-silently skipping authentication because only Admin credentials exist. The
-seeder refuses production mode, nonloopback or unapproved databases, missing
-replica-set declarations, unsafe credential output and forged GitHub command
-files. It never deletes existing data. Local credentials use a new 0600 file;
-CI masks passwords and both combined and individual recovery codes before
-exporting them to the runner's environment file. The local setup uses this
-same tracked seeder, with strict authentication explicitly enabled.
+The final public accessibility run executed all 42 desktop/mobile cases:
+**15 passed, 26 failed and one mobile-only touch-target check was skipped in
+the desktop project**.
+Every remaining violation ID was `color-contrast`; there were no request-limit
+failures. The approved orange/white, red/teal and pale-label combinations
+remain unchanged pending the user's colour preference. The slider target-size
+finding is fixed. The gate remains enabled and is a release blocker.
+Log: `/tmp/classicmart-final-a11y-contrast-26-fail-15-pass-1-skip.log`.
 
-Local provider fixtures and log transports do not prove actual Gmail/eSMS
-Africa delivery, live push delivery or Pesapal reconciliation. Credentials and
-real provider verification, deployment configuration, backups and production
-launch checks remain release requirements. No claim of 100% security, SEO,
-search ranking or production capacity follows from the local checks.
+Actual Gmail/eSMS Africa delivery and Pesapal reconciliation still require
+the intended environment credentials and provider verification. Local fixtures
+and development log transports do not prove external delivery or payment.
+Production deployment, storage/scanner, backup and launch evidence remain
+environment-specific release requirements. No 100% security/SEO or production
+readiness claim follows from these local results.
+
+Earlier failed runs are retained for transparency: the first complete run had
+1,248 passes, 94 failures and 13 context skips; the second had 1,352 passes,
+two obsolete static-contract failures and 15 context skips. Those contracts
+and the actual product defects were corrected before the passing run above.
+Logs: `/tmp/classicmart-first-full-1248-pass-94-fail-13-skip.log` and
+`/tmp/classicmart-second-full-1352-pass-2-static-fail-15-skip.log`.

@@ -1,5 +1,5 @@
 import { randomUUID, randomInt } from 'node:crypto';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './browser-fixture.js';
 
 // Approved f941fbd geometry is component-specific: product frames round only
 // their top edge, category frames stay circular, and supporting cards clip photos.

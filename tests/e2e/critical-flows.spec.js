@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './browser-fixture.js';
 
 const recoveryCodes = name => (process.env[name] || '').split(',').map(value => value.trim()).filter(Boolean);
 const sellerAccount = {
