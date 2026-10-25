@@ -14,6 +14,16 @@ fixtures with their external base URLs. The expanded Customer recovery adds
 two such externally configured cases; its eight-check wrapper run below
 executes them.
 
+The second complete run, using the patched dependency set, finished with
+**1,352 passing, two failing and 15 skipped checks** out of 1,369. Both failures
+were obsolete static contracts: the former shared privileged browser account
+and an exact Nodemailer 10.0.16 pin. Their replacements check separate role
+accounts and the patched address-parser version floor. All 31 checks in their
+combined rerun passed, including 16 actual fixture safety cases. Logs:
+`/tmp/classicmart-second-full-1352-pass-2-static-fail-15-skip.log` and
+`/tmp/classicmart-ci-safety-mail-contracts-31-pass.log`. The second full run
+remains a failed invocation; a final complete rerun is still required.
+
 Subsequent fixes preserve current authorization checks and the approved UI:
 
 - Scheduled CMS publication reloads the exact approving grant, token and
@@ -51,6 +61,9 @@ Completed targeted runtime evidence after the first full run:
 
 | Complete suites exercised | Result and log |
 | --- | --- |
+| Current live-server identity, Customer, phone selector, order filters and retired-dashboard checks | All 11 checks passed across the six HTTP wrapper suites; their `/tmp/classicmart-production-*-live.log`, phone-selector and retired-cleanup logs record the individual results |
+| Current twelve-stage integration and twenty-way financial/fulfilment concurrency audits | Both passed after the dependency upgrades: `/tmp/classicmart-patched-integration-12-stages-pass.log` and `/tmp/classicmart-patched-concurrency-20-way-pass.log` |
+| Reusable CI role fixtures and actual critical browser flows | The tracked test-only seeder created separate Seller/managed Moderator accounts with real MFA; 16 checks passed with four intentional project-specific skips in `/tmp/classicmart-ci-role-browser-16-pass-4-project-skips.log` |
 | Public critical browser flows, dedicated Seller/Moderator MFA sessions, strict cross-role denial and mobile Seller product cards | 16 passed, 4 deliberate project-specific skips: `/tmp/classicmart-critical-browser-16-pass-4-project-skips.log`; this preceded the dependency upgrade below |
 | Image shapes and hero/promotional motion on desktop/mobile | 18 passed in `/tmp/classicmart-image-motion-18-pass-cart-guest-fixture-failures.log`; its two obsolete guest-checkout fixtures were corrected and passed separately on both viewports in `/tmp/classicmart-cart-checkout-image-2-pass.log` using the upgraded dependencies |
 | Customer source links, receipts/refund browser navigation, all five 67-record aftersales histories, addresses, exact wishlist moves, wallet CSV and private avatar recovery | 8 passed, zero failures/skips: `/tmp/classicmart-customer-source-history-8-pass.log` |
@@ -102,12 +115,21 @@ reachable, so these upgrades address real exposure rather than suppressing
 the audit. Package integrity and TLS verification stayed enabled.
 
 The complete reusable installer was rerun against that lockfile: frozen
-dependency installation, 696 import/export checks, 728 syntax files, the
+dependency installation, 698 import/export checks, 730 syntax files, the
 project gate, and guarded MongoDB/Redis readiness passed. The current security
-static gate scanned 667 files; both 40-view frontend/functionality audits
-passed. Log: `/tmp/classicmart-production-install-patched-dependencies.log`.
+static gate scanned 668 files; both 40-view frontend/functionality audits
+passed. Log: `/tmp/classicmart-production-install-ci-final.log`.
 The complete runtime regression must still validate the upgraded dependency
 set before release.
+
+CI now seeds separate role accounts before its browser gate, rather than
+silently skipping authentication because only Admin credentials exist. The
+seeder refuses production mode, nonloopback or unapproved databases, missing
+replica-set declarations, unsafe credential output and forged GitHub command
+files. It never deletes existing data. Local credentials use a new 0600 file;
+CI masks passwords and both combined and individual recovery codes before
+exporting them to the runner's environment file. The local setup uses this
+same tracked seeder, with strict authentication explicitly enabled.
 
 Local provider fixtures and log transports do not prove actual Gmail/eSMS
 Africa delivery, live push delivery or Pesapal reconciliation. Credentials and

@@ -69,6 +69,14 @@ jobs:
           ADMIN_EMAIL: admin@classicmart.local
           ADMIN_PHONE: '+256700000001'
           CLASSIC_MART_TEST_MONGO_OVERRIDE: '1'
+          SIMPLE_LOGIN: 'false'
+          PRIVILEGED_MFA_REQUIRED: 'true'
+          MAIL_MODE: log
+          SMS_MODE: log
+          AI_ENABLED: 'false'
+      - name: Prepare separate Seller and Moderator browser accounts with real MFA
+        run: node scripts/seed-browser-accounts.js
+        env: *browserenv
       - name: Real-browser and WCAG accessibility gates
         run: npm run browser:check
         env: *browserenv

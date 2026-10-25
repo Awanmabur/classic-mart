@@ -14,7 +14,14 @@ test('product detail review breakdown uses real verified-purchase rating counts'
 
 test('direct product URLs retain the requested product outside the bounded home catalogue',()=>{const route=read('src/routes/public.js');assert.match(route,/catalogue\.products\.some\(\(item\) => item\.id === product\.id\)/);assert.match(route,/catalogue\.products = \[product, \.\.\.catalogue\.products\]/);});
 
-test('email dependency is upgraded beyond the October 2026 nodemailer advisories',()=>{const pkg=JSON.parse(read('package.json')),lock=JSON.parse(read('package-lock.json'));assert.equal(pkg.dependencies.nodemailer,'10.0.16');assert.equal(lock.packages['node_modules/nodemailer'].version,'10.0.16');});
+test('email dependency is pinned beyond the October 2026 address-parser advisories',()=>{
+  const pkg=JSON.parse(read('package.json')),lock=JSON.parse(read('package-lock.json'));
+  const version=pkg.dependencies.nodemailer;
+  assert.match(version,/^\d+\.\d+\.\d+$/,'The mail dependency must use an exact release pin.');
+  const [major,minor,patch]=version.split('.').map(Number);
+  assert.ok(major>10||major===10&&(minor>1||minor===1&&patch>=4),'Nodemailer must include the address-parser fixes released in 10.1.4.');
+  assert.equal(lock.packages['node_modules/nodemailer'].version,version);
+});
 
 test('TTL reconciliation converts the legacy index safely and refuses protected replacements',async()=>{
   const {reconcileTtlIndex}=await import('../src/core/indexes.js');

@@ -20,7 +20,22 @@ test('browser suite covers desktop, mobile, authenticated navigation and WCAG AA
   const accessibility = read('tests/e2e/accessibility.spec.js');
   assert.match(config, /desktop-chromium/);
   assert.match(config, /mobile-chromium/);
-  assert.match(critical, /seeded privileged account/);
+  assert.match(critical, /dedicated Seller signs in to its catalogue and cannot enter Moderation/);
+  assert.match(critical, /dedicated Moderator signs in to its catalogue and cannot enter the Seller workspace/);
+  for (const role of ['SELLER', 'MODERATOR']) {
+    for (const credential of ['EMAIL', 'PASSWORD', 'MFA_RECOVERY_CODES']) {
+      assert.ok(critical.includes(`E2E_${role}_${credential}`), `${role} needs its own ${credential} browser fixture`);
+    }
+  }
+  assert.match(critical, /signIn\(page, testInfo, sellerAccount\)/);
+  assert.match(critical, /signIn\(page, testInfo, moderatorAccount\)/);
+  assert.match(critical, /data-dashboard-workspace/);
+  assert.match(critical, /#profileButton small/);
+  assert.match(critical, /request\.get\('\/moderation\/products'[\s\S]*?denied\.status\(\)\)\.toBe\(403\)/);
+  assert.match(critical, /request\.get\('\/seller\/products'[\s\S]*?denied\.status\(\)\)\.toBe\(403\)/);
+  assert.match(critical, /MODERATION_FORBIDDEN/);
+  assert.match(critical, /DASHBOARD_FORBIDDEN/);
+  assert.doesNotMatch(critical, /process\.env\.(?:ADMIN_EMAIL|ADMIN_PASSWORD|E2E_ADMIN_MFA_RECOVERY_CODES)/);
   assert.match(critical, /refresh and browser back navigation/);
   assert.match(critical, /double activation/);
   assert.match(accessibility, /wcag22aa/);
@@ -37,9 +52,29 @@ test('Node 24 CI installs the browser, seeds data, runs the gate and uploads dia
   const workflow = read('.github/workflows/ci.yml');
   assert.match(workflow, /node-version: '24\.x'/);
   assert.match(workflow, /node scripts\/seed\.js/);
+  assert.match(workflow, /node scripts\/seed-browser-accounts\.js/);
+  assert.match(workflow, /SIMPLE_LOGIN: 'false'/);
+  assert.match(workflow, /PRIVILEGED_MFA_REQUIRED: 'true'/);
   assert.match(workflow, /playwright install --with-deps chromium/);
   assert.match(workflow, /npm run browser:check/);
   assert.match(workflow, /classic-mart-browser-diagnostics/);
+});
+
+test('dedicated browser fixtures are limited to isolated local test databases and protect credentials', () => {
+  const fixture = read('scripts/seed-browser-accounts.js');
+  assert.match(fixture, /process\.env\.NODE_ENV, 'test'/);
+  assert.match(fixture, /'127\.0\.0\.1', 'localhost', '\[::1\]'/);
+  assert.match(fixture, /classic_mart_ci/);
+  assert.match(fixture, /classicmart_/);
+  assert.match(fixture, /beginMfaEnrollment/);
+  assert.match(fixture, /confirmMfaEnrollment/);
+  assert.match(fixture, /role === 'moderator' \? 'customer' : role/);
+  assert.match(fixture, /approvedByUserId: reviewer\._id/);
+  assert.match(fixture, /'E2E_' \+ role\.toUpperCase\(\)/);
+  assert.match(fixture, /::add-mask::/);
+  assert.match(fixture, /process\.env\.GITHUB_ACTIONS, 'true'/);
+  assert.match(fixture, /fs\.open\(target, 'wx', 0o600\)/);
+  assert.doesNotMatch(fixture, /dropDatabase\(|deleteMany\(|updateMany\(/);
 });
 
 test('sanitized release includes browser gate sources', () => {
