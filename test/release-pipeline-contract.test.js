@@ -69,7 +69,7 @@ test('sanitized release preserves source-control runtime exclusions required by 
 test('CI activates isolated live database fixtures with Chromium and the model lifecycle runner',()=>{
   const ci=read('.github/workflows/ci.yml');
   const runner=read('scripts/run-tests.js');
-  assert.match(ci,/branches: \[main, master, approved-dashboard-ui\]/);
+  assert.match(ci,/branches: \[master\]/);
   assert.match(ci,/CLASSIC_MART_LIVE_TEST_MONGO_URI: mongodb:\/\/127\.0\.0\.1:27018\/classic_mart_ci_test\?replicaSet=rs0/);
   assert.ok(ci.indexOf('playwright install --with-deps chromium') < ci.indexOf('run: npm test'));
   assert.match(runner,/CLASSIC_MART_LIVE_TEST_MONGO_URI[\s\S]*--test-concurrency=1[\s\S]*live-test-model-lifecycle\.js/);

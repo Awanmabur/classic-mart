@@ -16,7 +16,7 @@ export default defineConfig({
   timeout: 45_000,
   expect: { timeout: 10_000 },
   reporter: process.env.CI
-    ? [['line'], ['html', { outputFolder: 'playwright-report', open: 'never' }], ['junit', { outputFile: 'test-results/playwright-junit.xml' }]]
+    ? [['line'], ['github'], ['html', { outputFolder: 'playwright-report', open: 'never' }], ['junit', { outputFile: 'test-results/playwright-junit.xml' }]]
     : [['line'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   use: {
     baseURL,

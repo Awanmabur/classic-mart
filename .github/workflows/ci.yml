@@ -1,7 +1,7 @@
 name: Classic Mart CI
 on:
   push:
-    branches: [main, master, approved-dashboard-ui]
+    branches: [master]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -22,6 +22,8 @@ jobs:
       - run: npm ci
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
+      - name: Resolve the installed Chromium for all browser tests
+        run: node scripts/prepare-ci-browser.js
       - name: Start MongoDB replica set and Redis
         run: |
           docker run -d --name classic-mart-mongo --network host mongo:8 mongod --port 27018 --replSet rs0 --bind_ip_all

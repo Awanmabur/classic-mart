@@ -18,6 +18,13 @@ if (!files.length) {
   process.exit(1);
 }
 const nodeArgs = ['--test', '--test-reporter=spec'];
+if (process.env.GITHUB_ACTIONS === 'true') {
+  // Keep the complete human-readable report and also publish actual leaf
+  // failures as check-run annotations when hosted log downloads are unavailable.
+  nodeArgs.push('--test-reporter-destination=stdout',
+    '--test-reporter=' + fileURLToPath(new URL('./github-test-reporter.js', import.meta.url)),
+    '--test-reporter-destination=stdout');
+}
 // Live fixtures create and drop isolated databases on the same MongoDB server.
 // Serialize those files so index construction and teardown cannot interfere.
 if (process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI) {
