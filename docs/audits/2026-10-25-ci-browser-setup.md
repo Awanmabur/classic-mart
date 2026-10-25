@@ -91,3 +91,34 @@ The five affected suites and release contracts pass against the existing
 isolated loopback replica set: 57 passed, no failures or skips. The hosted
 result still needs to establish the subsequent integration,
 browser/accessibility and release gates.
+
+Run [40240690079](https://github.com/Awanmabur/classic-mart/actions/runs/40240690079)
+for `4b9bdb716f1bf62c35babedf6634ab3b29787564` passed browser installation and
+resolution, then failed in database startup before the tests. Its check exposes
+only exit code 1; this is not evidence for a particular Docker/MongoDB cause.
+Startup now pins the MongoDB and Redis image digests used by the successful
+local fixture, caps test-service resources and explicitly requires MongoDB
+reachability, a writable replica-set primary and a Redis PONG. Failed readiness
+cannot fall through into later steps. The error trap preserves the original
+exit code and emits bounded, escaped container-state/log diagnostics directly
+on the GitHub check, with the same data retained as a private-mode CI artifact.
+
+The updated startup shell also passes a real fresh-container smoke on separate
+local ports 28019/16380, including replica-set transaction-topology verification;
+only its labelled containers and anonymous volumes were removed afterwards.
+Twenty-one focused CI/browser/reporter/release checks pass, including an actual
+subprocess of the workflow startup shell proving Docker exit 42 survives the
+diagnostic trap and command-injection text cannot forge annotations.
+
+The later CI commands were additionally executed against newly owned local
+fixtures: topology, the twelve-stage integration audit, concurrency audit,
+migration dry-run, catalogue seed and real Seller/Moderator MFA seeding all
+pass. The complete two-project browser run reports **89 passed, 26 failed,
+13 skipped**. Every failing test reports only `color-contrast`, verified from
+JUnit. Desktop Seller/Moderator isolation and the mobile Seller phone-card
+journey pass. Five skips are intentional desktop/mobile project exclusions;
+the other eight require the separate owned simple-customer-login fixture, whose
+image/catalogue journeys were already verified in the previous application
+checkpoint. These skips are not represented as passes in this CI-style run.
+The local browser is system Chromium and video capture is off; hosted managed
+Chromium and all remaining release gates still require their own actual result.

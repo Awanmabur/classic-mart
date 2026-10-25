@@ -26,11 +26,29 @@ jobs:
         run: node scripts/prepare-ci-browser.js
       - name: Start MongoDB replica set and Redis
         run: |
-          docker run -d --name classic-mart-mongo --network host mongo:8 mongod --port 27019 --replSet rs0 --bind_ip_all
-          docker run -d --name classic-mart-redis --network host redis:8-alpine
-          for i in $(seq 1 60); do docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1 && break; sleep 1; done
+          set -Eeuo pipefail
+          trap 'ci_status=$?; node scripts/ci-service-diagnostics.js || true; exit "$ci_status"' ERR
+          docker run -d --name classic-mart-mongo --network host --memory=4g --memory-swap=4g --ulimit nofile=65536:65536 mongo@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c mongod --port 27019 --replSet rs0 --bind_ip 127.0.0.1 --wiredTigerCacheSizeGB 0.25 --setParameter maxNumActiveUserIndexBuilds=1
+          docker run -d --name classic-mart-redis --network host --memory=128m redis@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0 redis-server --bind 127.0.0.1 --save '' --appendonly no --maxmemory 64mb --maxmemory-policy noeviction
+          mongo_ready=false
+          for i in $(seq 1 60); do
+            if docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then mongo_ready=true; break; fi
+            sleep 1
+          done
+          if [ "$mongo_ready" != true ]; then echo '::error::CI MongoDB did not become reachable.'; false; fi
           docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'try{rs.status()}catch(e){rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27019"}]})}'
-          for i in $(seq 1 60); do docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'if(!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1 && break; sleep 1; done
+          primary_ready=false
+          for i in $(seq 1 60); do
+            if docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'if(!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then primary_ready=true; break; fi
+            sleep 1
+          done
+          if [ "$primary_ready" != true ]; then echo '::error::CI MongoDB replica set did not elect a writable primary.'; false; fi
+          redis_ready=false
+          for i in $(seq 1 60); do
+            if [ "$(docker exec classic-mart-redis redis-cli ping 2>/dev/null)" = PONG ]; then redis_ready=true; break; fi
+            sleep 1
+          done
+          if [ "$redis_ready" != true ]; then echo '::error::CI Redis did not become ready.'; false; fi
       - name: Static, security, frontend and functional gates
         run: npm run check && npm run security:check && npm run frontend:audit && npm run functionality:audit
         env: &testenv
@@ -89,6 +107,7 @@ jobs:
         with:
           name: classic-mart-browser-diagnostics
           path: |
+            artifacts/ci-services.txt
             playwright-report/
             test-results/
           if-no-files-found: ignore
