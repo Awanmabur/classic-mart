@@ -7,8 +7,8 @@ import { stripVTControlCharacters } from 'node:util';
 const clean = value => stripVTControlCharacters(String(value ?? ''))
   .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '');
 
-export function collectCiServiceDiagnostics(run = spawnSync) {
-  const sections = ['CI MongoDB/Redis startup diagnostics'];
+export function collectCiServiceDiagnostics(run = spawnSync, { heading = 'CI MongoDB/Redis startup diagnostics' } = {}) {
+  const sections = [heading];
   for (const container of ['classic-mart-mongo', 'classic-mart-redis']) {
     for (const args of [['inspect', '--format', '{{json .State}}', container], ['logs', '--tail', '60', container]]) {
       let result;
@@ -23,9 +23,10 @@ export function collectCiServiceDiagnostics(run = spawnSync) {
   return sections.join('\n\n') + '\n';
 }
 
-export function githubServiceFailureAnnotation(details) {
+export function githubServiceFailureAnnotation(details, { title = 'CI service startup failed' } = {}) {
   const escaped = clean(details).slice(0, 24_000).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
-  return `::error title=CI service startup failed::${escaped}\n`;
+  const escapedTitle = clean(title).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A').replaceAll(',', '%2C').replaceAll(':', '%3A');
+  return `::error title=${escapedTitle}::${escaped}\n`;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

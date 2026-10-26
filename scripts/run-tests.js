@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { runWithCiTestServices } from './ci-test-services.js';
 
 function walk(dir, out = []) {
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -31,8 +32,14 @@ if (process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI) {
   nodeArgs.push('--test-concurrency=1', '--import', fileURLToPath(new URL('./live-test-model-lifecycle.js', import.meta.url)));
 }
 if (process.argv.includes('--coverage')) nodeArgs.push('--experimental-test-coverage');
-const result = spawnSync(process.execPath, [...nodeArgs, ...files], {
-  stdio: 'inherit',
-  env: process.env,
-});
-process.exit(result.status ?? 1);
+if (process.env.GITHUB_ACTIONS === 'true' && process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI && process.platform === 'linux') {
+  // A stopped database must fail promptly with its container state, rather than
+  // leaving every remaining fixture waiting for server-selection timeouts.
+  process.exitCode = await runWithCiTestServices({ args: [...nodeArgs, ...files] });
+} else {
+  const result = spawnSync(process.execPath, [...nodeArgs, ...files], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+  process.exit(result.status ?? 1);
+}

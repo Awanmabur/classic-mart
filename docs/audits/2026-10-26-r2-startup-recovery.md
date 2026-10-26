@@ -51,3 +51,22 @@ Local verification passed 55 focused storage/startup/launch tests and 13 existin
 R2, supervisor and live worker/readiness tests, with no failures or skips. Release
 script, import, syntax, project, static security, frontend and functionality gates
 passed. The final hosted result is tracked by the commit's Classic Mart CI check.
+
+The first hosted attempt at `d4b28ec` (run `40369877172`) reached its one-hour
+limit after the CI MongoDB service disappeared during the moderation catalogue
+fixture. Later fixtures reported connection refused. The test runner orders
+files alphabetically and serializes live fixtures, so this service loss occurred
+before the new R2/entrypoint test files. Its three Pages checks passed; the
+remaining release gates did not run. Container exit/OOM state was not recorded
+by the startup-only diagnostic hook, so the underlying container failure is
+unclassified. This attempt is not a successful hosted verification.
+
+The Actions-only canonical test runner now checks the fixed disposable MongoDB
+and Redis container states before launch and every ten seconds. Unavailable,
+paused, restarting or uninspectable services terminate the owned test process
+group, capture bounded state/log diagnostics to the existing artifact and emit
+an escaped failure annotation. A SIGTERM-resistant descendant is force-stopped
+after the cleanup grace period. Local test runs do not require Docker. No test
+is skipped or replayed, no service is restarted, and all existing CI limits and
+release gates remain unchanged. Twenty observer, diagnostics, real test-reporter
+and release-pipeline regression cases passed locally with zero skips/failures.
