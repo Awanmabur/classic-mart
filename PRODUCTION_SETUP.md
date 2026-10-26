@@ -21,12 +21,18 @@ This production package contains no development database bootstrap, reset toolin
 7. ClamAV scanning for untrusted uploads. The production Docker image includes `clamscan` and fetches signed definitions during image build. Keep definitions current through frequent rebuilds or a managed, continuously updated private `clamd` service; build-time freshness does not last indefinitely. Uploads reject stale definitions. See the scanner freshness requirements in the operating guide.
 8. Private Cloudflare R2 bucket for marketplace media. Production requires `MEDIA_STORAGE_DRIVER=r2`, the Cloudflare S3 endpoint, bucket name, Access Key ID and Secret Access Key. Keep the bucket private; do not enable `r2.dev` or public access for this launch because KYC/evidence shares the storage boundary.
 9. Durable mounted filesystem at `PERSISTENT_STORAGE_ROOT` for temporary exports/privacy files only. Marketplace uploads are stored in R2. On Render, mount `/var/data` and use `/var/data/classic-mart` as the root for those temporary operational files.
-10. SIEM endpoint/collector and the Stage 12 launch-evidence controls required by `npm run launch:check`.
+10. SIEM endpoint/collector and the Stage 12 launch-evidence controls required by `node scripts/launch-check.js`.
 
 
 ## Render same-day deployment
 
 The repository now includes `render.yaml`. Create/sync a Render Blueprint from the repository and provide every value marked as a secret prompt. The Blueprint pins the web service to Render `1c-2g` (1 CPU / 2 GB RAM), uses the Dockerfile, one service instance, `/health/ready`, a persistent disk mounted at `/var/data`, and runs migration + production bootstrap + development-data rejection before each deploy. Render persistent disks require a paid web-service plan.
+
+The final Docker image contains the Node runtime and installed application
+dependencies. It excludes npm and npx; dependency installation runs in a
+separate build stage. The Blueprint and Render Shell commands below invoke
+Node directly. Source checkouts and extracted archives can still use their
+`package.json` command aliases after installing the committed lockfile.
 
 Render does not mount a service disk during `preDeployCommand`. Classic Mart therefore keeps pre-deploy work database-only; the running web and worker processes verify `/var/data/classic-mart` is writable after the disk is mounted at runtime.
 
@@ -75,7 +81,7 @@ R2_TIMEOUT_MS=10000
 Never commit the Access Key ID/Secret to Git. After adding the values to Render, verify the integration from the Render Shell:
 
 ```bash
-NODE_ENV=production npm run media:r2:check
+NODE_ENV=production node scripts/check-r2.js
 ```
 
 Expected success:
@@ -93,7 +99,7 @@ Uploaded marketplace media now goes to R2. The Render disk is not used for produ
 Copy `.env.production.example` values into the deployment secret/environment manager and replace every placeholder. Keep `ADMIN_PASSWORD` only for the one-time bootstrap.
 
 ```bash
-NODE_ENV=production npm run bootstrap:production
+NODE_ENV=production node scripts/bootstrap-production.js
 ```
 
 This creates only: selected launch-country settings, the canonical marketplace taxonomy, the initial Super Admin identity/grant, and required indexes. It creates no seller, product, order, promoter, review, campaign, warehouse, stock or transaction demo data.
@@ -105,7 +111,7 @@ After verifying Super Admin login, remove `ADMIN_PASSWORD` from runtime environm
 Register the live Pesapal IPN after the first public HTTPS deploy is reachable:
 
 ```bash
-NODE_ENV=production npm run pesapal:register-ipn
+NODE_ENV=production node scripts/pesapal-register-ipn.js
 ```
 
 Store the returned notification/IPN ID as `PESAPAL_IPN_ID` in Render, redeploy, then complete a real low-value payment certification and verify callback/IPN/provider-status reconciliation. Until the ID is configured, the storefront can run but Pesapal order submission returns a controlled configuration error instead of sending an invalid payment request.
@@ -113,9 +119,9 @@ Store the returned notification/IPN ID as `PESAPAL_IPN_ID` in Render, redeploy, 
 ## Database migration and launch gates
 
 ```bash
-NODE_ENV=production npm run migrate:plan
-NODE_ENV=production npm run migrate:apply
-NODE_ENV=production npm run launch:check
+NODE_ENV=production node scripts/migrate-production.js
+NODE_ENV=production node scripts/migrate-production.js --apply
+NODE_ENV=production node scripts/launch-check.js
 ```
 
 Do not bypass a failed launch gate. Resolve the reported evidence/provider/security issue first.

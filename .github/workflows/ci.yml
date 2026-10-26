@@ -122,6 +122,8 @@ jobs:
         run: |
           docker build --pull --no-cache --build-arg BUILD_SHA=${{ github.sha }} -t classic-mart:${{ github.sha }} .
           docker image inspect classic-mart:${{ github.sha }} --format '{{.Id}}' > artifacts/container-image-id.txt
+      - name: Verify non-root production container runtime
+        run: node scripts/check-production-container.js classic-mart:${{ github.sha }} ${{ github.sha }}
       - name: Scan production container for HIGH/CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
         with:

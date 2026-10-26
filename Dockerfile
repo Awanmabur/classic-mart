@@ -11,6 +11,9 @@ RUN --mount=type=secret,id=build_ca \
   else npm ci --omit=dev; fi
 
 FROM node:24-bookworm-slim
+# Runtime entry points invoke Node directly. Keep npm's build tooling and its
+# bundled dependencies in the installation stage, outside the runtime filesystem.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 RUN apt-get update \
   && apt-get install -y --no-install-recommends clamav clamav-freshclam ca-certificates \
   && rm -rf /var/lib/apt/lists/*

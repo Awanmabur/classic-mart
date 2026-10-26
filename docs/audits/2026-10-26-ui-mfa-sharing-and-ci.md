@@ -132,3 +132,41 @@ MongoDB/Redis fixtures. They do not establish hosted managed-Chromium results,
 real Gmail/Yoola/Pesapal delivery, deployment readiness under production load or
 an absolute security guarantee. Provider credentials and production launch
 checks remain separate requirements.
+
+## Container gate follow-up
+
+Hosted run [40347077387](https://github.com/Awanmabur/classic-mart/actions/runs/40347077387)
+passed the full canonical, database, migration, browser/WCAG, dependency, SBOM and
+container-build stages. Its browser summary was 148 passed, 13 skipped and one
+mobile banner hover case that passed on retry. The container scan then failed;
+the check API exposes only exit code 1, so its individual findings cannot be
+independently read from that annotation. Release attestations were skipped.
+
+An independent local image scan with the same Trivy 0.70.0 release found four
+fixable HIGH findings, all in the base image's bundled npm dependencies:
+`brace-expansion@5.0.9` (CVE-2026-102276 and CVE-2026-102278) and
+`undici@6.28.0` (CVE-2026-109869 and CVE-2026-19534). Their paths are under
+`/usr/local/lib/node_modules/npm/node_modules/`, outside the application's
+production dependency installation, whose npm audit is clean.
+
+The dependency-installation stage retains npm. The final image removes npm and
+npx, and Render pre-deploy/operational instructions invoke the same migration,
+bootstrap and data-check Node scripts directly. This removes unnecessary runtime
+packages rather than suppressing findings or weakening the vulnerability gate.
+CI now executes `scripts/check-production-container.js` before scanning: the
+image's own non-root user must read immutable entry points, carry the expected
+build SHA, have no npm/npx or Playwright, and actually generate a QR PNG, hash and
+verify a password, and encode an image through its production libraries.
+
+The hover retry also exposed an interaction-state gap in emulated touch
+Chromium: CSS `:hover` can lag a delivered pointer entry. Marketing timers now
+record pointer entry/exit directly, clear transient state on page suspension, and
+retain CSS-hover/focus/reduced-motion checks. The strict browser test waits for
+actual entry, exit and focus before advancing its virtual clock; its no-new-motion
+assertions and the approved timings remain intact. Final follow-up results are
+tracked by the current commit's linked workflow check.
+
+Before the follow-up image verification, project/static security gates and all
+29 targeted release/deployment/supervisor regressions passed. The updated pointer
+handling passed all 30 image/motion cases without retries; strict desktop/mobile
+accessibility passed 41 cases with one project-specific skip and no failures.

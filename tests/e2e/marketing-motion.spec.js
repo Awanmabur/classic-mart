@@ -10,6 +10,19 @@ async function openHome(page, reducedMotion = 'no-preference') {
   await page.clock.pauseAt(new Date(start.getTime() + 1_000));
   await page.addInitScript(() => {
     window.marketingMotionStarts = [];
+    window.marketingPointerCards = new Set();
+    const cardIndex = target => target.matches?.('.promo-card')
+      ? [...document.querySelectorAll('.promo-card')].indexOf(target) : -1;
+    document.addEventListener('pointerenter', event => {
+      const index = cardIndex(event.target);
+      if (index >= 0) window.marketingPointerCards.add(index);
+    }, true);
+    const pointerLeft = event => {
+      const index = cardIndex(event.target);
+      if (index >= 0) window.marketingPointerCards.delete(index);
+    };
+    document.addEventListener('pointerleave', pointerLeft, true);
+    document.addEventListener('pointercancel', pointerLeft, true);
     document.addEventListener('DOMContentLoaded', () => {
       new MutationObserver(records => {
         for (const record of records) {
@@ -116,13 +129,20 @@ test('approved promotional motions recur and pause on the card being used', asyn
   for (let index = 0; index < await cards.count(); index += 1) expect(await promoStarts(page, index)).toBeGreaterThanOrEqual(2);
 
   const card = cards.first();
+  // Confirm real pointer entry before sampling counters or advancing virtual
+  // time. Touch-capable Chromium does not reliably expose mouse input through
+  // the CSS :hover pseudo-class, and hover() alone does not assert that state.
+  await page.mouse.move(0, 0);
   await card.hover();
+  await expect.poll(() => page.evaluate(() => window.marketingPointerCards.has(0))).toBe(true);
   const hoveredCount = await promoStarts(page, 0);
   await page.clock.runFor(10_000);
   expect(await promoStarts(page, 0)).toBe(hoveredCount);
   expect(await card.evaluate(element => [...element.classList].some(name => name.startsWith('promo-motion-')))).toBe(false);
   await page.mouse.move(0, 0);
+  await expect.poll(() => page.evaluate(() => window.marketingPointerCards.has(0))).toBe(false);
   await card.focus();
+  await expect(card).toBeFocused();
   await page.clock.runFor(10_000);
   expect(await promoStarts(page, 0)).toBe(hoveredCount);
   await stopPointerAndFocus(page);

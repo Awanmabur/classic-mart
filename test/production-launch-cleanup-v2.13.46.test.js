@@ -124,7 +124,7 @@ test('production release includes a Render launch blueprint with secret prompts 
   assert.match(blueprint,/healthCheckPath:\s*\/health\/ready/);
   assert.match(blueprint,/mountPath:\s*\/var\/data/);
   assert.match(blueprint,/numInstances:\s*1/);
-  assert.match(blueprint,/preDeployCommand:\s*npm run migrate:apply && npm run bootstrap:production && npm run production:data-check/);
+  assert.match(blueprint,/preDeployCommand:\s*node scripts\/migrate-production\.js --apply && node scripts\/bootstrap-production\.js && node scripts\/check-production-data\.js/);
   for(const key of ['MONGO_URI','PESAPAL_CONSUMER_KEY','PESAPAL_CONSUMER_SECRET','SMTP_PASSWORD','YOOLA_API_KEY','SIEM_TOKEN']){
     assert.match(blueprint,new RegExp(`key:\\s*${key}[\\s\\S]{0,80}sync:\\s*false`));
   }

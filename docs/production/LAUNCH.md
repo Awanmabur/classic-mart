@@ -34,18 +34,20 @@ actually configured. Do not enable an unfinished registration type for launch.
 
 ## Prepare the database and providers
 
-Take a restorable database backup before migration. In the production environment
-with its settings already loaded, run:
+Take a restorable database backup before migration. From a source checkout or
+extracted archive, install the committed dependencies with `npm ci` first. The
+Docker image already contains its dependencies and intentionally excludes npm
+and npx. In the production environment with its settings already loaded, the
+following commands work directly in the container or the installed archive:
 
 ```sh
-npm ci
-npm run migrate:plan
-npm run migrate:apply
-npm run bootstrap:production
-npm run production:data-check
-npm run media:r2:check
-npm run mail:verify
-npm run sms:verify
+node scripts/migrate-production.js
+node scripts/migrate-production.js --apply
+node scripts/bootstrap-production.js
+node scripts/check-production-data.js
+node scripts/check-r2.js
+node scripts/verify-mail.js
+node scripts/verify-sms.js
 ```
 
 Review the migration plan before applying it. A blocked reconciliation must be
@@ -76,7 +78,7 @@ single-service deployment with mounted storage and database-only pre-deploy work
 After the first real HTTPS deployment, register the Pesapal notification:
 
 ```sh
-npm run pesapal:register-ipn
+node scripts/pesapal-register-ipn.js
 ```
 
 Save its returned ID as `PESAPAL_IPN_ID` and restart web and worker. Complete a
@@ -86,9 +88,9 @@ review. Checkout remains unavailable until the notification ID is configured.
 Run deployment smoke with the actual origin and full commit:
 
 ```sh
-DEPLOY_BASE_URL=https://YOUR_REAL_DOMAIN EXPECTED_BUILD_SHA=FULL_GIT_COMMIT npm run deploy:smoke
-npm run launch:evidence -- --list
-npm run launch:check
+DEPLOY_BASE_URL=https://YOUR_REAL_DOMAIN EXPECTED_BUILD_SHA=FULL_GIT_COMMIT node scripts/deploy-smoke.js
+node scripts/launch-evidence.js --list
+node scripts/launch-check.js
 ```
 
 Readiness requires MongoDB, Redis and a completed maintenance cycle from the
@@ -101,11 +103,12 @@ before inviting the pilot group.
 
 Real provider delivery, production capacity, signed-definition scanner checks,
 backups/restoration, infrastructure protection and independent operational
-sign-offs must be established on the deployment. The previously approved public
-palette still has contrast failures; its wider colour change remains pending
-design approval. Local passing functional tests do not remove those launch
-conditions. Read the latest verification report in the source repository for
-exact test scope and results.
+sign-offs must be established on the deployment. The user approved minimal text
+contrast corrections while preserving the primary brand orange, and the strict
+public WCAG browser gate passed for the reviewed change. That result does not
+complete the container vulnerability scan or deployment sign-off. Local passing
+functional tests do not remove those launch conditions. Read the latest
+verification report in the source repository for exact test scope and results.
 
 ## Troubleshooting the reported local errors
 
@@ -126,6 +129,7 @@ requires reachable Redis and keeps its distributed protections enabled.
 gateway configuration. For sandbox testing, use the sandbox credentials and
 `PESAPAL_SANDBOX=true`; for production use the live settings above. In both cases
 `BASE_URL` must be a reachable HTTPS origin before running
-`npm run pesapal:register-ipn`. Set that environment's returned notification ID
-as `PESAPAL_IPN_ID` and restart. A localhost-only callback cannot receive Pesapal
-notifications; sandbox and live notification IDs/credentials are separate.
+`node scripts/pesapal-register-ipn.js`. Set that environment's returned
+notification ID as `PESAPAL_IPN_ID` and restart. A localhost-only callback cannot
+receive Pesapal notifications; sandbox and live notification IDs/credentials
+are separate.

@@ -9,7 +9,7 @@ services:
     healthCheckPath: /health/ready
     maxShutdownDelaySeconds: 30
     autoDeployTrigger: checksPass
-    preDeployCommand: npm run migrate:apply && npm run bootstrap:production && npm run production:data-check
+    preDeployCommand: node scripts/migrate-production.js --apply && node scripts/bootstrap-production.js && node scripts/check-production-data.js
     disk:
       name: classic-mart-data
       mountPath: /var/data

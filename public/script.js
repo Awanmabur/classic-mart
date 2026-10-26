@@ -87,10 +87,11 @@
   };
   const previewState = { productId: '', variantId: '', quantity: 1 };
   const reducedMarketingMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const marketingPointerWithin = new WeakSet();
 
   function marketingMotionAllowed(element) {
     return !document.hidden && !reducedMarketingMotion.matches &&
-      !element.matches(':hover') && !element.contains(document.activeElement);
+      !marketingPointerWithin.has(element) && !element.matches(':hover') && !element.contains(document.activeElement);
   }
 
   function configureCataloguePriceRange() {
@@ -1662,8 +1663,19 @@
     const controllers = [{ refresh: startHero, stop: stopHero }];
 
     const watchInteraction = (element, refresh) => {
-      element.addEventListener('mouseenter', refresh);
-      element.addEventListener('mouseleave', refresh);
+      // Pointer entry is delivered before :hover necessarily reflects it,
+      // especially for mouse input on touch-capable browsers. Remember the
+      // actual interaction so a timer cannot restart during that gap.
+      element.addEventListener('pointerenter', () => {
+        marketingPointerWithin.add(element);
+        refresh();
+      });
+      const leave = () => {
+        marketingPointerWithin.delete(element);
+        refresh();
+      };
+      element.addEventListener('pointerleave', leave);
+      element.addEventListener('pointercancel', leave);
       element.addEventListener('focusin', refresh);
       element.addEventListener('focusout', event => {
         if (!element.contains(event.relatedTarget)) refresh();
@@ -1699,11 +1711,18 @@
       controllers.push({ refresh, stop });
     });
 
+    const clearPointerInteraction = () => {
+      for (const element of [hero, ...cards]) if (element) marketingPointerWithin.delete(element);
+    };
     const refreshAll = () => controllers.forEach(controller => controller.refresh());
-    document.addEventListener('visibilitychange', refreshAll);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) clearPointerInteraction();
+      refreshAll();
+    });
     reducedMarketingMotion.addEventListener('change', refreshAll);
     window.addEventListener('pageshow', refreshAll);
     window.addEventListener('pagehide', () => {
+      clearPointerInteraction();
       controllers.forEach(controller => controller.stop());
     });
     refreshAll();
