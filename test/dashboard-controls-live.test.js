@@ -271,7 +271,7 @@ test('live dashboard actions and photos preserve approved appearance on every co
                 followsCopy: !copy || submit.top >= copy.bottom };
             }));
             if (uploads.some(upload => !upload.centered || !upload.followsCopy)) failures.push(`${member.workspace} ${href} at ${width}px: upload action must stay centered below its instructions`);
-            const photos = await page.locator('#pageHost :is(.product-image img, .wishlist-item img, .category-card img, .cart-item > img, .seller-product-image)').evaluateAll(nodes => {
+            const photos = await page.locator('#pageHost :is(.product-image img, .wishlist-item img, .category-card img, .cart-item > img, .seller-product-image, .order-row > img, .single-product-img, .order-products-stack img)').evaluateAll(nodes => {
               const visible = nodes.filter(node => node.checkVisibility());
               const geometry = node => {
                 const style = getComputedStyle(node), box = node.getBoundingClientRect();
@@ -288,7 +288,7 @@ test('live dashboard actions and photos preserve approved appearance on every co
                 return visible.map((node, index) => ({
                   actual: actual[index], approved: geometry(node),
                   requestedCorners: node.matches('.category-card img') ? ['50%', '50%', '50%', '50%']
-                    : node.matches('.product-image img, .wishlist-item img, .seller-product-image') ? ['23px', '23px', '23px', '23px'] : null,
+                    : node.matches('.product-image img, .wishlist-item img, .seller-product-image, .cart-item > img, .order-row > img, .single-product-img, .order-products-stack img') ? ['23px', '23px', '23px', '23px'] : null,
                 }));
               } finally {
                 liveSheets.forEach((sheet, index) => { sheet.disabled = previous[index]; });

@@ -2,7 +2,7 @@
   // Contained photos can be letterboxed inside their original image element.
   // Round the rendered photograph, including those inset pixels, without
   // cropping review evidence or changing the approved image/card dimensions.
-  const roundedPhotos = [...document.querySelectorAll('#pageHost :is(.product-image img, .wishlist-item img, .seller-product-image)')];
+  const roundedPhotos = [...document.querySelectorAll('#pageHost :is(.product-image img, .wishlist-item img, .seller-product-image, .cart-item > img, .order-row > img, .single-product-img, .order-products-stack img)')];
   const pendingPhotos = new Set();
   let photoFrame = 0;
   const refreshPhotoCorners = () => {

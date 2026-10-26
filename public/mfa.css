@@ -1,0 +1,32 @@
+/* Shared authenticator setup and sign-in verification, scoped to MFA controls. */
+.mfa-challenge-page .mfa-auth-grid { width: min(520px, 100%); grid-template-columns: minmax(0, 1fr); }
+.mfa-challenge-page .mfa-auth-card { min-height: 0; border-radius: 24px; }
+.mfa-challenge-page .mfa-brand { align-self: flex-start; margin-bottom: 28px; }
+.mfa-challenge-page .mfa-brand .brand-logo { width: 150px; height: auto; }
+.mfa-challenge-page .auth-form-head h1 { margin: 8px 0 12px; color: var(--text, #172337); font-size: clamp(28px, 5vw, 36px); line-height: 1.15; letter-spacing: -1px; }
+.mfa-challenge-page .mfa-code-help,
+.mfa-challenge-page .mfa-private-note { margin: 0; color: var(--muted, #667085); font-size: 12px; line-height: 1.65; }
+.mfa-challenge-page .mfa-private-note { margin-top: 20px; text-align: center; }
+.mfa-challenge-page .mfa-mode-toggle { min-height: 44px; justify-self: center; padding: 8px 12px; }
+.mfa-security-panel > .status-pill { margin: 10px 0 16px; }
+.mfa-security-panel .primary-button,
+.mfa-security-panel .primary-button:hover { color: #111827; }
+.mfa-security-panel .outline-button:hover { color: #b94b00; }
+.mfa-security-panel > .dashboard-form + .dashboard-form { margin-top: 22px; }
+.mfa-security-panel .mfa-setup-steps { margin: 18px 0 0; padding-left: 22px; display: grid; gap: 10px; line-height: 1.65; }
+.mfa-security-panel .mfa-qr-figure { display: grid; justify-items: center; gap: 10px; margin: 20px 0; }
+.mfa-security-panel .mfa-qr-image { display: block; width: 256px; max-width: 100%; height: auto; border-radius: 0; background: #fff; image-rendering: pixelated; }
+.mfa-security-panel .mfa-qr-figure figcaption { max-width: 36ch; text-align: center; font-size: 12px; line-height: 1.6; }
+.mfa-security-panel .mfa-manual-setup { margin: 18px 0 22px; }
+.mfa-security-panel .mfa-manual-setup summary { width: fit-content; min-height: 44px; padding: 10px 0; cursor: pointer; font-weight: 600; }
+.mfa-security-panel .mfa-manual-setup p { margin: 8px 0; line-height: 1.65; }
+.mfa-security-panel .mfa-manual-key { display: block; width: 100%; margin: 12px 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; letter-spacing: .03em; overflow-wrap: anywhere; }
+.mfa-security-panel .mfa-recovery-codes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0 20px; }
+.mfa-security-panel .mfa-recovery-codes code { padding: 10px; border-radius: 10px; background: var(--surface-soft, #f6f8fa); text-align: center; font-size: 12px; overflow-wrap: anywhere; }
+.mfa-security-panel .mfa-recovery-note { margin: 16px 0 10px; line-height: 1.65; }
+@media (max-width: 480px) {
+  .mfa-challenge-page .mfa-auth-card { padding: 28px 20px; }
+  .mfa-challenge-page .auth-main { padding-top: 20px; }
+  .mfa-security-panel .mfa-recovery-codes { gap: 8px; }
+  .mfa-security-panel .mfa-recovery-codes code { padding: 10px 5px; font-size: 11px; }
+}

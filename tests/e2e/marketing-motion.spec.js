@@ -130,6 +130,77 @@ test('approved promotional motions recur and pause on the card being used', asyn
   expect(await promoStarts(page, 0)).toBeGreaterThan(hoveredCount);
 });
 
+test('all seven promotional motions keep labels opaque while only photos fade', async ({ page }) => {
+  await openHome(page);
+  const samples = await page.locator('.promo-card').evaluateAll(cards => {
+    const motions = [
+      ['slide-left', 'promoSlideLeft', 'promoPhotoSlide', .44],
+      ['slide-right', 'promoSlideRight', 'promoPhotoSlide', .44],
+      ['slide-up', 'promoSlideUp', 'promoPhotoSlide', .44],
+      ['slide-down', 'promoSlideDown', 'promoPhotoSlide', .44],
+      ['zoom-in', 'promoZoomIn', 'promoPhotoZoom', .48],
+      ['zoom-out', 'promoZoomOut', 'promoPhotoZoom', .48],
+      ['fade', 'promoFade', 'promoPhotoFade', .5],
+    ];
+    const classes = motions.map(([motion]) => `promo-motion-${motion}`);
+    return cards.flatMap((card, cardIndex) => {
+      const originalClass = card.className;
+      card.classList.remove(...classes);
+      const image = card.querySelector(':scope > img');
+      const background = getComputedStyle(card).backgroundColor;
+      const labels = [...card.querySelectorAll('strong, small, b')];
+      const colors = labels.map(label => getComputedStyle(label).color);
+      const normalPhotoOpacity = Number(getComputedStyle(image).opacity);
+      try {
+        return motions.flatMap(([motion, cardName, photoName, fadedAt]) => {
+          card.classList.remove(...classes);
+          void card.offsetWidth;
+          card.classList.add(`promo-motion-${motion}`);
+          const cardAnimation = card.getAnimations().find(animation => animation.animationName === cardName);
+          const photoAnimation = image.getAnimations().find(animation => animation.animationName === photoName);
+          if (!cardAnimation || !photoAnimation) throw new Error(`Missing live ${motion} card/photo animation.`);
+          const animations = [cardAnimation, photoAnimation];
+          for (const animation of animations) animation.pause();
+          const duration = cardAnimation.effect.getTiming().duration;
+          return [0, .25, .44, .48, .5, .55, .56, .75, .99].map(progress => {
+            for (const animation of animations) animation.currentTime = duration * progress;
+            const style = getComputedStyle(card);
+            return { cardIndex, motion, progress, duration, photoDuration: photoAnimation.effect.getTiming().duration,
+              background: style.backgroundColor, originalBackground: background,
+              cardOpacity: Number(style.opacity), transform: style.transform,
+              labels: labels.map((label, index) => {
+                let effectiveOpacity = 1;
+                for (let ancestor = label; ancestor; ancestor = ancestor.parentElement) {
+                  effectiveOpacity *= Number(getComputedStyle(ancestor).opacity);
+                }
+                return { effectiveOpacity, color: getComputedStyle(label).color, originalColor: colors[index] };
+              }),
+              photoOpacity: Number(getComputedStyle(image).opacity), normalPhotoOpacity, fadedAt };
+          });
+        });
+      } finally { card.className = originalClass; }
+    });
+  });
+  expect(samples.length).toBeGreaterThanOrEqual(7 * 9);
+  for (const sample of samples) {
+    const context = `card ${sample.cardIndex}, ${sample.motion}, progress ${sample.progress}`;
+    expect(sample.duration, context).toBe(1050);
+    expect(sample.photoDuration, context).toBe(1050);
+    expect(sample.cardOpacity, context).toBe(1);
+    expect(sample.background, context).toBe(sample.originalBackground);
+    for (const label of sample.labels) {
+      expect(label.effectiveOpacity, context).toBe(1);
+      expect(label.color, context).toBe(label.originalColor);
+    }
+    if (sample.progress === 0) expect(sample.photoOpacity, context).toBe(sample.normalPhotoOpacity);
+    if (sample.progress === sample.fadedAt) {
+      expect(sample.photoOpacity, context).toBeLessThan(.01);
+      expect(sample.transform, context).not.toBe('matrix(1, 0, 0, 1, 0, 0)');
+      expect(sample.transform, context).not.toBe('none');
+    }
+  }
+});
+
 test('reduced motion pauses marketing timers and changes take effect without reloading', async ({ page }) => {
   await openHome(page, 'reduce');
   await page.clock.runFor(15_000);

@@ -23,16 +23,20 @@
 .platform-flash.platform-flash-toast {
   position: fixed;
   z-index: 6000;
-  inset: auto auto max(24px, env(safe-area-inset-bottom)) 50%;
+  inset: 50% auto auto 50%;
   display: flex;
   align-items: center;
   gap: 14px;
   width: max-content;
   max-width: min(520px, calc(100% - 32px));
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   margin: 0;
   text-align: left;
   box-shadow: 0 12px 36px rgb(23 32 51 / 14%);
-  transform: translateX(-50%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transform: translate(-50%, -50%);
 }
 
 .platform-flash.platform-flash-toast[hidden] { display: none; }
@@ -55,7 +59,3 @@
   cursor: pointer;
 }
 .platform-flash-close:focus-visible { outline: 2px solid var(--orange, #ff6200); outline-offset: 2px; }
-
-@media (max-width: 700px) {
-  .platform-flash.platform-flash-toast { bottom: max(88px, calc(env(safe-area-inset-bottom) + 24px)); }
-}

@@ -19,6 +19,9 @@
       document.querySelectorAll(toastSelector).forEach(item => {
         if (item !== container) item.remove();
       });
+      // A transformed card/modal must not become a fixed-position containing
+      // block or clip the shared viewport notification.
+      if (container.parentElement !== document.body) document.body.append(container);
       return container;
     }
     container = document.querySelector(toastSelector) || document.createElement('div');
@@ -44,7 +47,7 @@
     container.addEventListener('focusin', () => clearTimeout(timer));
     // A message stays available while it is being read or its close button is
     // focused. It never steals keyboard focus from the action that triggered it.
-    if (!container.isConnected) document.body.append(container);
+    if (container.parentElement !== document.body) document.body.append(container);
     return container;
   }
 

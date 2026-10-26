@@ -1,6 +1,7 @@
 import { assetUrl } from '../core/public-assets.js';
 import { hasPermission, roleLabel } from '../core/roles.js';
 import { env } from '../config/env.js';
+import { displayDashboardReference, dashboardRecordHeading } from '../dashboard/display-labels.js';
 
 const SOCIAL_CHANNELS = Object.freeze([
   ['facebook', 'Facebook', '/assets/icons/facebook-f.svg'],
@@ -35,6 +36,8 @@ export function viewLocals(request, response, next) {
     flash, assetUrl,
     hasPermission,
     roleLabel,
+    dashboardDisplay: (value, options) => displayDashboardReference(value, { ...options, user: request.user }),
+    dashboardRecordHeading,
     socialLinks,
     currentPath: request.originalUrl || request.url || '/',
     deliveryCity: String(request.session?.deliveryCity || ''),

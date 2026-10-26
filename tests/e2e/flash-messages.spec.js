@@ -1,9 +1,34 @@
 import { test, expect } from './browser-fixture.js';
 
+async function expectCenteredFlash(flash) {
+  const geometry = await flash.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return {
+      position: getComputedStyle(element).position,
+      horizontal: Math.abs((box.left + box.right) / 2 - document.documentElement.clientWidth / 2),
+      vertical: Math.abs((box.top + box.bottom) / 2 - document.documentElement.clientHeight / 2),
+      top: box.top,
+      bottom: box.bottom,
+      viewportHeight: document.documentElement.clientHeight,
+    };
+  });
+  expect(geometry.position).toBe('fixed');
+  expect(geometry.horizontal).toBeLessThanOrEqual(1);
+  expect(geometry.vertical).toBeLessThanOrEqual(1);
+  expect(geometry.top).toBeGreaterThanOrEqual(0);
+  expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight);
+}
+
 test('shared flash safely replaces successive messages, keeps one container and supports dismissal', async ({ page }) => {
   const response = await page.goto('/login');
   expect(response.status()).toBe(200);
   await page.evaluate(() => {
+    const existing = document.querySelector('[data-platform-flash-toast]');
+    if (!existing) throw new Error('The shared flash must initialize its page placeholder.');
+    const card = document.createElement('div');
+    card.style.cssText = 'position:absolute;left:5px;top:5px;width:120px;height:80px;transform:translateZ(0);overflow:hidden';
+    document.body.append(card);
+    card.append(existing);
     const duplicate = document.createElement('div');
     duplicate.id = 'catalogToast';
     document.body.append(duplicate);
@@ -14,8 +39,10 @@ test('shared flash safely replaces successive messages, keeps one container and 
   });
   const flash = page.locator('[data-platform-flash-toast]');
   await expect(flash).toHaveCount(1);
+  expect(await flash.evaluate(element => element.parentElement === document.body)).toBe(true);
   await expect(page.locator('#catalogToast')).toHaveCount(0);
   await expect(flash).toBeVisible();
+  await expectCenteredFlash(flash);
   await expect(flash).toHaveAttribute('role', 'alert');
   await expect(flash.locator('.platform-flash-content')).toHaveText('<img src=x onerror=alert(1)>');
   await expect(flash.locator('img')).toHaveCount(0);
@@ -52,7 +79,7 @@ test('server login errors use the same primary border and no empty flash occupie
   expect(shared).toBe(true);
 });
 
-test('real cart success and failed API responses use one flash without narrow-screen overflow', async ({ page }, testInfo) => {
+test('real cart success and failed API responses use one centered flash without narrow-screen overflow', async ({ page }, testInfo) => {
   if (testInfo.project.name.startsWith('mobile')) await page.setViewportSize({ width: 320, height: 800 });
   const response = await page.goto('/products', { waitUntil: 'networkidle' });
   expect(response.status()).toBe(200);
@@ -62,6 +89,7 @@ test('real cart success and failed API responses use one flash without narrow-sc
   await add.click();
   const flash = page.locator('[data-platform-flash-toast]');
   await expect(flash).toBeVisible();
+  await expectCenteredFlash(flash);
   await expect(flash.locator('.platform-flash-content')).toHaveText(`${productName} added to cart`);
   await expect(page.locator('#cartCount')).toHaveText('1');
   // A real server write must have occurred before the later error is simulated.
@@ -81,6 +109,7 @@ test('real cart success and failed API responses use one flash without narrow-sc
   await add.click();
   await expect(flash).toHaveAttribute('role', 'alert');
   await expect(flash.locator('.platform-flash-content')).toHaveText(attack);
+  await expectCenteredFlash(flash);
   await expect(flash.locator('img')).toHaveCount(0);
   await expect(page.locator('[data-platform-flash-toast]')).toHaveCount(1);
   await expect(page.locator('#catalogToast')).toHaveClass(/platform-flash/);

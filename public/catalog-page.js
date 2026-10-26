@@ -21,6 +21,11 @@
     autocompleteTimer: null,
   };
   if (document.body.dataset.initialCategory && !state.params.has('category')) state.params.set('category', document.body.dataset.initialCategory);
+  const filterMedia = window.matchMedia('(max-width: 900px)');
+  const filterPanel = qs('#catalogFilterPanel');
+  const originalFilterAttributes = new Map(['inert', 'role', 'aria-modal', 'aria-label', 'tabindex']
+    .map(name => [name, filterPanel?.getAttribute(name) ?? null]));
+  let filterLastFocused = null;
 
   const escapeHtml = (value) =>
     String(value ?? '').replace(
@@ -380,12 +385,43 @@
     applyFilters();
   }
 
-  function toggleFilters(open) {
-    qs('#catalogFilterPanel').classList.toggle('open', open);
+  function toggleFilters(open, { restoreFocus = true } = {}) {
+    if (!filterPanel || (open && !filterMedia.matches)) return;
+    if (filterPanel.classList.contains('open') === open) return;
     const backdrop = qs('#catalogFilterBackdrop');
+    if (open) filterLastFocused = document.activeElement;
+    filterPanel.classList.toggle('open', open);
+    filterPanel.inert = !open;
     backdrop.hidden = !open;
     backdrop.classList.toggle('show', open);
     document.body.classList.toggle('no-scroll', open);
+    qs('#openCatalogFilters')?.setAttribute('aria-expanded', String(open));
+    if (open) {
+      window.ClassicMartDialogIsolation.activate(filterPanel, [backdrop]);
+      qs('#closeCatalogFilters')?.focus({ preventScroll: true });
+    } else {
+      window.ClassicMartDialogIsolation.release(filterPanel);
+      if (restoreFocus) filterLastFocused?.focus?.();
+    }
+  }
+
+  function syncFilterMode() {
+    if (!filterPanel) return;
+    toggleFilters(false, { restoreFocus: false });
+    if (filterMedia.matches) {
+      filterPanel.setAttribute('role', 'dialog');
+      filterPanel.setAttribute('aria-modal', 'true');
+      filterPanel.setAttribute('aria-label', 'Filter products');
+      filterPanel.setAttribute('tabindex', '-1');
+      filterPanel.inert = true;
+    } else {
+      for (const [name, value] of originalFilterAttributes) {
+        if (value === null) filterPanel.removeAttribute(name);
+        else filterPanel.setAttribute(name, value);
+      }
+    }
+    qs('#openCatalogFilters')?.setAttribute('aria-controls', 'catalogFilterPanel');
+    qs('#openCatalogFilters')?.setAttribute('aria-expanded', 'false');
   }
 
   async function toggleWishlist(productId) {
@@ -578,7 +614,18 @@
       qs('#catalogWorkspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') toggleFilters(false);
+      if (!filterPanel?.classList.contains('open')) return;
+      if (event.key === 'Escape') { event.preventDefault(); toggleFilters(false); return; }
+      if (event.key !== 'Tab') return;
+      const controls = [...filterPanel.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+        .filter(element => !element.closest('[hidden], [inert]') && element.getClientRects().length);
+      const first = controls[0], last = controls.at(-1);
+      if (!first) { event.preventDefault(); filterPanel.focus(); }
+      else if (event.shiftKey && (document.activeElement === first || !filterPanel.contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !filterPanel.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
     });
   }
 
@@ -648,6 +695,8 @@
 
   configurePage();
   bindEvents();
+  syncFilterMode();
+  filterMedia.addEventListener('change', syncFilterMode);
   // Product previews consume this page's already-resolved public snapshot and
   // saved-state request. Opening one still fetches its fresh product detail.
   window.ClassicMartCatalogueReady = hydrateCatalog();

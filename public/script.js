@@ -263,7 +263,7 @@
     const addLabel = addButton?.querySelector('[data-preview-add-label]');
     if (addLabel) addLabel.textContent = unavailable ? 'Out of stock' : 'Add to Cart';
     if (buyButton) buyButton.textContent = unavailable ? 'Out of stock' : 'Buy Now';
-    const shareUrl = new URL(`/products/${encodeURIComponent(product.id)}`, window.location.origin).toString();
+    const shareUrl = window.ClassicMartSharing.productUrl(product.id);
     const whatsapp = qs('.preview-whatsapp-button');
     if (whatsapp) {
       whatsapp.href = `https://wa.me/?text=${encodeURIComponent(`Hello Classic Mart, I am interested in ${quantity} × ${product.name} (${product.subtitle || 'Default'}) for ${money(product.price * quantity, product.currency)}. ${shareUrl}`)}`;
@@ -598,29 +598,6 @@
     window.ClassicMartFlash.show(message, options);
   }
 
-  async function copyShareLink(value) {
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(value);
-        return true;
-      }
-    } catch { /* use the compatible fallback below */ }
-
-    const helper = document.createElement('textarea');
-    helper.value = value;
-    helper.setAttribute('readonly', '');
-    helper.style.position = 'fixed';
-    helper.style.left = '-9999px';
-    helper.style.opacity = '0';
-    document.body.appendChild(helper);
-    helper.select();
-    helper.setSelectionRange(0, helper.value.length);
-    let copied = false;
-    try { copied = document.execCommand('copy'); } catch { copied = false; }
-    helper.remove();
-    return copied;
-  }
-
   async function addToCart(id, quantity = 1, variantId = '') {
     const baseProduct = productById(id);
     if (!baseProduct || !window.ClassicMartCart) return null;
@@ -758,9 +735,7 @@
     previewState.variantId = '';
     qs('#productModalContent').innerHTML = '<div class="product-preview-loading" role="status"><h2 id="productModalTitle">Loading product preview…</h2><p id="productModalDescription">Checking current product details.</p></div>';
     for (const button of [qs('#productModalShare'), qs('#productModalWishlist')]) if (button) button.disabled = true;
-    const pendingShareMenu = qs('#productShareMenu');
-    if (pendingShareMenu) pendingShareMenu.hidden = true;
-    qs('#productModalShare')?.setAttribute('aria-expanded', 'false');
+    window.ClassicMartSharing.closeFallback();
     openModal('productModal', returnFocus);
     try {
       const detailResponse = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, {
@@ -804,7 +779,7 @@
     const dimensions = product.dimensions
       ? `${product.dimensions.width || '—'} × ${product.dimensions.height || '—'} × ${product.dimensions.depth || '—'} cm`
       : 'See packaging details';
-    const shareUrl = new URL(`/products/${encodeURIComponent(product.id)}`, window.location.origin).toString();
+    const shareUrl = window.ClassicMartSharing.productUrl(product.id);
     const whatsappText = `Hello Classic Mart, I am interested in ${product.name} (${money(product.price, product.currency)}). ${shareUrl}`;
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(whatsappText)}`;
     const topShare = qs('#productModalShare');
@@ -812,15 +787,9 @@
     if (topShare) {
       topShare.disabled = false;
       topShare.dataset.shareProduct = product.id;
-      topShare.dataset.shareUrl = shareUrl;
+      topShare.dataset.shareTitle = product.name;
     }
-    const shareMenu = qs('#productShareMenu');
-    const shareCopy = qs('#productShareCopy');
-    const shareWhatsApp = qs('#productShareWhatsApp');
-    if (shareMenu) shareMenu.hidden = true;
-    if (topShare) topShare.setAttribute('aria-expanded', 'false');
-    if (shareCopy) shareCopy.dataset.shareUrl = shareUrl;
-    if (shareWhatsApp) shareWhatsApp.href = `https://wa.me/?text=${encodeURIComponent(`Take a look at ${product.name} on Classic Mart. ${shareUrl}`)}`;
+    window.ClassicMartSharing.closeFallback();
     if (topWishlist) {
       topWishlist.disabled = false;
       topWishlist.dataset.wishlist = product.id;
@@ -1002,7 +971,7 @@
           <div class="preview-panel-heading"><span>Questions &amp; alerts</span><h3 id="previewQuestionsTitle">Ask before you buy</h3></div>
           <div class="preview-question-list">${(product.questions || []).length ? product.questions.map(feedbackQuestionMarkup).join('') : '<p class="empty-preview-copy">No answered questions yet.</p>'}</div>${product.questionPage?.hasMore ? `<button class="outline-button" type="button" data-load-more-questions>Load more questions</button>` : ``}
           <form id="previewQuestionForm" class="preview-review-form"><label>Your question<textarea name="question" rows="2" minlength="5" maxlength="500" required placeholder="Ask about size, compatibility, warranty or another product detail"></textarea></label><button class="button" type="submit">Submit question</button></form>
-          <div class="review-form-actions">${Number(product.stock||0)<=0?'<button class="button" type="button" data-product-alert="restock">Notify me when restocked</button>':''}<button class="button" type="button" data-product-alert="price_drop">Watch price drops</button></div>
+          <div class="review-form-actions preview-alert-actions">${Number(product.stock||0)<=0?'<button class="button" type="button" data-product-alert="restock">Notify me when restocked</button>':''}<button class="button" type="button" data-product-alert="price_drop">Watch price drops</button></div>
         </section>
 
         <section class="preview-related-products" aria-labelledby="previewRelatedTitle">
@@ -1108,6 +1077,7 @@
     modal.hidden = false;
     modal.inert = false;
     backdrop.hidden = false;
+    window.ClassicMartDialogIsolation.activate(modal, [backdrop]);
     document.body.classList.add('no-scroll');
     requestAnimationFrame(() => {
       if (modal.inert) return;
@@ -1133,9 +1103,8 @@
       backdrop.hidden = true;
     }, 220);
     document.body.classList.remove('no-scroll');
-    const shareMenu = qs('#productShareMenu');
-    if (shareMenu) shareMenu.hidden = true;
-    qs('#productModalShare')?.setAttribute('aria-expanded', 'false');
+    window.ClassicMartSharing.closeFallback();
+    window.ClassicMartDialogIsolation.release(openModal);
     state.lastFocused?.focus?.();
   }
 
@@ -1151,6 +1120,7 @@
     drawer.inert = false;
     qs('#filterButton')?.setAttribute('aria-expanded', 'true');
     backdrop.hidden = false;
+    window.ClassicMartDialogIsolation.activate(drawer, [backdrop]);
     requestAnimationFrame(() => {
       if (drawer.inert) return;
       drawer.classList.add('open');
@@ -1173,6 +1143,7 @@
       if (!qs('.cart-drawer.open')) backdrop.hidden = true;
     }, 250);
     document.body.classList.remove('no-scroll');
+    window.ClassicMartDialogIsolation.release(drawer);
     state.filterLastFocused?.focus?.();
   }
 
@@ -1357,43 +1328,7 @@
     qsa('.mobile-more-wrap').forEach((wrapper) => wrapper.remove());
   }
 
-  async function shareProductLink(button) {
-    const product = productById(button?.dataset.shareProduct);
-    const url = button?.dataset.shareUrl || window.location.href;
-    const shareText = product
-      ? `Take a look at ${product.name} on Classic Mart.`
-      : 'Take a look at this product on Classic Mart.';
-    const menu = qs('#productShareMenu');
-    const copyButton = qs('#productShareCopy');
-    const whatsappLink = qs('#productShareWhatsApp');
-
-    if (copyButton) copyButton.dataset.shareUrl = url;
-    if (whatsappLink) {
-      whatsappLink.href = `https://wa.me/?text=${encodeURIComponent(`${shareText} ${url}`)}`;
-    }
-
-    // Some Android WebViews expose navigator.share but terminate it with
-    // RESULT_CODE_KILLED_BAD_MESSAGE. The in-page menu is reliable in browsers,
-    // installed PWAs and local-file previews, so it is now the primary flow.
-    if (menu) {
-      menu.hidden = !menu.hidden;
-      button?.setAttribute('aria-expanded', String(!menu.hidden));
-      if (!menu.hidden) setTimeout(() => whatsappLink?.focus(), 0);
-      return true;
-    }
-
-    const copied = await copyShareLink(url);
-    showToast(copied ? 'Product link copied — ready to share' : `Share this link: ${url}`);
-    return copied;
-  }
-
   async function handleDocumentClick(event) {
-    const activeShareMenu = qs('#productShareMenu');
-    if (activeShareMenu && !activeShareMenu.hidden && !event.target.closest('#productShareMenu, [data-share-product]')) {
-      activeShareMenu.hidden = true;
-      qs('#productModalShare')?.setAttribute('aria-expanded', 'false');
-    }
-
     const cartLink = event.target.closest('a[href="/cart"], a[href^="/cart"]');
     if (cartLink) {
       event.preventDefault();
@@ -1490,19 +1425,7 @@
     if (shareButton) {
       event.preventDefault();
       event.stopPropagation();
-      await shareProductLink(shareButton);
-      return;
-    }
-
-    const copyButton = event.target.closest('[data-copy-product]');
-    if (copyButton) {
-      event.preventDefault();
-      const url = copyButton.dataset.shareUrl || window.location.href;
-      const copied = await copyShareLink(url);
-      const menu = qs('#productShareMenu');
-      if (menu) menu.hidden = true;
-      qs('#productModalShare')?.setAttribute('aria-expanded', 'false');
-      showToast(copied ? 'Product link copied' : `Copy this link: ${url}`);
+      await window.ClassicMartSharing.shareProduct(shareButton);
       return;
     }
 

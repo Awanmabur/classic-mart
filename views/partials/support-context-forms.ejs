@@ -3,7 +3,7 @@
 <section class="panel role-form-section" aria-labelledby="support-customer-heading">
   <div class="role-panel-head"><h2 id="support-customer-heading">Customer context</h2><span class="role-status"><%= safeSupportRecord.status.replaceAll('_', ' ') %></span></div>
   <div class="role-form-grid">
-    <div><span>Customer</span><strong><%= safeSupportRecord.publicId %></strong></div><div><span>Name</span><strong><%= safeSupportRecord.name %></strong></div>
+    <div><span>Customer</span><strong><%= safeSupportRecord.name || 'Account holder' %></strong></div><div><span>Account</span><strong><%= safeSupportRecord.status.replaceAll('_', ' ') %></strong></div>
     <div><span>Email</span><strong><%= safeSupportRecord.emailMasked || 'Unavailable' %></strong></div><div><span>Phone</span><strong><%= safeSupportRecord.phoneMasked || 'Unavailable' %></strong></div>
     <div><span>Scoped orders</span><strong><%= safeSupportRecord.orderCount %></strong></div><div><span>Scoped cases</span><strong><%= safeSupportRecord.ticketCount %></strong></div>
   </div>

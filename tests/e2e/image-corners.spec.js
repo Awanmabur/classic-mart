@@ -76,9 +76,9 @@ async function expectPreview(page, testInfo) {
   const thumbnailRadius = testInfo.project.name.startsWith('mobile') ? 12 : 14;
   await expectPhotos(modal.locator('.gallery-thumb > img'), thumbnailRadius);
   await expectFrames(modal.locator('.gallery-thumb'), thumbnailRadius);
-  await expectPhotos(modal.locator('.preview-related-image > img'));
+  await expectPhotos(modal.locator('.preview-related-image > img'), 14);
   await expectFrames(modal.locator('.preview-related-card'), 19);
-  await expectFrames(modal.locator('.preview-related-image'), 0);
+  await expectFrames(modal.locator('.preview-related-image'), 14);
 }
 
 async function signUpCustomer(page) {
@@ -115,11 +115,11 @@ test('homepage retains approved image shapes while only small promotional banner
     await expectPhotos(page.locator(`${selector} > img`));
   }
   await expectPhotos(page.locator('.hero-product'), 24);
-  await expectFrames(page.locator('.promo-card'), 36);
-  await expectPhotos(page.locator('.promo-card > img'), 32);
+  await expectFrames(page.locator('.promo-card'), 24);
+  await expectPhotos(page.locator('.promo-card > img'), 20);
   await page.locator('.promo-card').first().hover();
-  await expectFrames(page.locator('.promo-card'), 36);
-  await expectPhotos(page.locator('.promo-card > img'), 32);
+  await expectFrames(page.locator('.promo-card'), 24);
+  await expectPhotos(page.locator('.promo-card > img'), 20);
 
   const search = page.getByRole('combobox', { name: 'Search products', exact: true });
   await search.fill('Classic');
@@ -176,7 +176,7 @@ test('cart photography and checkout thumbnails keep their approved frame radii a
   await signUpCustomer(page);
   await page.goto('/cart', { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toHaveAttribute('data-dashboard-workspace', 'customer');
-  await expectPhotos(page.locator('.cart-item > img'), 13);
+  await expectPhotos(page.locator('.cart-item > img'), 23);
   await page.getByRole('link', { name: 'Proceed to Checkout', exact: true }).click();
   await expect(page).toHaveURL(/\/checkout$/);
   await expectPhotos(page.locator('.checkout-mini-item > span > img'), 16);
@@ -189,6 +189,9 @@ test('journal and seller product photos retain their approved card clips while i
   await expectPhotos(page.locator('.news-grid article > img'));
   await page.goto('/sellers', { waitUntil: 'networkidle' });
   await page.getByRole('link', { name: 'View profile', exact: true }).first().click();
+  // Profile hydration replaces the initial server-rendered collection. Read
+  // geometry from the settled live cards rather than a just-detached SSR node.
+  await page.waitForLoadState('networkidle');
   await expectFrames(page.locator('.profile-product'), 18);
   await expectPhotos(page.locator('.profile-product > a > img'));
   await expect(page.locator('#profileAvatar')).toHaveCSS('border-radius', '50%');
@@ -322,12 +325,12 @@ test('homepage small promotional banners round the visible wide and portrait pho
     const expected = await image.evaluate((node, ratio) => {
       const style = getComputedStyle(node), width = Number.parseFloat(style.width), height = Number.parseFloat(style.height);
       const photoWidth = Math.min(width, height * ratio), photoHeight = photoWidth / ratio;
-      return `inset(${Math.max(0, (height - photoHeight) / 2).toFixed(3)}px ${Math.max(0, (width - photoWidth) / 2).toFixed(3)}px round ${Math.min(32, photoWidth / 2, photoHeight / 2).toFixed(3)}px)`;
+      return `inset(${Math.max(0, (height - photoHeight) / 2).toFixed(3)}px ${Math.max(0, (width - photoWidth) / 2).toFixed(3)}px round ${Math.min(20, photoWidth / 2, photoHeight / 2).toFixed(3)}px)`;
     }, naturalWidth / naturalHeight);
     await expect.poll(() => image.evaluate(node => node.style.getPropertyValue('--promo-photo-clip'))).toBe(expected);
     await expect(image).toHaveCSS('clip-path', /^inset\(/);
     expect(await image.evaluate(describe)).toEqual(before[index]);
     expect(before[index].fit).toBe('contain');
-    expect(before[index].radius).toBe('32px');
+    expect(before[index].radius).toBe('20px');
   }
 });

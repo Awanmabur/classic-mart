@@ -63,7 +63,7 @@ const actionableRecord = kind === 'promoter' ? selected.actionable !== false && 
 const title = record.name || record.title || record.publicId;
 %>
 <section class="panel role-form-section" id="country-admin-record">
-  <div class="role-panel-head compact"><div><span class="eyebrow"><%= statusLabel(kind) %> source</span><h2><%= title %></h2><p class="form-intro"><%= record.publicId %> · <%= record.country || selected.affectedCountries?.join(', ') || 'Shared catalogue' %><% if (record.status) { %> · <%= statusLabel(record.status) %><% } %></p></div><a class="plain-link" href="<%= base + suffix %>">Close record</a></div>
+  <div class="role-panel-head compact"><div><span class="eyebrow"><%= statusLabel(kind) %> source</span><h2><%= title %></h2><p class="form-intro"><%= kind === 'customer' ? (typeof dashboardDisplay === 'function' ? dashboardDisplay(record.publicId, { column: 'Customer', columns: ['Name'], row: { cells: [record.name] } }) : record.name || 'Account holder') : record.publicId %> · <%= record.country || selected.affectedCountries?.join(', ') || 'Shared catalogue' %><% if (record.status) { %> · <%= statusLabel(record.status) %><% } %></p></div><a class="plain-link" href="<%= base + suffix %>">Close record</a></div>
   <% if (selected.error) { %><p class="flash error platform-flash" role="alert"><%= selected.error %></p><% } %>
   <div class="role-form-grid">
   <% if (kind === 'promoter') { %>

@@ -24,9 +24,36 @@ body[data-dashboard-live="true"] button.plain-link[data-cart-clear] {
 
 /* Live product photographs use the homepage's 23px corners. Keep original
    image dimensions, containment, card borders and action placement intact. */
-body[data-dashboard-live="true"] :is(.product-image img, .wishlist-item img, .seller-product-image) {
+body[data-dashboard-live="true"] #pageHost :is(.product-image img, .wishlist-item img, .seller-product-image,
+  .cart-item > img, .order-row > img, .single-product-img, .order-products-stack img) {
   border-radius: 23px;
   clip-path: var(--catalogue-photo-clip, none);
+}
+
+/* Native forms add a wrapper that the approved preview does not have. Keep
+   real submit/cancel controls separate from fields and from one another. */
+body[data-dashboard-live="true"] #pageHost :is(.form-panel, .role-form-section) > form > :is(.role-form-grid, label, .form-intro) + :is(button.primary-button, button.soft-button, button.outline-button) {
+  margin-block-start: 16px;
+}
+
+body[data-dashboard-live="true"] #pageHost .role-form-grid > :is(.wide, div):has(> :is(button.primary-button, button.soft-button, button.outline-button, a.primary-button, a.soft-button, a.outline-button) ~ :is(button.primary-button, button.soft-button, button.outline-button, a.primary-button, a.soft-button, a.outline-button)) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+body[data-dashboard-live="true"] #pageHost .role-form-grid > .wide:has(> :is(button, a)) {
+  grid-column: 1 / -1;
+}
+
+body[data-dashboard-live="true"] #pageHost :is(.row-actions, .card-actions, .seller-verification-actions, .warehouse-live-actions) {
+  gap: 10px;
+}
+
+body[data-dashboard-live="true"] #pageHost .profile-summary > .dashboard-form {
+  margin-block-start: 18px;
 }
 
 /* Category identities keep the same circle as their homepage counterparts. */

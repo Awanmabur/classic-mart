@@ -47,8 +47,16 @@ test('Business and Delivery operations require MFA while personal security remai
     for (const path of [`/${role}/overview`, `/api/v1/${role}/records`, `/dashboard/${role}-overview`]) {
       assert.equal(requiresPrivilegedMfaForRequest(req(path, { role })), true, role + ':' + path);
     }
-    for (const path of ['/account/profile', '/account/security', '/account/mfa/confirm', '/logout']) {
+    for (const path of ['/account/profile', '/account/security', '/account/mfa/confirm', '/account/mfa/qr-code.png', '/logout']) {
       assert.equal(requiresPrivilegedMfaForRequest(req(path, { role })), false, role + ':' + path);
     }
+  }
+});
+
+test('privileged roles can scan their pending MFA QR while operational actions remain protected', () => {
+  for (const role of ['seller', 'business', 'delivery', 'warehouse', 'support', 'moderator', 'finance', 'country_admin', 'super_admin']) {
+    assert.equal(requiresPrivilegedMfaForRequest(req('/account/mfa/qr-code.png', { role })), false);
+    assert.equal(requiresPrivilegedMfaForRequest(req('/ACCOUNT/MFA/QR-CODE.PNG', { role })), false);
+    assert.equal(requiresPrivilegedMfaForRequest(req('/api/v1/admin/staff', { role })), true);
   }
 });

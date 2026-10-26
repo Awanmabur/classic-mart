@@ -1,13 +1,20 @@
+<script src="<%= typeof assetUrl === 'function' ? assetUrl('/dialog-isolation.js') : '/dialog-isolation.js' %>"></script>
+<script src="<%= typeof assetUrl === 'function' ? assetUrl('/product-sharing.js') : '/product-sharing.js' %>"></script>
 <div class="modal-backdrop" hidden id="modalBackdrop"></div>
-<section aria-describedby="productModalDescription" aria-labelledby="productModalTitle" aria-modal="true" class="modal product-detail-modal" hidden id="productModal" role="dialog">
+<section aria-describedby="productModalDescription" aria-labelledby="productModalTitle" aria-modal="true" class="modal product-detail-modal" data-share-country="<%= country?.code || '' %>" hidden id="productModal" role="dialog">
   <div aria-label="Product preview actions" class="product-modal-toolbar">
-    <button aria-expanded="false" aria-haspopup="menu" aria-label="Share product" class="modal-toolbar-button" data-share-product data-share-url id="productModalShare" type="button"><img alt="" src="/assets/icons/share-nodes.svg"/></button>
+    <button aria-controls="productShareFallback" aria-expanded="false" aria-label="Share product" class="modal-toolbar-button" data-share-product data-share-title id="productModalShare" type="button"><img alt="" src="/assets/icons/share-nodes.svg"/></button>
     <button aria-label="Save product" aria-pressed="false" class="modal-toolbar-button" data-wishlist id="productModalWishlist" type="button"><img alt="" src="/assets/icons/heart-regular.svg"/></button>
     <button aria-label="Close product preview" class="modal-toolbar-button modal-toolbar-close" data-close-modal data-close-product-preview type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
   </div>
-  <div aria-label="Share product options" class="product-share-menu" hidden id="productShareMenu" role="menu">
-    <a id="productShareWhatsApp" rel="noopener noreferrer" role="menuitem" target="_blank"><img alt="" src="/assets/icons/whatsapp.svg"/><span>WhatsApp</span></a>
-    <button data-copy-product data-share-url id="productShareCopy" role="menuitem" type="button"><img alt="" src="/assets/icons/link.svg"/><span>Copy link</span></button>
+  <div class="product-share-fallback" hidden id="productShareFallback">
+    <label for="productShareLink">Share this product link</label>
+    <p>Your browser could not open sharing or copy the link. Select it and copy it into your preferred app.</p>
+    <input autocomplete="off" id="productShareLink" readonly type="url"/>
+    <div class="product-share-fallback-actions">
+      <button class="button" data-copy-share-link type="button">Copy link</button>
+      <button class="button" data-close-product-share type="button">Close</button>
+    </div>
   </div>
   <div class="product-modal-content" id="productModalContent"></div>
 </section>

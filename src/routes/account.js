@@ -17,6 +17,7 @@ import { enrollCustomerAsSeller, sellerEnrollmentPreview } from '../services/sel
 import { getCountry } from '../services/country.js';
 import { changePassword } from '../services/auth.js';
 import { beginMfaEnrollment, confirmMfaEnrollment, disableMfa, mfaRequiredForUser, pendingMfaEnrollment, regenerateRecoveryCodes, verifyMfa } from '../services/mfa.js';
+import { pendingMfaQrCode } from '../services/mfa-qr.js';
 import { currentCustomerAccess, customerTransaction } from '../services/customer-access.js';
 import { writeSecurityEvent } from '../services/security.js';
 import { env } from '../config/env.js';
@@ -231,6 +232,15 @@ router.get(
     renderAccountPage(request, response, 'security'),
   ),
 );
+const mfaQrReadLimit = rateLimit({ scope: 'account:mfa-qr', windowMs: 15 * 60_000, limit: 40,
+  standardHeaders: 'draft-8', legacyHeaders: false, keyGenerator: request => String(request.user._id) });
+router.get('/account/mfa/qr-code.png', mfaQrReadLimit, asyncHandler(async (request, response) => {
+  const image = await pendingMfaQrCode(request);
+  response.set({ 'Content-Type': 'image/png', 'Content-Length': String(image.length),
+    'Cross-Origin-Resource-Policy': 'same-origin', 'Content-Disposition': 'inline; filename="classic-mart-authenticator.png"' });
+  // end() deliberately avoids adding an ETag to private enrollment material.
+  return response.end(image);
+}));
 router.get('/account/orders', (_request, response) => response.redirect('/orders'));
 
 router.get('/account/privacy',asyncHandler(async(request,response)=>{const size=50,base={userId:request.user._id};const [rows,total]=await Promise.all([PrivacyRequest.find(cursorScope(base,request.query.after)).sort(cursorSort()).limit(size+1).lean(),PrivacyRequest.countDocuments(base)]);const page=pageResult(rows,{limit:size,total});response.set('Cache-Control','private, no-store');response.render('approved-dashboard', { ...await accountWorkspaceView(request,'privacy'),requests:page.items,queuePage:page.page});}));
@@ -350,7 +360,7 @@ router.post('/account/mfa/begin', mfaMutationLimit, asyncHandler(async (request,
     await beginMfaEnrollment(request.user._id, request.body.currentPassword);
     await writeAudit(request, 'account.mfa_enrollment_started', { targetType: 'user', targetPublicId: request.user.publicId });
     await writeSecurityEvent(request, 'mfa.enrollment_started', { category: 'mfa', severity: 'low', result: 'success' });
-    setFlash(request, 'success', 'Authenticator setup started. Add the secret to your authenticator and confirm a current code.');
+    setFlash(request, 'success', 'Authenticator setup started. Scan the QR code with your app, then confirm its current 6-digit code.');
   } catch (error) { setFlash(request, 'error', error.message); }
   response.redirect(mfaSecurityPath(continuation));
 }));

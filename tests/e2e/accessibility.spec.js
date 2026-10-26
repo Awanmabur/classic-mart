@@ -16,6 +16,12 @@ async function assertWcag(page, label) {
   const result = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();
+  if (result.violations.length) {
+    await test.info().attach('axe-violations.json', {
+      body: JSON.stringify(result.violations, null, 2),
+      contentType: 'application/json',
+    });
+  }
   const compact = result.violations.map((violation) => ({
     id: violation.id,
     impact: violation.impact,
@@ -35,13 +41,14 @@ for (const [label, path, heading] of publicPages) {
   });
 }
 
-test('public pages retain approved brand fills and white labels across marketing and account entry', async ({ page }) => {
+test('public pages retain approved brand fills with readable action labels across marketing and account entry', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/', { waitUntil: 'networkidle' });
   const orange = 'rgb(255, 101, 0)';
+  const onOrange = 'rgb(17, 24, 39)';
   await expect(page.locator('.search-button')).toHaveCSS('background-color', orange);
-  await expect(page.locator('.search-button')).toHaveCSS('color', 'rgb(255, 255, 255)');
-  await expect(page.locator('.browse-button')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.search-button')).toHaveCSS('color', onOrange);
+  await expect(page.locator('.browse-button')).toHaveCSS('color', onOrange);
   await expect(page.locator('.newsletter')).toHaveCSS('background-color', 'rgb(7, 150, 144)');
   await expect(page.locator('.newsletter')).toHaveCSS('color', 'rgb(255, 255, 255)');
   expect(await page.locator('.hero-slide-a').evaluate(element =>
@@ -57,15 +64,15 @@ test('public pages retain approved brand fills and white labels across marketing
   await page.goto('/products', { waitUntil: 'networkidle' });
   await expect(page.locator('.search-button')).toHaveCSS('background-color', orange);
   await expect(page.locator('.catalog-primary-button').first()).toHaveCSS('background-color', orange);
-  await expect(page.locator('.catalog-primary-button').first()).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.catalog-primary-button').first()).toHaveCSS('color', onOrange);
   await expect(page.locator('.catalog-card-actions button').first()).toHaveCSS('background-color', orange);
-  await expect(page.locator('.catalog-card-actions button').first()).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.catalog-card-actions button').first()).toHaveCSS('color', onOrange);
   for (const path of ['/login', '/signup?role=seller']) {
     await page.goto(path, { waitUntil: 'networkidle' });
     const submit = page.locator('.auth-submit');
     await expect(submit).toBeVisible();
     await expect(submit).toHaveCSS('background-color', orange);
-    await expect(submit).toHaveCSS('color', 'rgb(255, 255, 255)');
+    await expect(submit).toHaveCSS('color', onOrange);
   }
 });
 
