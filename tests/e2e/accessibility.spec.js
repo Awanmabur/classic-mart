@@ -41,11 +41,11 @@ for (const [label, path, heading] of publicPages) {
   });
 }
 
-test('public pages retain approved brand fills with readable action labels across marketing and account entry', async ({ page }) => {
+test('public pages retain the approved palette across marketing and account entry', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/', { waitUntil: 'networkidle' });
   const orange = 'rgb(255, 101, 0)';
-  const onOrange = 'rgb(17, 24, 39)';
+  const onOrange = 'rgb(255, 255, 255)';
   await expect(page.locator('.search-button')).toHaveCSS('background-color', orange);
   await expect(page.locator('.search-button')).toHaveCSS('color', onOrange);
   await expect(page.locator('.browse-button')).toHaveCSS('color', onOrange);

@@ -9,9 +9,6 @@
 .mfa-challenge-page .mfa-private-note { margin-top: 20px; text-align: center; }
 .mfa-challenge-page .mfa-mode-toggle { min-height: 44px; justify-self: center; padding: 8px 12px; }
 .mfa-security-panel > .status-pill { margin: 10px 0 16px; }
-.mfa-security-panel .primary-button,
-.mfa-security-panel .primary-button:hover { color: #111827; }
-.mfa-security-panel .outline-button:hover { color: #b94b00; }
 .mfa-security-panel > .dashboard-form + .dashboard-form { margin-top: 22px; }
 .mfa-security-panel .mfa-setup-steps { margin: 18px 0 0; padding-left: 22px; display: grid; gap: 10px; line-height: 1.65; }
 .mfa-security-panel .mfa-qr-figure { display: grid; justify-items: center; gap: 10px; margin: 20px 0; }
