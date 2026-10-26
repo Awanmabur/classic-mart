@@ -33,7 +33,8 @@ test('production requires private Cloudflare R2 media storage credentials',()=>{
 test('R2 adapter uses SigV4 over HTTPS and supports put get delete readiness probe',()=>{
   assert.match(sigv4Source,/AWS4-HMAC-SHA256/);
   assert.match(storageSource,/service:\s*'s3'/);
-  assert.match(storageSource,/region:\s*env\.r2\.region/);
+  assert.match(storageSource,/configuration = env\.r2/);
+  assert.match(storageSource,/region:\s*configuration\.region/);
   assert.match(storageSource,/PutObject|putMediaObject/);
   assert.match(storageSource,/getMediaObject|readMediaObjectBuffer/);
   assert.match(storageSource,/deleteMediaObject/);

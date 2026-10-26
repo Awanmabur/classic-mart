@@ -224,7 +224,7 @@ export const env = Object.freeze({
     accessKeyId: String(process.env.R2_ACCESS_KEY_ID || '').trim(),
     secretAccessKey: String(process.env.R2_SECRET_ACCESS_KEY || '').trim(),
     region: String(process.env.R2_REGION || 'auto').trim() || 'auto',
-    timeoutMs: Math.max(3000, integer(process.env.R2_TIMEOUT_MS, 10000)),
+    timeoutMs: Math.min(60_000, Math.max(3000, integer(process.env.R2_TIMEOUT_MS, 10000))),
   }),
   persistentStorageRoot: envStorageRoot(),
   uploadDir: nodeEnv === 'production'

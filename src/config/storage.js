@@ -4,11 +4,16 @@ import path from 'node:path';
 import { env } from './env.js';
 import { ensureMediaStorageReady } from '../services/object-storage.js';
 
-export async function ensureStorageReady() {
+export async function ensureStorageReady({ signal } = {}) {
+  signal?.throwIfAborted();
   const directories = [env.exportDir, env.privacyExportDir];
   if (env.mediaStorageDriver === 'filesystem') directories.unshift(env.uploadDir);
-  for (const directory of directories) await fs.mkdir(directory, { recursive: true });
-  await ensureMediaStorageReady();
+  for (const directory of directories) {
+    await fs.mkdir(directory, { recursive: true });
+    signal?.throwIfAborted();
+  }
+  await ensureMediaStorageReady({ signal });
+  signal?.throwIfAborted();
   if (!env.isProduction) return;
 
   const probe = path.join(env.persistentStorageRoot, `.classic-mart-write-probe-${process.pid}-${crypto.randomUUID()}`);
@@ -17,4 +22,5 @@ export async function ensureStorageReady() {
   } finally {
     await fs.unlink(probe).catch(() => {});
   }
+  signal?.throwIfAborted();
 }

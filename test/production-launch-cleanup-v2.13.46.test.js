@@ -97,8 +97,10 @@ test('production web and worker verify durable storage is writable before connec
   assert.match(storage,/env\.privacyExportDir/);
   assert.match(storage,/writeFile/);
   assert.match(storage,/unlink/);
-  assert.match(server,/await ensureStorageReady\(\);[\s\S]*await connectDatabase\(\)/);
-  assert.match(worker,/async function start\(\)\{await ensureStorageReady\(\);await connectDatabase\(\)/);
+  for(const entrypoint of [server,worker]) {
+    assert.match(entrypoint,/await ensureStorageReady\(\{ signal: startupController\.signal \}\);\s*if \(shuttingDown\) return;\s*await connectDatabase\(\)/);
+    assert.match(entrypoint,/startupController\.abort\(\)/);
+  }
 });
 
 test('production bootstrap can be rerun after ADMIN_PASSWORD is removed',()=>{

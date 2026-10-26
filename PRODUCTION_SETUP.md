@@ -92,6 +92,17 @@ Cloudflare R2 media storage is ready.
 
 The check writes a short random probe object, reads it back, verifies its checksum and deletes it. Startup and `launch:check` perform the same fail-closed R2 readiness validation.
 
+`R2_TIMEOUT_MS` covers each complete request, including its response body, and
+is bounded to 3,000–60,000 ms. A successful check establishes readiness at that
+moment; a later startup request can still encounter a network timeout. The
+private readiness probe retries transient timeouts, connection resets and
+temporary provider errors up to three times per operation, using the same key
+and bytes. Permission, missing-object and checksum errors fail immediately.
+Deletion must succeed before the probe reports ready. Application uploads are
+not automatically replayed. Permanent failure reports a sanitized storage error
+and startup exits nonzero after cleanup; stopping startup cancels the probe and
+prevents the HTTP listener or worker from starting afterwards.
+
 Uploaded marketplace media now goes to R2. The Render disk is not used for product/KYC/evidence images in production; it remains only for temporary export/privacy artifacts. The v2.13.51 development path is also R2-first when using `.env.example`; the initial catalogue import uploads its processed product images directly to the configured private R2 bucket.
 
 ## First production bootstrap
