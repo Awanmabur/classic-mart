@@ -22,6 +22,7 @@ import { superAdminAccess } from './super-admin-access.js';
 import { applyCountryCmsApproval } from './country-admin-growth-pages.js';
 import { writeAudit } from './audit.js';
 import { scanMaintenanceBatch } from './maintenance-scan.js';
+import { hasCurrentStrongMfa } from './mfa-assurance.js';
 
 const exportDir=env.exportDir;
 
@@ -220,7 +221,7 @@ export async function applyApproval(approval,decider,{request,beforeApply,dryRun
         if(action==='grant'){
           if(!platformRoles.has(requestedRole))throw new AppError('Requested platform role is invalid.',422,'STAFF_ROLE_INVALID');
           if(!target.emailVerifiedAt||!target.phoneVerifiedAt||!target.onboardingCompletedAt||target.status!=='active')throw new AppError('Staff must complete verified onboarding before activation.',409,'STAFF_VERIFICATION_REQUIRED');
-          if(!target.security?.mfaEnabled)throw new AppError('Staff must enroll MFA before privileged access can be activated.',409,'STAFF_MFA_REQUIRED');
+          if(!await hasCurrentStrongMfa(target,{session}))throw new AppError('Staff must enroll a passkey or authenticator before privileged access can be activated.',409,'STAFF_MFA_REQUIRED');
           if(['seller','business','promoter','delivery'].includes(target.role))throw new AppError('Marketplace operator identities cannot be converted directly into platform staff. Use a dedicated staff account.',409,'STAFF_DEDICATED_ACCOUNT_REQUIRED');
           if(!countries.length)throw new AppError('At least one operational country is required.',422,'STAFF_COUNTRY_REQUIRED');
           const valid=await CountrySetting.countDocuments({code:{$in:countries},active:true}).session(session);if(valid!==countries.length)throw new AppError('One or more operational countries are invalid or inactive.',422,'STAFF_COUNTRY_INVALID');

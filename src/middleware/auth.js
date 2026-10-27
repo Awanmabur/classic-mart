@@ -4,6 +4,8 @@ import { AppError } from '../core/errors.js';
 import { hasPermission } from '../core/roles.js';
 import { env } from '../config/env.js';
 import { mfaRequiredForUser } from '../services/mfa.js';
+import { smsMfaAllowed } from '../services/mfa-policy.js';
+import { hasCurrentStrongSessionMfa } from '../services/mfa-assurance.js';
 import { hydratePlatformAuthorization } from '../services/platform-grants.js';
 import { hydrateBusinessAuthorization } from '../services/business-authorization.js';
 import { hydrateSellerAuthorization } from '../services/seller-authorization.js';
@@ -105,10 +107,12 @@ export function requirePermission(permission) {
 }
 
 
-export function enforcePrivilegedMfaEnrollment(request, response, next) {
+export async function enforcePrivilegedMfaEnrollment(request, response, next) {
+  try {
   if (env.auth.simpleLogin) return next();
   const actor = request.authActor || request.user;
-  if (!actor || !env.security.privilegedMfaRequired || !mfaRequiredForUser(actor, true) || actor.security?.mfaEnabled) return next();
+  const enrolled = smsMfaAllowed(actor) ? actor?.security?.mfaEnabled : await hasCurrentStrongSessionMfa(request, actor);
+  if (!actor || !env.security.privilegedMfaRequired || !mfaRequiredForUser(actor, true) || enrolled) return next();
 
   // MFA is a step-up boundary for privileged operational surfaces, not a global
   // browsing lock. Privileged users may still use the marketplace and their
@@ -122,4 +126,5 @@ export function enforcePrivilegedMfaEnrollment(request, response, next) {
   }
   const nextPath = encodeURIComponent(request.originalUrl || request.url || '/');
   return response.redirect(`/account/security?next=${nextPath}`);
+  } catch (error) { return next(error); }
 }

@@ -120,7 +120,7 @@ export async function applySuperPlanApproval({approval,context,session}){
 export async function decideSuperSubscriptionRequest(request,id,raw){return superAdminTransaction(request,(context,session)=>reviewSellerSubscriptionRequest(request,id,raw,{session,actor:context.actor}),{country:''});}
 export async function actSuperPrivacy(request,id,raw){
   const input=z.object({action:z.enum(['approve','reject','hold','release_hold','retry','release_restriction']),version,reason:z.string().trim().min(3).max(2000)}).parse(raw);
-  const context=await superAdminAccess(request);requireSuperAdminStepUp(request);
+  const context=await superAdminAccess(request);await requireSuperAdminStepUp(request);
   const doc=await PrivacyRequest.findOne({publicId:id});if(!doc)throw new AppError('Privacy request not found.',404,'PRIVACY_REQUEST_NOT_FOUND');checkVersion(doc,input.version);
   if(input.action==='hold'||input.action==='release_hold')return setPrivacyLegalHold(doc,context.actor,{active:input.action==='hold',reason:input.reason,request});
   if(input.action==='reject')return rejectPrivacyRequest(doc,context.actor,input.reason,{request});

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import { encodeCursor } from '../src/services/pagination.js';
+import { fixtureTotpSecurity } from './helpers/mfa-fixtures.js';
 
 const uri = process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI;
 const suffix = crypto.randomBytes(8).toString('hex');
@@ -138,7 +139,7 @@ test('warehouse parcel options batch a complete cursor page without warehouse qu
     await t.test('summary counts cover more than 180 task records and undated tasks are never overdue', async () => {
       const operator = { _id: oid(), publicId: publicId('usr'), name: 'Scoped warehouse counter', role: 'warehouse',
         emailNormalized: `stock-counter-${suffix}@example.test`, phoneNormalized: '+256700000101',
-        status: 'active', country: 'UG', security: { tokenVersion: 0, mfaEnabled: true } };
+        status: 'active', country: 'UG', security: { tokenVersion: 0, ...await fixtureTotpSecurity() } };
       const operatorContext = await scopedActor(operator, 'warehouse');
       const now = Date.now();
       const history = Array.from({ length: 185 }, (_, index) => ({ _id: oid(), publicId: publicId('wtk'),
@@ -161,10 +162,10 @@ test('warehouse parcel options batch a complete cursor page without warehouse qu
     await t.test('pending count reviews remain reachable across pages despite newer closed history and other-country work', async () => {
       const supervisor = { _id: oid(), publicId: publicId('usr'), name: 'Uganda count reviewer', role: 'country_admin',
         emailNormalized: `count-reviewer-${suffix}@example.test`, phoneNormalized: '+256700000102',
-        status: 'active', country: 'UG', security: { tokenVersion: 0, mfaEnabled: true } };
+        status: 'active', country: 'UG', security: { tokenVersion: 0, ...await fixtureTotpSecurity() } };
       const counter = { _id: oid(), publicId: publicId('usr'), name: 'Independent stock counter', role: 'warehouse',
         emailNormalized: `independent-counter-${suffix}@example.test`, phoneNormalized: '+256700000103',
-        status: 'active', country: 'UG', security: { tokenVersion: 0, mfaEnabled: true } };
+        status: 'active', country: 'UG', security: { tokenVersion: 0, ...await fixtureTotpSecurity() } };
       const foreignWarehouse = { _id: oid(), publicId: publicId('wh'), storeId: oid(), country: 'KE', active: true,
         name: 'Private Kenya count warehouse' };
       const supervisorContext = await scopedActor(supervisor, 'country_admin');

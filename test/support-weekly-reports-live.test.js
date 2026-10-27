@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
+import { fixtureTotpSecurity } from './helpers/mfa-fixtures.js';
 
 process.env.NODE_ENV = 'test';
 process.env.SIMPLE_LOGIN = 'false';
@@ -39,7 +40,7 @@ test('Support weekly jobs persist real reports, progress fairly and recheck deli
       const index = ++sequence, email = `support-weekly-${suffix}-${index}@example.com`, phone = '+25670' + String(index).padStart(7, '0');
       const user = await User.create({ publicId: `usr_sw_${suffix}_${index}`, name: `Support weekly ${index}`, email, emailNormalized: email, phone, phoneNormalized: phone,
         passwordHash: 'not-used-by-background-fixture', role: managed ? 'customer' : 'support', country, operationalCountries: scope, currency: 'UGX',
-        emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(), platformAccessManagedAt: managed ? new Date() : undefined, security: { mfaEnabled: true },
+        emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(), platformAccessManagedAt: managed ? new Date() : undefined, security: await fixtureTotpSecurity(),
         preferences: { supportWeeklyReport: enabled, supportDefaultCountry: defaultCountry }, consents: { terms: true, privacy: true, recordedAt: new Date() } });
       const grant = managed ? await PlatformGrant.create({ publicId: `pgr_sw_${suffix}_${index}`, userId: user._id, role: 'support', operationalCountries: scope, status: 'active',
         startsAt: new Date(Date.now() - 86400_000), expiresAt: new Date(Date.now() + 7 * 86400_000), reason: 'Weekly scoped report fixture', approvalPublicId: `apr_sw_${suffix}_${index}`, approvedByUserId: new mongoose.Types.ObjectId() }) : null;

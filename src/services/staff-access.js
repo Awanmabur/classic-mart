@@ -12,6 +12,8 @@ import { currentCustomerAccess } from './customer-access.js';
 import { operationalCountriesFor } from './authorization.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
 import { writeAudit } from './audit.js';
+import { strongMfaFence } from './mfa-policy.js';
+import { hasCurrentStrongMfa, hasCurrentStrongSessionMfa } from './mfa-assurance.js';
 
 const INVITE_TTL_MS = 72 * 60 * 60 * 1000;
 const inputSchema = z.object({
@@ -71,14 +73,18 @@ async function ownedInvitation(request, token, session) {
 }
 export async function platformStaffInvitationPreview(request, token) {
   const { actor, invitation } = await ownedInvitation(request, token, null);
+  const strongMfa = await hasCurrentStrongMfa(actor);
   return { id:invitation.publicId,emailMasked:invitation.emailMasked,role:invitation.role,operationalCountries:invitation.operationalCountries,warehouseScopes:invitation.warehouseScopes||[],grantDurationDays:invitation.grantDurationDays,expiresAt:invitation.expiresAt,
-    ready:Boolean(actor.emailVerifiedAt&&actor.phoneVerifiedAt&&actor.security.mfaEnabled),emailVerified:Boolean(actor.emailVerifiedAt),phoneVerified:Boolean(actor.phoneVerifiedAt),mfaEnabled:Boolean(actor.security.mfaEnabled) };
+    ready:Boolean(actor.emailVerifiedAt&&actor.phoneVerifiedAt&&strongMfa),emailVerified:Boolean(actor.emailVerifiedAt),phoneVerified:Boolean(actor.phoneVerifiedAt),mfaEnabled:strongMfa };
 }
 export async function acceptPlatformStaffInvitation(request, token) {
   return transaction(async session => {
     const { actor, invitation } = await ownedInvitation(request, token, session);
     if (!actor.emailVerifiedAt || !actor.phoneVerifiedAt || !actor.onboardingCompletedAt) throw new AppError('Complete verified staff identity first.',409,'STAFF_VERIFICATION_REQUIRED');
-    if (!actor.security.mfaEnabled) throw new AppError('Enroll MFA before accepting privileged staff access.',409,'STAFF_MFA_REQUIRED');
+    if (!await hasCurrentStrongSessionMfa(request, actor, { session })) throw new AppError('Enroll and verify a passkey or authenticator before accepting privileged staff access.',409,'STAFF_MFA_REQUIRED');
+    const factorFence = await User.updateOne({ _id: actor._id, status: 'active', 'security.tokenVersion': actor.security.tokenVersion,
+      $and: [strongMfaFence()] }, { $inc: { __v: 1 } }, { session });
+    if (factorFence.modifiedCount !== 1) throw new AppError('Your staff MFA changed. Reload before continuing.',409,'STAFF_MFA_REQUIRED');
     if (['seller','business','promoter','delivery','super_admin'].includes(actor.role)) throw new AppError('Use a dedicated staff account.',409,'STAFF_DEDICATED_ACCOUNT_REQUIRED');
     const inviter = await User.findById(invitation.invitedByUserId).select('+operationalCountries').session(session);
     if (!inviter || String(inviter._id) === String(actor._id)) throw new AppError('The inviting administrator is unavailable.',403,'STAFF_INVITER_INACTIVE');

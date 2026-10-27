@@ -16,6 +16,8 @@ import { addOutboxEvent } from './outbox.js';
 import { customerNotificationEnabled, SELLER_FULFILMENT_EMAIL_SUBJECT } from './customer-notification-policy.js';
 import { queueWebhookEvent } from './stage11.js';
 import { currentRequestDevice } from './country-admin-workspace-access.js';
+import { strongMfaFence } from './mfa-policy.js';
+import { hasCurrentStrongSessionMfa } from './mfa-assurance.js';
 
 const ROLES = ['warehouse', 'country_admin', 'super_admin'];
 const same = (left, right) => String(left || '') === String(right || '');
@@ -47,7 +49,7 @@ function version(value) {
 export async function assertWarehouseAccess(request, { mutation = false, session = null } = {}) {
   if (!request.user?._id) throw new AppError('Sign in to access warehouse operations.', 401, 'UNAUTHENTICATED');
   const actor = await User.findById(request.user._id)
-    .select('publicId name role status country emailVerifiedAt phoneVerifiedAt onboardingCompletedAt platformAccessManagedAt security.tokenVersion security.mfaEnabled __v +operationalCountries').session(session);
+    .select('publicId name role status country emailVerifiedAt phoneVerifiedAt onboardingCompletedAt platformAccessManagedAt security.tokenVersion security.mfaEnabled security.mfaMethods __v +operationalCountries').session(session);
   if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user.security?.tokenVersion ||
     (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)) {
     throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
@@ -66,8 +68,8 @@ export async function assertWarehouseAccess(request, { mutation = false, session
     if(grant)actor.operationalCountries=[...grant.operationalCountries];
   }
   if (!ROLES.includes(actor.role) && !hasPermission(actor, 'warehouse:manage')) throw new AppError('Warehouse operations access is required.', 403, 'WAREHOUSE_PERMISSION_DENIED');
-  if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) {
-    throw new AppError('Enable multi-factor authentication before using warehouse operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
+  if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !await hasCurrentStrongSessionMfa(request, actor, { session })) {
+    throw new AppError('Enable a passkey or authenticator before using warehouse operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
   }
   if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) throw new AppError('Complete verification and onboarding before using warehouse operations.', 403, 'ACCOUNT_UNAVAILABLE');
   const warehouseScopes = grant?.warehouseScopes?.length ? [...grant.warehouseScopes] : warehouseScopesFor(actor);
@@ -77,7 +79,8 @@ export async function assertWarehouseAccess(request, { mutation = false, session
   const scope = { active: true, country: { $in: countries.map(row => row.code) }, ...(warehouseScopes.length ? { publicId: { $in: warehouseScopes } } : {}) };
   if (mutation) {
     if (!session) throw new AppError('Warehouse writes require a transaction.', 500, 'WAREHOUSE_TRANSACTION_REQUIRED');
-    const accountFence = await User.updateOne({ _id: actor._id, __v: actor.__v || 0, status: 'active', role: storedRole, 'security.tokenVersion': actor.security.tokenVersion },
+    const accountFence = await User.updateOne({ _id: actor._id, __v: actor.__v || 0, status: 'active', role: storedRole, 'security.tokenVersion': actor.security.tokenVersion,
+      ...(!env.auth.simpleLogin && env.security.privilegedMfaRequired ? { $and: [strongMfaFence()] } : {}) },
       { $inc: { __v: 1 } }, { session });
     if (accountFence.matchedCount !== 1) throw new AppError('Your access changed. Reload before continuing.', 403, 'ACCOUNT_UNAVAILABLE');
     if (grant) {

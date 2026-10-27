@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { strongMfaFence } from './mfa-policy.js';
+import { hasCurrentStrongSessionMfa } from './mfa-assurance.js';
 import { AppError } from '../core/errors.js';
 import { hasPermission } from '../core/roles.js';
 import { env } from '../config/env.js';
@@ -48,7 +50,7 @@ export async function moderationAccess(request, { session = null, write = false,
   if (workspace && primaryWorkspaceFor(actor) !== 'moderator') throw new AppError('A Moderation account is required for this workspace.', 403, 'MODERATION_WORKSPACE_FORBIDDEN');
   if (!env.auth.simpleLogin) {
     if (!actor.emailVerifiedAt || !actor.onboardingCompletedAt) throw new AppError('Complete identity verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');
-    if (env.security.privilegedMfaRequired && !actor.security.mfaEnabled) throw new AppError('Authenticator enrollment is required for Moderation operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
+    if (env.security.privilegedMfaRequired && !await hasCurrentStrongSessionMfa(request, actor, { session })) throw new AppError('Use a passkey or authenticator before accessing Moderation operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
   }
   const scopes = grant ? [...grant.operationalCountries] : actor.role === 'super_admin' ? ['*']
     : [...new Set((actor.operationalCountries?.length ? actor.operationalCountries : [actor.country]).map(value => String(value).toUpperCase()))];
@@ -77,7 +79,8 @@ export async function fenceModerationAccess(context, session, { allMarkets = fal
   if (!session?.inTransaction()) throw new AppError('Moderation changes require a transaction.', 500, 'MODERATION_TRANSACTION_REQUIRED');
   const { actor, storedRole, grant, device, countries, country } = context;
   const result = await User.updateOne({ _id: actor._id, role: storedRole, status: 'active', __v: context.actorVersion,
-    'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
+    'security.tokenVersion': actor.security.tokenVersion,
+    ...(!env.auth.simpleLogin && env.security.privilegedMfaRequired ? { $and: [strongMfaFence()] } : {}) }, { $inc: { __v: 1 } }, { session });
   if (result.modifiedCount !== 1) throw changed();
   context.actorVersion += 1; actor.__v = context.actorVersion;
   if (device) {

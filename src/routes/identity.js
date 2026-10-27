@@ -8,7 +8,7 @@ import { hydrateBusinessAuthorization } from '../services/business-authorization
 import { env } from '../config/env.js';
 import rateLimit from '../middleware/rate-limit.js';
 import { asyncHandler, AppError } from '../core/errors.js';
-import { randomToken } from '../core/crypto.js';
+import { hashToken, hashValue, normalizePhone, randomToken } from '../core/crypto.js';
 import { canonicalPhone } from '../core/phone.js';
 import { Device, Order, User } from '../models/index.js';
 import {
@@ -36,8 +36,11 @@ import { setFlash } from '../middleware/view.js';
 import { getCountries } from '../services/country.js';
 import { acceptReferralCode } from '../services/stage9.js';
 import { verifyMfa } from '../services/mfa.js';
+import { beginPasskeyAuthentication, currentLoginMfaActor, maskedMfaPhone, sendLoginSmsMfa, verifyLoginSmsMfa, verifyPasskeyAuthentication } from '../services/mfa-methods.js';
+import { enabledMfaMethods } from '../services/mfa-policy.js';
 import { writeSecurityEvent } from '../services/security.js';
 import { acceptPlatformStaffInvitation, platformStaffInvitationPreview } from '../services/staff-access.js';
+import { customerTransaction } from '../services/customer-access.js';
 
 const router = Router();
 router.use(noStore);
@@ -103,12 +106,12 @@ async function beginMfaChallenge(request, user, remember, nextPath) {
   if (continuity.catalogueKey) request.session.catalogueKey = continuity.catalogueKey;
   if (continuity.promoterTouchId) request.session.promoterTouchId = continuity.promoterTouchId;
   if (continuity.promoterTouchSessionKey) request.session.promoterTouchSessionKey = continuity.promoterTouchSessionKey;
-  request.session.mfaChallenge = { userId: user._id.toString(), remember: Boolean(remember), next: safeNext(nextPath), issuedAt: Date.now() };
+  request.session.mfaChallenge = { userId: user._id.toString(), tokenVersion: user.security.tokenVersion, remember: Boolean(remember), next: safeNext(nextPath), issuedAt: Date.now() };
   request.session.cookie.maxAge = 10 * 60_000;
   await saveSession(request);
 }
 
-async function establishSession(request, user, remember) {
+async function establishSession(request, user, remember, { deferSave = false } = {}) {
   // Session regeneration prevents fixation, but explicitly preserve only
   // non-authentication shopping continuity needed to merge a guest journey.
   const continuity = {
@@ -136,7 +139,7 @@ async function establishSession(request, user, remember) {
         )
       : Promise.resolve(),
   ]);
-  await saveSession(request);
+  if (!deferSave) await saveSession(request);
 }
 
 router.get('/login', (request, response) => {
@@ -192,45 +195,110 @@ router.post(
 
 
 
+const loginMfaJson = request => request.accepts(['html', 'json']) === 'json';
+async function renderLoginMfa(request, response, pageError = null, recovery = false, status = 200) {
+  let actor;
+  try { actor = await currentLoginMfaActor(request); }
+  catch (error) { if (!(error instanceof AppError)) throw error; delete request.session.mfaChallenge; return response.redirect('/login'); }
+  return response.status(status).render('mfa', { pageError, recovery,
+    mfaMethods: enabledMfaMethods(actor), mfaPhone: maskedMfaPhone(actor),
+    smsChallengeId: request.session.mfaLoginSmsChallengeId || '' });
+}
+async function completeLoginMfa(request, response, result) {
+  const challenge = request.session.mfaChallenge;
+  const user = await User.findById(result.user._id).select('+security.mfaSmsPhoneHash');
+  if (!user || user.status !== 'active' || !user.security.mfaEnabled || user.security.tokenVersion !== result.user.security.tokenVersion
+    || !challenge || challenge.tokenVersion !== user.security.tokenVersion) throw new AppError('This account or sign-in request changed. Sign in again.', 403, 'ACCOUNT_UNAVAILABLE');
+  if (result.method === 'sms' && (!user.phoneVerifiedAt || normalizePhone(user.phone) !== normalizePhone(result.user.phone)
+    || user.security.mfaSmsPhoneHash !== hashValue(normalizePhone(user.phone)) || !enabledMfaMethods(user).includes('sms'))) {
+    throw new AppError('Your verified phone changed. Sign in again.', 403, 'MFA_PHONE_CHANGED');
+  }
+  await hydratePlatformAuthorization(user);
+  const nextPath = safeNext(challenge.next), remember = Boolean(challenge.remember);
+  await hydrateBusinessAuthorization({ user, session: request.session });
+  // Required evidence must commit before an authenticated session exists.
+  // Nontransactional writeAudit is deliberately best-effort for other events.
+  await customerTransaction(async session => {
+    const fenced = await User.updateOne({ _id: user._id, status: 'active', __v: user.__v === undefined ? { $exists: false } : user.__v,
+      'security.tokenVersion': user.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
+    if (fenced.modifiedCount !== 1) throw new AppError('This account or sign-in request changed. Sign in again.', 403, 'ACCOUNT_UNAVAILABLE');
+    await writeAudit(request, 'identity.login', { actor: user, targetType: 'user', targetPublicId: user.publicId, metadata: { mfa: result.method }, session });
+  });
+  await writeSecurityEvent(request, 'mfa.challenge_succeeded', { actor: user, category: 'mfa', severity: 'low', result: 'success', metadata: { method: result.method } });
+  delete request.session.mfaChallenge;
+  try {
+    // Persist authentication and factor assurance in a single session save.
+    await establishSession(request, user, remember, { deferSave: true });
+    request.session.mfaVerifiedAt = Date.now();
+    request.session.mfaVerifiedMethod = result.method;
+    request.session.mfaVerifiedStrong = result.strong === true;
+    if (result.method === 'sms') request.session.mfaPhoneHash = user.security.mfaSmsPhoneHash;
+    rememberSellerSignup(request, user, nextPath);
+    await saveSession(request);
+  } catch (error) {
+    // A failed device/session write must not leave an authenticated session
+    // for Express to autosave while rendering the error response.
+    const failedSessionId = request.sessionID;
+    if (request.session) await new Promise(resolve => request.session.destroy(() => resolve()));
+    if (typeof failedSessionId === 'string' && failedSessionId) {
+      await Device.updateMany({ userId: user._id, sessionHash: hashToken(failedSessionId), revokedAt: null },
+        { $set: { revokedAt: new Date(), revokedReason: 'mfa_login_failed' } });
+    }
+    throw error;
+  }
+  const destination = !user.emailVerifiedAt ? '/verify-email' : !user.onboardingCompletedAt ? verifiedDestination(request, user) : loginDestination(user, nextPath);
+  return loginMfaJson(request) ? response.json({ redirect: destination }) : response.redirect(destination);
+}
+async function failLoginMfa(request, response, error, recovery = false) {
+  if (!(error instanceof AppError)) throw error;
+  await writeSecurityEvent(request, 'mfa.challenge_failed', { category: 'mfa', severity: 'medium', result: 'failure', metadata: { code: error.code || 'MFA_FAILED' } });
+  const message = error.message;
+  if (loginMfaJson(request)) return response.status(error.status || 422).json({ error: { code: error.code || 'MFA_FAILED', message } });
+  return renderLoginMfa(request, response, message, recovery, error.status || 422);
+}
+const loginSmsSendLimit = rateLimit({ scope: 'mfa:sms-delivery', windowMs: 15 * 60_000, limit: 5,
+  standardHeaders: 'draft-8', legacyHeaders: false, keyGenerator: request => String(request.session?.mfaChallenge?.userId || 'unavailable') });
+// The pending identity is server-side and survives IP changes. Share this
+// budget across proof methods and new password challenges so neither changing
+// network nor selecting another method can restart the guessing allowance.
+const loginMfaProofLimit = rateLimit({ scope: 'identity:mfa-proof', windowMs: 15 * 60_000, limit: 12,
+  standardHeaders: 'draft-8', legacyHeaders: false,
+  keyGenerator: request => String(request.session?.mfaChallenge?.userId || 'unavailable'),
+  message: 'Too many security verification attempts. Try again later.' });
+
 router.get('/mfa', asyncHandler(async (request, response) => {
   if (request.user) return response.redirect('/');
-  const challenge = request.session?.mfaChallenge;
-  if (!challenge?.userId || !challenge.issuedAt || Date.now() - Number(challenge.issuedAt) > 10 * 60_000) {
-    delete request.session.mfaChallenge;
-    return response.redirect('/login');
-  }
-  const user = await User.findById(challenge.userId).select('publicId email security.mfaEnabled status');
-  if (!user || user.status !== 'active' || !user.security.mfaEnabled) {
-    delete request.session.mfaChallenge;
-    return response.redirect('/login');
-  }
-  return response.render('mfa', { pageError: null, recovery: false });
+  return renderLoginMfa(request, response);
 }));
-
-router.post('/mfa', authenticationLimit, asyncHandler(async (request, response) => {
-  const challenge = request.session?.mfaChallenge;
+router.post('/mfa', authenticationLimit, loginMfaProofLimit, asyncHandler(async (request, response) => {
   try {
-    if (!challenge?.userId || !challenge.issuedAt || Date.now() - Number(challenge.issuedAt) > 10 * 60_000) throw new AppError('The MFA challenge expired. Sign in again.', 401, 'MFA_CHALLENGE_EXPIRED');
-    const result = await verifyMfa(challenge.userId, request.body.code);
-    const user = await User.findById(challenge.userId);
-    if (!user || user.status !== 'active') throw new AppError('This account is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
-    await hydratePlatformAuthorization(user);
-    const nextPath = safeNext(challenge.next);
-    const remember = Boolean(challenge.remember);
-    delete request.session.mfaChallenge;
-    await establishSession(request, user, remember);
-    request.session.mfaVerifiedAt = Date.now();
-    await hydrateBusinessAuthorization({ user, session: request.session });
-    rememberSellerSignup(request, user, nextPath);
-    await writeAudit(request, 'identity.login', { actor: user, targetType: 'user', targetPublicId: user.publicId, metadata: { mfa: result.method } });
-    await writeSecurityEvent(request, 'mfa.challenge_succeeded', { actor: user, category: 'mfa', severity: 'low', result: 'success', metadata: { method: result.method } });
-    if (!user.emailVerifiedAt) return response.redirect('/verify-email');
-    if (!user.onboardingCompletedAt) return response.redirect(verifiedDestination(request, user));
-    return response.redirect(loginDestination(user, nextPath));
-  } catch (error) {
-    await writeSecurityEvent(request, 'mfa.challenge_failed', { category: 'mfa', severity: 'medium', result: 'failure', metadata: { code: error.code || 'MFA_FAILED' } });
-    return response.status(error.status || 422).render('mfa', { pageError: error.message, recovery: true });
-  }
+    const actor = await currentLoginMfaActor(request);
+    const result = await verifyMfa(actor._id, request.body.code);
+    return await completeLoginMfa(request, response, result);
+  } catch (error) { return failLoginMfa(request, response, error, true); }
+}));
+router.post('/mfa/sms/send', authenticationLimit, loginSmsSendLimit, asyncHandler(async (request, response) => {
+  try {
+    const result = await sendLoginSmsMfa(request);
+    request.session.mfaLoginSmsChallengeId = result.challengeId;
+    setFlash(request, 'success', result.developmentCode ? 'Development code prepared. No SMS was sent.' : 'Your security SMS was accepted for sending.', result.developmentCode ? `Development security code: ${result.developmentCode}` : undefined);
+    if (loginMfaJson(request)) return response.json(result);
+    return response.redirect(303, '/mfa');
+  } catch (error) { return failLoginMfa(request, response, error); }
+}));
+router.post('/mfa/sms/verify', authenticationLimit, loginMfaProofLimit, asyncHandler(async (request, response) => {
+  try { return await completeLoginMfa(request, response, await verifyLoginSmsMfa(request,
+    request.body.challengeId || request.session.mfaLoginSmsChallengeId, request.body.code)); }
+  catch (error) { return failLoginMfa(request, response, error); }
+}));
+router.post('/mfa/passkey/options', authenticationLimit, asyncHandler(async (request, response) => {
+  try { return response.json(await beginPasskeyAuthentication(request)); }
+  catch (error) { return failLoginMfa(request, response, error); }
+}));
+router.post('/mfa/passkey/verify', authenticationLimit, loginMfaProofLimit, asyncHandler(async (request, response) => {
+  try { return await completeLoginMfa(request, response,
+    await verifyPasskeyAuthentication(request, request.body.challengeId, request.body.credential)); }
+  catch (error) { return failLoginMfa(request, response, error); }
 }));
 
 router.use('/signup', asyncHandler(async (request, response, next) => {

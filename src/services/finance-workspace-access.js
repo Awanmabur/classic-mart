@@ -6,6 +6,8 @@ import { CountrySetting, Device, PlatformGrant, User } from '../models/index.js'
 import { currentRequestDevice } from './moderation-workspace-access.js';
 import { primaryWorkspaceFor } from '../dashboard/access.js';
 import { countryAdminAccess } from './country-admin-workspace-access.js';
+import { strongMfaFence } from './mfa-policy.js';
+import { hasCurrentStrongSessionMfa } from './mfa-assurance.js';
 
 const scopeError = () => new AppError('This country is outside your current Finance scope.', 403, 'FINANCE_COUNTRY_FORBIDDEN');
 const changed = () => new AppError('Finance access changed. Reload before continuing.', 409, 'FINANCE_ACCESS_CHANGED');
@@ -35,7 +37,7 @@ export async function financeAccess(request, { session = null, write = false, wo
   if (workspace && primaryWorkspaceFor(actor) !== 'finance') throw new AppError('A Finance account is required for this workspace.', 403, 'FINANCE_WORKSPACE_FORBIDDEN');
   if (!env.auth.simpleLogin) {
     if (!actor.emailVerifiedAt || !actor.onboardingCompletedAt) throw new AppError('Complete identity verification and onboarding first.', 403, 'ACCOUNT_UNAVAILABLE');
-    if (env.security.privilegedMfaRequired && !actor.security.mfaEnabled) throw new AppError('Authenticator enrollment is required for Finance operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
+    if (env.security.privilegedMfaRequired && !await hasCurrentStrongSessionMfa(request, actor, { session })) throw new AppError('Use a passkey or authenticator before accessing Finance operations.', 403, 'MFA_ENROLLMENT_REQUIRED');
   }
   const scopes = grant ? [...grant.operationalCountries] : actor.role === 'super_admin' ? ['*']
     : [...new Set((actor.operationalCountries?.length ? actor.operationalCountries : [actor.country]).map(value => String(value).toUpperCase()))];
@@ -64,7 +66,8 @@ export async function fenceFinanceAccess(context, session, { allMarkets = false 
   if (!session?.inTransaction()) throw new AppError('Finance changes require a transaction.', 500, 'FINANCE_TRANSACTION_REQUIRED');
   const { actor, storedRole, grant, device, countries, country } = context;
   const result = await User.updateOne({ _id: actor._id, role: storedRole, status: 'active', __v: context.actorVersion,
-    'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
+    'security.tokenVersion': actor.security.tokenVersion,
+    ...(!env.auth.simpleLogin && env.security.privilegedMfaRequired ? { $and: [strongMfaFence()] } : {}) }, { $inc: { __v: 1 } }, { session });
   if (result.modifiedCount !== 1) throw changed();
   context.actorVersion += 1; actor.__v = context.actorVersion;
   if (device) {

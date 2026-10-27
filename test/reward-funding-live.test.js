@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
+import { fixtureTotpSecurity } from './helpers/mfa-fixtures.js';
 
 const uri = process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI;
 test('funded rewards use actual wallet cash, immutable seller economics and exact confirmed refund accounting', { skip: !uri, timeout: 120_000 }, async t => {
@@ -23,9 +24,10 @@ test('funded rewards use actual wallet cash, immutable seller economics and exac
   const transaction = async work => { const session = await mongoose.startSession(); try { return await session.withTransaction(() => work(session)); } finally { await session.endSession(); } };
   async function actor(role = 'customer') {
     const publicId = id('usr'), email = publicId + '@example.com', phone = '+2567' + crypto.randomInt(10_000_000, 99_999_999);
+    const security = role === 'finance' ? await fixtureTotpSecurity() : { mfaEnabled: false };
     const user = await User.create({ publicId, name: 'Reward ' + role, email, emailNormalized: email, phone, phoneNormalized: phone,
       passwordHash: crypto.randomBytes(32).toString('hex'), role, country: 'UG', currency: 'UGX', emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(),
-      onboardingCompletedAt: new Date(), security: { mfaEnabled: role === 'finance' },
+      onboardingCompletedAt: new Date(), security,
       ...(role === 'finance' ? { platformAccessManagedAt: new Date(), operationalCountries: ['UG', 'KE'] } : {}),
       consents: { terms: true, privacy: true, recordedAt: new Date() } });
     if (role === 'finance') await PlatformGrant.create({ publicId: id('pgr'), userId: user._id, role, operationalCountries: ['UG', 'KE'], status: 'active',

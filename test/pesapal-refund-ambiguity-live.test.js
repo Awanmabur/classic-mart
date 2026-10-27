@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
+import { fixtureTotpSecurity } from './helpers/mfa-fixtures.js';
 
 process.env.NODE_ENV = 'test';
 process.env.SIMPLE_LOGIN = 'false';
@@ -59,7 +60,7 @@ test('uncertain Pesapal refund submissions retain their funds until independent 
     const publicId = id('usr'), email = `${publicId}@example.com`;
     const user = await User.create({ publicId, name: 'Refund Finance', email, emailNormalized: email, phone, phoneNormalized: phone,
       passwordHash: crypto.randomBytes(32).toString('hex'), role: 'finance', country: 'UG', currency: 'UGX', operationalCountries: ['UG'],
-      platformAccessManagedAt: new Date(), emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(), security: { mfaEnabled: true },
+      platformAccessManagedAt: new Date(), emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(), security: await fixtureTotpSecurity(),
       consents: { terms: true, privacy: true, recordedAt: new Date() } });
     await PlatformGrant.create({ publicId: id('pgr'), userId: user._id, role: 'finance', operationalCountries: ['UG'], status: 'active',
       startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000), reason: 'Isolated refund regression grant',

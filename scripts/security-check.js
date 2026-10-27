@@ -67,6 +67,29 @@ const recoveredIncludes = new Map([
   ['views/partials/super-admin-main.ejs', ["include('super-admin-forms')"]],
   ['views/partials/warehouse-live.ejs', ["include('warehouse-measured-report', { measured: flow.measured })"]],
 ].map(([file, expressions]) => [path.normalize(file), new Set(expressions)]));
+// These static partials render escaped MFA fields or fixed SVG paths. Keep
+// caller and complete argument expressions pinned, as for the includes above.
+for (const [file, expressions] of [
+  ['views/partials/approved-account-security.ejs', ["include('mfa-method-settings', { securityContinuation })"]],
+  ['views/partials/mfa-method-settings.ejs', [
+    "include('mfa-proof-fields', { proofAction: 'revoke-passkey', credentialPublicId: credential.publicId })",
+    "include('mfa-proof-fields', { proofAction: 'remove-sms', credentialPublicId: '' })",
+    "include('mfa-proof-fields', { proofAction: 'step-up', credentialPublicId: '' })",
+    "include('mfa-proof-fields', { proofAction: 'recovery-codes', credentialPublicId: '' })",
+    "include('mfa-proof-fields', { proofAction: 'disable', credentialPublicId: '' })",
+  ]],
+  ...['country-admin-main', 'finance-standard-live', 'moderation-standard-live',
+    'promoter-standard-live', 'seller-orders-live', 'seller-standard-live',
+    'super-admin-main', 'support-standard-live'].map(name => [`views/partials/${name}.ejs`, ["include('record-eye-icon')"]]),
+  ...['customer-live-pages', 'seller-products-live'].map(name => [`views/partials/${name}.ejs`, [
+    "include('record-eye-icon')", "include('record-edit-icon')", "include('record-delete-icon')",
+  ]]),
+]) {
+  const key = path.normalize(file);
+  const allowed = recoveredIncludes.get(key) || new Set();
+  for (const expression of expressions) allowed.add(expression);
+  recoveredIncludes.set(key, allowed);
+}
 for(const file of files){
   const text=fs.readFileSync(file,'utf8');
   if(privateKey.test(text))failures.push(`${file}: committed private key material`);

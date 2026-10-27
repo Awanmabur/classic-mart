@@ -1,5 +1,6 @@
 import { AppError } from '../core/errors.js';
 import { countryAdminAccess, fenceCountryAdminAccess, countryAdminPublicContext } from './country-admin-workspace-access.js';
+import { hasCurrentStrongSessionMfa } from './mfa-assurance.js';
 
 export async function superAdminAccess(request, { session = null, write = false, country } = {}) {
   const context = await countryAdminAccess(request, { session, workspace: false, country: country ?? request.query?.country ?? '' });
@@ -11,7 +12,7 @@ export async function superAdminAccess(request, { session = null, write = false,
   const identityStep = !actor.emailVerifiedAt ? '/verify-email'
     : !actor.onboardingCompletedAt ? '/onboarding'
       : !actor.phoneVerifiedAt ? '/verify-phone'
-        : !actor.security?.mfaEnabled ? '/account/security' : '';
+        : !await hasCurrentStrongSessionMfa(request, actor, { session }) ? '/account/security' : '';
   if (identityStep) {
     // Keep service/API authorization closed. The HTML page gate may guide the
     // already-authorized account to the missing setup step without reading any
@@ -20,7 +21,7 @@ export async function superAdminAccess(request, { session = null, write = false,
   }
   if (request.sessionID !== undefined && !context.device) throw new AppError('Your staff session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
   if (write) {
-    requireSuperAdminStepUp(request);
+    await requireSuperAdminStepUp(request);
     await fenceCountryAdminAccess(context, session);
   }
   return context;
@@ -39,7 +40,7 @@ export async function assertSuperAdminReadAccess(request, original) {
 
 export const superAdminPublicContext = countryAdminPublicContext;
 
-export function requireSuperAdminStepUp(request) {
+export async function requireSuperAdminStepUp(request) {
   const verifiedAt=Number(request.session?.mfaVerifiedAt||0),age=Date.now()-verifiedAt;
-  if(!Number.isFinite(verifiedAt)||age<0||age>15*60_000)throw new AppError('Confirm your password and authenticator in Password & Security before changing platform controls.',403,'MFA_STEP_UP_REQUIRED');
+  if(!await hasCurrentStrongSessionMfa(request)||!Number.isFinite(verifiedAt)||verifiedAt<=0||age<0||age>15*60_000)throw new AppError('Confirm your password and passkey or authenticator in Password & Security before changing platform controls.',403,'MFA_STEP_UP_REQUIRED');
 }

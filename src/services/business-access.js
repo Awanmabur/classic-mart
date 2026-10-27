@@ -3,6 +3,8 @@ import { AppError } from '../core/errors.js';
 import { env } from '../config/env.js';
 import { BusinessMember, BusinessOrganization, CountrySetting, Device, PlatformGrant, User } from '../models/index.js';
 import { currentRequestDevice } from './country-admin-workspace-access.js';
+import { strongMfaFence } from './mfa-policy.js';
+import { hasCurrentStrongSessionMfa } from './mfa-assurance.js';
 
 export const businessSame = (left, right) => String(left?._id ?? left ?? '') === String(right?._id ?? right ?? '');
 export const businessCapabilities = Object.freeze({ owner: ['*'], admin: ['members','budgets','buy','quotes','po','templates'], buyer: ['buy','quotes','templates'], approver: ['quotes','po'], viewer: [] });
@@ -30,7 +32,7 @@ export async function businessActor(value, { session = null } = {}) {
     || (request.session?.tokenVersion !== undefined && actor.security.tokenVersion !== request.session.tokenVersion)) throw unavailable();
   if (await PlatformGrant.exists({ userId: actor._id }).session(session)) throw unavailable();
   if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) throw unavailable();
-  if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security?.mfaEnabled) throw new AppError('Set up an authenticator before using Business purchasing.', 403, 'MFA_ENROLLMENT_REQUIRED');
+  if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !await hasCurrentStrongSessionMfa(request, actor, { session })) throw new AppError('Set up a passkey or authenticator before using Business purchasing.', 403, 'MFA_ENROLLMENT_REQUIRED');
   const device = await currentRequestDevice(request, { userId: actor._id, session });
   return { request, actor, device };
 }
@@ -62,7 +64,8 @@ export async function fenceBusinessRecord(Model, row, session, conditions = {}) 
 }
 export async function fenceBusinessAccess(context, session, { organization = true } = {}) {
   const { actor, device, member, org, market } = context;
-  await fenceBusinessRecord(User, actor, session, { status: 'active', role: actor.role, 'security.tokenVersion': actor.security.tokenVersion });
+  await fenceBusinessRecord(User, actor, session, { status: 'active', role: actor.role, 'security.tokenVersion': actor.security.tokenVersion,
+    ...(!env.auth.simpleLogin && env.security.privilegedMfaRequired ? { $and: [strongMfaFence()] } : {}) });
   if (device) await fenceBusinessRecord(Device, device, session, { userId: actor._id, sessionHash: device.sessionHash, revokedAt: null });
   if (member) await fenceBusinessRecord(BusinessMember, member, session, { status: 'active', role: member.role, acceptedAt: member.acceptedAt });
   if (org && organization) await fenceBusinessRecord(BusinessOrganization, org, session, { status: 'active', country: org.country, currency: org.currency });

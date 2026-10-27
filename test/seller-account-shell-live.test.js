@@ -263,7 +263,9 @@ test('seller personal account pages use the authorized store shell while custome
         .expect(302).expect('location', '/seller/orders');
       const security = await staff.client.get('/account/security').expect(200);
       assertSellerShell(security);
-      assert.match(security.text, /Enabled for this account/);
+      assert.match(security.text, /<span class="status-pill good">Enabled<\/span>/);
+      assert.match(security.text, /Your authenticator app is enabled\./);
+      assert.equal((await User.findById(staff.user._id)).security.mfaEnabled, true);
       assert.doesNotMatch(security.text, /action="\/account\/mfa\/disable"/);
       assert.match(sidebar(security.text), /href="\/seller\/orders"/);
       assert.doesNotMatch(sidebar(security.text), /href="\/seller\/products"|href="\/seller\/store"/);

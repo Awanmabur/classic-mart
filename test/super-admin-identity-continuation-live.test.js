@@ -75,7 +75,9 @@ test('Super Admin setup guides the current global grant to its own missing ident
       assert.equal(denied.body.error.code, 'SUPER_ADMIN_IDENTITY_REQUIRED');
       const security = await client.get(securityPath).expect(200);
       assert.match(security.text, /data-dashboard-workspace="superadmin"/);
-      assert.match(security.text, /Required for privileged operations/);
+      assert.match(security.text, /<span class="status-pill warn">Required<\/span>/);
+      assert.match(security.text, /This operational account requires a passkey or authenticator for protected work\./);
+      assert.doesNotMatch(security.text, /action="\/account\/mfa\/sms\/begin"/);
       assert.doesNotMatch(security.text, /action="\/account\/mfa\/disable"/);
       await client.post('/account/mfa/begin').type('form').send({ _csrf: csrf(security.text), currentPassword: password, next: destination })
         .expect(302).expect('location', securityPath);

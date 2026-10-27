@@ -360,6 +360,10 @@ export async function resetPassword(publicIdValue, code, password) {
   user.passwordHash = await hashPassword(password);
   user.security.passwordChangedAt = new Date();
   user.security.tokenVersion += 1;
+  // Setup material authorized by the previous password must not survive its
+  // replacement. Mark the private, normally unselected field for an unset.
+  user.security.mfaPendingSecretEncrypted = undefined;
+  user.markModified('security.mfaPendingSecretEncrypted');
   user.security.failedLoginCount = 0;
   user.security.lockedUntil = undefined;
   await user.save();
@@ -383,6 +387,8 @@ export async function changePassword(userId, currentPassword, newPassword) {
   user.passwordHash = await hashPassword(newPassword);
   user.security.passwordChangedAt = new Date();
   user.security.tokenVersion += 1;
+  user.security.mfaPendingSecretEncrypted = undefined;
+  user.markModified('security.mfaPendingSecretEncrypted');
   await user.save();
   return user;
 }

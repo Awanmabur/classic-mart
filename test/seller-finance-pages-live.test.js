@@ -35,7 +35,7 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
   const models = await import('../src/models/index.js');
   const { User, Store, StoreMember, CountrySetting, PayoutAccount, Payout, Refund, SellerOrder, Order, PaymentIntent, Device, PlatformGrant, SubscriptionPlan, SubscriptionChangeRequest, SubscriptionCharge, SubscriptionEnrollment } = models;
   const { hashPassword, hashToken } = await import('../src/core/crypto.js');
-  const { beginMfaEnrollment, confirmMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
+  const { beginMfaEnrollment, confirmMfaEnrollment, pendingMfaEnrollment, totpCode } = await import('../src/services/mfa.js');
   const { ensureLedgerAccount, postLedgerTransaction } = await import('../src/services/money.js');
   const { requestPayout } = await import('../src/services/payments.js');
   const { loadSellerFinancePage, createSellerPayoutDestination, requestSellerPayout } = await import('../src/services/seller-finance-pages.js');
@@ -281,7 +281,23 @@ test('seller finance pages enforce identity, store scope, truthful ledger balanc
         await assert.rejects(requestSellerPayout(scoped(actor, store), { payoutAccountId: ownedAccount.publicId,
           amount: '10', idempotencyKey: `direct-no-mfa-${actor.user.publicId}` }), error => error.code === (actor === promoter ? 'SELLER_IDENTITY_FORBIDDEN' : 'MFA_ENROLLMENT_REQUIRED'));
       }
-      const promoterSecurity = await promoter.client.get('/account/security').expect(200), promoterToken = csrf(promoterSecurity.text);
+      const promoterSecurity = await promoter.client.get('/account/security').expect(200);
+      let promoterToken = csrf(promoterSecurity.text);
+      const deniedPersonal = await promoter.client.post('/api/v1/payout-accounts').set('x-csrf-token', promoterToken)
+        .send({ ...apiDestination, label: 'Personal promoter destination' }).expect(403);
+      assert.equal(deniedPersonal.body.error.code, 'MFA_STRONG_REQUIRED');
+      const deniedPayout = await promoter.client.post('/api/v1/payouts').set('x-csrf-token', promoterToken).send({ payoutAccountId: ownedAccount.publicId,
+        amountMinor: 10, idempotencyKey: `promoter-api-no-mfa-${suffix}` }).expect(403);
+      assert.equal(deniedPayout.body.error.code, 'MFA_STRONG_REQUIRED');
+      assert.equal(await PayoutAccount.countDocuments({ ownerUserId: promoter.user._id }), 0);
+      // Strong verification enables personal financial changes, while the
+      // unrelated store destination must still remain outside this identity.
+      await promoter.client.post('/account/mfa/begin').type('form').send({ currentPassword: password, _csrf: promoterToken }).expect(302);
+      const pending = await pendingMfaEnrollment(promoter.user._id);
+      const setup = await promoter.client.get('/account/security').expect(200);
+      await promoter.client.post('/account/mfa/confirm').type('form').send({ code: totpCode(pending.secret), _csrf: csrf(setup.text) }).expect(302);
+      promoter.user = await User.findById(promoter.user._id);
+      promoterToken = csrf((await promoter.client.get('/account/security').expect(200)).text);
       await promoter.client.post('/api/v1/payouts').set('x-csrf-token', promoterToken).send({ payoutAccountId: ownedAccount.publicId,
         amountMinor: 10, idempotencyKey: `promoter-api-no-mfa-${suffix}` }).expect(409);
       const personal = await promoter.client.post('/api/v1/payout-accounts').set('x-csrf-token', promoterToken).send({ ...apiDestination, label: 'Personal promoter destination' }).expect(201);

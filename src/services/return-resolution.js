@@ -53,7 +53,7 @@ async function refundSource(row, order, session) {
 export async function proposeReturnRefund(request, returnId, raw) {
   const input = z.object({ version, reason: z.string().trim().min(20).max(1000) }).parse(raw);
   return transaction(async session => {
-    assertAftersalesMfa(request);
+    await assertAftersalesMfa(request);
     const scopedRequest = Object.assign(Object.create(request), { requiredOperationalWorkspace: 'support' });
     const context = await supportAccess(scopedRequest, { session, country: '' });
     const row = await ReturnRequest.findOne(mongoose.trusted({ $and: [context.countryScope, { publicId: id.parse(returnId) }] })).session(session);

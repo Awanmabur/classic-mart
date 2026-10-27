@@ -1,3 +1,4 @@
+import { strongMfaFence } from './mfa-policy.js';
 import mongoose from 'mongoose';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
@@ -329,7 +330,7 @@ async function queueReviewModerationAlert(country, session) {
   const now = new Date();
   const recipients = await User.aggregate([
     { $match: { status: 'active', emailVerifiedAt: { $type: 'date' }, onboardingCompletedAt: { $type: 'date' },
-      ...(env.security.privilegedMfaRequired ? { 'security.mfaEnabled': true } : {}),
+      ...(env.security.privilegedMfaRequired ? { $and: [strongMfaFence()] } : {}),
       $or: [{ role: { $in: ['moderator', 'country_admin', 'super_admin'] } }, { platformAccessManagedAt: { $type: 'date' } }] } },
     { $lookup: { from: PlatformGrant.collection.name, localField: '_id', foreignField: 'userId', as: 'currentGrants', pipeline: [
       { $match: { status: 'active', startsAt: { $lte: now }, expiresAt: { $gt: now } } }, { $project: { role: 1, operationalCountries: 1 } }] } },

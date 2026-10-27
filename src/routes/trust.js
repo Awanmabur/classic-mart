@@ -36,6 +36,8 @@ import { setFlash } from '../middleware/view.js';
 import { assertOperationalCountry, operationalCountriesFor } from '../services/authorization.js';
 import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
 import { writeAudit } from '../services/audit.js';
+import { smsMfaAllowed } from '../services/mfa-policy.js';
+import { hasCurrentStrongSessionMfa } from '../services/mfa-assurance.js';
 
 const router=Router();
 router.use(['/api/v1/returns','/api/v1/disputes','/api/v1/trust','/api/v1/reviews','/account/trust-cases','/api/v1/support/tickets','/api/v1/finance/returns','/account/returns','/account/support','/account/disputes','/evidence'],(_req,res,next)=>{res.set({'Cache-Control':'private, no-store','X-Robots-Tag':'noindex, nofollow, noarchive'});next();});
@@ -187,10 +189,15 @@ router.get('/evidence/:id',requireAuth,requireVerified,async(req,res,next)=>{try
     assertOperationalCountry(actor,evidence.country);
     permitted=Boolean(await CountrySetting.exists({code:evidence.country,active:true}));staff=permitted;
   }
-  if(staff&&!env.auth.simpleLogin&&env.security.privilegedMfaRequired&&!actor.security.mfaEnabled)throw new AppError('Authenticator enrollment is required for private operational evidence.',403,'MFA_ENROLLMENT_REQUIRED');
+  if(staff&&!env.auth.simpleLogin&&env.security.privilegedMfaRequired
+    &&!(smsMfaAllowed(actor)?actor.security.mfaEnabled:await hasCurrentStrongSessionMfa(currentRequest,actor)))throw new AppError('An eligible multi-factor method is required for private operational evidence.',403,'MFA_ENROLLMENT_REQUIRED');
   if(!permitted)throw new AppError('Evidence access denied.',403,'FORBIDDEN');
-  const fresh=await User.findById(actor._id).select('status security.tokenVersion security.mfaEnabled').lean();
-  if(fresh?.status!=='active'||fresh.security.tokenVersion!==actor.security.tokenVersion||staff&&!env.auth.simpleLogin&&env.security.privilegedMfaRequired&&!fresh.security.mfaEnabled)throw new AppError('Evidence access changed. Reload before continuing.',403,'ACCOUNT_UNAVAILABLE');
+  const fresh=await User.findById(actor._id).select('status role platformAccessManagedAt security.tokenVersion security.mfaEnabled +operationalCountries').lean();
+  if(fresh)await hydratePlatformAuthorization(fresh);
+  if(fresh?.status!=='active'||fresh.security.tokenVersion!==actor.security.tokenVersion||fresh.role!==actor.role
+    ||staff&&!env.auth.simpleLogin&&env.security.privilegedMfaRequired
+      &&!(smsMfaAllowed(fresh)?fresh.security.mfaEnabled:await hasCurrentStrongSessionMfa(currentRequest,fresh,{fresh:true})))throw new AppError('Evidence access changed. Reload before continuing.',403,'ACCOUNT_UNAVAILABLE');
+  if(staff&&!smsMfaAllowed(fresh))assertOperationalCountry(fresh,evidence.country);
   await sendStoredMedia(res,evidence.storageKey,{cacheControl:'private, no-store',contentType:'image/webp',contentDisposition:'inline'});
 }catch(e){next(e);}});
 

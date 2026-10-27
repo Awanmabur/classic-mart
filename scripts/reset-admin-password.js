@@ -42,6 +42,8 @@ async function resetAdminPassword() {
       user.security.tokenVersion = Number(user.security.tokenVersion || 0) + 1;
       user.security.failedLoginCount = 0;
       user.security.lockedUntil = undefined;
+      user.security.mfaPendingSecretEncrypted = undefined;
+      user.markModified('security.mfaPendingSecretEncrypted');
       await user.save({ session });
 
       await Device.updateMany(

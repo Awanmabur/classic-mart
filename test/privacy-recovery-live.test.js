@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createServer } from 'node:http';
 import mongoose from 'mongoose';
 import request from 'supertest';
+import { fixtureTotpSecurity } from './helpers/mfa-fixtures.js';
 
 process.env.NODE_ENV = 'test';
 process.env.SIMPLE_LOGIN = 'false';
@@ -57,7 +58,8 @@ test('verified privacy requests enforce real restrictions, obligation checks and
     await CountrySetting.create([{ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256' }, { code: 'KE', name: 'Kenya', currency: 'KES', locale: 'en-KE', timeZone: 'Africa/Nairobi', phonePrefix: '+254' }]);
     async function identity(role = 'customer', country = 'UG') {
       const email = `${id('email')}@example.com`, phone = '+25670' + String(++sequence).padStart(7, '0');
-      const user = await User.create({ publicId: id('usr'), name: 'Privacy fixture', email, emailNormalized: email, phone, phoneNormalized: phone, passwordHash, role, status: 'active', country, shoppingCountry: country, currency: country === 'UG' ? 'UGX' : 'KES', operationalCountries: [country], platformAccessManagedAt: role === 'country_admin' ? new Date() : undefined, emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(), onboardingCompletedAt: new Date(), security: { mfaEnabled: role === 'country_admin', tokenVersion: 0 }, consents: { terms: true, privacy: true, marketing: true, recordedAt: new Date() } });
+      const security = role === 'country_admin' ? await fixtureTotpSecurity() : { mfaEnabled: false };
+      const user = await User.create({ publicId: id('usr'), name: 'Privacy fixture', email, emailNormalized: email, phone, phoneNormalized: phone, passwordHash, role, status: 'active', country, shoppingCountry: country, currency: country === 'UG' ? 'UGX' : 'KES', operationalCountries: [country], platformAccessManagedAt: role === 'country_admin' ? new Date() : undefined, emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(), onboardingCompletedAt: new Date(), security: { ...security, tokenVersion: 0 }, consents: { terms: true, privacy: true, marketing: true, recordedAt: new Date() } });
       if (role === 'country_admin') await PlatformGrant.create({ publicId: id('pgr'), userId: user._id, role, operationalCountries: [country], status: 'active', startsAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 86_400_000), reason: 'Privacy review fixture', approvalPublicId: id('apr'), approvedByUserId: new mongoose.Types.ObjectId() });
       const sessionID = crypto.randomUUID(), device = await Device.create({ publicId: id('dev'), userId: user._id, sessionHash: hashToken(sessionID), label: 'Privacy fixture', userAgent: 'Privacy/1', ipHash: 'fixture', lastSeenAt: new Date() });
       const scoped = () => ({ id: id('req'), user, device, sessionID, session: { userId: String(user._id), tokenVersion: user.security.tokenVersion }, country: { code: country }, query: {}, ip: '127.0.0.1', get: () => 'Privacy/1' });

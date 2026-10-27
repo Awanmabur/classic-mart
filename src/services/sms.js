@@ -1,106 +1,179 @@
 import { env } from '../config/env.js';
+import { logger } from '../config/logger.js';
 import { AppError } from '../core/errors.js';
 
 const MAX_RESPONSE_BYTES = 16_384;
 const ACCEPTED_SEND_STATUSES = new Set(['success', 'accepted', 'queued', 'ok']);
+const AUTH_CODES = new Set(['invalid_api_key', 'api_key_required', 'api_key_missing', 'missing_api_key', 'expired_api_key',
+  'revoked_api_key', 'unauthorized', 'unauthorised', 'authentication_failed', 'authentication_error', 'invalid_credentials', 'access_denied', 'forbidden']);
+const CREDIT_CODES = new Set(['insufficient_balance', 'insufficient_credit', 'insufficient_credits', 'insufficient_funds', 'low_balance', 'no_credit', 'no_credits']);
+const SENDER_CODES = new Set(['invalid_sender', 'invalid_sender_id', 'sender_not_approved', 'sender_id_not_approved', 'unapproved_sender', 'sender_required']);
+const RECIPIENT_CODES = new Set(['invalid_phone', 'invalid_phone_number', 'invalid_recipient', 'unsupported_country', 'unsupported_network', 'invalid_msisdn']);
+const RATE_CODES = new Set(['rate_limit', 'rate_limited', 'rate_limit_exceeded', 'too_many_requests', 'throttled']);
 
-export async function sendPhoneVerificationCode({ phone, name, code }) {
-  if (env.sms.mode === 'log') return { delivered: false, developmentCode: code };
-  assertYoolaConfigured();
-  if (typeof phone !== 'string' || phone !== phone.trim() || !/^\+[1-9]\d{7,14}$/.test(phone) ||
-      typeof code !== 'string' || code !== code.trim() || !/^\d{6}$/.test(code)) {
-    throw new AppError('Invalid verification recipient or code.', 400, 'SMS_INVALID_REQUEST');
-  }
-  const result = await yoolaRequest('send', {
-    phone: phone.slice(1),
-    message: `Classic Mart verification code: ${code}. It expires in 10 minutes. Do not share this code.`,
-  });
-  const providerId = result.message_id;
-  if (!ACCEPTED_SEND_STATUSES.has(providerStatus(result)) || typeof providerId !== 'string' ||
-      !providerId.trim() || providerId.length > 200 || /[\u0000-\u001f\u007f]/.test(providerId)) {
-    throw smsFailure();
-  }
-  // API acceptance is not a handset delivery receipt.
-  return { delivered: false, accepted: true, providerId, recipient: phone, name };
-}
-
-function assertYoolaConfigured() {
-  if (env.sms.mode !== 'yoola' || !env.sms.yoolaApiKey) {
-    throw new AppError('Yoola SMS delivery is not configured.', 503, 'SMS_NOT_CONFIGURED');
-  }
-}
-
-function smsFailure(status) {
-  if ([401, 403].includes(status)) return new AppError('Yoola authentication or permissions failed. Check the configured API key.', 502, 'SMS_AUTH_FAILED');
-  if (status === 402) return new AppError('Yoola has insufficient SMS credit. Contact support.', 502, 'SMS_CREDIT_REQUIRED');
-  if (status === 429) return new AppError('SMS sending is temporarily rate limited. Please try again later.', 429, 'SMS_PROVIDER_RATE_LIMITED');
-  return new AppError('SMS provider could not accept the request. Please try again later.', 502, 'SMS_DELIVERY_FAILED');
-}
+const failures = Object.freeze({
+  authentication: ['Yoola authentication or permissions failed. Check the configured API key.', 502, 'SMS_AUTH_FAILED'],
+  credit: ['Yoola has insufficient SMS credit. Contact support.', 502, 'SMS_CREDIT_REQUIRED'],
+  sender: ['Yoola rejected the SMS sender. Contact support to check the approved sender configuration.', 502, 'SMS_SENDER_REJECTED'],
+  recipient: ['The SMS provider rejected this phone number or mobile network. Check the country code and number.', 422, 'SMS_RECIPIENT_REJECTED'],
+  rate_limit: ['SMS sending is temporarily rate limited. Please try again later.', 429, 'SMS_PROVIDER_RATE_LIMITED'],
+  timeout: ['The SMS request timed out. Delivery is uncertain; wait before requesting a new code.', 502, 'SMS_REQUEST_TIMEOUT'],
+  network: ['The SMS service could not be reached. Please try again later.', 502, 'SMS_NETWORK_FAILED'],
+  rejected: ['SMS provider could not accept the request. Please try again later.', 502, 'SMS_DELIVERY_FAILED'],
+  malformed: ['SMS provider returned an unconfirmed response. Wait before requesting a new code.', 502, 'SMS_DELIVERY_FAILED'],
+});
 
 function providerStatus(result) {
-  return typeof result.status === 'string' ? result.status.toLowerCase() : '';
+  return typeof result.status === 'string' ? result.status.trim().toLowerCase() : '';
 }
 
-async function readProviderResponse(response) {
-  if (Number(response.headers.get('content-length')) > MAX_RESPONSE_BYTES) {
-    await response.body?.cancel();
-    throw smsFailure();
+// Interpret only known error categories. Provider text is inspected in memory,
+// never returned, logged, or copied into an AppError/cause.
+function providerFailureReason(result, httpStatus) {
+  if ([401, 403].includes(httpStatus)) return 'authentication';
+  if (httpStatus === 402) return 'credit';
+  if (httpStatus === 429) return 'rate_limit';
+  const fields = [result?.code, result?.error_code, result?.error?.code, result?.status];
+  const codes = fields.filter(value => typeof value === 'string' && value.length <= 100)
+    .map(value => value.trim().toLowerCase().replace(/[\s-]+/g, '_'));
+  for (const [set, reason] of [[CREDIT_CODES, 'credit'], [SENDER_CODES, 'sender'], [RECIPIENT_CODES, 'recipient'],
+    [RATE_CODES, 'rate_limit'], [AUTH_CODES, 'authentication']]) {
+    if (codes.some(code => set.has(code))) return reason;
   }
-  if (!response.body) throw smsFailure();
-  const reader = response.body.getReader();
-  const chunks = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) {
-        await reader.cancel();
-        throw smsFailure();
-      }
-      chunks.push(value);
+  const text = [result?.message, result?.error, result?.error?.message, result?.description]
+    .filter(value => typeof value === 'string').map(value => value.slice(0, 2000).toLowerCase()).join(' ');
+  if (/\b(?:insufficient|not enough|no available)\s+(?:sms\s+)?(?:balance|credits?|funds)\b|\b(?:balance|credits?)\s+(?:is\s+)?(?:insufficient|exhausted|empty|too low)\b/.test(text)) return 'credit';
+  if (/\bsender(?:[ _-]?id)?\b.{0,60}\b(?:invalid|unapproved|not approved|required|not registered|rejected)\b|\b(?:invalid|unapproved)\s+sender\b/.test(text)) return 'sender';
+  if (/\b(?:phone(?: number)?|recipient|msisdn|country|network)\b.{0,60}\b(?:invalid|unsupported|not supported|rejected)\b|\b(?:invalid|unsupported)\s+(?:phone|recipient|msisdn|country|network)\b/.test(text)) return 'recipient';
+  if (/\brate\s*limit(?:ed| exceeded)?\b|\btoo many requests\b/.test(text)) return 'rate_limit';
+  if (/\b(?:api[ _-]?key|credentials?|authentication|authorization|authorisation)\b.{0,60}\b(?:invalid|missing|expired|revoked|incorrect|required|failed|denied)\b|\b(?:invalid|missing|expired|revoked|incorrect)\s+(?:api[ _-]?key|credentials?)\b/.test(text)) return 'authentication';
+  return 'rejected';
+}
+
+export function createSmsService({ configuration = env.sms, fetchImpl = (...args) => fetch(...args), log = logger } = {}) {
+  function failure(reason, operation, httpStatus) {
+    const [message, status, code] = failures[reason] || failures.rejected;
+    // Fixed categories only: no number, key, OTP, provider message or request
+    // body enters diagnostics. The error has no raw transport/provider cause.
+    const details = { provider: 'yoola', operation, reason,
+      ...(Number.isInteger(httpStatus) ? { httpStatus } : {}) };
+    log.warn({ ...details, errorCode: code }, 'SMS provider request failed');
+    return new AppError(message, status, code, details);
+  }
+
+  function assertYoolaConfigured() {
+    if (configuration.mode !== 'yoola' || !configuration.yoolaApiKey) {
+      throw new AppError('Yoola SMS delivery is not configured.', 503, 'SMS_NOT_CONFIGURED');
     }
-  } finally {
-    reader.releaseLock();
+    if (configuration.yoolaSenderId && !/^[A-Za-z0-9]{1,11}$/.test(configuration.yoolaSenderId)) {
+      throw new AppError('The configured Yoola sender must use 1–11 letters or numbers.', 503, 'SMS_SENDER_NOT_CONFIGURED');
+    }
   }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-  const result = JSON.parse(new TextDecoder().decode(bytes));
-  if (!result || typeof result !== 'object' || Array.isArray(result) || result.error || result.success === false) throw smsFailure();
-  return result;
-}
 
-// Matches this owner's existing Yoola integration, not an independently verified
-// provider specification: Awanmabur/chariot-sms-test, commit e694237edf03c2445c722f1f4b3bf5801a2740d2.
-// Fixed endpoints prevent credential forwarding. Never retry billed sends: a
-// timeout or malformed response can follow provider acceptance.
-async function yoolaRequest(endpoint, body = {}) {
-  assertYoolaConfigured();
-  if (!['send', 'balance'].includes(endpoint)) throw smsFailure();
-  try {
-    const response = await fetch(`https://yoolasms.com/api/v1/${endpoint}`, {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: env.sms.yoolaApiKey, ...body }),
-      redirect: 'error',
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
+  async function readProviderResponse(response) {
+    if (Number(response.headers.get('content-length')) > MAX_RESPONSE_BYTES) {
       await response.body?.cancel();
-      throw smsFailure(response.status);
+      throw new Error('PROVIDER_RESPONSE_LIMIT');
     }
-    return await readProviderResponse(response);
-  } catch (error) {
-    if (error instanceof AppError) throw error;
-    throw smsFailure();
+    if (!response.body) throw new Error('PROVIDER_RESPONSE_MISSING');
+    const reader = response.body.getReader();
+    const chunks = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_RESPONSE_BYTES) {
+          await reader.cancel();
+          throw new Error('PROVIDER_RESPONSE_LIMIT');
+        }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    const result = JSON.parse(new TextDecoder().decode(bytes));
+    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('PROVIDER_RESPONSE_INVALID');
+    return result;
   }
+
+  // Official examples: https://yoolasms.com/api-integration. JSON api_key is
+  // present in every published code sample. Fixed HTTPS destinations prevent
+  // credential forwarding; no send is retried after ambiguous acceptance.
+  async function yoolaRequest(operation, body = {}) {
+    assertYoolaConfigured();
+    if (!['send', 'balance'].includes(operation)) throw failure('rejected', 'unknown');
+    let httpStatus;
+    try {
+      const response = await fetchImpl(`https://yoolasms.com/api/v1/${operation}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: configuration.yoolaApiKey, ...body }),
+        redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10_000),
+      });
+      httpStatus = response.status;
+      let result;
+      try { result = await readProviderResponse(response); }
+      catch (error) {
+        // Known HTTP failures remain actionable even if the provider sends HTML.
+        const reason = providerFailureReason(null, httpStatus);
+        if (!response.ok && reason !== 'rejected') throw failure(reason, operation, httpStatus);
+        throw error;
+      }
+      if (!response.ok || result.error || result.success === false || !['success', 'accepted', 'queued', 'ok'].includes(providerStatus(result))) {
+        throw failure(providerFailureReason(result, httpStatus), operation, httpStatus);
+      }
+      return result;
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      const code = error?.cause?.code || error?.code;
+      const reason = ['TimeoutError', 'AbortError'].includes(error?.name) || ['ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'].includes(code)
+        ? 'timeout' : ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'UND_ERR_SOCKET'].includes(code)
+          ? 'network' : error instanceof SyntaxError || /^PROVIDER_RESPONSE_/.test(error?.message || '') ? 'malformed' : 'rejected';
+      throw failure(reason, operation, httpStatus);
+    }
+  }
+
+  async function sendCode({ phone, name, code }, message) {
+    if (typeof phone !== 'string' || phone !== phone.trim() || !/^\+[1-9]\d{7,14}$/.test(phone) ||
+        typeof code !== 'string' || code !== code.trim() || !/^\d{6}$/.test(code)) {
+      throw new AppError('Invalid verification recipient or code.', 400, 'SMS_INVALID_REQUEST');
+    }
+    if (configuration.mode === 'log') return { delivered: false, developmentCode: code };
+    const result = await yoolaRequest('send', { phone: phone.slice(1), message,
+      ...(configuration.yoolaSenderId ? { sender: configuration.yoolaSenderId } : {}) });
+    const providerId = result.message_id;
+    if (!ACCEPTED_SEND_STATUSES.has(providerStatus(result)) || typeof providerId !== 'string' ||
+        !providerId.trim() || providerId.length > 200 || /[\u0000-\u001f\u007f]/.test(providerId)) {
+      throw failure('malformed', 'send', 200);
+    }
+    // API acceptance is not a handset delivery receipt or successful MFA.
+    return { delivered: false, accepted: true, providerId, recipient: phone, name };
+  }
+
+  return Object.freeze({
+    sendPhoneVerificationCode(input) {
+      return sendCode(input, `Classic Mart verification code: ${input.code}. It expires in 10 minutes. Do not share this code.`);
+    },
+    sendMfaVerificationCode(input) {
+      const expires = input.expiresInMinutes ?? 5;
+      if (!Number.isInteger(expires) || expires < 1 || expires > 10) {
+        return Promise.reject(new AppError('Invalid security-code expiry.', 400, 'SMS_INVALID_REQUEST'));
+      }
+      return sendCode(input, `Classic Mart sign-in/security code: ${input.code}. It expires in ${expires} minutes. Do not share this code.`);
+    },
+    async verifySmsConfiguration() {
+      const result = await yoolaRequest('balance');
+      if (!['success', 'ok'].includes(providerStatus(result))) throw failure('rejected', 'balance', 200);
+      // The public reference does not establish a balance value/unit schema.
+      return { authenticated: true, creditAvailable: null };
+    },
+  });
 }
 
-export async function verifySmsConfiguration() {
-  const result = await yoolaRequest('balance');
-  if (!['success', 'ok'].includes(providerStatus(result))) throw smsFailure();
-  // The reference integration does not establish a balance value/unit schema.
-  return { authenticated: true, creditAvailable: null };
-}
+const sms = createSmsService();
+export const sendPhoneVerificationCode = input => sms.sendPhoneVerificationCode(input);
+export const sendMfaVerificationCode = input => sms.sendMfaVerificationCode(input);
+export const verifySmsConfiguration = () => sms.verifySmsConfiguration();

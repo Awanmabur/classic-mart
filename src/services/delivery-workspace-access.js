@@ -2,6 +2,8 @@ import { AppError } from '../core/errors.js';
 import { env } from '../config/env.js';
 import { CountrySetting, DeliveryProfile, Device, User } from '../models/index.js';
 import { currentRequestDevice } from './country-admin-workspace-access.js';
+import { strongMfaFence } from './mfa-policy.js';
+import { hasCurrentStrongSessionMfa } from './mfa-assurance.js';
 
 const unavailable = () => new AppError('Your delivery account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
 
@@ -14,8 +16,8 @@ export async function deliveryAccess(request, { session = null, write = false, a
     (request.session?.tokenVersion !== undefined && actor.security.tokenVersion !== request.session.tokenVersion)) throw unavailable();
   const device = await currentRequestDevice(request, { userId: actor._id, session });
   if (!env.auth.simpleLogin && (!actor.emailVerifiedAt || !actor.onboardingCompletedAt)) throw unavailable();
-  if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) {
-    throw new AppError('Enable an authenticator before managing delivery custody or earnings.', 403, 'MFA_ENROLLMENT_REQUIRED');
+  if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !await hasCurrentStrongSessionMfa(request, actor, { session })) {
+    throw new AppError('Enable a passkey or authenticator before managing delivery custody or earnings.', 403, 'MFA_ENROLLMENT_REQUIRED');
   }
   const market = await CountrySetting.findOne({ code: actor.country, active: true, currency: actor.currency }).session(session).lean();
   if (!market?.timeZone || !market?.currency) throw new AppError('Your delivery market is unavailable.', 409, 'DELIVERY_MARKET_UNAVAILABLE');
@@ -30,7 +32,8 @@ export async function deliveryAccess(request, { session = null, write = false, a
 export async function fenceDeliveryAccess({ actor, device, market, profile }, session) {
   if (!session?.inTransaction()) throw new AppError('Delivery changes require a transaction.', 500, 'DELIVERY_TRANSACTION_REQUIRED');
   const result = await User.updateOne({ _id: actor._id, __v: actor.__v || 0, status: 'active', role: 'delivery',
-    country: market.code, currency: market.currency, 'security.tokenVersion': actor.security.tokenVersion }, { $inc: { __v: 1 } }, { session });
+    country: market.code, currency: market.currency, 'security.tokenVersion': actor.security.tokenVersion,
+    ...(!env.auth.simpleLogin && env.security.privilegedMfaRequired ? { $and: [strongMfaFence()] } : {}) }, { $inc: { __v: 1 } }, { session });
   if (result.modifiedCount !== 1) throw unavailable();
   if (device) {
     const fenced = await Device.updateOne({ _id: device._id, userId: actor._id, revokedAt: null, sessionHash: device.sessionHash,

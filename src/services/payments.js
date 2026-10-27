@@ -26,6 +26,8 @@ import { consumeOrderReward, restoreOrderRewardAfterRefund } from './customer-re
 import { reverseGrowthForRefund } from './loyalty.js';
 import { currentCustomerAccess } from './customer-access.js';
 import { sellerOperationsAccess } from './seller-operations-access.js';
+import { strongMfaFence } from './mfa-policy.js';
+import { hasCurrentStrongSessionMfa } from './mfa-assurance.js';
 
 export const PAYMENT_PROVIDER = 'pesapal';
 const factors = { UGX: 1, RWF: 1, JPY: 1, KRW: 1 };
@@ -1025,6 +1027,23 @@ export function publicPayoutAccount(account) {
     label: account.label, status: account.status, verifiedAt: account.verifiedAt, createdAt: account.createdAt };
 }
 
+async function requirePayoutMfa(request, session) {
+  if (env.auth.simpleLogin || !env.security.privilegedMfaRequired) return;
+  const actor = await User.findById(request.user?._id)
+    .select('status security.tokenVersion security.mfaEnabled').session(session);
+  if (!actor || actor.status !== 'active' || actor.security.tokenVersion !== request.user?.security?.tokenVersion
+    || (request.session?.tokenVersion !== undefined && request.session.tokenVersion !== actor.security.tokenVersion)
+    || !await hasCurrentStrongSessionMfa(request, actor, { session })) {
+    throw new AppError('Verify a passkey or authenticator before changing a payout destination or requesting a payout.', 403, 'MFA_STRONG_REQUIRED');
+  }
+  // The transaction must conflict with concurrent factor removal or password/
+  // session revocation, even after the preceding authorization read succeeded.
+  const fenced = await User.updateOne({ _id: actor._id, status: 'active',
+    'security.tokenVersion': actor.security.tokenVersion, $and: [strongMfaFence()] },
+  { $inc: { __v: 1 } }, { session });
+  if (fenced.modifiedCount !== 1) throw new AppError('Your payout verification changed. Reload before continuing.', 403, 'MFA_STRONG_REQUIRED');
+}
+
 export async function payoutOwnerContext(request,{preferredStorePublicId='',strictPreferred=false}={}){
   const storeContext=Boolean(request.store?._id);
   if(!storeContext&&request.user?.role==='promoter'){
@@ -1036,7 +1055,7 @@ export async function payoutOwnerContext(request,{preferredStorePublicId='',stri
   if(!accesses.length)throw new AppError('Seller owner, admin or finance access is required.',403,'PAYOUT_OWNER_REQUIRED');
   if(!env.auth.simpleLogin&&env.security.privilegedMfaRequired){
     const actor=await User.findById(request.user._id).select('security.mfaEnabled').lean();
-    if(!actor?.security?.mfaEnabled)throw new AppError('Authenticator enrollment is required for store payouts.',403,'MFA_ENROLLMENT_REQUIRED');
+    if(!actor?.security?.mfaEnabled)throw new AppError('Multi-factor authentication is required for store payouts.',403,'MFA_ENROLLMENT_REQUIRED');
   }
   const requested=String(preferredStorePublicId||request.store?.publicId||request.session?.activeStorePublicId||'').trim();
   let selected=requested?accesses.find(row=>row.store.publicId===requested):null;
@@ -1247,8 +1266,9 @@ export async function revealPayoutDestination(request,payoutPublicId) {
 export async function savePayoutAccount(request,{method,label,destination}){
   const owner=await payoutOwnerContext(request);
   const document=market=>({publicId:publicId('poa'),ownerUserId:owner.ownerUserId,ownerStoreId:owner.ownerStoreId||undefined,ownerStorePublicId:owner.ownerStorePublicId||'',ownerType:owner.ownerType==='store'?'seller':owner.ownerType,country:market.country,currency:market.currency,method,label,destinationEncrypted:encryptSensitive(JSON.stringify(destination)),status:'pending'});
-  if(owner.ownerType==='delivery'){return payoutTransaction(async session=>{const {deliveryAccess}=await import('./delivery-workspace-access.js');const {actor,market}=await deliveryAccess(request,{session,write:true,approved:true});if(String(actor._id)!==String(owner.ownerUserId)||market.code!==owner.country||market.currency!==owner.currency)throw new AppError('Your delivery market changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');const [account]=await PayoutAccount.create([document({country:market.code,currency:market.currency})],{session});return publicPayoutAccount(account);});}
+  if(owner.ownerType==='delivery'){return payoutTransaction(async session=>{await requirePayoutMfa(request,session);const {deliveryAccess}=await import('./delivery-workspace-access.js');const {actor,market}=await deliveryAccess(request,{session,write:true,approved:true});if(String(actor._id)!==String(owner.ownerUserId)||market.code!==owner.country||market.currency!==owner.currency)throw new AppError('Your delivery market changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');const [account]=await PayoutAccount.create([document({country:market.code,currency:market.currency})],{session});return publicPayoutAccount(account);});}
   if(owner.ownerType==='store'){return payoutTransaction(async session=>{
+    await requirePayoutMfa(request,session);
     const {actor,store}=await sellerOperationsAccess(request,'finance',{session,write:true,storePublicId:owner.ownerPublicId});
     if(String(store.ownerUserId)!==String(owner.ownerUserId)||store.country!==owner.country||store.currency!==owner.currency)throw new AppError('Your store payout authority changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');
     const [account]=await PayoutAccount.create([document(owner)],{session});
@@ -1257,6 +1277,7 @@ export async function savePayoutAccount(request,{method,label,destination}){
   });}
   const session=await mongoose.startSession();let account;
   try{await session.withTransaction(async()=>{
+    await requirePayoutMfa(request,session);
     const actor=await promoterPayoutActor(request,session),market=await pinnedPromoterMarket(actor,{session,write:true});
     if(market.country!==owner.country||market.currency!==owner.currency)throw new AppError('Your programme market changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');
     await User.updateOne({_id:actor._id,status:'active',role:'promoter','security.tokenVersion':actor.security.tokenVersion},{$inc:{__v:1}},{session});
@@ -1283,12 +1304,10 @@ export async function requestPayout(request, { payoutAccountId, amountMinor, ide
         || (request.session?.tokenVersion !== undefined && actor.security.tokenVersion !== request.session.tokenVersion)) {
         throw new AppError('Your account or session is unavailable.', 403, 'ACCOUNT_UNAVAILABLE');
       }
+      await requirePayoutMfa(request, session);
       if (owner.ownerType === 'store') {
         const current=await sellerOperationsAccess(request,'finance',{session,write:true,storePublicId:owner.ownerPublicId});
         if(String(current.store.ownerUserId)!==String(owner.ownerUserId)||current.store.country!==owner.country||current.store.currency!==owner.currency)throw new AppError('Your store payout authority changed. Refresh and retry.',409,'PAYOUT_OWNER_CHANGED');
-        if (!env.auth.simpleLogin && env.security.privilegedMfaRequired && !actor.security.mfaEnabled) {
-          throw new AppError('Authenticator enrollment is required for store payouts.', 403, 'MFA_ENROLLMENT_REQUIRED');
-        }
         const store = await Store.findOne({ _id: owner.ownerStoreId, publicId: owner.ownerPublicId,
           country: owner.country, currency: owner.currency, ownerUserId: owner.ownerUserId,
           status: { $in: ['pending_verification', 'verified'] } }).session(session).lean();

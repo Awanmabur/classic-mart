@@ -16,8 +16,11 @@ import { writeAudit } from '../services/audit.js';
 import { enrollCustomerAsSeller, sellerEnrollmentPreview } from '../services/seller-enrollment.js';
 import { getCountry } from '../services/country.js';
 import { changePassword } from '../services/auth.js';
-import { beginMfaEnrollment, confirmMfaEnrollment, disableMfa, mfaRequiredForUser, pendingMfaEnrollment, regenerateRecoveryCodes, verifyMfa } from '../services/mfa.js';
+import { beginMfaEnrollment, confirmMfaEnrollment, mfaRequiredForUser, pendingMfaEnrollment } from '../services/mfa.js';
 import { pendingMfaQrCode } from '../services/mfa-qr.js';
+import { assertMfaMethodAddition, beginSmsMfaEnrollment, confirmSmsMfaEnrollment, beginPasskeyEnrollment, confirmPasskeyEnrollment,
+  beginPasskeyAuthentication, mfaSecurityOptions, removeSmsMfa, revokePasskey, sendAccountSmsMfa,
+  verifyAccountMfaProof, regenerateMethodRecoveryCodes, disableMethodsAfterProof } from '../services/mfa-methods.js';
 import { currentCustomerAccess, customerTransaction } from '../services/customer-access.js';
 import { writeSecurityEvent } from '../services/security.js';
 import { env } from '../config/env.js';
@@ -177,17 +180,19 @@ async function renderAccountPage(request, response, requestedSection = 'profile'
 
   if (section === 'security') {
     const deviceBase = { userId: request.user._id };
-    const [deviceRows, deviceTotal, activeSessionCount, mfaEnrollment] = await Promise.all([
+    const [deviceRows, deviceTotal, activeSessionCount, mfaEnrollment, mfaOptions] = await Promise.all([
       Device.find(cursorScope(deviceBase, request.query.devicesAfter, { field: 'lastSeenAt' })).sort(cursorSort('lastSeenAt')).limit(size + 1).lean(),
       Device.countDocuments(deviceBase),
       Device.countDocuments({ userId: request.user._id, revokedAt: null }),
       pendingMfaEnrollment(request.user._id),
+      mfaSecurityOptions(request),
     ]);
     const devicePage = pageResult(deviceRows, { field: 'lastSeenAt', limit: size, total: deviceTotal });
     data.devices = devicePage.items;
     data.queuePages.devices = devicePage.page;
     data.activeSessionCount = activeSessionCount;
     data.mfaEnrollment = mfaEnrollment;
+    data.mfaOptions = mfaOptions;
     data.mfaRecoveryCodes = Array.isArray(request.session.mfaRecoveryCodes) ? request.session.mfaRecoveryCodes : null;
     if (request.session.mfaRecoveryCodes) delete request.session.mfaRecoveryCodes;
   }
@@ -320,6 +325,7 @@ router.post(
         const duplicate = await User.exists({ _id: { $ne: actor._id }, phoneNormalized }).session(session);
         if (duplicate) throw new AppError('That phone number is already in use.', 409, 'PHONE_IN_USE');
         const phoneChanged = phoneNormalized !== normalizePhone(actor.phone);
+        if (phoneChanged && actor.security.mfaEnabled && actor.security.mfaMethods?.includes('sms')) throw new AppError('Remove SMS security in Password & Security before changing this phone number. Add another security method first if one is required.', 409, 'MFA_PHONE_CHANGE_REQUIRED');
         actor.name = input.name;
         actor.phone = input.phone;
         actor.phoneNormalized = phoneNormalized;
@@ -354,30 +360,132 @@ router.post(
 
 const mfaMutationLimit = rateLimit({ scope: 'account:2', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false,
   keyGenerator: request => String(request.user._id) });
+const mfaSmsSendLimit = rateLimit({ scope: 'mfa:sms-delivery', windowMs: 15 * 60_000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false,
+  keyGenerator: request => String(request.user._id) });
+const mfaJson = request => request.accepts(['html', 'json']) === 'json';
+function mfaFailure(request, response, error, destination) {
+  if (!(error instanceof AppError)) throw error;
+  const message = error.message;
+  if (mfaJson(request)) return response.status(error.status || 422).json({ error: { code: error.code || 'MFA_FAILED', message } });
+  setFlash(request, 'error', message);
+  return response.redirect(303, destination);
+}
+function rememberMfaProof(request, result) {
+  request.session.mfaVerifiedAt = Date.now();
+  request.session.mfaVerifiedMethod = result.method;
+  request.session.mfaVerifiedStrong = result.strong === true;
+}
+function rememberNewMfaMethod(request, result, method) {
+  request.user = result.user;
+  request.session.tokenVersion = result.user.security.tokenVersion;
+  rememberMfaProof(request, { method, strong: method !== 'sms' });
+  if (result.codes) request.session.mfaRecoveryCodes = result.codes;
+  delete request.session.mfaSmsChallengeIds;
+}
+
+router.post('/account/mfa/sms/begin', mfaMutationLimit, mfaSmsSendLimit, asyncHandler(async (request, response) => {
+  const { continuation } = await postedMfaContinuation(request);
+  try {
+    const result = await beginSmsMfaEnrollment(request, request.body.currentPassword ?? request.body.password);
+    request.session.mfaSmsEnrollmentChallengeId = result.challengeId;
+    setFlash(request, 'success', result.developmentCode ? 'Development code prepared. No SMS was sent.' : 'Your security SMS was accepted for sending.', result.developmentCode ? `Development security code: ${result.developmentCode}` : undefined);
+    if (mfaJson(request)) return response.json(result);
+    return response.redirect(303, mfaSecurityPath(continuation));
+  } catch (error) { return mfaFailure(request, response, error, mfaSecurityPath(continuation)); }
+}));
+router.post('/account/mfa/sms/confirm', mfaMutationLimit, asyncHandler(async (request, response) => {
+  const { continuation } = await postedMfaContinuation(request);
+  try {
+    const result = await confirmSmsMfaEnrollment(request, request.body.challengeId || request.session.mfaSmsEnrollmentChallengeId, request.body.code);
+    rememberNewMfaMethod(request, result, 'sms');
+    request.session.mfaPhoneHash = (await User.findById(result.user._id).select('+security.mfaSmsPhoneHash')).security.mfaSmsPhoneHash;
+    delete request.session.mfaSmsEnrollmentChallengeId;
+    setFlash(request, 'success', 'SMS security is enabled. Save your recovery codes offline.');
+    if (mfaJson(request)) return response.json({ redirect: mfaSecurityPath(continuation) });
+    return response.redirect(303, mfaSecurityPath(continuation));
+  } catch (error) { return mfaFailure(request, response, error, mfaSecurityPath(continuation)); }
+}));
+router.post('/account/mfa/passkeys/options', mfaMutationLimit, asyncHandler(async (request, response) => {
+  try { return response.json(await beginPasskeyEnrollment(request, request.body.currentPassword ?? request.body.password, request.body.name)); }
+  catch (error) { return mfaFailure(request, response, error, '/account/security'); }
+}));
+router.post('/account/mfa/passkeys/confirm', mfaMutationLimit, asyncHandler(async (request, response) => {
+  const { continuation } = await postedMfaContinuation(request);
+  try {
+    const result = await confirmPasskeyEnrollment(request, request.body.challengeId, request.body.credential);
+    rememberNewMfaMethod(request, result, 'passkey');
+    setFlash(request, 'success', 'Your passkey is enabled. Save the recovery codes shown below.');
+    return response.json({ redirect: mfaSecurityPath(continuation) });
+  } catch (error) { return mfaFailure(request, response, error, mfaSecurityPath(continuation)); }
+}));
+router.post('/account/mfa/passkeys/authentication/options', mfaMutationLimit, asyncHandler(async (request, response) => {
+  try { return response.json(await beginPasskeyAuthentication(request, { action: request.body.action, password: request.body.currentPassword ?? request.body.password, credentialPublicId: request.body.credentialPublicId || '' })); }
+  catch (error) { return mfaFailure(request, response, error, '/account/security'); }
+}));
+router.post('/account/mfa/sms/send', mfaMutationLimit, mfaSmsSendLimit, asyncHandler(async (request, response) => {
+  const { continuation } = await postedMfaContinuation(request);
+  try {
+    const action = request.body.action, credentialId = request.body.credentialPublicId || '';
+    const result = await sendAccountSmsMfa(request, request.body.currentPassword, action, credentialId);
+    request.session.mfaSmsChallengeIds ||= {};
+    request.session.mfaSmsChallengeIds[`${action}:${credentialId}`] = result.challengeId;
+    setFlash(request, 'success', result.developmentCode ? 'Development code prepared. No SMS was sent.' : 'Your security SMS was accepted for sending.', result.developmentCode ? `Development security code: ${result.developmentCode}` : undefined);
+    if (mfaJson(request)) return response.json(result);
+    return response.redirect(303, mfaSecurityPath(continuation));
+  } catch (error) { return mfaFailure(request, response, error, mfaSecurityPath(continuation)); }
+}));
+router.post('/account/mfa/passkeys/:publicId/revoke', mfaMutationLimit, asyncHandler(async (request, response) => {
+  const { view, continuation } = await postedMfaContinuation(request);
+  try {
+    const proof = await verifyAccountMfaProof(request, 'revoke-passkey', request.params.publicId);
+    const user = await revokePasskey(request, request.params.publicId, { required: accountMfaRequired(request, view) });
+    request.session.tokenVersion = user.security.tokenVersion;
+    rememberMfaProof(request, proof);
+    setFlash(request, 'success', 'The passkey was removed and other sessions were signed out.');
+    if (mfaJson(request)) return response.json({ redirect: mfaSecurityPath(continuation) });
+    return response.redirect(303, mfaSecurityPath(continuation));
+  } catch (error) { return mfaFailure(request, response, error, mfaSecurityPath(continuation)); }
+}));
+router.post('/account/mfa/sms/remove', mfaMutationLimit, asyncHandler(async (request, response) => {
+  const { view, continuation } = await postedMfaContinuation(request);
+  try {
+    const proof = await verifyAccountMfaProof(request, 'remove-sms');
+    const user = await removeSmsMfa(request, { required: accountMfaRequired(request, view) });
+    request.session.tokenVersion = user.security.tokenVersion;
+    rememberMfaProof(request, proof);
+    delete request.session.mfaPhoneHash;
+    setFlash(request, 'success', 'SMS security was removed and other sessions were signed out.');
+    if (mfaJson(request)) return response.json({ redirect: mfaSecurityPath(continuation) });
+    return response.redirect(303, mfaSecurityPath(continuation));
+  } catch (error) { return mfaFailure(request, response, error, mfaSecurityPath(continuation)); }
+}));
 router.post('/account/mfa/begin', mfaMutationLimit, asyncHandler(async (request, response) => {
   const { continuation } = await postedMfaContinuation(request);
   try {
-    await beginMfaEnrollment(request.user._id, request.body.currentPassword);
+    await assertMfaMethodAddition(request);
+    await beginMfaEnrollment(request.user._id, request.body.currentPassword, { allowAdditional: true });
     await writeAudit(request, 'account.mfa_enrollment_started', { targetType: 'user', targetPublicId: request.user.publicId });
     await writeSecurityEvent(request, 'mfa.enrollment_started', { category: 'mfa', severity: 'low', result: 'success' });
     setFlash(request, 'success', 'Authenticator setup started. Scan the QR code with your app, then confirm its current 6-digit code.');
-  } catch (error) { setFlash(request, 'error', error.message); }
+  } catch (error) { if (!(error instanceof AppError)) throw error; setFlash(request, 'error', error.message); }
   response.redirect(mfaSecurityPath(continuation));
 }));
 
 router.post('/account/mfa/confirm', mfaMutationLimit, asyncHandler(async (request, response) => {
   const { continuation } = await postedMfaContinuation(request);
   try {
-    const { user, codes } = await confirmMfaEnrollment(request.user._id, request.body.code, request.device.publicId);
+    await assertMfaMethodAddition(request);
+    const { user, codes } = await confirmMfaEnrollment(request.user._id, request.body.code, request.device.publicId, { allowAdditional: true, request });
     request.session.tokenVersion = user.security.tokenVersion;
     request.session.mfaVerifiedAt = Date.now();
+    request.session.mfaVerifiedMethod = 'totp';
+    request.session.mfaVerifiedStrong = true;
     request.user.security.mfaEnabled = true;
     request.user.security.mfaEnrolledAt = user.security.mfaEnrolledAt;
     request.session.mfaRecoveryCodes = codes;
-    await writeAudit(request, 'account.mfa_enabled', { targetType: 'user', targetPublicId: request.user.publicId });
     await writeSecurityEvent(request, 'mfa.enabled', { category: 'mfa', severity: 'medium', result: 'success' });
     setFlash(request, 'success', 'Multi-factor authentication is now enabled. Store the recovery codes shown below offline.');
-  } catch (error) { setFlash(request, 'error', error.message); }
+  } catch (error) { if (!(error instanceof AppError)) throw error; setFlash(request, 'error', error.message); }
   // Render the one-time recovery codes before offering the intended workspace.
   response.redirect(mfaSecurityPath(continuation));
 }));
@@ -385,49 +493,59 @@ router.post('/account/mfa/confirm', mfaMutationLimit, asyncHandler(async (reques
 router.post('/account/mfa/recovery-codes', mfaMutationLimit, asyncHandler(async (request, response) => {
   const { continuation } = await postedMfaContinuation(request);
   try {
-    const codes = await regenerateRecoveryCodes(request.user._id, request.body.currentPassword, request.body.code);
+    const proof = await verifyAccountMfaProof(request, 'recovery-codes');
+    const codes = await regenerateMethodRecoveryCodes(request, proof);
     request.session.mfaRecoveryCodes = codes;
     request.session.mfaVerifiedAt = Date.now();
-    await writeAudit(request, 'account.mfa_recovery_codes_regenerated', { targetType: 'user', targetPublicId: request.user.publicId });
+    request.session.mfaVerifiedMethod = proof.method;
+    request.session.mfaVerifiedStrong = proof.strong;
     await writeSecurityEvent(request, 'mfa.recovery_codes_regenerated', { category: 'mfa', severity: 'medium', result: 'success' });
     setFlash(request, 'success', 'New recovery codes were generated. Previous recovery codes no longer work.');
-  } catch (error) { setFlash(request, 'error', error.message); }
-  response.redirect(mfaSecurityPath(continuation));
+  } catch (error) { return mfaFailure(request, response, error, mfaSecurityPath(continuation)); }
+  if (mfaJson(request)) return response.json({ redirect: mfaSecurityPath(continuation) });
+  return response.redirect(mfaSecurityPath(continuation));
 }));
 
 router.post('/account/mfa/disable', mfaMutationLimit, asyncHandler(async (request, response) => {
   const { view, continuation } = await postedMfaContinuation(request);
   if (accountMfaRequired(request, view)) throw new AppError('Multi-factor authentication is required for your operational access.', 403, 'MFA_REQUIRED');
   try {
-    const user = await disableMfa(request.user._id, request.body.currentPassword, request.body.code, 'mfa_disabled', request.device.publicId);
+    const proof = await verifyAccountMfaProof(request, 'disable');
+    const user = await disableMethodsAfterProof(request, proof);
     request.session.tokenVersion = user.security.tokenVersion;
     request.user.security.mfaEnabled = false;
     delete request.session.mfaVerifiedAt;
-    await writeAudit(request, 'account.mfa_disabled', { targetType: 'user', targetPublicId: request.user.publicId });
+    delete request.session.mfaVerifiedMethod;
+    delete request.session.mfaVerifiedStrong;
+    delete request.session.mfaPhoneHash;
     await writeSecurityEvent(request, 'mfa.disabled', { category: 'mfa', severity: 'high', result: 'success' });
     setFlash(request, 'success', 'Multi-factor authentication was disabled and other sessions were revoked.');
-  } catch (error) { setFlash(request, 'error', error.message); }
-  response.redirect(mfaSecurityPath(continuation));
+  } catch (error) { return mfaFailure(request, response, error, mfaSecurityPath(continuation)); }
+  if (mfaJson(request)) return response.json({ redirect: mfaSecurityPath(continuation) });
+  return response.redirect(mfaSecurityPath(continuation));
 }));
 
 router.post('/account/mfa/step-up', mfaMutationLimit, asyncHandler(async (request, response) => {
   const { continuation } = await postedMfaContinuation(request);
   try {
-    const input = z.object({ currentPassword: z.string().min(1).max(256), code: z.string().trim().min(6).max(32) }).parse(request.body);
-    const actor = await currentCustomerAccess(request);
-    const passwordUser = await User.findById(actor._id).select('+passwordHash');
-    if (!passwordUser || !await verifyPassword(passwordUser.passwordHash, input.currentPassword)) throw new AppError('The current password is incorrect.', 422, 'INVALID_CURRENT_PASSWORD');
-    const result = await verifyMfa(actor._id, input.code);
+    const result = await verifyAccountMfaProof(request, 'step-up');
     const current = await currentCustomerAccess(request);
     if (!current.security.mfaEnabled || result.user.security.tokenVersion !== current.security.tokenVersion) throw new AppError('Your account changed. Sign in again.', 403, 'ACCOUNT_UNAVAILABLE');
+    const smsPhoneHash = result.method === 'sms'
+      ? (await User.findById(current._id).select('+security.mfaSmsPhoneHash')).security.mfaSmsPhoneHash : null;
+    await customerTransaction(async session => {
+      const actor = await currentCustomerAccess(request, { session, write: true });
+      if (!actor.security.mfaEnabled || result.user.security.tokenVersion !== actor.security.tokenVersion) throw new AppError('Your account changed. Sign in again.', 403, 'ACCOUNT_UNAVAILABLE');
+      await writeAudit(request, 'account.mfa_step_up', { actor, targetType: 'user', targetPublicId: actor.publicId, metadata: { method: result.method }, session });
+    });
     request.session.mfaVerifiedAt = Date.now();
-    await writeAudit(request, 'account.mfa_step_up', { targetType: 'user', targetPublicId: current.publicId, metadata: { method: result.method } });
+    request.session.mfaVerifiedMethod = result.method;
+    request.session.mfaVerifiedStrong = result.strong;
+    if (smsPhoneHash) request.session.mfaPhoneHash = smsPhoneHash;
     setFlash(request, 'success', 'Identity confirmed. You can continue to the protected action.');
+    if (request.accepts(['html', 'json']) === 'json') return response.json({ redirect: continuation.url });
     return response.redirect(303, continuation.url);
-  } catch (error) {
-    setFlash(request, 'error', error.message);
-    return response.redirect(303, mfaSecurityPath(continuation));
-  }
+  } catch (error) { return mfaFailure(request, response, error, mfaSecurityPath(continuation)); }
 }));
 
 router.post(

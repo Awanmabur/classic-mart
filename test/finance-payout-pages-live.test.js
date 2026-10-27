@@ -37,7 +37,9 @@ test('Finance payout operations complete reserved Seller and Promoter funds with
   try {
     for(const Model of Object.values(mongoose.connection.models))await Model.init();
     await CountrySetting.create([{code:'UG',name:'Uganda',currency:'UGX',locale:'en-UG',timeZone:'Africa/Kampala',phonePrefix:'+256',active:true},{code:'KE',name:'Kenya',currency:'KES',locale:'en-KE',timeZone:'Africa/Nairobi',phonePrefix:'+254',active:true}]);
-    const approver=await actor('finance',{managed:true}),operator=await actor(),backup=await actor(),kenya=await actor('finance',{country:'KE'}),multi=await actor('finance',{countries:['UG','KE']}),promoter=await actor('promoter',{mfa:false}),seller=await actor('seller'),customer=await actor('customer',{mfa:false});
+    // Payout owners must complete the same real strong-factor sign-in as staff;
+    // an ordinary promoter password session cannot change financial destinations.
+    const approver=await actor('finance',{managed:true}),operator=await actor(),backup=await actor(),kenya=await actor('finance',{country:'KE'}),multi=await actor('finance',{countries:['UG','KE']}),promoter=await actor('promoter'),seller=await actor('seller'),customer=await actor('customer',{mfa:false});
     await PromoterVerification.create({publicId:'prv_fp_'+suffix,userId:promoter.user._id,country:'UG',status:'verified'});
     const store=await Store.create({publicId:'sto_fp_'+suffix,ownerUserId:seller.user._id,name:'Verified payout store',slug:'finance-payout-'+suffix,country:'UG',currency:'UGX',status:'verified'});
     await StoreMember.create({publicId:'stm_fp_'+suffix,storeId:store._id,userId:seller.user._id,role:'owner',status:'active',acceptedAt:new Date(),invitedByUserId:seller.user._id});
@@ -149,7 +151,7 @@ test('Finance payout operations complete reserved Seller and Promoter funds with
       await payments.reviewPayoutAccount(scoped(approver),bad.publicId,{decision:'reject',reason:'Encryption cannot be decoded; request a corrected destination.'});assert.equal((await PayoutAccount.findById(bad._id)).status,'disabled');
     });
     await t.test('one external reference cannot claim two transfers across different countries and currencies',async()=>{
-      const kenyaOwner=await actor('promoter',{country:'KE',mfa:false});await PromoterVerification.create({publicId:'prv_ke_ref_fp_'+suffix,userId:kenyaOwner.user._id,country:'KE',status:'verified'});
+      const kenyaOwner=await actor('promoter',{country:'KE'});await PromoterVerification.create({publicId:'prv_ke_ref_fp_'+suffix,userId:kenyaOwner.user._id,country:'KE',status:'verified'});
       const keDestination=await payments.savePayoutAccount(scoped(kenyaOwner),{method:'bank',label:'Kenya payout reference check',destination});await payments.reviewPayoutAccount(scoped(kenya),keDestination.publicId,{decision:'verify',reason:'Independent Kenya bank verification.'});
       await fund('promoter',String(kenyaOwner.user._id),10000,'KE','KES');
       const ugPayout=await payments.requestPayout(sellerReq(),{payoutAccountId:sellerAccount.publicId,amountMinor:1000,idempotencyKey:'reuse_ug_fp_'+suffix}),kePayout=await payments.requestPayout(scoped(kenyaOwner),{payoutAccountId:keDestination.publicId,amountMinor:1000,idempotencyKey:'reuse_ke_fp_'+suffix});

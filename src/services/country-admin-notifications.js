@@ -1,3 +1,4 @@
+import { strongMfaFence } from './mfa-policy.js';
 import mongoose from 'mongoose';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
@@ -53,7 +54,7 @@ export async function queueCountryAdminAlert({country,kind='priority',sourceType
   if(markets.length !== source.countries.length || markets.some(row=>!row.currency || !row.timeZone))return 0;
   const now=new Date(),preference=kind === 'priority'?'preferences.countryAdminHighRiskAlerts':'preferences.countryAdminEscalationAlerts';
   const recipients=await User.aggregate([
-    {$match:{status:'active',platformAccessManagedAt:{$type:'date'},emailVerifiedAt:{$type:'date'},phoneVerifiedAt:{$type:'date'},onboardingCompletedAt:{$type:'date'},'security.mfaEnabled':true,[preference]:{$ne:false}}},
+    {$match:{status:'active',platformAccessManagedAt:{$type:'date'},emailVerifiedAt:{$type:'date'},phoneVerifiedAt:{$type:'date'},onboardingCompletedAt:{$type:'date'},$and:[strongMfaFence()],[preference]:{$ne:false}}},
     {$lookup:{from:PlatformGrant.collection.name,localField:'_id',foreignField:'userId',as:'grants',pipeline:[{$match:{status:'active',startsAt:{$lte:now},expiresAt:{$gt:now}}}]}},
     {$match:{$expr:{$and:[{$eq:[{$size:'$grants'},1]},{$eq:[{$first:'$grants.role'},'country_admin']},{$setIsSubset:[source.countries,{$ifNull:[{$first:'$grants.operationalCountries'},[]]}]}]}}},
     {$project:{_id:1,role:1,__v:1,'security.tokenVersion':1,grant:{$first:'$grants'}}},
@@ -71,7 +72,7 @@ export async function queueCountryAdminAlert({country,kind='priority',sourceType
   let count=0;
   for(const recipient of recipients) {
     const actorFence=await User.updateOne({_id:recipient._id,role:recipient.role,status:'active',platformAccessManagedAt:mongoose.trusted({$type:'date'}),__v:recipient.__v || 0,
-      emailVerifiedAt:mongoose.trusted({$type:'date'}),phoneVerifiedAt:mongoose.trusted({$type:'date'}),onboardingCompletedAt:mongoose.trusted({$type:'date'}),'security.mfaEnabled':true,'security.tokenVersion':recipient.security.tokenVersion,[preference]:mongoose.trusted({$ne:false})},{$inc:{__v:1}},{session,timestamps:false});
+      emailVerifiedAt:mongoose.trusted({$type:'date'}),phoneVerifiedAt:mongoose.trusted({$type:'date'}),onboardingCompletedAt:mongoose.trusted({$type:'date'}),$and:[strongMfaFence()],'security.tokenVersion':recipient.security.tokenVersion,[preference]:mongoose.trusted({$ne:false})},{$inc:{__v:1}},{session,timestamps:false});
     if(actorFence.modifiedCount !== 1)continue;
     const grantFence=await PlatformGrant.updateOne({_id:recipient.grant._id,userId:recipient._id,role:'country_admin',status:'active',startsAt:mongoose.trusted({$lte:new Date()}),expiresAt:mongoose.trusted({$gt:new Date()}),__v:recipient.grant.__v || 0},{$inc:{__v:1}},{session,timestamps:false});
     if(grantFence.modifiedCount !== 1)continue;

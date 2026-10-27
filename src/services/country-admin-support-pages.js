@@ -1,3 +1,4 @@
+import { strongMfaFence } from './mfa-policy.js';
 import mongoose from 'mongoose';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
@@ -98,7 +99,7 @@ async function transferCandidates(ticket, actor) {
   const now = new Date(), grants = await PlatformGrant.find(trust({ role: 'support', status: 'active', operationalCountries: ticket.country,
     startsAt: { $lte: now }, expiresAt: { $gt: now } })).select('userId').lean();
   const users = await User.find(trust({ status: 'active', emailVerifiedAt: { $ne: null }, onboardingCompletedAt: { $ne: null },
-    ...(env.security.privilegedMfaRequired && !env.auth.simpleLogin ? { 'security.mfaEnabled': true } : {}),
+    ...(env.security.privilegedMfaRequired && !env.auth.simpleLogin ? { $and: [strongMfaFence()] } : {}),
     $or: [{ _id: { $in: grants.map(row => row.userId) } }, { role: 'support', platformAccessManagedAt: null }] }))
     .select('publicId name role country +operationalCountries platformAccessManagedAt security.tokenVersion emailVerifiedAt onboardingCompletedAt security.mfaEnabled').sort({ name: 1, publicId: 1 }).limit(100);
   const result = [];

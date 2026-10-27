@@ -2,7 +2,7 @@
   const field = document.querySelector('#mfaCode');
   const help = document.querySelector('#mfaCodeHelp');
   const toggle = document.querySelector('[data-mfa-recovery-toggle]');
-  if (!field || !help || !toggle) return;
+  if (!field || !help || !toggle || field.hasAttribute('data-mfa-recovery-only')) return;
 
   toggle.hidden = false;
   toggle.addEventListener('click', () => {

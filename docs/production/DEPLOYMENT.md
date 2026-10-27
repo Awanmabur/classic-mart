@@ -7,7 +7,7 @@ Use Node.js 24.x exactly as declared by `engines`. Production requires a transac
 1. Take and verify a database backup/restore point.
 2. Generate independent random values for session, token pepper, data encryption, security integrity, origin guard/SIEM/metrics tokens as used.
 3. Configure production SMTP, Yoola SMS verification and malware scanner.
-4. Configure HTTPS `BASE_URL`, trusted proxy topology and launch countries.
+4. Configure HTTPS `BASE_URL`, trusted proxy topology and launch countries. Review [MFA rollout](MFA.md) before enrolling passkeys; their identity and accepted origin depend on this hostname.
 5. Configure Pesapal live API credentials and base URL.
 6. Run `npm ci` with Node 24.
 7. Run `npm run release:check` in a networked CI environment.

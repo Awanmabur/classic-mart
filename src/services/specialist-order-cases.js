@@ -1,3 +1,4 @@
+import { strongMfaFence } from './mfa-policy.js';
 import mongoose from 'mongoose';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
@@ -34,7 +35,7 @@ async function transaction(work) {
 }
 async function access(request, workspace, { session = null, write = false, country } = {}) {
   if (!SPECIALIST_CASE_ROUTES[workspace]) throw new AppError('Order case workspace not found.', 404, 'SPECIALIST_WORKSPACE_NOT_FOUND');
-  assertAftersalesMfa(request);
+  await assertAftersalesMfa(request);
   if (workspace === 'seller') {
     const context = await sellerOperationsAccess(request, 'support', { session, write, allowSuspended: true });
     return { ...context, countries: [context.country], market: context.country, country: context.store.country,
@@ -54,7 +55,7 @@ function publicContext(context, workspace) {
     : ({ finance: financePublicContext, moderator: moderationPublicContext, admin: countryAdminPublicContext })[workspace](context);
 }
 async function assertRead(request, context, workspace) {
-  assertAftersalesMfa(request);
+  await assertAftersalesMfa(request);
   if (workspace !== 'seller') return ({ finance: assertFinanceExportAccess, moderator: assertModerationReadAccess, admin: assertCountryAdminReadAccess })[workspace](localRequest(request, workspace), context);
   const current = await access(request, workspace);
   if (!same(current.member._id, context.member._id) || current.member.role !== context.member.role || current.store.country !== context.store.country || current.store.currency !== context.store.currency) throw changed();
@@ -98,7 +99,7 @@ async function referralEvidence(row, dispute, workspace, session = null) {
 /** Invoked in the same transaction that saves Support's departmental handoff. */
 export async function createSpecialistReferral(request, context, dispute, order, ticket, input, session) {
   if (!session?.inTransaction()) throw new AppError('A referral requires the Support transaction.', 500, 'SPECIALIST_TRANSACTION_REQUIRED');
-  assertAftersalesMfa(request);
+  await assertAftersalesMfa(request);
   const workspace = input.department === 'finance' ? 'finance' : input.department === 'moderation' ? 'moderator' : input.department === 'seller' ? 'seller' : 'admin';
   if (await SpecialistReferral.exists({ disputeId: dispute._id, status: { $in: ['pending', 'claimed'] } }).session(session)) throw new AppError('A specialist is already investigating this case. Read that response before referring it again.', 409, 'SPECIALIST_REFERRAL_ALREADY_ACTIVE');
   let store = null;
@@ -281,7 +282,7 @@ async function notifyRecipients(row, session) {
     const role = ({ finance: 'finance', moderator: 'moderator', admin: 'country_admin' })[row.receivingWorkspace];
     candidates = await User.aggregate([
       { $match: { status: 'active', emailVerifiedAt: { $type: 'date' }, onboardingCompletedAt: { $type: 'date' },
-        ...(env.security.privilegedMfaRequired ? { 'security.mfaEnabled': true } : {}),
+        ...(env.security.privilegedMfaRequired ? { $and: [strongMfaFence()] } : {}),
         $or: [{ role }, { platformAccessManagedAt: { $type: 'date' } }] } },
       { $lookup: { from: PlatformGrant.collection.name, localField: '_id', foreignField: 'userId', as: 'grants', pipeline: [
         { $match: { status: 'active', startsAt: { $lte: now }, expiresAt: { $gt: now } } },
@@ -325,7 +326,7 @@ export async function supportSpecialistEvidence(request, evidenceId, { session =
   const row = await SpecialistReferral.findOne(and(context.countryScope, { publicId: evidence.contextPublicId,
     country: evidence.country, evidenceDocumentIds: evidence._id })).session(session);
   if (!row) throw new AppError('Evidence not found.', 404, 'EVIDENCE_NOT_FOUND');
-  assertAftersalesMfa(request);
+  await assertAftersalesMfa(request);
   const original = await source(row, context, 'support', session);
   if (expectedStorageKey !== undefined && expectedStorageKey !== evidence.storageKey) throw changed();
   if (write) {

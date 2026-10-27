@@ -59,6 +59,8 @@ function validEncryptionKey(value) {
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development';
+const smsMode = String(process.env.SMS_MODE || (process.env.YOOLA_API_KEY?.trim() ? 'yoola' : (nodeEnv === 'production' ? 'disabled' : 'log'))).trim().toLowerCase();
+const yoolaSenderId = String(process.env.YOOLA_SENDER_ID || '').trim();
 const publicRegistrationTypes = openRegistrationTypes({ production: nodeEnv === 'production' });
 if (nodeEnv === 'production' && boolean(process.env.SIMPLE_LOGIN, false)) {
   throw new Error('SIMPLE_LOGIN cannot bypass verification or MFA in production.');
@@ -79,10 +81,12 @@ if (nodeEnv === 'production') {
       'Production requires SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM with MAIL_MODE=smtp.',
     );
   }
-  const smsMode = process.env.SMS_MODE || (process.env.YOOLA_API_KEY?.trim() ? 'yoola' : 'disabled');
   const smsConfigured = smsMode === 'yoola' && Boolean(process.env.YOOLA_API_KEY?.trim());
   if (smsMode !== 'disabled' && !smsConfigured) {
     throw new Error('Production SMS requires SMS_MODE=yoola and YOOLA_API_KEY, or SMS_MODE=disabled until configured.');
+  }
+  if (smsMode === 'yoola' && yoolaSenderId && !/^[A-Za-z0-9]{1,11}$/.test(yoolaSenderId)) {
+    throw new Error('YOOLA_SENDER_ID must contain 1–11 letters or numbers, or remain empty for the provider default.');
   }
   if (!['clamd', 'clamscan'].includes(process.env.MALWARE_SCAN_MODE || '')) {
     throw new Error('Production requires MALWARE_SCAN_MODE=clamd or clamscan for untrusted uploads.');
@@ -252,8 +256,9 @@ export const env = Object.freeze({
       '',
   }),
   sms: Object.freeze({
-    mode: process.env.SMS_MODE || (process.env.YOOLA_API_KEY?.trim() ? 'yoola' : (nodeEnv === 'production' ? 'disabled' : 'log')),
+    mode: smsMode,
     yoolaApiKey: process.env.YOOLA_API_KEY?.trim() || '',
+    yoolaSenderId,
   }),
   pesapal: Object.freeze({
     baseUrl: process.env.PESAPAL_BASE_URL || (boolean(process.env.PESAPAL_SANDBOX, true) ? 'https://cybqa.pesapal.com/pesapalv3' : 'https://pay.pesapal.com/v3'),

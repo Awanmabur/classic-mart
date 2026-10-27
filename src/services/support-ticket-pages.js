@@ -1,3 +1,4 @@
+import { strongMfaFence } from './mfa-policy.js';
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import { z } from 'zod';
@@ -64,7 +65,7 @@ async function ticketDto(ticket,context,{detail=false,relations=null}={}){
 
 async function transferCandidates(country){
   const now=new Date(),grants=await PlatformGrant.find(trustScope({role:'support',status:'active',operationalCountries:country,startsAt:{$lte:now},expiresAt:{$gt:now}})).select('userId').lean();
-  const users=await User.find(trustScope({status:'active',emailVerifiedAt:{$ne:null},onboardingCompletedAt:{$ne:null},...(env.security.privilegedMfaRequired&&!env.auth.simpleLogin?{'security.mfaEnabled':true}:{}),$or:[{_id:{$in:grants.map(row=>row.userId)}},{role:'support',platformAccessManagedAt:null,$or:[{operationalCountries:country},{operationalCountries:{$size:0},country}]}]})).select('publicId name +operationalCountries role platformAccessManagedAt country security.tokenVersion').sort({name:1,publicId:1}).limit(51);
+  const users=await User.find(trustScope({status:'active',emailVerifiedAt:{$ne:null},onboardingCompletedAt:{$ne:null},...(env.security.privilegedMfaRequired&&!env.auth.simpleLogin?{$and:[strongMfaFence()]}:{}),$or:[{_id:{$in:grants.map(row=>row.userId)}},{role:'support',platformAccessManagedAt:null,$or:[{operationalCountries:country},{operationalCountries:{$size:0},country}]}]})).select('publicId name +operationalCountries role platformAccessManagedAt country security.tokenVersion').sort({name:1,publicId:1}).limit(51);
   const managed=users.filter(actor=>actor.platformAccessManagedAt),activeGrants=managed.length?await PlatformGrant.find(trustScope({userId:{$in:managed.map(actor=>actor._id)},status:'active',startsAt:{$lte:now},expiresAt:{$gt:now}})).select('userId role operationalCountries').lean():[],byUser=new Map();for(const grant of activeGrants){const key=String(grant.userId),rows=byUser.get(key)||[];rows.push(grant);byUser.set(key,rows);}
   return users.filter(actor=>{if(actor.platformAccessManagedAt){const current=byUser.get(String(actor._id))||[];return current.length===1&&current[0].role==='support'&&current[0].operationalCountries.includes(country);}return actor.role==='support'&&(actor.operationalCountries?.length?actor.operationalCountries:[actor.country]).includes(country);}).slice(0,50).map(actor=>({publicId:actor.publicId,name:actor.name}));
 }

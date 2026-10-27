@@ -73,7 +73,9 @@ test('Super Admin uses current global grants, genuine MFA, source records and in
       await pending.client.get(destination).expect(302).expect('location','/account/security?next='+encodeURIComponent(destination));
       const security=await pending.client.get('/account/security?next='+encodeURIComponent(destination)).expect(200);
       assert.match(security.text,/data-dashboard-workspace="superadmin"/);
-      assert.match(security.text,/Required for privileged operations/);
+      assert.match(security.text,/<span class="status-pill warn">Required<\/span>/);
+      assert.match(security.text,/This operational account requires a passkey or authenticator for protected work\./);
+      assert.doesNotMatch(security.text,/action="\/account\/mfa\/sms\/begin"/);
       const denied=await pending.client.get('/super/overview').set('accept','application/json').expect(403);
       assert.equal(denied.body.error.code,'MFA_ENROLLMENT_REQUIRED');
       assert.doesNotMatch(denied.text,/totalUsers|platformAccessManagedAt|rows/);

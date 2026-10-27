@@ -10,6 +10,14 @@
 .mfa-challenge-page .mfa-mode-toggle { min-height: 44px; justify-self: center; padding: 8px 12px; }
 .mfa-security-panel > .status-pill { margin: 10px 0 16px; }
 .mfa-security-panel > .dashboard-form + .dashboard-form { margin-top: 22px; }
+.mfa-method-section { margin-top: 26px; }
+.mfa-method-section > h3 { margin: 0 0 10px; }
+.mfa-method-section > p { margin: 0 0 16px; line-height: 1.65; }
+.mfa-method-section .dashboard-form + .dashboard-form { margin-top: 20px; }
+.mfa-method-section > summary, .mfa-credential > summary { cursor: pointer; padding-block: 10px; font-weight: 650; }
+.mfa-credential summary span { font-size: 12px; font-weight: 400; }
+.mfa-login-method { margin-block: 22px; }
+.mfa-login-method > form + form { margin-top: 16px; }
 .mfa-security-panel .mfa-setup-steps { margin: 18px 0 0; padding-left: 22px; display: grid; gap: 10px; line-height: 1.65; }
 .mfa-security-panel .mfa-qr-figure { display: grid; justify-items: center; gap: 10px; margin: 20px 0; }
 .mfa-security-panel .mfa-qr-image { display: block; width: 256px; max-width: 100%; height: auto; border-radius: 0; background: #fff; image-rendering: pixelated; }

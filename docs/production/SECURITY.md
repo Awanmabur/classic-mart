@@ -3,6 +3,9 @@
 ## Identity
 Passwords use Argon2. Email and phone verification are separate controls. Privileged roles require MFA in production. Session/token versions are incremented when staff access changes or an account is anonymized/suspended so prior sessions cannot remain valid.
 
+See [MFA methods and rollout](MFA.md) for passkeys, authenticator apps, eligible
+SMS security and the stronger proof required for staff and financial changes.
+
 ## Authorization
 `shoppingCountry` is a customer preference. It is never used as an employee authorization grant. Platform employees receive hidden server-controlled `operationalCountries`; Super Admin uses global scope. Resource policies derive scope from these grants, store/business membership and capabilities.
 

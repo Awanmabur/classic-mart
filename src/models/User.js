@@ -149,6 +149,12 @@ const userSchema = new Schema(
       passwordChangedAt: Date,
       tokenVersion: { type: Number, default: 0, min: 0 },
       mfaEnabled: { type: Boolean, default: false },
+      mfaMethods: { type: [String], enum: ['totp', 'sms', 'passkey'], default: undefined },
+      mfaPasskeyCount: { type: Number, default: 0, min: 0, max: 10 },
+      mfaSmsPhoneHash: { type: String, select: false },
+      mfaSmsEnrolledAt: Date,
+      mfaSmsLastSentAt: { type: Date, select: false },
+      mfaRecoveryStrong: { type: Boolean, default: undefined },
       mfaSecretEncrypted: { type: String, select: false },
       mfaPendingSecretEncrypted: { type: String, select: false },
       mfaRecoveryCodeHashes: { type: [String], default: undefined, select: false },
@@ -170,6 +176,7 @@ const userSchema = new Schema(
         delete result.phoneNormalized;
         delete result.passwordHash;
         delete result.security?.lastLoginIpHash;
+        for (const key of ['mfaSecretEncrypted', 'mfaPendingSecretEncrypted', 'mfaRecoveryCodeHashes', 'mfaLastCounter', 'mfaSmsPhoneHash', 'mfaSmsLastSentAt']) delete result.security?.[key];
         return result;
       },
     },

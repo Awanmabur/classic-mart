@@ -18,6 +18,8 @@ export { SellerContactRequest } from './SellerContactRequest.js';
 export { StockItem } from './StockItem.js';
 export { Store } from './Store.js';
 export { User } from './User.js';
+export { MfaChallenge } from './MfaChallenge.js';
+export { PasskeyCredential } from './PasskeyCredential.js';
 export { VerificationDocument } from './VerificationDocument.js';
 export { VerificationToken } from './VerificationToken.js';
 export { Warehouse } from './Warehouse.js';

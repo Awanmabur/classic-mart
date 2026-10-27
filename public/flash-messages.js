@@ -5,6 +5,7 @@
   let container;
   let content;
   let timer;
+  let dialogHost = null;
   const toastSelector = '#toast, #catalogToast, #pageToast, .page-toast, [data-platform-flash-toast]';
 
   function dismiss() {
@@ -15,13 +16,15 @@
   }
 
   function ensureContainer() {
+    const parent = dialogHost?.isConnected && dialogHost.open ? dialogHost : document.body;
     if (container?.isConnected) {
       document.querySelectorAll(toastSelector).forEach(item => {
         if (item !== container) item.remove();
       });
-      // A transformed card/modal must not become a fixed-position containing
-      // block or clip the shared viewport notification.
-      if (container.parentElement !== document.body) document.body.append(container);
+      // Native modal dialogs make body siblings inert in the browser's top
+      // layer. Their untransformed host keeps this same viewport-fixed surface
+      // visible and operable; ordinary cards still cannot capture or clip it.
+      if (container.parentElement !== parent) parent.append(container);
       return container;
     }
     container = document.querySelector(toastSelector) || document.createElement('div');
@@ -47,7 +50,7 @@
     container.addEventListener('focusin', () => clearTimeout(timer));
     // A message stays available while it is being read or its close button is
     // focused. It never steals keyboard focus from the action that triggered it.
-    if (container.parentElement !== document.body) document.body.append(container);
+    if (container.parentElement !== parent) parent.append(container);
     return container;
   }
 
@@ -68,7 +71,12 @@
     return target;
   }
 
-  window.ClassicMartFlash = Object.freeze({ show, dismiss });
+  function setDialogHost(dialog) {
+    dialogHost = typeof HTMLDialogElement !== 'undefined' && dialog instanceof HTMLDialogElement && dialog.open ? dialog : null;
+    ensureContainer();
+  }
+
+  window.ClassicMartFlash = Object.freeze({ show, dismiss, setDialogHost });
   window.addEventListener('pagehide', dismiss);
   const initialize = () => {
     if (document.querySelector(toastSelector)) ensureContainer();

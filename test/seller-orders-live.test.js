@@ -395,7 +395,14 @@ test('seller orders complete payment-gated, isolated and atomic warehouse fulfil
         assert.equal(await row.count(), 1);
         await Promise.all([page.waitForURL(`**/seller/orders/${browserSeller.publicId}`), row.getByRole('link', { name: /^View Order / }).click()]);
         assert.equal(new URL(page.url()).hash, '');
-        assert.ok(await page.getByRole('heading', { name: 'Order ' + browserSeller.publicId, exact: true }).isVisible());
+        const preview = page.locator('.record-modal');
+        assert.ok(await preview.isVisible());
+        assert.ok(await preview.getByRole('heading', { level: 1, name: 'Order ' + browserSeller.publicId, exact: true }).isVisible());
+        // The table opens the authorized record in a preview. Continue to its
+        // full page before exercising native fulfilment forms and page layout.
+        await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+          preview.getByRole('link', { name: 'Open full page', exact: true }).click()]);
+        assert.ok(await page.getByRole('heading', { level: 1, name: 'Order ' + browserSeller.publicId, exact: true }).isVisible());
         if (width === 390) {
           // Another real operator action invalidates this rendered form. The
           // browser must show a useful error without repeating the mutation.

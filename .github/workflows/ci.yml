@@ -30,7 +30,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           trap 'ci_status=$?; node scripts/ci-service-diagnostics.js || true; exit "$ci_status"' ERR
-          docker run -d --name classic-mart-mongo --network host --memory=4g --memory-swap=4g --ulimit nofile=65536:65536 mongo@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c mongod --port 27019 --replSet rs0 --bind_ip 127.0.0.1 --wiredTigerCacheSizeGB 0.25 --setParameter maxNumActiveUserIndexBuilds=1
+          # Disposable databases repeatedly build/drop the complete index set.
+          # WiredTiger's cache cap does not cap TCMalloc's retained free heap.
+          # This pinned MongoDB uses bytes/second for tcmallocReleaseRate: return
+          # freed pages at 64 MiB/s and bound its per-CPU caches to 1 MiB each.
+          docker run -d --name classic-mart-mongo --network host --memory=4g --memory-swap=4g --ulimit nofile=65536:65536 mongo@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c mongod --port 27019 --replSet rs0 --bind_ip 127.0.0.1 --wiredTigerCacheSizeGB 0.25 --setParameter maxNumActiveUserIndexBuilds=1 --setParameter maxIndexBuildMemoryUsageMegabytes=64 --setParameter tcmallocMaxPerCPUCacheSize=1048576 --setParameter tcmallocReleaseRate=67108864
           docker run -d --name classic-mart-redis --network host --memory=128m redis@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0 redis-server --bind 127.0.0.1 --save '' --appendonly no --maxmemory 64mb --maxmemory-policy noeviction
           mongo_ready=false
           for i in $(seq 1 60); do

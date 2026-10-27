@@ -1,3 +1,4 @@
+import { strongMfaFence } from './mfa-policy.js';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import { env } from '../config/env.js';
@@ -27,7 +28,7 @@ export async function queueModerationAlert({ country, kind = 'priority', href },
   const recipients = await User.aggregate([
     { $match: { status: 'active', emailVerifiedAt: { $type: 'date' }, onboardingCompletedAt: { $type: 'date' }, [preference]: { $ne: false },
       $or: [{ role: 'moderator' }, { platformAccessManagedAt: { $type: 'date' } }],
-      ...(env.security.privilegedMfaRequired ? { 'security.mfaEnabled': true } : {}) } },
+      ...(env.security.privilegedMfaRequired ? { $and: [strongMfaFence()] } : {}) } },
     { $lookup: { from: PlatformGrant.collection.name, localField: '_id', foreignField: 'userId', as: 'grant', pipeline: [
       { $match: { status: 'active', startsAt: { $lte: now }, expiresAt: { $gt: now } } }, { $project: { role: 1, operationalCountries: 1 } },
     ] } },

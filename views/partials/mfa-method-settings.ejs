@@ -1,0 +1,54 @@
+<% const availableMfa = typeof mfaOptions !== 'undefined' && mfaOptions ? mfaOptions : { methods: user.security?.mfaEnabled ? ['totp'] : [], managementMethods: ['totp'], credentials: [], smsAllowed: false, phone: 'your saved phone' }; %>
+<section class="panel form-panel mfa-security-panel">
+  <h2>Two-factor authentication</h2>
+  <p>Choose a passkey, SMS or an authenticator app. Your password remains the first step at sign-in.</p>
+  <% if (securityContinuation?.next && !user.security?.mfaEnabled) { %><p>Enable a security method to continue to your workspace.</p><% } %>
+  <span class="status-pill <%= user.security?.mfaEnabled ? 'good' : mfaRequired ? 'warn' : '' %>"><%= user.security?.mfaEnabled ? 'Enabled' : mfaRequired ? 'Required' : 'Optional' %></span>
+  <% if (mfaRecoveryCodes?.length) { %><p class="mfa-recovery-note">Save these recovery codes offline before continuing. Each code works once and these codes are shown only now. Anyone with a code can use it to complete sign-in.</p><div class="choice-grid mfa-recovery-codes" aria-label="One-time recovery codes"><% for (const item of mfaRecoveryCodes) { %><code><%= item %></code><% } %></div><% } %>
+
+  <section class="mfa-method-section" aria-labelledby="passkeySettingsTitle">
+    <h3 id="passkeySettingsTitle">Passkey · fingerprint, face or device PIN</h3>
+    <p>Your device verifies you. Classic Mart receives a signed confirmation, never your fingerprint or face data. Use this website’s configured address and a supported browser.</p>
+    <form class="dashboard-form" data-passkey-enrollment method="post" action="/account/mfa/passkeys/options">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <% if (securityContinuation?.next) { %><input type="hidden" name="next" value="<%= securityContinuation.next %>"><% } %>
+      <label>Passkey name<input name="name" value="My passkey" maxlength="80" required autocomplete="off"></label>
+      <label>Current password<input type="password" name="currentPassword" autocomplete="current-password" maxlength="256" required></label>
+      <button class="primary-button" type="submit" data-passkey-enroll disabled>Add passkey</button>
+      <p class="mfa-code-help" data-passkey-status role="status" aria-live="polite" hidden></p>
+      <noscript><p>Passkeys require JavaScript. You can use SMS, an authenticator or a saved recovery code instead.</p></noscript>
+    </form>
+    <% for (const credential of availableMfa.credentials) { %><details class="mfa-credential"><summary><%= credential.name %><span> · <%= credential.lastUsedAt ? 'Last used ' + formatDate(credential.lastUsedAt) : 'Not used for sign-in yet' %></span></summary>
+      <form class="dashboard-form" method="post" action="/account/mfa/passkeys/<%= credential.publicId %>/revoke" data-mfa-proof-form>
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><% if (securityContinuation?.next) { %><input type="hidden" name="next" value="<%= securityContinuation.next %>"><% } %>
+        <%- include('mfa-proof-fields', { proofAction: 'revoke-passkey', credentialPublicId: credential.publicId }) %>
+        <button class="outline-button" type="submit" data-confirm-message="Remove this passkey? You will no longer be able to use it for sign-in.">Remove passkey</button>
+      </form></details><% } %>
+  </section>
+
+  <% if (availableMfa.smsAllowed) { %><section class="mfa-method-section" aria-labelledby="smsSettingsTitle">
+    <h3 id="smsSettingsTitle">SMS security</h3><p>Receive a code on <%= availableMfa.phone %>. Codes expire after five minutes. SMS depends on mobile coverage and is less resistant to phone-number takeover than a passkey.</p>
+    <% if (!availableMfa.methods.includes('sms')) { %>
+      <form class="dashboard-form" method="post" action="/account/mfa/sms/begin"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><% if (securityContinuation?.next) { %><input type="hidden" name="next" value="<%= securityContinuation.next %>"><% } %><label>Current password<input type="password" name="currentPassword" autocomplete="current-password" maxlength="256" required></label><button class="outline-button" type="submit">Send setup SMS</button></form>
+      <% if (availableMfa.smsEnrollmentChallengeId) { %><form class="dashboard-form" method="post" action="/account/mfa/sms/confirm"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="challengeId" value="<%= availableMfa.smsEnrollmentChallengeId %>"><% if (securityContinuation?.next) { %><input type="hidden" name="next" value="<%= securityContinuation.next %>"><% } %><label>SMS setup code<input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><button class="primary-button" type="submit">Enable SMS security</button></form><% } %>
+    <% } else { %><p>SMS security is enabled for this saved phone. Remove this method before changing your phone number.</p><details><summary>Remove SMS security</summary><form class="dashboard-form" method="post" action="/account/mfa/sms/remove" data-mfa-proof-form><input type="hidden" name="_csrf" value="<%= csrfToken %>"><% if (securityContinuation?.next) { %><input type="hidden" name="next" value="<%= securityContinuation.next %>"><% } %><%- include('mfa-proof-fields', { proofAction: 'remove-sms', credentialPublicId: '' }) %><button class="outline-button" type="submit" data-confirm-message="Remove SMS security? Add another method first if your workspace requires two-factor authentication.">Remove SMS security</button></form></details><% } %>
+  </section><% } else { %><p class="mfa-code-help">This operational account requires a passkey or authenticator for protected work.</p><% } %>
+
+  <section class="mfa-method-section" aria-labelledby="totpSettingsTitle"><h3 id="totpSettingsTitle">Authenticator MFA</h3>
+    <% if (!availableMfa.methods.includes('totp')) { %><% if (!mfaEnrollment) { %>
+      <p>Use Google Authenticator, Microsoft Authenticator or Aegis. Scan a QR code, then confirm a code from the app.</p>
+      <form class="dashboard-form" method="post" action="/account/mfa/begin"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><% if (securityContinuation?.next) { %><input type="hidden" name="next" value="<%= securityContinuation.next %>"><% } %><label>Current password<input type="password" name="currentPassword" autocomplete="current-password" required></label><button class="outline-button" type="submit">Start MFA setup</button></form>
+    <% } else { %>
+      <ol class="mfa-setup-steps"><li>Open your authenticator app and choose to add an account.</li><li>Scan the QR code below. If you are using the same phone, use the manual setup key instead.</li><li>Enter the current 6-digit code from the app and select Enable MFA. Save the recovery codes shown afterwards.</li></ol>
+      <figure class="mfa-qr-figure"><img class="mfa-qr-image" src="/account/mfa/qr-code.png" width="256" height="256" alt="QR code for adding your Classic Mart account to an authenticator app" referrerpolicy="no-referrer"><figcaption>Scan with your authenticator app. Keep this QR code and your setup key private.</figcaption></figure>
+      <details class="mfa-manual-setup"><summary>Can’t scan the QR code?</summary><p>Choose Enter a setup key in your app. Use your email as the account name, Classic Mart as the issuer, and select a time-based, 6-digit code with a 30-second interval.</p><label class="dashboard-form">Setup key<input class="mfa-manual-key" type="text" value="<%= mfaEnrollment.secret %>" readonly autocomplete="off" spellcheck="false" aria-label="Authenticator setup key"></label><p>Never send this key or the QR code to anyone, including support.</p></details>
+      <form class="dashboard-form" method="post" action="/account/mfa/confirm"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><% if (securityContinuation?.next) { %><input type="hidden" name="next" value="<%= securityContinuation.next %>"><% } %><label>Authenticator code<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><button class="primary-button" type="submit">Enable MFA</button></form>
+    <% } %><% } else { %><p>Your authenticator app is enabled.</p><% } %>
+  </section>
+
+  <% if (user.security?.mfaEnabled) { %><section class="mfa-method-section"><h3>Confirm your identity</h3><p>Confirm a current security method before adding another method or performing a protected action.</p><form class="dashboard-form" method="post" action="/account/mfa/step-up" data-mfa-proof-form><input type="hidden" name="_csrf" value="<%= csrfToken %>"><% if (securityContinuation?.next) { %><input type="hidden" name="next" value="<%= securityContinuation.next %>"><% } %><%- include('mfa-proof-fields', { proofAction: 'step-up', credentialPublicId: '' }) %><button class="primary-button" type="submit">Confirm identity</button></form></section>
+    <details class="mfa-method-section"><summary>Recovery codes and security management</summary><form class="dashboard-form" method="post" action="/account/mfa/recovery-codes" data-mfa-proof-form><input type="hidden" name="_csrf" value="<%= csrfToken %>"><% if (securityContinuation?.next) { %><input type="hidden" name="next" value="<%= securityContinuation.next %>"><% } %><%- include('mfa-proof-fields', { proofAction: 'recovery-codes', credentialPublicId: '' }) %><button class="outline-button" type="submit" data-confirm-message="Generate new recovery codes? Every previous recovery code will stop working.">Generate new recovery codes</button></form>
+    <% if (!mfaRequired) { %><form class="dashboard-form" method="post" action="/account/mfa/disable" data-mfa-proof-form><input type="hidden" name="_csrf" value="<%= csrfToken %>"><%- include('mfa-proof-fields', { proofAction: 'disable', credentialPublicId: '' }) %><button class="outline-button" type="submit" data-confirm-message="Disable all two-factor methods? Other signed-in sessions will be revoked.">Disable MFA</button></form><% } %></details>
+  <% } %>
+  <% if (user.security?.mfaEnabled && securityContinuation?.url && securityContinuation.url !== '/account/security') { %><p class="account-actions"><a class="primary-button" href="<%= securityContinuation.url %>"><%= securityContinuation.label %></a></p><% } %>
+</section>

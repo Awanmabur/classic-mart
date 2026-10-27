@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import mongoose from 'mongoose';
 import request from 'supertest';
+import { fixtureTotpSecurity } from './helpers/mfa-fixtures.js';
 
 process.env.NODE_ENV = 'test';
 process.env.SIMPLE_LOGIN = 'false';
@@ -38,6 +39,8 @@ test('Promoter finance pages keep identity, market, funds and performance scoped
   const { User, Device, CountrySetting, PromoterVerification, Campaign, PromoterLink, AttributionTouch, CommissionEntry, LedgerAccount, LedgerTransaction, PaymentIntent, Payout, PayoutAccount, Order, AuditLog, BusinessInvoice, Shipment, InventoryReservation, FinancialDocument, LoyaltyAccount, LoyaltyEntry } = models;
   const { createApp } = await import('../src/app.js');
   const { hashPassword } = await import('../src/core/crypto.js');
+  const { decryptSensitive } = await import('../src/core/sensitive.js');
+  const { totpCode } = await import('../src/services/mfa.js');
   const { ensureLedgerAccount, postLedgerTransaction, accountBalanceMinor } = await import('../src/services/money.js');
   const { requestPayout, payoutOwnerContext, savePayoutAccount, verifyAndApplyPayment } = await import('../src/services/payments.js');
   const { reviewCommissionAppeal } = await import('../src/services/promoters.js');
@@ -46,16 +49,24 @@ test('Promoter finance pages keep identity, market, funds and performance scoped
   let sequence = 0;
   async function actor(role = 'promoter') {
     const index = ++sequence, email = `promoter-finance-${suffix}-${index}@example.com`, phone = '+25670' + String(index).padStart(7, '0');
+    const strongMfa = ['promoter', 'finance'].includes(role);
+    const security = strongMfa ? await fixtureTotpSecurity() : {};
     const user = await User.create({ publicId: `usr_pf_${suffix}_${index}`, name: `Promoter ${index}`, email, emailNormalized: email, phone, phoneNormalized: phone,
-      passwordHash, role, country: 'UG', currency: 'UGX', locale: 'en-UG', emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(),
+      passwordHash, role, country: 'UG', currency: 'UGX', locale: 'en-UG', emailVerifiedAt: new Date(), onboardingCompletedAt: new Date(), security,
       consents: { terms: true, privacy: true, recordedAt: new Date() } });
     const transport = new http.Agent({ localAddress: `127.0.0.${index + 5}`, keepAlive: false }); transports.push(transport);
     const client = request.agent(app).use(req => req.agent(transport));
     const login = await client.get('/login').expect(200);
-    await client.post('/login').type('form').send({ email, password, _csrf: csrf(login.text) }).expect(302);
-    return { user, client };
+    const signedIn = await client.post('/login').type('form').send({ email, password, _csrf: csrf(login.text) }).expect(302);
+    if (strongMfa) {
+      assert.equal(signedIn.headers.location, '/mfa');
+      const challenge = await client.get('/mfa').expect(200);
+      await client.post('/mfa').type('form').send({ _csrf: csrf(challenge.text), code: totpCode(decryptSensitive(security.mfaSecretEncrypted)) }).expect(302);
+    }
+    return { user, client, strongMfa };
   }
-  const scoped = entry => ({ user: entry.user, session: { tokenVersion: entry.user.security.tokenVersion }, query: {}, id: `req_pf_${suffix}_${++sequence}`, get: () => '', ip: '127.0.0.1' });
+  const scoped = entry => ({ user: entry.user, session: { tokenVersion: entry.user.security.tokenVersion,
+    ...(entry.strongMfa ? { mfaVerifiedMethod: 'totp', mfaVerifiedStrong: true, mfaVerifiedAt: Date.now() } : {}) }, query: {}, id: `req_pf_${suffix}_${++sequence}`, get: () => '', ip: '127.0.0.1' });
   const now = new Date(), old = new Date(now.getTime() - 100 * 86400000);
   async function order(id, country = 'UG', currency = 'UGX', paymentState = 'paid', createdAt = now) {
     const _id = new mongoose.Types.ObjectId();
@@ -192,7 +203,7 @@ test('Promoter finance pages keep identity, market, funds and performance scoped
     });
 
     await t.test('appeals are private and atomic; accepting an estimate creates no withdrawable money', async () => {
-      const reviewer = await actor('finance'); await User.updateOne({ _id: reviewer.user._id }, { $set: { 'security.mfaEnabled': true } }); reviewer.user.security.mfaEnabled = true;
+      const reviewer = await actor('finance');
       const estimate = await CommissionEntry.create({ publicId: `com_appeal_estimate_pf_${suffix}`, orderId: pendingOrder._id, orderPublicId: pendingOrder.publicId, campaignId: campaign._id, promoterUserId: owner.user._id, touchId: touch._id, productPublicId: 'prd_appeal_estimate', storePublicId: 'sto_brand', currency: 'UGX', amountMinor: 4000, reversedAmountMinor: 4000, commissionBps: 300, policyVersion: 'fixture', status: 'reversed', reversalReason: 'Refund estimate' });
       const page = await owner.client.get('/promoter/commissions').expect(200), token = csrf(page.text), message = 'Please review the recorded commission reversal.';
       assert.ok(page.text.includes('/promoter/commissions/' + estimate.publicId + '/appeal'));
