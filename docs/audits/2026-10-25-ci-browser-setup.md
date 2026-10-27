@@ -162,3 +162,33 @@ boundary; they do not establish the newly assigned hosted runner's kernel or
 the full pipeline result. GitHub API access is blocked in this environment, so
 the next hosted run must supply that evidence. The separate approved-colour
 contrast constraint described above still applies.
+
+## Hosted browser follow-up — 28 October, Africa/Kampala
+
+Run [40597780891](https://github.com/Awanmabur/classic-mart/actions/runs/40597780891)
+for `dfcc0a8a4ccb7dc58fd45c83957527fe4aee4bd1` passed the actual kernel check,
+MongoDB/Redis startup, static gates, the complete automated test step, database
+audits, migration planning and browser-account seeding. Public job metadata and
+the Playwright summary are readable without the blocked log-download API.
+
+The browser step reports **151 passed, 26 failed and 13 skipped**. Twenty-four
+failures are strict accessibility cases across desktop/mobile; two are the
+guest-cart persistence journey. That journey still expected immediate removal
+after clicking Remove, whereas the shared deletion control correctly requires
+confirmation. It now checks Cancel leaves the complete server cart unchanged,
+returns focus to Remove, and Continue removes the item persistently after a
+reload. The existing dedicated confirmation/security checks remain in place.
+
+The corrected critical-flow suite passes locally with **16 passed, four
+intentional project skips and zero failures**, including both cart projects and
+real Seller/Moderator MFA sign-in. Seventeen browser-release, kernel and pipeline
+contract tests also pass. The approved palette is unchanged and the strict
+accessibility assertions remain enabled. A successful functional journey does
+not establish a green overall release: the mandatory accessibility step and the
+later release/container gates need their own successful results.
+
+The separate local accessibility rerun reports **17 passed, 24 failed and one
+intentional project skip**. All 24 failures report only `color-contrast`; no
+accessibility rules were excluded or reclassified. `npm run check` also passes
+(746 import checks and 785 JavaScript syntax checks). These results use local
+system Chromium; they do not replace the next hosted managed-browser result.
