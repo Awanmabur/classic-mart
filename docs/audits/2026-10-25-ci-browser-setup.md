@@ -136,3 +136,29 @@ GitHub's [current Ubuntu 24.04 image manifest](https://github.com/actions/runner
 reports image `20261023.334.3`, Ubuntu 24.04.5 and kernel
 `6.17.0-1022-azure`, below MongoDB's rejected range. The new hosted run must
 confirm its assigned runner and result; the label is not a permanent kernel pin.
+
+## Runner kernel drift — 28 October, Africa/Kampala
+
+Run [40554828771](https://github.com/Awanmabur/classic-mart/actions/runs/40554828771)
+for `9a5dbe67256283a79f8f98bf10b01d012b90602d` now reports the same explicit
+`SERVER-121912` fatal error on the Ubuntu 24.04 runner. MongoDB exits 1 without
+an OOM kill; Redis is healthy. Increasing readiness time or changing the
+application cannot resolve the image's kernel refusal.
+
+CI now targets Ubuntu 22.04 and checks the actual Linux kernel immediately after
+Node setup, before installing dependencies or browsers. The check rejects
+kernels 6.19 and newer, including later major versions, and unrecognized release
+strings. It reads the OS directly and has no environment override. An unsupported
+host produces a specific escaped error annotation and a nonzero exit status.
+Node 24, the pinned database images, resource limits, replica-set readiness and
+every application, browser, accessibility and release gate remain enabled.
+The installed Playwright 1.62.1 explicitly supports Ubuntu 22.04.
+All 27 focused kernel, browser-environment, service-diagnostic and release
+contract tests pass locally.
+
+The exact MongoDB startup flags pass locally on Linux 6.18.55 without the
+additional local glibc setting. Local checks establish compatibility below the
+boundary; they do not establish the newly assigned hosted runner's kernel or
+the full pipeline result. GitHub API access is blocked in this environment, so
+the next hosted run must supply that evidence. The separate approved-colour
+contrast constraint described above still applies.

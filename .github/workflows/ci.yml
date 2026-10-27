@@ -11,9 +11,9 @@ permissions:
   artifact-metadata: write
 jobs:
   verify:
-    # MongoDB's tested image rejects Linux kernels >=6.19 (SERVER-121912).
-    # Keep the compatible runner explicit instead of following Ubuntu 26.
-    runs-on: ubuntu-24.04
+    # Ubuntu 24.04 runners now include kernels rejected by this MongoDB image.
+    # Use Jammy and verify the actual kernel; an OS label alone is insufficient.
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +21,8 @@ jobs:
         with:
           node-version: '24.x'
           cache: npm
+      - name: Verify MongoDB runner kernel
+        run: node scripts/check-ci-mongo-kernel.js
       - run: npm ci
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
