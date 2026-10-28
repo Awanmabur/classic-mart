@@ -1,5 +1,11 @@
 import { test, expect } from './browser-fixture.js';
 
+async function freezeClock(page) {
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(new Date(now.getTime() + 1000));
+}
+
 async function expectCenteredFlash(flash) {
   const geometry = await flash.evaluate(element => {
     const box = element.getBoundingClientRect();
@@ -22,6 +28,8 @@ async function expectCenteredFlash(flash) {
 test('shared flash safely replaces successive messages, keeps one container and supports dismissal', async ({ page }) => {
   const response = await page.goto('/login');
   expect(response.status()).toBe(200);
+  await freezeClock(page);
+  await page.mouse.move(0, 0);
   await page.evaluate(() => {
     const existing = document.querySelector('[data-platform-flash-toast]');
     if (!existing) throw new Error('The shared flash must initialize its page placeholder.');
@@ -34,7 +42,10 @@ test('shared flash safely replaces successive messages, keeps one container and 
     document.body.append(duplicate);
     // A fresh call must use the original singleton even if unrelated content
     // attempts to introduce a second toast placeholder.
-    window.ClassicMartFlash.show('Added to cart', { duration: 1000 });
+    window.ClassicMartFlash.show('Added to cart');
+  });
+  await page.clock.fastForward(4000);
+  await page.evaluate(() => {
     window.ClassicMartFlash.show('<img src=x onerror=alert(1)>', { type: 'error', duration: 0 });
   });
   const flash = page.locator('[data-platform-flash-toast]');
@@ -47,7 +58,7 @@ test('shared flash safely replaces successive messages, keeps one container and 
   await expect(flash.locator('.platform-flash-content')).toHaveText('<img src=x onerror=alert(1)>');
   await expect(flash.locator('img')).toHaveCount(0);
   // The previous message's expiry cannot close a more recent message.
-  await page.waitForTimeout(1150);
+  await page.clock.fastForward(1000);
   await expect(flash).toBeVisible();
   const borders = await flash.evaluate(element => {
     const style = getComputedStyle(element);
@@ -59,6 +70,7 @@ test('shared flash safely replaces successive messages, keeps one container and 
 });
 
 test('server login errors use the same primary border and no empty flash occupies space', async ({ page }) => {
+  await freezeClock(page);
   const response = await page.goto('/login');
   expect(response.status()).toBe(200);
   await expect(page.locator('#authMessage')).toBeHidden();
@@ -77,6 +89,87 @@ test('server login errors use the same primary border and no empty flash occupie
       && style.borderLeftWidth === '1px' && style.borderLeftColor === style.borderTopColor;
   });
   expect(shared).toBe(true);
+  await expect(message.getByRole('button', { name: 'Dismiss message' })).toBeVisible();
+  await page.mouse.move(0, 0);
+  await page.clock.fastForward(4999);
+  await expect(message).toBeVisible();
+  await page.clock.fastForward(1);
+  await expect(message).toBeHidden();
+});
+
+test('client flashes expire after five seconds even when an old caller requests an indefinite duration', async ({ page }) => {
+  await page.goto('/login');
+  await freezeClock(page);
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.ClassicMartFlash.show('Saved successfully', { duration: 0 }));
+  const flash = page.locator('[data-platform-flash-toast]');
+  await expect(flash).toBeVisible();
+  await page.clock.fastForward(4999);
+  await expect(flash).toBeVisible();
+  await page.clock.fastForward(1);
+  await expect(flash).toBeHidden();
+});
+
+test('dynamic inline messages can be dismissed and reused after expiry without hiding persistent notices', async ({ page }) => {
+  await page.goto('/login');
+  await freezeClock(page);
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => {
+    document.querySelector('#authMessage').textContent = 'The service is temporarily unavailable.';
+    const notice = document.createElement('aside');
+    notice.id = 'persistentFlashCheck';
+    notice.className = 'platform-flash';
+    notice.dataset.flashPersistent = '';
+    notice.textContent = 'Your verification is still awaiting review.';
+    document.querySelector('main').prepend(notice);
+  });
+  const message = page.locator('#authMessage');
+  await expect(message).toBeVisible();
+  await expect(message.getByRole('button', { name: 'Dismiss message' })).toBeVisible();
+  await page.clock.fastForward(5000);
+  await expect(message).toBeHidden();
+  await expect(page.locator('#persistentFlashCheck')).toBeVisible();
+  await expect(page.locator('#persistentFlashCheck button')).toHaveCount(0);
+  // Existing page scripts replace the status text rather than calling an API.
+  // The same message after another request must reveal a fresh close control.
+  await page.evaluate(() => { document.querySelector('#authMessage').textContent = 'The service is temporarily unavailable.'; });
+  await expect(message).toBeVisible();
+  const email = page.getByLabel('Email address', { exact: true });
+  await email.focus();
+  await message.getByRole('button', { name: 'Dismiss message' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(message).toBeHidden();
+  await expect(email).toBeFocused();
+});
+
+test('dashboard flashes use compact spacing and remain within the viewport', async ({ page }) => {
+  await page.goto('/login');
+  await page.mouse.move(0, 0);
+  const size = await page.evaluate(() => {
+    document.body.dataset.dashboardWorkspace = 'seller';
+    const message = document.createElement('p');
+    message.id = 'dashboardFlashCheck';
+    message.className = 'platform-flash';
+    message.textContent = 'Saved seller settings.';
+    document.querySelector('main').prepend(message);
+    const toast = window.ClassicMartFlash.show('A'.repeat(200));
+    const box = toast.getBoundingClientRect();
+    const style = getComputedStyle(toast);
+    return { width: box.width, left: box.left, right: box.right, viewport: document.documentElement.clientWidth,
+      paddingTop: style.paddingTop, paddingRight: style.paddingRight };
+  });
+  expect(size.width).toBeLessThanOrEqual(Math.min(420, size.viewport - 32));
+  expect(size.left).toBeGreaterThanOrEqual(0);
+  expect(size.right).toBeLessThanOrEqual(size.viewport);
+  expect(size.paddingTop).toBe('10px');
+  expect(size.paddingRight).toBe('12px');
+  const inline = page.locator('#dashboardFlashCheck');
+  await expect(inline.getByRole('button', { name: 'Dismiss message' })).toBeVisible();
+  const inlineSize = await inline.evaluate(element => ({ width: element.getBoundingClientRect().width,
+    paddingTop: getComputedStyle(element).paddingTop, marginBottom: getComputedStyle(element).marginBottom }));
+  expect(inlineSize.width).toBeLessThanOrEqual(560);
+  expect(inlineSize.paddingTop).toBe('10px');
+  expect(inlineSize.marginBottom).toBe('12px');
 });
 
 test('real cart success and failed API responses use one centered flash without narrow-screen overflow', async ({ page }, testInfo) => {
@@ -131,15 +224,38 @@ test('real cart success and failed API responses use one centered flash without 
 
 test('keyboard focus pauses flash expiry without moving focus from the action', async ({ page }) => {
   await page.goto('/login');
+  await freezeClock(page);
+  await page.mouse.move(0, 0);
   const email = page.getByLabel('Email address', { exact: true });
   await email.focus();
-  await page.evaluate(() => window.ClassicMartFlash.show('Read this message', { duration: 1000 }));
+  await page.evaluate(() => window.ClassicMartFlash.show('Read this message'));
   await expect(email).toBeFocused();
   const flash = page.locator('[data-platform-flash-toast]');
+  await page.clock.fastForward(1000);
   await flash.getByRole('button', { name: 'Dismiss message' }).focus();
-  await page.waitForTimeout(1150);
+  await page.clock.fastForward(5000);
   await expect(flash).toBeVisible();
-  await page.keyboard.press('Enter');
+  await email.focus();
+  await page.clock.fastForward(3999);
+  await expect(flash).toBeVisible();
+  await page.clock.fastForward(1);
+  await expect(flash).toBeHidden();
+});
+
+test('hover pauses the current reading time and resumes expiry after leaving', async ({ page }) => {
+  await page.goto('/login');
+  await freezeClock(page);
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.ClassicMartFlash.show('Settings saved.'));
+  const flash = page.locator('[data-platform-flash-toast]');
+  await page.clock.fastForward(1000);
+  await flash.hover();
+  await page.clock.fastForward(5000);
+  await expect(flash).toBeVisible();
+  await page.mouse.move(0, 0);
+  await page.clock.fastForward(3999);
+  await expect(flash).toBeVisible();
+  await page.clock.fastForward(1);
   await expect(flash).toBeHidden();
 });
 

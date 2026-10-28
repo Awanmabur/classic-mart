@@ -1,0 +1,39 @@
+/* Delayed, non-blocking feedback: no layout shift and no artificial progress. */
+.platform-loading {
+  position: fixed;
+  z-index: 5500;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  margin: 0;
+  padding: 9px 13px;
+  border: 1px solid var(--orange, #ff6200);
+  border-radius: 24px;
+  background: #fff;
+  color: #172033;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: 0 4px 16px rgb(23 32 51 / 10%);
+  pointer-events: none;
+}
+.platform-loading[hidden] { display: none; }
+.platform-loading-spinner {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 2px solid #f4e6dc;
+  border-top-color: var(--orange, #ff6200);
+  border-radius: 50%;
+  animation: platform-loading-spin .75s linear infinite;
+}
+@keyframes platform-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .platform-loading-spinner { animation: none; }
+}

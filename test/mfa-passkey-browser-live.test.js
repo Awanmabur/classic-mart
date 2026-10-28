@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { expect } from '@playwright/test';
 import { addVirtualPasskeyAuthenticator, browserPasskeyAssertion, createMfaBrowserFixture } from './helpers/mfa-browser-fixture.js';
 
 const uri = process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI;
@@ -50,11 +51,20 @@ test('a real browser enrolls and signs in with a verified passkey; invalid origi
   });
   if (!ready) return;
 
-  await t.test('cancelling the browser prompt keeps the challenge page usable; the next real signature opens the Seller workspace', async () => {
+  await t.test('cancelling the browser prompt keeps the challenge page usable; the next real signature opens the Seller workspace', async t => {
     await fixture.logout(entry);
     await fixture.signIn(entry);
     assert.equal(new URL(entry.page.url()).pathname, '/mfa');
     const before = await fixture.models.Device.countDocuments({ userId: entry.user._id, revokedAt: null });
+    const optionsUrl = fixture.base + '/mfa/passkey/options';
+    const delayOptions = async route => {
+      // The initial waiting status is visible before options return. Retain a
+      // real server response delay so this assertion cannot pass by fast timing.
+      await new Promise(resolve => setTimeout(resolve, 250));
+      await route.continue();
+    };
+    await entry.page.route(optionsUrl, delayOptions, { times: 1 });
+    t.after(() => entry.page.unroute(optionsUrl, delayOptions));
     await entry.page.evaluate(() => {
       const actual = navigator.credentials.get.bind(navigator.credentials);
       Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: () => {
@@ -63,7 +73,7 @@ test('a real browser enrolls and signs in with a verified passkey; invalid origi
       } });
     });
     await entry.page.locator('[data-passkey-login]').click();
-    await entry.page.locator('[data-passkey-status]').waitFor({ state: 'visible' });
+    await expect(entry.page.locator('[data-passkey-status]')).toHaveText(/cancel|not completed|try again/i);
     assert.match(await entry.page.locator('[data-passkey-status]').textContent(), /cancel|not completed|try again/i);
     assert.equal(new URL(entry.page.url()).pathname, '/mfa');
     assert.equal(await fixture.models.Device.countDocuments({ userId: entry.user._id, revokedAt: null }), before);

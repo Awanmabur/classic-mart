@@ -5,16 +5,14 @@ import { logger } from '../config/logger.js';
 import { securityEventPath, safeSecurityEventPath } from '../core/logging.js';
 import { hashValue, safeEqual } from '../core/crypto.js';
 import { publicId } from '../core/ids.js';
+import { createIpBlockCache } from '../core/ip-block-cache.js';
 import { Incident, IpBlock, SecurityEvent } from '../models/index.js';
 
 const SENSITIVE_PATH=/^\/(login|signup|forgot-password|reset-password|verify-|mfa|account|admin|seller|moderation|payments|webhooks|api\/)/i;
 const severityRank={low:0,medium:1,high:2,critical:3};
 const BLOCK_CACHE_LIMIT=10_000;
-const BLOCK_CACHE_TTL_MS=15_000;
-const CLEAR_CACHE_TTL_MS=15_000;
 const BLOCK_HIT_LOG_TTL_MS=60_000;
-const blockCache=new Map();
-const clearCache=new Map();
+const ipBlocks=createIpBlockCache({load:(ipHash,now)=>IpBlock.findOne({ipHash,revokedAt:null,expiresAt:{$gt:now}}).select('+ipHash')});
 const blockHitLogCache=new Map();
 let lastRetentionAt=0;
 
@@ -25,8 +23,7 @@ function boundedSet(map,key,value,limit=BLOCK_CACHE_LIMIT){
 }
 
 export function invalidateIpBlockCache(ipHash){
-  blockCache.delete(ipHash);
-  clearCache.delete(ipHash);
+  ipBlocks.invalidate(ipHash);
   blockHitLogCache.delete(ipHash);
 }
 
@@ -71,28 +68,12 @@ export async function writeSecurityEvent(request,type,options={}){
   }catch(error){logger.error({err:error,type,requestId:request?.id},'Failed to write security event');return null;}
 }
 
-async function activeBlock(ipHash){
-  const now=Date.now();
-  const cached=blockCache.get(ipHash);
-  if(cached){
-    if(cached.expiresAt>now)return cached.document;
-    blockCache.delete(ipHash);
-  }
-  const clearUntil=clearCache.get(ipHash);
-  if(clearUntil&&clearUntil>now)return null;
-  clearCache.delete(ipHash);
-  const row=await IpBlock.findOne({ipHash,revokedAt:null,expiresAt:{$gt:new Date(now)}}).select('+ipHash');
-  if(row)boundedSet(blockCache,ipHash,{expiresAt:Math.min(new Date(row.expiresAt).getTime(),now+BLOCK_CACHE_TTL_MS),document:row});
-  else boundedSet(clearCache,ipHash,now+CLEAR_CACHE_TTL_MS);
-  return row;
-}
-
 async function createOrExtendBlock(ipHash,{reason,severity='high',sourceEventPublicId='',minutes=60}={}){
   const now=new Date();
   const current=await IpBlock.findOne({ipHash,revokedAt:null,expiresAt:{$gt:now}}).select('+ipHash');
-  if(current){current.expiresAt=new Date(Math.max(current.expiresAt.getTime(),Date.now()+minutes*60_000));current.reason=reason||current.reason;current.hitCount+=1;current.lastHitAt=now;await current.save();invalidateIpBlockCache(ipHash);boundedSet(blockCache,ipHash,{expiresAt:Math.min(current.expiresAt.getTime(),Date.now()+BLOCK_CACHE_TTL_MS),document:current});return current;}
+  if(current){current.expiresAt=new Date(Math.max(current.expiresAt.getTime(),Date.now()+minutes*60_000));current.reason=reason||current.reason;current.hitCount+=1;current.lastHitAt=now;await current.save();invalidateIpBlockCache(ipHash);ipBlocks.set(ipHash,current);return current;}
   const created=await IpBlock.create({publicId:publicId('blk'),ipHash,reason:String(reason||'Hostile request activity').slice(0,500),severity,sourceEventPublicId,expiresAt:new Date(Date.now()+minutes*60_000),hitCount:1,lastHitAt:now});
-  invalidateIpBlockCache(ipHash);boundedSet(blockCache,ipHash,{expiresAt:Math.min(created.expiresAt.getTime(),Date.now()+BLOCK_CACHE_TTL_MS),document:created});
+  invalidateIpBlockCache(ipHash);ipBlocks.set(ipHash,created);
   return created;
 }
 
@@ -164,7 +145,7 @@ export async function securityShield(request,response,next){
       }
       return next();
     }
-    const block=await activeBlock(ipHash);
+    const block=await ipBlocks.get(ipHash);
     if(block){
       const now=Date.now();
       const nextLogAt=blockHitLogCache.get(ipHash)||0;

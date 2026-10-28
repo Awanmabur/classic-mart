@@ -16,7 +16,7 @@
   const campaignMarket = promoterCampaignFlow.market || {};
   const campaignLocale = campaignMarket.locale || 'en-UG';
 %>
-<% if (!promoterCampaignFlow.canPromote) { %><div class="panel dashboard-message platform-flash" role="status">Complete promoter verification to apply to campaigns and create promotional links. <a class="plain-link" href="/promoter/profile?section=business">Review Channels &amp; Audience</a></div><% } %>
+<% if (!promoterCampaignFlow.canPromote) { %><div class="panel dashboard-message platform-flash" data-flash-persistent role="status">Complete promoter verification to apply to campaigns and create promotional links. <a class="plain-link" href="/promoter/profile?section=business">Review Channels &amp; Audience</a></div><% } %>
 <% if (['marketplace', 'campaigns'].includes(promoterCampaignMode) && campaignDetail?.campaign) { const selectedCampaign = campaignDetail.campaign; const selectedApplication = campaignDetail.application || campaignApplicationFor(selectedCampaign); const campaignPath = '/promoter/campaigns/' + encodeURIComponent(selectedCampaign.publicId); %>
   <section class="panel role-form-section" id="promoterCampaignDetail">
     <div class="role-panel-head compact"><div><span class="eyebrow">Campaign brief</span><h2><%= selectedCampaign.name %></h2></div><span class="role-status <%= selectedCampaign.status === 'active' ? 'good' : 'warn' %>"><%= campaignStatusLabel(selectedCampaign.status) %></span></div>

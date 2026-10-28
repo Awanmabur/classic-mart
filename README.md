@@ -5,7 +5,7 @@ by its full Git commit on `master`; a merge does not establish production sign-o
 
 Start with the [launch handoff](docs/production/LAUNCH.md),
 [environment settings](.env.production.example) and
-[latest fixes and verification](docs/audits/2026-10-25-launch-fixes.md).
+[latest performance and feedback changes](docs/audits/2026-10-28-loading-flash-performance.md).
 [Staged launch operations](docs/production/staged-launch.md) covers staff,
 independent approvals and the production evidence gate.
 
@@ -103,6 +103,12 @@ The import refuses an unspecified MongoDB database, non-external Mongo mode, non
 | `INITIAL_CATALOGUE_CONFIRM=SEED_REAL_CLASSIC_MART npm run db:setup` | Verify Atlas + R2 and import the initial real catalogue |
 | `npm run admin:reset-password -- --yes` | Reset the configured Super Admin password non-destructively |
 | `npm run release:check` | Run the cumulative engineering release gates |
+
+The engineering tests include real Chromium loading-feedback checks. Install
+the browser with `npm run browser:install` before `npm test`, or set
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE` to an existing compatible Chromium. CI installs
+and resolves it automatically. Database-backed tests require the isolated test
+replica set used by CI; never point tests at your production database.
 | `npm run release:clean-app` | Build the stripped external-service-first app package |
 | `npm run release:production` | Build the production-only package |
 | `npm run staff:access -- --help` | Safely provision independently approved staff access |

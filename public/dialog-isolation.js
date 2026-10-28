@@ -2,7 +2,7 @@
   'use strict';
   if (window.ClassicMartDialogIsolation) return;
 
-  const flashSelector = '[data-platform-flash-toast], #toast, #catalogToast, #pageToast, .page-toast';
+  const flashSelector = '[data-platform-flash-toast], [data-platform-loading], #toast, #catalogToast, #pageToast, .page-toast';
   const focusableSelector = 'button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
   let active = null;
   let suspended = null;

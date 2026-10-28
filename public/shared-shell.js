@@ -56,18 +56,23 @@
 
 
 
-  async function loadSharedCatalogue() {
-    if (!window.ClassicMartSharedCataloguePromise) {
-      window.ClassicMartSharedCataloguePromise = window.ClassicMartCatalogueReady || fetch('/api/v1/storefront/catalogue', {
+  async function loadSharedNavigation() {
+    if (!document.querySelector('#searchCategory, a[href="/categories"] .tiny-badge')) return null;
+    // Product and cart controllers already fetch full data when they need it.
+    // Information pages need only category links, so avoid downloading and
+    // hydrating the entire marketplace for every header.
+    const existing = window.ClassicMartCatalogueReady || window.ClassicMartSharedCataloguePromise;
+    if (!existing && !window.ClassicMartNavigationPromise) {
+      window.ClassicMartNavigationPromise = fetch('/api/v1/storefront/navigation', {
         credentials: 'same-origin', headers: { Accept: 'application/json' },
       }).then(async (response) => {
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error?.message || 'Marketplace catalogue unavailable.');
+        if (!response.ok) throw new Error(payload.error?.message || 'Marketplace navigation unavailable.');
         return payload;
       });
     }
     try {
-      const catalogue = await window.ClassicMartSharedCataloguePromise;
+      const catalogue = await (existing || window.ClassicMartNavigationPromise);
       const categorySelect = document.querySelector('#searchCategory');
       if (categorySelect && Array.isArray(catalogue.categories)) {
         const selected = categorySelect.value || 'all';
@@ -85,7 +90,7 @@
       return null;
     }
   }
-  loadSharedCatalogue();
+  loadSharedNavigation();
 
   async function updateWishlistBadges() {
     try {

@@ -41,13 +41,22 @@
 
 .platform-flash.platform-flash-toast[hidden] { display: none; }
 .platform-flash-content { min-width: 0; flex: 1; }
-.platform-flash-close {
+.platform-flash[data-platform-flash-inline] {
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: start;
+  column-gap: 10px;
+}
+.platform-flash-content > small { display: block; }
+.platform-flash button.platform-flash-close {
   display: inline-flex;
   flex: 0 0 28px;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  margin: 0;
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -58,4 +67,20 @@
   line-height: 1;
   cursor: pointer;
 }
-.platform-flash-close:focus-visible { outline: 2px solid var(--orange, #ff6200); outline-offset: 2px; }
+.platform-flash button.platform-flash-close:focus-visible { outline: 2px solid var(--orange, #ff6200); outline-offset: 2px; }
+
+/* Dashboard notices stay compact without changing the approved palette. */
+body[data-dashboard-workspace] .platform-flash[data-platform-flash-inline] {
+  max-width: 560px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  column-gap: 8px;
+  border-radius: 12px;
+  line-height: 1.5;
+}
+body[data-dashboard-workspace] .platform-flash.platform-flash-toast {
+  max-width: min(420px, calc(100% - 32px));
+  gap: 10px;
+  padding: 10px 12px;
+  line-height: 1.5;
+}

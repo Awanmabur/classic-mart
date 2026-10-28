@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:d68c4af3-f435-406d-ace0-f6aff136a6dc",
+  "serialNumber": "urn:uuid:a5133f11-7643-4fe4-b261-1ec8c36a9574",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-10-28T09:23:53.469Z",
+    "timestamp": "2026-10-28T20:30:29.710Z",
     "component": {
       "type": "application",
       "name": "classic-mart",
@@ -2717,8 +2717,8 @@
     {
       "type": "library",
       "name": "qs",
-      "version": "6.16.0",
-      "purl": "pkg:npm/qs@6.16.0",
+      "version": "6.16.1",
+      "purl": "pkg:npm/qs@6.16.1",
       "properties": [
         {
           "name": "classic-mart:lockPath",

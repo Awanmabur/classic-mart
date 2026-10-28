@@ -2,7 +2,7 @@
 <section class="app-page active role-page" data-page="seller-store" data-role="seller">
   <div class="page-heading role-page-heading"><div><span class="eyebrow">Account preferences</span><h1>Store Settings</h1><p>Manage your store identity, business details, policies, pickup locations, and team access.</p></div><a class="outline-button icon-button" href="/account/security"><svg><use href="#i-shield"></use></svg>Security centre</a></div>
   <% if (liveSeller.error) { %><div class="panel dashboard-message dashboard-message-error seller-store-error platform-flash" role="alert"><%= liveSeller.error %></div><% } %>
-  <% if (locked) { %><div class="panel dashboard-message platform-flash" role="status">This store is <%= sellerStore.status %>. Settings cannot be changed.</div><% } %>
+  <% if (locked) { %><div class="panel dashboard-message platform-flash" data-flash-persistent role="status">This store is <%= sellerStore.status %>. Settings cannot be changed.</div><% } %>
   <div class="profile-layout role-settings-layout role-profile-settings">
     <aside class="panel profile-summary role-profile-summary">
       <div class="profile-avatar-wrap role-profile-avatar-wrap"><span class="role-profile-avatar"><%= sellerStore.name.slice(0,2).toUpperCase() %></span></div>

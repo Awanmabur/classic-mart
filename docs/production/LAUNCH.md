@@ -103,12 +103,18 @@ before inviting the pilot group.
 
 Real provider delivery, production capacity, signed-definition scanner checks,
 backups/restoration, infrastructure protection and independent operational
-sign-offs must be established on the deployment. The user approved minimal text
-contrast corrections while preserving the primary brand orange, and the strict
-public WCAG browser gate passed for the reviewed change. That result does not
-complete the container vulnerability scan or deployment sign-off. Local passing
-functional tests do not remove those launch conditions. Read the latest
+sign-offs must be established on the deployment. The approved palette is
+preserved; CI retains and reports the known contrast-only findings as advisory,
+while other browser failures remain blocking. Strict accessibility commands
+remain available, and this policy is not a WCAG certification. Local passing
+functional tests do not remove the launch conditions. Read the latest
 verification report in the source repository for exact test scope and results.
+
+For speed, keep the web process, Redis and MongoDB in nearby regions and use
+production mode so view and fingerprinted asset caches are enabled. The full
+source release includes the measurements in
+`docs/audits/2026-10-28-loading-flash-performance.md`; this engineering report is
+not part of the smaller production package.
 
 ## Troubleshooting the reported local errors
 

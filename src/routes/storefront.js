@@ -38,6 +38,7 @@ import { activeSponsoredProducts } from '../services/seller-growth.js';
 import { publicPromoter, publicPromoters } from '../services/promoters.js';
 import { scanUpload } from '../services/malware.js';
 import { visualSearchProducts } from '../services/visual-search.js';
+import { storefrontNavigation } from '../services/storefront-navigation.js';
 import { cursorScope, pageResult } from '../services/pagination.js';
 
 const router = Router();
@@ -231,6 +232,18 @@ router.get('/api/v1/storefront/visual-search-results', async (request, response,
     const products = baseProducts.map((product) => decoratePromotedProduct(product, sponsored.get(product.id)));
     response.set('Cache-Control', 'private, no-store');
     return response.json({ products, count: products.length });
+  } catch (error) { return next(error); }
+});
+
+router.get('/api/v1/storefront/navigation', async (request, response, next) => {
+  try {
+    const navigation = await storefrontNavigation(request.country);
+    // This representation has no member state or token. Still keep signed-in
+    // browser responses private and vary anonymous market selection correctly.
+    response.vary('Cookie');
+    response.vary('CF-IPCountry');
+    response.set('Cache-Control', request.user ? 'private, no-store' : 'public, max-age=10, stale-while-revalidate=30');
+    return response.json(navigation);
   } catch (error) { return next(error); }
 });
 
