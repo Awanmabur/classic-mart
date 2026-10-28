@@ -159,3 +159,29 @@ jobs:
             artifacts/classic-mart-sbom.cdx.json
             artifacts/container-image-id.txt
           if-no-files-found: error
+  signing-preflight:
+    # Catch runner metadata or signing-service failures before the long test
+    # suite reaches release signing. This subject is explicitly not a release.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Prepare isolated signing test subject
+        run: |
+          node --input-type=module <<'NODE'
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          mkdirSync('artifacts', { recursive: true });
+          writeFileSync('artifacts/signing-preflight.json', JSON.stringify({
+            purpose: 'CI signing preflight only; not a release artifact',
+            commit: process.env.GITHUB_SHA,
+            run: process.env.GITHUB_RUN_ID,
+          }) + '\n');
+          NODE
+      - name: Verify official signing and required bundle
+        uses: ./.github/actions/attest-with-retry
+        with:
+          subject-path: artifacts/signing-preflight.json
