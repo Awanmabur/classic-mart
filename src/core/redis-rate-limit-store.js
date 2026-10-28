@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { requireRedisCommand } from './redis-command.js';
 
 const incrementScript = `
 local total = redis.call('INCR', KEYS[1])
@@ -43,18 +44,27 @@ export class RedisRateLimitStore {
   }
 
   async increment(key) {
-    const client = await this.client();
-    const [totalHits, ttl] = await client.sendCommand(['EVAL', incrementScript, '1', this.key(key), String(this.windowMs)]);
+    const [totalHits, ttl] = await requireRedisCommand(async signal => {
+      const client = await this.client();
+      signal.throwIfAborted();
+      return client.sendCommand(['EVAL', incrementScript, '1', this.key(key), String(this.windowMs)]);
+    });
     return { totalHits: Number(totalHits), resetTime: new Date(Date.now() + Number(ttl)) };
   }
 
   async decrement(key) {
-    const client = await this.client();
-    await client.sendCommand(['EVAL', decrementScript, '1', this.key(key)]);
+    await requireRedisCommand(async signal => {
+      const client = await this.client();
+      signal.throwIfAborted();
+      return client.sendCommand(['EVAL', decrementScript, '1', this.key(key)]);
+    });
   }
 
   async resetKey(key) {
-    const client = await this.client();
-    await client.del(this.key(key));
+    await requireRedisCommand(async signal => {
+      const client = await this.client();
+      signal.throwIfAborted();
+      return client.del(this.key(key));
+    });
   }
 }

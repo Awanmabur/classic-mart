@@ -110,7 +110,7 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
   // credential forwarding; no send is retried after ambiguous acceptance.
   async function yoolaRequest(operation, body = {}) {
     assertYoolaConfigured();
-    if (!['send', 'balance'].includes(operation)) throw failure('rejected', 'unknown');
+    if (!['send', 'balance', 'delivery_report'].includes(operation)) throw failure('rejected', 'unknown');
     let httpStatus;
     try {
       const response = await fetchImpl(`https://yoolasms.com/api/v1/${operation}`, {
@@ -166,6 +166,14 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
       throw failure('malformed', 'send', 200);
     }
     // API acceptance is not a handset delivery receipt or successful MFA.
+    // Only a bounded receipt reference enters the acknowledgement log. Never
+    // copy a key, recipient, OTP, free-form provider text or response body.
+    const privateValues = [configuration.yoolaApiKey, phone, phone.slice(1), code].filter(Boolean);
+    const reference = typeof providerId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(providerId) &&
+      !privateValues.some(value => providerId.includes(value)) ? providerId : undefined;
+    log.info?.({ provider: 'yoola', operation: 'send', providerStatus: 'accepted', deliveryStatus: 'unconfirmed',
+      receiptAvailable: providerId != null, ...(reference ? { providerMessageId: reference } : {}) },
+    'SMS request accepted by provider; handset delivery is not confirmed');
     return { delivered: false, accepted: true,
       ...(providerId == null ? {} : { providerId }), recipient: phone, name };
   }
@@ -187,6 +195,25 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
       // The public reference does not establish a balance value/unit schema.
       return { authenticated: true, creditAvailable: null };
     },
+    async getSmsDeliveryReport(messageId) {
+      if (typeof messageId !== 'string' || messageId !== messageId.trim() || !messageId ||
+          messageId.length > 200 || /[\u0000-\u001f\u007f]/.test(messageId)) {
+        throw new AppError('Provide one valid Yoola message reference.', 400, 'SMS_INVALID_RECEIPT');
+      }
+      // The owner's reference uses this separate read-only endpoint. A positive
+      // API status is not a delivery status. Unknown fields remain unknown.
+      const result = await yoolaRequest('delivery_report', { message_id: messageId });
+      const states = [result.delivery_status, result.delivery, result.message_status]
+        .filter(value => value != null).map(value => {
+          const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
+          return status === 'delivered' ? 'delivered'
+            : ['failed', 'undelivered', 'rejected'].includes(status) ? 'failed'
+              : ['pending', 'queued', 'sent', 'processing'].includes(status) ? 'pending' : 'unknown';
+        });
+      // Generic success and conflicting fields do not establish delivery.
+      const state = states.length && states.every(value => value === states[0]) ? states[0] : 'unknown';
+      return { state, delivered: state === 'delivered' };
+    },
   });
 }
 
@@ -194,3 +221,4 @@ const sms = createSmsService();
 export const sendPhoneVerificationCode = input => sms.sendPhoneVerificationCode(input);
 export const sendMfaVerificationCode = input => sms.sendMfaVerificationCode(input);
 export const verifySmsConfiguration = () => sms.verifySmsConfiguration();
+export const getSmsDeliveryReport = messageId => sms.getSmsDeliveryReport(messageId);

@@ -1,6 +1,7 @@
 import { createClient } from 'redis';
 import { env } from './env.js';
 import { logger } from './logger.js';
+import { REDIS_COMMAND_TIMEOUT_MS } from '../core/redis-command.js';
 
 /** One client is shared by sessions and distributed rate limits. Replacing it
  * during an outage would strand RedisStore on the old, permanently closed
@@ -33,7 +34,7 @@ export function createRedisConnection({ url, production = false, makeClient = cr
       url,
       disableOfflineQueue: true,
       commandsQueueMaxLength: 1000,
-      commandOptions: { timeout: 5_000 },
+      commandOptions: { timeout: REDIS_COMMAND_TIMEOUT_MS },
       socket: {
         connectTimeout: 3_000,
         reconnectStrategy(retries) {

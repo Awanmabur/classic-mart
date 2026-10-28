@@ -3,16 +3,30 @@ import MongoStore from 'connect-mongo';
 import { RedisStore } from 'connect-redis';
 import mongoose from 'mongoose';
 import { env } from '../config/env.js';
+import { requireRedisCommand } from '../core/redis-command.js';
+
+export function createRedisSessionStore(redisClient) {
+  // Keep the shared reconnecting client. Only this store's operations receive
+  // reply deadlines; a healthy idle connection is never closed by a timer.
+  const client = Object.fromEntries(['get', 'set', 'expire', 'del', 'mGet'].map(method => [
+    method, (...args) => requireRedisCommand(() => redisClient[method](...args)),
+  ]));
+  client.scanIterator = async function* (...args) {
+    const iterator = redisClient.scanIterator(...args);
+    for (;;) {
+      const { done, value } = await requireRedisCommand(() => iterator.next());
+      if (done) return;
+      yield value;
+    }
+  };
+  return new RedisStore({ client, prefix: 'classic-mart:sess:', ttl: 30 * 24 * 60 * 60 });
+}
 
 export function createSessionMiddleware(redisClient) {
   const store = env.isTest
     ? new session.MemoryStore()
     : redisClient
-    ? new RedisStore({
-        client: redisClient,
-        prefix: 'classic-mart:sess:',
-        ttl: 30 * 24 * 60 * 60,
-      })
+    ? createRedisSessionStore(redisClient)
       : MongoStore.create({
         client: mongoose.connection.getClient(),
         collectionName: 'sessions',

@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import net from 'node:net';
 import { EventEmitter } from 'node:events';
 import { createClient, ClientOfflineError } from 'redis';
-import { RedisStore } from 'connect-redis';
+import { createRedisSessionStore } from '../src/middleware/session.js';
 import { createRedisConnection } from '../src/config/redis.js';
 import { RedisRateLimitStore } from '../src/core/redis-rate-limit-store.js';
 
@@ -42,6 +42,7 @@ test('initial Redis retries produce one development fallback diagnostic and a bo
   assert.equal(options.disableOfflineQueue, true);
   assert.equal(options.commandsQueueMaxLength, 1000);
   assert.equal(options.commandOptions.timeout, 5000);
+  assert.equal(options.socket.socketTimeout, undefined, 'Healthy idle connections must not be timed out.');
   assert.equal(options.socket.reconnectStrategy(0), false);
   for (let index = 0; index < 10; index++) assert.equal(await connection.get(), null);
   assert.equal(calls, 1, 'Requests must not start a new failed connection on every attempt.');
@@ -116,10 +117,10 @@ test('an established Redis outage preserves the real session client, blocks ever
       makeClient(options) { clients++; return createClient(options); } });
     let client, store, limiter;
     const callback = (method, ...args) => new Promise((resolve, reject) => store[method](...args, (error, value) => error ? reject(error) : resolve(value)));
-    const sid = 'identity', state = { cookie: { maxAge: 60_000, expires: new Date(Date.now() + 60_000) }, userId: 'owned-session-fixture' };
+    const sid = `identity-${suffix}`, state = { cookie: { maxAge: 60_000, expires: new Date(Date.now() + 60_000) }, userId: 'owned-session-fixture' };
     try {
       client = await connection.get();
-      store = new RedisStore({ client, prefix: `classic-mart:test:session:${suffix}:` });
+      store = createRedisSessionStore(client);
       limiter = new RedisRateLimitStore({ scope: `test:outage:${suffix}`, getClient: () => connection.get() });
       limiter.init({ windowMs: 60_000 });
       await callback('set', sid, state);

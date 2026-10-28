@@ -58,6 +58,51 @@ real phone-verification journey to a number you control and check receipt before
 offering SMS-dependent identity verification. Check supported countries, sender route
 and available credit in the Yoola account.
 
+### Trace an accepted SMS that never arrives
+
+Acceptance is not carrier delivery. A successful send now writes one bounded
+`SMS request accepted by provider; handset delivery is not confirmed` event.
+When Yoola supplies a usable reference, the event includes `providerMessageId`.
+It does not include the recipient, OTP, API key or raw provider response. A
+reference containing those private values is withheld. `receiptAvailable: false`
+means there is no top-level tracking ID to query; use Yoola's own message history
+for that attempt rather than inventing an ID or repeatedly sending codes.
+
+On the server with its existing private Yoola configuration, query that exact
+reference without sending another SMS:
+
+```bash
+npm run sms:verify -- --message-id PROVIDER_MESSAGE_ID
+```
+
+This uses the owner's pinned reference implementation's HTTPS
+`POST /api/v1/delivery_report` with `{api_key, message_id}`. It interprets the
+explicit `delivery_status`, `delivery` or `message_status` fields conservatively:
+`delivered` is provider-reported delivery; `failed`, `undelivered` or `rejected`
+is failure; `sent`, `pending`, `queued` or `processing` is still unconfirmed.
+Missing, generic `success`, conflicting or unrecognized delivery fields remain
+unknown. The top-level API `status` never establishes handset delivery.
+Exit codes are 0 for provider-reported delivered, 1 for failure, 2 for invalid
+command usage and 3 for pending/unknown. Errors use the existing safe SMS codes.
+The command prints fixed classifications, never the raw response or private data.
+It cannot change account verification or MFA state.
+
+Endpoint/field evidence is the source of
+[chariot-sms-test at e694237](https://github.com/Awanmabur/chariot-sms-test/blob/e694237edf03c2445c722f1f4b3bf5801a2740d2/src/lib/provider.js#L29),
+not an independently verified live schema. A pending/failed/unknown report must
+be resolved using the exact message's carrier result and rejection reason in
+Yoola history/support. No specific cause such as credit, sender filtering,
+destination or handset blocking can be inferred from an acceptance alone.
+
+Redis connection resets and interrupted HTTP GET responses are a separate web
+dependency issue. Redis session operations and shared rate counters have a
+five-second reply deadline, including an established connection that stops
+replying. They fail closed with the existing service-unavailable handling,
+retain the shared reconnecting client and never retry an uncertain mutation.
+An already-sent write can still settle after its deadline. Redis cannot prevent
+carrier delivery after Yoola has accepted an SMS, so a Redis recovery log does
+not explain or certify that message's handset delivery.
+
 Requests prohibit redirects, expire after ten seconds and accept at most 16 KiB
 of response data. API keys, OTPs, phone numbers and raw provider responses are not
 printed by the adapter or verification command. Authentication, insufficient-credit,
