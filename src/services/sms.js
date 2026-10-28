@@ -10,6 +10,45 @@ const CREDIT_CODES = new Set(['insufficient_balance', 'insufficient_credit', 'in
 const SENDER_CODES = new Set(['invalid_sender', 'invalid_sender_id', 'sender_not_approved', 'sender_id_not_approved', 'unapproved_sender', 'sender_required']);
 const RECIPIENT_CODES = new Set(['invalid_phone', 'invalid_phone_number', 'invalid_recipient', 'unsupported_country', 'unsupported_network', 'invalid_msisdn']);
 const RATE_CODES = new Set(['rate_limit', 'rate_limited', 'rate_limit_exceeded', 'too_many_requests', 'throttled']);
+const REPORT_FIELDS = new Set(['data', 'result', 'results', 'report', 'reports', 'response', 'payload', 'items', 'records',
+  'messages', 'message', 'sms', 'delivery', 'delivery_report', 'deliveryReport', 'delivery_status', 'deliveryStatus',
+  'delivery_state', 'message_status', 'messageStatus', 'message_state', 'sms_status', 'dlr_status', 'status', 'state',
+  'status_name', 'status_code', 'message_id', 'messageId', 'id', 'reference', 'error', 'errors', 'error_code', 'reason', 'description',
+  'delivered', 'delivery_confirmed', 'delivered_at', 'sent_at']);
+const REPORT_STATUS_FIELDS = new Set(['delivery', 'delivery_status', 'deliveryStatus', 'delivery_state', 'message_status',
+  'messageStatus', 'message_state', 'sms_status', 'dlr_status', 'status', 'state', 'status_name']);
+const REPORT_STATUS_VALUES = new Set(['success', 'accepted', 'queued', 'ok', 'error', 'failed', 'failure', 'delivered',
+  'undelivered', 'rejected', 'pending', 'sent', 'processing', 'unknown', 'expired', 'cancelled', 'scheduled', 'submitted',
+  'buffered', 'enroute', 'delivrd', 'undeliv', 'acceptd', 'rejectd', 'deleted', 'not_found']);
+
+function deliveryReportShape(result, secret) {
+  const entries = [];
+  let truncated = false;
+  function visit(value, path, field, depth) {
+    if (entries.length >= 60) { truncated = true; return; }
+    const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+    const entry = { path, type };
+    if (typeof value === 'string' && REPORT_STATUS_FIELDS.has(field)) {
+      const status = value.trim().toLowerCase();
+      if (REPORT_STATUS_VALUES.has(status) && status !== String(secret).trim().toLowerCase()) entry.recognizedStatus = status;
+    }
+    if (typeof value === 'boolean' && ['delivered', 'delivery_confirmed'].includes(field)) entry.reportedBoolean = value;
+    entries.push(entry);
+    if (!value || typeof value !== 'object') return;
+    if (depth >= 4) { truncated = true; return; }
+    if (Array.isArray(value)) {
+      entry.items = value.length;
+      value.slice(0, 3).forEach((item, index) => visit(item, `${path}[${index}]`, '', depth + 1));
+      if (value.length > 3) truncated = true;
+    } else {
+      const keys = Object.keys(value);
+      entry.otherFields = keys.filter(key => !REPORT_FIELDS.has(key)).length;
+      for (const key of keys) if (REPORT_FIELDS.has(key)) visit(value[key], `${path}.${key}`, key, depth + 1);
+    }
+  }
+  visit(result, '$', '', 0);
+  return { entries, truncated };
+}
 
 const failures = Object.freeze({
   authentication: ['Yoola authentication or permissions failed. Check the configured API key.', 502, 'SMS_AUTH_FAILED'],
@@ -195,7 +234,7 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
       // The public reference does not establish a balance value/unit schema.
       return { authenticated: true, creditAvailable: null };
     },
-    async getSmsDeliveryReport(messageId) {
+    async getSmsDeliveryReport(messageId, { inspect = false } = {}) {
       if (typeof messageId !== 'string' || messageId !== messageId.trim() || !messageId ||
           messageId.length > 200 || /[\u0000-\u001f\u007f]/.test(messageId)) {
         throw new AppError('Provide one valid Yoola message reference.', 400, 'SMS_INVALID_RECEIPT');
@@ -212,7 +251,8 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
         });
       // Generic success and conflicting fields do not establish delivery.
       const state = states.length && states.every(value => value === states[0]) ? states[0] : 'unknown';
-      return { state, delivered: state === 'delivered' };
+      return { state, delivered: state === 'delivered',
+        ...(inspect === true ? { reportShape: deliveryReportShape(result, configuration.yoolaApiKey) } : {}) };
     },
   });
 }
@@ -221,4 +261,4 @@ const sms = createSmsService();
 export const sendPhoneVerificationCode = input => sms.sendPhoneVerificationCode(input);
 export const sendMfaVerificationCode = input => sms.sendMfaVerificationCode(input);
 export const verifySmsConfiguration = () => sms.verifySmsConfiguration();
-export const getSmsDeliveryReport = messageId => sms.getSmsDeliveryReport(messageId);
+export const getSmsDeliveryReport = (messageId, options) => sms.getSmsDeliveryReport(messageId, options);

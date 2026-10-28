@@ -15,12 +15,13 @@ const failureHelp = Object.freeze({
 try {
   const args = process.argv.slice(2);
   const placeholders = new Set(['MESSAGE_ID', 'PROVIDER_MESSAGE_ID', 'MESSAGE_ID_FROM_YOOLA_HISTORY', 'THE_EXISTING_YOOLA_MESSAGE_ID']);
-  if (args.length && (args.length !== 2 || args[0] !== '--message-id' || !args[1] || placeholders.has(args[1]))) {
-    console.error('Usage: npm run sms:verify -- --message-id PROVIDER_MESSAGE_ID (read-only; sends no SMS).');
+  if (args.length && (![2, 3].includes(args.length) || args[0] !== '--message-id' || !args[1] ||
+      placeholders.has(args[1]) || args.length === 3 && args[2] !== '--inspect')) {
+    console.error('Usage: npm run sms:verify -- --message-id PROVIDER_MESSAGE_ID [--inspect] (read-only; sends no SMS).');
     console.error('Use the actual Yoola message reference from providerMessageId in the app log or from Yoola history; replace the example placeholder.');
     process.exitCode = 2;
   } else if (args.length) {
-    const { state } = await getSmsDeliveryReport(args[1]);
+    const { state, reportShape } = await getSmsDeliveryReport(args[1], { inspect: args[2] === '--inspect' });
     const descriptions = {
       delivered: 'Yoola reports delivered. Confirm handset receipt; account verification still requires the correct code.',
       failed: 'Yoola reports delivery failure. Ask Yoola for the carrier rejection reason for this message reference.',
@@ -28,6 +29,7 @@ try {
       unknown: 'Yoola did not return a recognized delivery state. Check its message history or support.',
     };
     console.log(`Yoola delivery report: ${state}. ${descriptions[state]} No SMS was sent by this check.`);
+    if (reportShape) console.log('Redacted delivery fields: ' + JSON.stringify(reportShape));
     process.exitCode = state === 'delivered' ? 0 : state === 'failed' ? 1 : 3;
   } else {
     const result = await verifySmsConfiguration();

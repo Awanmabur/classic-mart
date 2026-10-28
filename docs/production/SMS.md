@@ -87,6 +87,16 @@ command usage and 3 for pending/unknown. Errors use the existing safe SMS codes.
 The command prints fixed classifications, never the raw response or private data.
 It cannot change account verification or MFA state.
 
+If the report is unknown, add `--inspect` to the same command. This makes the
+same single read-only lookup and prints a bounded structural summary: allowlisted
+field paths/types, recognized status words and explicit delivery booleans. It
+withholds arbitrary field names, message text, IDs, numeric values, recipients,
+OTPs, credentials and unknown string contents. It does not log a raw response,
+create an additional SMS, or treat the inspection as proof of delivery. The
+summary helps update the parser from actual provider fields rather than guessed
+aliases. Replace example placeholders with the actual message reference; literal
+placeholders are rejected before any provider request.
+
 Endpoint/field evidence is the source of
 [chariot-sms-test at e694237](https://github.com/Awanmabur/chariot-sms-test/blob/e694237edf03c2445c722f1f4b3bf5801a2740d2/src/lib/provider.js#L29),
 not an independently verified live schema. A pending/failed/unknown report must
