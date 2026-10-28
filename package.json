@@ -37,6 +37,7 @@
     "release:build": "node scripts/build-release.js",
     "audit:concurrency": "node scripts/audit-concurrency.js",
     "browser:check": "playwright test",
+    "browser:ci": "node scripts/run-ci-browser.js",
     "browser:a11y": "playwright test tests/e2e/accessibility.spec.js",
     "browser:critical": "playwright test tests/e2e/critical-flows.spec.js",
     "browser:install": "playwright install chromium",

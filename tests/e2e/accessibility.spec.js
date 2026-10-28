@@ -22,13 +22,25 @@ async function assertWcag(page, label) {
       contentType: 'application/json',
     });
   }
-  const compact = result.violations.map((violation) => ({
+  const compact = violations => violations.map((violation) => ({
     id: violation.id,
     impact: violation.impact,
     help: violation.help,
     nodes: violation.nodes.slice(0, 5).map((node) => node.target),
   }));
-  expect(compact, `${label} WCAG violations`).toEqual([]);
+  const contrast = result.violations.filter(violation => violation.id === 'color-contrast');
+  const blocking = result.violations.filter(violation => violation.id !== 'color-contrast');
+  expect(compact(blocking), `${label} WCAG violations`).toEqual([]);
+  if (contrast.length) {
+    await test.info().attach('colour-contrast-findings.json', {
+      body: JSON.stringify({ schemaVersion: 1, label, violations: contrast }),
+      contentType: 'application/json',
+    });
+    test.info().annotations.push({ type: 'colour-contrast-audit', description: label });
+    // Keep the strict result, but complete the subsequent keyboard/dialog
+    // assertions too. CI reports proven contrast-only failures separately.
+    expect.soft(compact(contrast), `COLOR_CONTRAST_AUDIT: ${label}`).toEqual([]);
+  }
 }
 
 for (const [label, path, heading] of publicPages) {

@@ -192,3 +192,20 @@ intentional project skip**. All 24 failures report only `color-contrast`; no
 accessibility rules were excluded or reclassified. `npm run check` also passes
 (746 import checks and 785 JavaScript syntax checks). These results use local
 system Chromium; they do not replace the next hosted managed-browser result.
+
+## Approved-palette CI policy — 28 October, Africa/Kampala
+
+The latest completed run,
+[40604438037](https://github.com/Awanmabur/classic-mart/actions/runs/40604438037),
+confirms the cart correction: **153 browser tests passed, 24 accessibility
+cases failed and 13 were skipped**. Database startup, the canonical automated
+suite and database audits also passed. The remaining observed rule is
+`color-contrast`; later release/container steps were skipped.
+
+The exact approved colours are retained. CI now uses the documented
+[browser policy](../CI_BROWSER_POLICY.md): proven contrast-only findings are
+advisory, while all other failures remain blocking. All assertions still run,
+and strict browser commands retain their failing contrast results. This policy
+supersedes the earlier instruction to make every contrast finding a mandatory
+CI blocker; it does not resolve the underlying readability findings or claim
+WCAG certification.

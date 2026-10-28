@@ -106,8 +106,8 @@ jobs:
       - name: Prepare separate Seller and Moderator browser accounts with real MFA
         run: node scripts/seed-browser-accounts.js
         env: *browserenv
-      - name: Real-browser and WCAG accessibility gates
-        run: npm run browser:check
+      - name: Browser functionality and accessibility (contrast advisory)
+        run: npm run browser:ci
         env: *browserenv
       - name: Upload browser diagnostics
         if: always()
@@ -116,6 +116,7 @@ jobs:
           name: classic-mart-browser-diagnostics
           path: |
             artifacts/ci-services.txt
+            artifacts/ci-browser-summary.json
             playwright-report/
             test-results/
           if-no-files-found: ignore

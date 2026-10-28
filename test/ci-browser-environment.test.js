@@ -52,6 +52,6 @@ test('CI prepares its browser before canonical tests and only tracks the retaine
   const tests = workflow.indexOf('run: npm test');
   assert.ok(install >= 0 && prepare > install && tests > prepare);
   assert.match(workflow, /branches: \[master\]/);
-  assert.match(workflow, /npm run browser:check/);
+  assert.match(workflow, /npm run browser:ci/);
   assert.doesNotMatch(workflow, /continue-on-error/);
 });

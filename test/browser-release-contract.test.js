@@ -12,6 +12,8 @@ test('real-browser and accessibility release gate is pinned and reproducible', (
   assert.equal(lock.packages['node_modules/@playwright/test'].version, '1.62.1');
   assert.equal(lock.packages['node_modules/@axe-core/playwright'].version, '4.13.0');
   assert.match(pkg.scripts['release:check'], /npm run browser:check/);
+  assert.equal(pkg.scripts['browser:check'], 'playwright test');
+  assert.equal(pkg.scripts['browser:ci'], 'node scripts/run-ci-browser.js');
 });
 
 test('browser suite covers desktop, mobile, authenticated navigation and WCAG AA', () => {
@@ -60,7 +62,7 @@ test('Node 24 CI installs the browser, seeds data, runs the gate and uploads dia
     assert.match(read(`tests/e2e/${file}.spec.js`), /from '\.\/browser-fixture\.js'/);
   }
   assert.match(workflow, /playwright install --with-deps chromium/);
-  assert.match(workflow, /npm run browser:check/);
+  assert.match(workflow, /npm run browser:ci/);
   assert.match(workflow, /classic-mart-browser-diagnostics/);
 });
 
