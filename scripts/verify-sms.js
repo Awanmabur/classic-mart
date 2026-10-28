@@ -14,8 +14,10 @@ const failureHelp = Object.freeze({
 });
 try {
   const args = process.argv.slice(2);
-  if (args.length && (args.length !== 2 || args[0] !== '--message-id' || !args[1])) {
+  const placeholders = new Set(['MESSAGE_ID', 'PROVIDER_MESSAGE_ID', 'MESSAGE_ID_FROM_YOOLA_HISTORY', 'THE_EXISTING_YOOLA_MESSAGE_ID']);
+  if (args.length && (args.length !== 2 || args[0] !== '--message-id' || !args[1] || placeholders.has(args[1]))) {
     console.error('Usage: npm run sms:verify -- --message-id PROVIDER_MESSAGE_ID (read-only; sends no SMS).');
+    console.error('Use the actual Yoola message reference from providerMessageId in the app log or from Yoola history; replace the example placeholder.');
     process.exitCode = 2;
   } else if (args.length) {
     const { state } = await getSmsDeliveryReport(args[1]);

@@ -103,6 +103,12 @@ An already-sent write can still settle after its deadline. Redis cannot prevent
 carrier delivery after Yoola has accepted an SMS, so a Redis recovery log does
 not explain or certify that message's handset delivery.
 
+The Redis client sends a PING every 15 seconds while idle to keep a quiet
+connection ahead of the observed 30-second reset cadence. The Redis account must
+permit PING. This helps idle-cutoff cases; it does not establish the cause of a
+particular reset or prevent forced connection lifetimes/network outages. The
+five-second session/counter reply deadlines remain in force independently.
+
 Requests prohibit redirects, expire after ten seconds and accept at most 16 KiB
 of response data. API keys, OTPs, phone numbers and raw provider responses are not
 printed by the adapter or verification command. Authentication, insufficient-credit,

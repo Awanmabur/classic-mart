@@ -35,6 +35,9 @@ export function createRedisConnection({ url, production = false, makeClient = cr
       disableOfflineQueue: true,
       commandsQueueMaxLength: 1000,
       commandOptions: { timeout: REDIS_COMMAND_TIMEOUT_MS },
+      // Redis traffic keeps quiet sessions ahead of 30-second idle cutoffs;
+      // TCP keepalive probes alone may not keep an intermediary connection open.
+      pingInterval: 15_000,
       socket: {
         connectTimeout: 3_000,
         reconnectStrategy(retries) {

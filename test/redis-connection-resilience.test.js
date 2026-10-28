@@ -42,6 +42,7 @@ test('initial Redis retries produce one development fallback diagnostic and a bo
   assert.equal(options.disableOfflineQueue, true);
   assert.equal(options.commandsQueueMaxLength, 1000);
   assert.equal(options.commandOptions.timeout, 5000);
+  assert.equal(options.pingInterval, 15_000);
   assert.equal(options.socket.socketTimeout, undefined, 'Healthy idle connections must not be timed out.');
   assert.equal(options.socket.reconnectStrategy(0), false);
   for (let index = 0; index < 10; index++) assert.equal(await connection.get(), null);
@@ -85,6 +86,75 @@ test('a real refused development TCP connection settles once without an offline 
     assert.equal(records.filter(row => row[0] === 'warn').length, 1);
   } finally { await connection.disconnect(); }
 });
+
+test('Redis PING keepalive preserves a quiet connection beyond a real TCP idle cutoff without replacing the client',
+  { timeout: 10_000 }, async () => {
+    // Scale both production timings by 50 so the actual client and TCP idle
+    // timer exercise multiple PINGs without adding a minute to the test suite.
+    const scale = 50, idleCutoffMs = 30_000 / scale;
+    const sockets = new Set();
+    let accepted = 0, idleDisconnects = 0, pings = 0;
+    const server = net.createServer(socket => {
+      accepted++;
+      sockets.add(socket);
+      socket.on('error', () => {});
+      socket.on('close', () => sockets.delete(socket));
+      socket.setTimeout(idleCutoffMs, () => { idleDisconnects++; socket.destroy(); });
+      let buffer = '';
+      socket.on('data', chunk => {
+        buffer += chunk.toString('ascii');
+        for (;;) {
+          const lineEnd = buffer.indexOf('\r\n');
+          if (lineEnd < 0) return;
+          const count = Number(buffer.slice(1, lineEnd));
+          let offset = lineEnd + 2;
+          const args = [];
+          for (let index = 0; index < count; index++) {
+            const end = buffer.indexOf('\r\n', offset);
+            if (end < 0) return;
+            const size = Number(buffer.slice(offset + 1, end));
+            if (buffer.length < end + 2 + size + 2) return;
+            args.push(buffer.slice(end + 2, end + 2 + size));
+            offset = end + 2 + size + 2;
+          }
+          buffer = buffer.slice(offset);
+          if (args[0] === 'HELLO') socket.write('%1\r\n+proto\r\n:3\r\n');
+          else if (args[0] === 'PING') { pings++; socket.write('+PONG\r\n'); }
+          else socket.write('+OK\r\n');
+        }
+      });
+    });
+    const port = await listen(server), url = `redis://127.0.0.1:${port}`;
+    const control = createClient({ url, socket: { reconnectStrategy: false } });
+    control.on('error', () => {});
+    const { records, log } = capture();
+    let clients = 0;
+    const connection = createRedisConnection({ url, production: true, log,
+      makeClient(options) {
+        clients++;
+        assert.equal(options.pingInterval, 15_000);
+        return createClient({ ...options, pingInterval: options.pingInterval / scale });
+      } });
+    try {
+      await control.connect();
+      await waitFor(() => !control.isReady, 'An unprotected quiet connection must reach the fixture idle cutoff.');
+      assert.equal(idleDisconnects, 1);
+      const client = await connection.get();
+      await waitFor(() => pings >= 3, 'The client must send repeated PINGs while application requests are idle.');
+      assert.equal(client.isReady, true);
+      assert.equal(await connection.get(), client);
+      assert.equal(idleDisconnects, 1, 'Heartbeat traffic must keep the protected connection open past the same cutoff.');
+      assert.equal(clients, 1);
+      assert.equal(accepted, 2, 'Only the control and original shared client may connect.');
+      assert.equal(records.filter(row => row[0] === 'warn').length, 0);
+    } finally {
+      if (control.isOpen) control.destroy();
+      await connection.disconnect();
+      const closed = new Promise(resolve => server.close(resolve));
+      for (const socket of sockets) socket.destroy();
+      await closed;
+    }
+  });
 
 const uri = process.env.CLASSIC_MART_LIVE_TEST_REDIS_URL;
 test('an established Redis outage preserves the real session client, blocks every session callback and rate counter, then recovers without resetting data',

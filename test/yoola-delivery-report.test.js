@@ -109,7 +109,9 @@ test('the read-only CLI distinguishes delivered, failed, pending and unknown wit
     assert.match(result.stdout, /No SMS was sent/);
     assert.doesNotMatch(result.stdout + result.stderr, /private-delivery-fixture-key|583726|256700000000|private provider text/);
   }
-  for (const args of [['--message-id'], ['--unknown'], ['--message-id', 'id', '--send']]) {
+  for (const args of [['--message-id'], ['--unknown'], ['--message-id', 'id', '--send'],
+    ['--message-id', 'MESSAGE_ID'], ['--message-id', 'PROVIDER_MESSAGE_ID'],
+    ['--message-id', 'MESSAGE_ID_FROM_YOOLA_HISTORY']]) {
     const result = cli({}, args);
     assert.equal(result.status, 2);
     assert.match(result.stderr, /Usage:/);
