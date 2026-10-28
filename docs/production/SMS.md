@@ -39,9 +39,13 @@ page's overview mentions a bearer header, but all its published language example
 send `api_key` in the JSON body without one. This adapter follows those concrete
 examples and does not add a second credential transmission or change auth mode
 based on an unverified assumption. Only an explicit positive
-status (`success`, `accepted`, `queued` or `ok`) together with a nonempty, bounded
-`message_id` counts as acceptance. Errors, unknown status, missing identifiers and
-malformed responses fail closed. Acceptance never sets `delivered: true` and does
+status (`success`, `accepted`, `queued` or `ok`) for the successful `/send` request
+counts as acceptance. A `message_id` is optional tracking metadata: an absent/null
+ID is omitted, and a nonnegative safe integer is normalized to a string. A present
+string must remain nonempty, bounded and free of control characters; malformed
+present IDs are rejected. No replacement tracking ID is invented. Explicit errors,
+known rejection codes, unknown status and malformed responses fail closed even
+beside a positive status. Acceptance never sets `delivered: true` and does
 not mark the user's phone verified; only a correct single-use OTP does that.
 
 Run `npm run sms:verify` after supplying the key. It makes an HTTPS POST to
@@ -73,6 +77,17 @@ explicit sign-in/security message and a five-minute expiry matching the MFA
 challenge. Provider acceptance is neither successful MFA nor confirmed delivery.
 The account challenge must still be checked and atomically consumed by the
 authentication flow; the SMS adapter never enables an MFA factor itself.
+
+On 28 October 2026, browser regressions reproduced a false rejection caused by
+requiring every positive acknowledgement to include a string tracking ID. That
+exception consumed the pending OTP even though the provider had acknowledged
+the send. The adapter now separates tracking metadata from acceptance; OTP
+ownership, expiry, attempt limits, cooldown and atomic single use are unchanged.
+These tests use a fake billed provider boundary with the real application,
+MongoDB and Chromium. They establish application behaviour, not live handset
+delivery. The official documentation endpoint was unavailable in this cloud
+session (CONNECT 403), and no private Yoola key was injected here; do not describe
+this correction as independently verified against the owner's live account.
 
 ## Signup and phone controls
 

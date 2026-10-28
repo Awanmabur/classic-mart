@@ -87,9 +87,14 @@ export async function createMfaBrowserFixture(uri, scope) {
       provider.calls++;
       const reject = provider.rejectNext;
       provider.rejectNext = false;
+      const messageIdMode = provider.nextMessageIdMode;
+      delete provider.nextMessageIdMode;
+      const acknowledgement = { status: 'success' };
+      if (messageIdMode !== 'missing') acknowledgement.message_id = messageIdMode === 'numeric'
+        ? provider.calls : `fixture-message-${provider.calls}`;
       return Response.json(reject
         ? { status: 'error', message: 'Insufficient SMS balance.' }
-        : { status: 'success', message_id: `fixture-message-${provider.calls}` });
+        : acknowledgement);
     };
     await mongoose.connect(uri, { dbName: `classicmart_${scope}_test_${suffix}` });
     models = await import('../../src/models/index.js');

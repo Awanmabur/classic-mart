@@ -194,4 +194,65 @@ test('SMS MFA completes seller enrollment and login with one-time phone-bound co
     assert.equal((await fixture.models.User.findById(expired.user._id)).security.mfaEnabled, false);
     await expired.context.close();
   });
+  // These independent accounts share the fixture's loopback IP. Move past the
+  // real authentication window before their additional logins; do not clear
+  // rate-limit counters or weaken the application's limits for this regression.
+  advance(15 * 60_000 + 1);
+  for (const messageIdMode of ['missing', 'numeric']) {
+    await t.test(`positive SMS acknowledgement with ${messageIdMode} tracking ID preserves enrollment until the real OTP is checked`, async () => {
+      const accepted = await fixture.actor('seller', { phoneVerified: false });
+      try {
+        await fixture.signIn(accepted);
+        fixture.provider.nextMessageIdMode = messageIdMode;
+        const sent = await fixture.postJson(accepted, '/account/mfa/sms/begin', { currentPassword: fixture.password });
+        assert.equal(sent.status, 200, 'An explicit positive provider acknowledgement must not be rejected solely for its tracking metadata.');
+        const challenge = await fixture.models.MfaChallenge.findOne({ publicId: sent.body.challengeId });
+        assert.ok(challenge.deliveredAt);
+        assert.equal(challenge.consumedAt, undefined);
+        let actor = await fixture.models.User.findById(accepted.user._id);
+        assert.equal(actor.security.mfaEnabled, false);
+        assert.equal(actor.phoneVerifiedAt, undefined);
+        const code = lastMessage(accepted).code;
+        const confirmed = await fixture.postJson(accepted, '/account/mfa/sms/confirm', { challengeId: sent.body.challengeId, code });
+        assert.equal(confirmed.status, 200);
+        actor = await fixture.models.User.findById(accepted.user._id);
+        assert.ok(actor.phoneVerifiedAt);
+        assert.equal(actor.security.mfaEnabled, true);
+        assert.ok((await fixture.models.MfaChallenge.findById(challenge._id)).consumedAt);
+        const replay = await fixture.postJson(accepted, '/account/mfa/sms/confirm', { challengeId: sent.body.challengeId, code });
+        assert.equal(replay.status, 422, 'An accepted provider acknowledgement cannot allow a second use of the proof.');
+      } finally { await accepted.context.close(); }
+    });
+  }
+
+  await t.test('ordinary phone verification accepts positive sending without a tracking ID and still requires a single-use OTP', async () => {
+    const customer = await fixture.actor('customer', { phoneVerified: false });
+    try {
+      await fixture.signIn(customer, '/verify-phone');
+      await customer.page.goto(fixture.base + '/verify-phone');
+      fixture.provider.nextMessageIdMode = 'missing';
+      const [sent] = await Promise.all([
+        customer.page.waitForNavigation(),
+        customer.page.locator('form[action="/verify-phone/send"] button[type="submit"]').click(),
+      ]);
+      assert.equal(sent.status(), 200);
+      assert.equal(new URL(customer.page.url()).pathname, '/verify-phone');
+      assert.match(await customer.page.locator('[role="status"]').innerText(), /accepted for sending/);
+      const token = await fixture.models.VerificationToken.findOne({ userId: customer.user._id, purpose: 'verify_phone' }).select('+tokenHash');
+      assert.equal(token.consumedAt, undefined);
+      const code = lastMessage(customer).code;
+      assert.notEqual(token.tokenHash, code);
+      assert.equal((await fixture.models.User.findById(customer.user._id)).phoneVerifiedAt, undefined);
+      await customer.page.locator('input[name="code"]').fill(code);
+      await Promise.all([
+        customer.page.waitForURL(url => url.pathname === '/dashboard'),
+        customer.page.locator('form[action="/verify-phone"] button[type="submit"]').click(),
+      ]);
+      assert.ok((await fixture.models.User.findById(customer.user._id)).phoneVerifiedAt);
+      assert.ok((await fixture.models.VerificationToken.findById(token._id)).consumedAt);
+      const replay = await fixture.postJson(customer, '/verify-phone', { code });
+      assert.equal(replay.status, 422);
+    } finally { await customer.context.close(); }
+  });
+
 });

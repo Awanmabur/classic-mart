@@ -29,11 +29,14 @@ test('Yoola uses the owner existing HTTPS JSON protocol and distinguishes accept
   assert.equal(result.providerId, 'message-fixture');
 });
 
-test('Yoola requires a positive acknowledgement and a bounded usable message identifier', async t => {
+test('Yoola requires a positive acknowledgement and rejects malformed receipt metadata', async t => {
   const invalid = [
     {}, [], null, { status: 'failed', message_id: 'id' }, { status: 'scheduled', message_id: 'id' },
-    { status: 'delivered', message_id: 'id' }, { status: 'success' }, { status: 'success', message_id: '' },
-    { status: 'success', message_id: ' ' }, { status: 'success', message_id: 123 },
+    { status: 'delivered', message_id: 'id' }, { status: 'success', message_id: '' },
+    { status: 'success', message_id: ' ' }, { status: 'success', message_id: -1 },
+    { status: 'success', message_id: 1.5 }, { status: 'success', message_id: Number.MAX_SAFE_INTEGER + 1 },
+    { status: 'success', message_id: true }, { status: 'success', message_id: {} },
+    { status: 'success', errors: ['SECRET_PROVIDER_DETAIL'] },
     { status: 'success', message_id: 'x'.repeat(201) }, { status: 'success', message_id: 'id\nsecret' },
     { status: 'success', message_id: 'id', error: 'SECRET_PROVIDER_DETAIL' },
     { status: 'success', message_id: 'id', success: false },
@@ -48,6 +51,20 @@ test('Yoola requires a positive acknowledgement and a bounded usable message ide
     const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({ status, message_id: 'id' }));
     const result = await sendPhoneVerificationCode(input);
     assert.equal(result.accepted, true); assert.equal(result.delivered, false);
+    mock.mock.restore();
+  }
+});
+
+test('explicit sending acceptance does not depend on optional string tracking metadata or verify a phone', async t => {
+  for (const receipt of [{}, { message_id: null }, { message_id: 123 }, { message_id: 0 }, { message_id: Number.MAX_SAFE_INTEGER }]) {
+    const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({ status: 'success', ...receipt }));
+    const result = await sendPhoneVerificationCode(input);
+    assert.equal(result.accepted, true);
+    assert.equal(result.delivered, false);
+    assert.equal(result.developmentCode, undefined);
+    assert.equal(result.providerId, receipt.message_id == null ? undefined : String(receipt.message_id));
+    assert.equal(Object.hasOwn(result, 'providerId'), receipt.message_id != null, 'No identifier may be invented.');
+    assert.equal(mock.mock.callCount(), 1);
     mock.mock.restore();
   }
 });

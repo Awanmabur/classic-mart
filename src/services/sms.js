@@ -27,6 +27,12 @@ function providerStatus(result) {
   return typeof result.status === 'string' ? result.status.trim().toLowerCase() : '';
 }
 
+function hasExplicitRejection(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false;
+  return Boolean(result.error || (result.errors && (!Array.isArray(result.errors) || result.errors.length)) ||
+    result.success === false || ['error', 'failed', 'failure', 'rejected', 'declined', 'denied', 'cancelled'].includes(providerStatus(result)));
+}
+
 // Interpret only known error categories. Provider text is inspected in memory,
 // never returned, logged, or copied into an AppError/cause.
 function providerFailureReason(result, httpStatus) {
@@ -122,8 +128,12 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
         if (!response.ok && reason !== 'rejected') throw failure(reason, operation, httpStatus);
         throw error;
       }
-      if (!response.ok || result.error || result.success === false || !['success', 'accepted', 'queued', 'ok'].includes(providerStatus(result))) {
-        throw failure(providerFailureReason(result, httpStatus), operation, httpStatus);
+      const rejection = providerFailureReason(result, httpStatus);
+      const data = result.data && typeof result.data === 'object' && !Array.isArray(result.data) ? result.data : null;
+      const dataRejection = providerFailureReason(data, httpStatus);
+      if (!response.ok || hasExplicitRejection(result) || hasExplicitRejection(data) ||
+          rejection !== 'rejected' || dataRejection !== 'rejected' || !ACCEPTED_SEND_STATUSES.has(providerStatus(result))) {
+        throw failure(rejection !== 'rejected' ? rejection : dataRejection, operation, httpStatus);
       }
       return result;
     } catch (error) {
@@ -144,13 +154,20 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
     if (configuration.mode === 'log') return { delivered: false, developmentCode: code };
     const result = await yoolaRequest('send', { phone: phone.slice(1), message,
       ...(configuration.yoolaSenderId ? { sender: configuration.yoolaSenderId } : {}) });
-    const providerId = result.message_id;
-    if (!ACCEPTED_SEND_STATUSES.has(providerStatus(result)) || typeof providerId !== 'string' ||
-        !providerId.trim() || providerId.length > 200 || /[\u0000-\u001f\u007f]/.test(providerId)) {
+    // Acceptance is the explicit positive acknowledgement of this /send call.
+    // A tracking ID is optional receipt metadata, not proof of phone ownership.
+    // Requiring one invalidated usable OTPs when Yoola acknowledged the send
+    // without returning a string identifier. Never invent a replacement ID.
+    const receipt = result.message_id;
+    const providerId = typeof receipt === 'number' && Number.isSafeInteger(receipt) && receipt >= 0
+      ? String(receipt) : receipt;
+    if (providerId !== undefined && providerId !== null && (typeof providerId !== 'string' ||
+        !providerId.trim() || providerId.length > 200 || /[\u0000-\u001f\u007f]/.test(providerId))) {
       throw failure('malformed', 'send', 200);
     }
     // API acceptance is not a handset delivery receipt or successful MFA.
-    return { delivered: false, accepted: true, providerId, recipient: phone, name };
+    return { delivered: false, accepted: true,
+      ...(providerId == null ? {} : { providerId }), recipient: phone, name };
   }
 
   return Object.freeze({

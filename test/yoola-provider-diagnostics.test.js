@@ -24,6 +24,11 @@ test('Yoola HTTP-200 rejections retain actionable categories without leaking pro
   const cases = [
     [{ status: 'error', error_code: 'INVALID_API_KEY', message: 'private-fixture-api-key 583726 +256700000000' }, 'SMS_AUTH_FAILED', 'authentication'],
     [{ status: 'error', message: 'Your API key is invalid: private-fixture-api-key' }, 'SMS_AUTH_FAILED', 'authentication'],
+    [{ status: 'success', error_code: 'INVALID_API_KEY' }, 'SMS_AUTH_FAILED', 'authentication'],
+    [{ status: 'success', data: { status: 'failed', error_code: 'insufficient_balance' } }, 'SMS_CREDIT_REQUIRED', 'credit'],
+    [{ status: 'success', data: { error: 'Insufficient SMS credits' } }, 'SMS_CREDIT_REQUIRED', 'credit'],
+    [{ status: 'success', data: { status: 'rejected' } }, 'SMS_DELIVERY_FAILED', 'rejected'],
+    [{ status: 'success', data: { success: false } }, 'SMS_DELIVERY_FAILED', 'rejected'],
     [{ status: 'error', error: { code: 'insufficient_balance', message: 'secret account credit data' } }, 'SMS_CREDIT_REQUIRED', 'credit'],
     [{ status: 'failed', message: 'Insufficient SMS credits for request 583726' }, 'SMS_CREDIT_REQUIRED', 'credit'],
     [{ status: 'error', code: 'sender_not_approved', message: 'secret sender account' }, 'SMS_SENDER_REJECTED', 'sender'],
@@ -111,7 +116,7 @@ test('timeouts and known connection failures stay private and are never retried'
 });
 
 test('malformed acknowledgements cannot make MFA delivery successful and log only fixed diagnostic categories', async () => {
-  for (const response of [{ status: 'success' }, { status: 'success', message_id: 123 }, { status: 'success', message_id: 'id\n583726' },
+  for (const response of [{ status: 'success', message_id: false }, { status: 'success', message_id: {} }, { status: 'success', message_id: 'id\n583726' },
     { status: 'success', message_id: 'id', success: false }, { status: 'success', message_id: 'id', error: 'private-fixture-api-key' }]) {
     const { service, events, requests } = client(response);
     await assert.rejects(service.sendMfaVerificationCode(input), { code: 'SMS_DELIVERY_FAILED' });
