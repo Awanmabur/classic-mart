@@ -223,3 +223,10 @@ to three times with bounded waits. Only individual attempts allow continuation;
 a final mandatory check requires a successful signing result and its bundle.
 Exhausted retries or cancellation still fail CI. Signing, transparency-log
 verification and release-upload ordering are retained.
+
+The first retry-action run, [40704216234](https://github.com/Awanmabur/classic-mart/actions/runs/40704216234),
+again passed all application, browser, image and vulnerability gates, but rejected
+the composite manifest before signing: `cancelled()` is permitted in step `if`,
+not `env`. The cancellation environment value now uses `job.status == 'cancelled'`,
+which the runner's `step-env` context supports. A focused metadata regression
+checks that environment expressions do not use unsupported status functions.

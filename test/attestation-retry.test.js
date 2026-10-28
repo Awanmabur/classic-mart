@@ -10,6 +10,21 @@ import { completeAttestation, requireSuccessfulAttestation } from '../.github/ac
 const scriptPath = fileURLToPath(new URL('../.github/actions/attest-with-retry/require-success.js', import.meta.url));
 const attemptNames = ['FIRST', 'SECOND', 'THIRD'];
 
+test('composite environment expressions use only runner-supported functions', () => {
+  // actions/runner action_yaml.json allows status functions in step-if, but
+  // step-env permits only hashFiles. Generic YAML parsing cannot catch this.
+  const action = fs.readFileSync(new URL('../.github/actions/attest-with-retry/action.yml', import.meta.url), 'utf8');
+  const environment = action.match(/^      env:\n((?: {8}.+\n)+)/m)?.[1];
+  assert.ok(environment, 'The required signing guard environment must be inspected.');
+  for (const [, expression] of environment.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
+    for (const [, name] of expression.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) {
+      assert.equal(name, 'hashFiles', `Unsupported function in composite step-env: ${name}`);
+    }
+  }
+  assert.match(environment, /CANCELLED: \$\{\{ job\.status == 'cancelled' \}\}/);
+  assert.match(action, /if: \$\{\{ always\(\) \}\}/);
+});
+
 function signedBundle() {
   return {
     mediaType: 'application/vnd.dev.sigstore.bundle.v0.3+json',

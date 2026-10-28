@@ -58,7 +58,7 @@ runs:
       shell: bash
       env:
         ATTEST_REQUIRE_SCRIPT: ${{ github.action_path }}/require-success.js
-        CANCELLED: ${{ cancelled() }}
+        CANCELLED: ${{ job.status == 'cancelled' }}
         FIRST_OUTCOME: ${{ steps.first.outcome }}
         FIRST_BUNDLE: ${{ steps.first.outputs.bundle-path }}
         FIRST_ID: ${{ steps.first.outputs.attestation-id }}
