@@ -66,7 +66,7 @@ test('known HTTP failures remain actionable with HTML or malformed provider bodi
 test('configured sender follows the official optional sender schema and invalid senders never contact Yoola', async () => {
   const { service, requests } = client({ status: ' success ', message_id: 'YL-fixture' }, { yoolaSenderId: 'ClassicMart' });
   assert.equal((await service.sendPhoneVerificationCode(input)).accepted, true);
-  assert.deepEqual(JSON.parse(requests[0].options.body), { api_key: 'private-fixture-api-key', phone: '256700000000',
+  assert.deepEqual(JSON.parse(requests[0].options.body), { api_key: 'private-fixture-api-key', phone: '0700000000',
     message: 'Classic Mart verification code: 583726. It expires in 10 minutes. Do not share this code.', sender: 'ClassicMart' });
   assert.equal(requests[0].options.redirect, 'error');
   assert.equal(requests[0].options.cache, 'no-store');
@@ -86,7 +86,7 @@ test('MFA sends an explicit five-minute sign-in/security message and never equat
   assert.equal(result.developmentCode, undefined);
   const sent = JSON.parse(requests[0].options.body);
   assert.equal(sent.message, 'Classic Mart sign-in/security code: 583726. It expires in 5 minutes. Do not share this code.');
-  assert.equal(sent.phone, '256700000000');
+  assert.equal(sent.phone, '0700000000');
   for (const expiresInMinutes of [0, 11, 5.5, '5', Infinity]) {
     await assert.rejects(service.sendMfaVerificationCode({ ...input, expiresInMinutes }), { code: 'SMS_INVALID_REQUEST' });
   }

@@ -34,7 +34,13 @@ independently diagnosed as a particular account problem here.
 
 Sending uses HTTPS `POST https://yoolasms.com/api/v1/send` with JSON
 `{api_key, phone, message}` and an optional approved `sender`. The stored E.164
-number is sent as international digits without its leading `+`. The provider
+number remains canonical in the account and OTP binding. For Ugandan recipients,
+the Yoola send payload now uses the national trunk-prefix format (`07…`), derived
+from `libphonenumber-js` metadata, following the account owner's recipient-format
+instruction. Other countries retain their existing international-digit payload;
+country codes are not removed indiscriminately. This format change requires a
+fresh live handset test and does not prove that the provider dashboard's local
+display format caused any earlier failure. The provider
 page's overview mentions a bearer header, but all its published language examples
 send `api_key` in the JSON body without one. This adapter follows those concrete
 examples and does not add a second credential transmission or change auth mode

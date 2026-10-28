@@ -7,7 +7,7 @@ process.env.YOOLA_API_KEY = 'yoola_test_fixture';
 const { sendPhoneVerificationCode, verifySmsConfiguration } = await import('../src/services/sms.js');
 const input = { phone: '+256700000000', name: 'Customer', code: '123456' };
 
-test('Yoola uses the owner existing HTTPS JSON protocol and distinguishes acceptance from delivery', async t => {
+test('Yoola uses the requested Ugandan national recipient while preserving canonical identity and delivery distinction', async t => {
   let request;
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     request = { url, options };
@@ -21,12 +21,27 @@ test('Yoola uses the owner existing HTTPS JSON protocol and distinguishes accept
   assert.equal(request.options.redirect, 'error');
   assert.ok(request.options.signal instanceof AbortSignal);
   assert.deepEqual(JSON.parse(request.options.body), {
-    api_key: 'yoola_test_fixture', phone: '256700000000',
+    api_key: 'yoola_test_fixture', phone: '0700000000',
     message: 'Classic Mart verification code: 123456. It expires in 10 minutes. Do not share this code.',
   });
   assert.equal(result.accepted, true);
   assert.equal(result.delivered, false);
   assert.equal(result.providerId, 'message-fixture');
+  assert.equal(result.recipient, input.phone);
+});
+
+test('Yoola recipient formatting uses country metadata and does not remove international routing from other countries', async t => {
+  for (const [phone, expected] of [['+256700000001', '0700000001'], ['+256414000000', '0414000000'],
+    ['+14155552671', '14155552671'], ['+447700900123', '447700900123']]) {
+    const mock = t.mock.method(globalThis, 'fetch', async (_url, options) => {
+      assert.equal(JSON.parse(options.body).phone, expected);
+      return Response.json({ status: 'success', message_id: 'fixture-reference' });
+    });
+    const result = await sendPhoneVerificationCode({ ...input, phone });
+    assert.equal(result.recipient, phone, 'Provider formatting cannot change the stored/verified identity.');
+    assert.equal(mock.mock.callCount(), 1);
+    mock.mock.restore();
+  }
 });
 
 test('Yoola requires a positive acknowledgement and rejects malformed receipt metadata', async t => {
@@ -91,7 +106,7 @@ test('Yoola account authentication fails closed for missing or negative status',
 
 test('Yoola rejects invalid phone numbers and codes before network access', async t => {
   const mock = t.mock.method(globalThis, 'fetch', async () => { throw new Error('must not call'); });
-  for (const phone of ['0700000000', '+256700', '+256700000000123456', '+256700000000\n']) {
+  for (const phone of ['0700000000', '+256700', '+256700000', '+999123456789', '+256700000000123456', '+256700000000\n']) {
     await assert.rejects(sendPhoneVerificationCode({ ...input, phone }), { code: 'SMS_INVALID_REQUEST' });
   }
   for (const code of ['bad', '12345', '1234567', '123456\n']) {

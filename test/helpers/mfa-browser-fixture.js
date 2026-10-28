@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import mongoose from 'mongoose';
 import { chromium } from '@playwright/test';
+import { canonicalPhone } from '../../src/core/phone.js';
 
 /** Real app, database and browser; only the billed Yoola HTTP boundary is fake. */
 export async function createMfaBrowserFixture(uri, scope) {
@@ -80,10 +81,10 @@ export async function createMfaBrowserFixture(uri, scope) {
       assert.equal(options.method, 'POST');
       const body = JSON.parse(options.body);
       assert.equal(body.api_key, fakeKey);
-      assert.match(body.phone, /^[1-9]\d{7,14}$/);
+      assert.match(body.phone, /^0\d{9}$/, 'Ugandan Yoola requests use national format, not the stored calling code.');
       const code = String(body.message).match(/\b(\d{6})\b/)?.[1];
       assert.ok(code, 'the real MFA sender supplies a verification code');
-      messages.push({ phone: body.phone, code });
+      messages.push({ phone: canonicalPhone(body.phone, 'UG').slice(1), code });
       provider.calls++;
       const reject = provider.rejectNext;
       provider.rejectNext = false;

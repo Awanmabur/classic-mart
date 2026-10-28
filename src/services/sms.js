@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { AppError } from '../core/errors.js';
+import { parsePhoneNumberFromString } from 'libphonenumber-js/max';
 
 const MAX_RESPONSE_BYTES = 16_384;
 const ACCEPTED_SEND_STATUSES = new Set(['success', 'accepted', 'queued', 'ok']);
@@ -190,8 +191,14 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
         typeof code !== 'string' || code !== code.trim() || !/^\d{6}$/.test(code)) {
       throw new AppError('Invalid verification recipient or code.', 400, 'SMS_INVALID_REQUEST');
     }
+    const parsedPhone = parsePhoneNumberFromString(phone, { extract: false });
+    if (!parsedPhone?.isPossible()) throw new AppError('Invalid verification recipient or code.', 400, 'SMS_INVALID_REQUEST');
+    // Keep identity/OTP binding in E.164. Only Yoola's Ugandan send payload uses
+    // the national trunk prefix requested for this account; metadata supplies it.
+    const providerRecipient = parsedPhone.country === 'UG'
+      ? parsedPhone.formatNational().replace(/\D/g, '') : parsedPhone.number.slice(1);
     if (configuration.mode === 'log') return { delivered: false, developmentCode: code };
-    const result = await yoolaRequest('send', { phone: phone.slice(1), message,
+    const result = await yoolaRequest('send', { phone: providerRecipient, message,
       ...(configuration.yoolaSenderId ? { sender: configuration.yoolaSenderId } : {}) });
     // Acceptance is the explicit positive acknowledgement of this /send call.
     // A tracking ID is optional receipt metadata, not proof of phone ownership.
@@ -207,7 +214,7 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
     // API acceptance is not a handset delivery receipt or successful MFA.
     // Only a bounded receipt reference enters the acknowledgement log. Never
     // copy a key, recipient, OTP, free-form provider text or response body.
-    const privateValues = [configuration.yoolaApiKey, phone, phone.slice(1), code].filter(Boolean);
+    const privateValues = [configuration.yoolaApiKey, phone, phone.slice(1), providerRecipient, code].filter(Boolean);
     const reference = typeof providerId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(providerId) &&
       !privateValues.some(value => providerId.includes(value)) ? providerId : undefined;
     log.info?.({ provider: 'yoola', operation: 'send', providerStatus: 'accepted', deliveryStatus: 'unconfirmed',

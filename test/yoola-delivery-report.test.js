@@ -99,7 +99,7 @@ test('explicit receipt inspection reveals only allowlisted field paths/types and
 test('accepted-send diagnostics provide a usable receipt without exposing recipient, OTP, key or provider text', async () => {
   for (const [id, logged] of [['YL-reference', 'YL-reference'], [123, '123'], [null, undefined],
     [configuration.yoolaApiKey, undefined], [`YL-${recipient.code}`, undefined],
-    [recipient.phone.slice(1), undefined], ['private provider text', undefined]]) {
+    [recipient.phone.slice(1), undefined], ['0700000000', undefined], ['private provider text', undefined]]) {
     const { service, requests, events } = fixture({ status: 'success', message_id: id, message: 'private provider text' });
     const result = await service.sendPhoneVerificationCode(recipient);
     assert.equal(result.accepted, true);
@@ -109,7 +109,7 @@ test('accepted-send diagnostics provide a usable receipt without exposing recipi
     assert.equal(events[0].fields.providerMessageId, logged);
     assert.equal(events[0].fields.deliveryStatus, 'unconfirmed');
     assert.equal(events[0].fields.receiptAvailable, id != null);
-    assert.doesNotMatch(JSON.stringify(events), /private-delivery-fixture-key|583726|256700000000|private provider text|Fixture customer/);
+    assert.doesNotMatch(JSON.stringify(events), /private-delivery-fixture-key|583726|256700000000|0700000000|private provider text|Fixture customer/);
   }
 });
 
