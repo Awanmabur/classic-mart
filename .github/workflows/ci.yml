@@ -141,12 +141,12 @@ jobs:
           exit-code: '1'
       - name: Attest sanitized release provenance
         if: github.event_name != 'pull_request'
-        uses: actions/attest@v4
+        uses: ./.github/actions/attest-with-retry
         with:
           subject-path: 'dist/*.zip'
       - name: Attest sanitized release SBOM
         if: github.event_name != 'pull_request'
-        uses: actions/attest@v4
+        uses: ./.github/actions/attest-with-retry
         with:
           subject-path: 'dist/*.zip'
           sbom-path: artifacts/classic-mart-sbom.cdx.json

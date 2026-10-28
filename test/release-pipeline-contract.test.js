@@ -9,7 +9,8 @@ test('CI scans the production container and attests release provenance/SBOM',()=
   assert.match(ci,/aquasecurity\/trivy-action@v0\.36\.0/);
   assert.match(ci,/severity: HIGH,CRITICAL/);
   assert.match(ci,/exit-code: '1'/);
-  assert.match(ci,/uses: actions\/attest@v4/);
+  assert.match(ci,/uses: \.\/\.github\/actions\/attest-with-retry/);
+  assert.match(read('.github/actions/attest-with-retry/action.yml'),/uses: actions\/attest@v4/);
   assert.match(ci,/subject-path: 'dist\/\*\.zip'/);
   assert.match(ci,/sbom-path: artifacts\/classic-mart-sbom\.cdx\.json/);
 });

@@ -209,3 +209,17 @@ and strict browser commands retain their failing contrast results. This policy
 supersedes the earlier instruction to make every contrast finding a mandatory
 CI blocker; it does not resolve the underlying readability findings or claim
 WCAG certification.
+
+The first hosted approved-palette run,
+[40665214814](https://github.com/Awanmabur/classic-mart/actions/runs/40665214814),
+passed the browser gate, dependency audit, sanitized release build, production
+image build, non-root runtime check and HIGH/CRITICAL image scan. It then failed
+at provenance signing with the exact external-service error
+`InternalError: error fetching tlog entry`. SBOM signing and release upload
+were consequently skipped.
+
+Both signing stages now retry the same official `actions/attest@v4` action up
+to three times with bounded waits. Only individual attempts allow continuation;
+a final mandatory check requires a successful signing result and its bundle.
+Exhausted retries or cancellation still fail CI. Signing, transparency-log
+verification and release-upload ordering are retained.
