@@ -242,8 +242,11 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
       // The owner's reference uses this separate read-only endpoint. A positive
       // API status is not a delivery status. Unknown fields remain unknown.
       const result = await yoolaRequest('delivery_report', { message_id: messageId });
-      const states = [result.delivery_status, result.delivery, result.message_status]
-        .filter(value => value != null).map(value => {
+      const values = [result.delivery_status, result.delivery, result.message_status].filter(value => value != null);
+      // Live Yoola replies use sms_status for dispatch state. Use it only when
+      // no explicit delivery fields exist; "sent" is not handset delivery.
+      if (!values.length && result.sms_status != null) values.push(result.sms_status);
+      const states = values.map(value => {
           const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
           return status === 'delivered' ? 'delivered'
             : ['failed', 'undelivered', 'rejected'].includes(status) ? 'failed'
@@ -252,7 +255,8 @@ export function createSmsService({ configuration = env.sms, fetchImpl = (...args
       // Generic success and conflicting fields do not establish delivery.
       const state = states.length && states.every(value => value === states[0]) ? states[0] : 'unknown';
       return { state, delivered: state === 'delivered',
-        ...(inspect === true ? { reportShape: deliveryReportShape(result, configuration.yoolaApiKey) } : {}) };
+        ...(inspect === true ? { reportShape: { ...deliveryReportShape(result, configuration.yoolaApiKey),
+          currentSenderMode: configuration.yoolaSenderId ? 'custom' : 'account-default' } } : {}) };
     },
   });
 }

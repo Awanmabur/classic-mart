@@ -54,6 +54,17 @@ test('only explicit reference delivery fields and recognized states classify a d
   }
 });
 
+test('the observed Yoola sms_status dispatch field stays pending until delivery is explicitly reported', async () => {
+  for (const value of ['sent', 'queued', 'processing']) {
+    const { service } = fixture({ status: 'success', message_id: 390012, sms_status: value });
+    assert.deepEqual(await service.getSmsDeliveryReport('390012'), { state: 'pending', delivered: false });
+  }
+  const final = fixture({ status: 'success', delivery_status: 'delivered', sms_status: 'sent' });
+  assert.deepEqual(await final.service.getSmsDeliveryReport('YL-reference'), { state: 'delivered', delivered: true });
+  const unknown = fixture({ status: 'success', sms_status: 'success' });
+  assert.deepEqual(await unknown.service.getSmsDeliveryReport('YL-reference'), { state: 'unknown', delivered: false });
+});
+
 test('bad receipt references never contact Yoola and delivery lookup retains explicit rejection guards', async () => {
   const { service, requests } = fixture({ status: 'success', delivery_status: 'delivered' });
   for (const value of [null, 123, '', ' ', ' id', 'id\nprivate', 'x'.repeat(201)]) {
@@ -67,17 +78,18 @@ test('bad receipt references never contact Yoola and delivery lookup retains exp
 
 test('explicit receipt inspection reveals only allowlisted field paths/types and fixed status literals', async () => {
   const { service } = fixture({ status: 'success', data: {
-    message_id: 508436, delivery_status: 'SENT', delivered: false,
+    message_id: 390012, delivery_status: 'SENT', delivered: false,
     phone: recipient.phone, api_key: configuration.yoolaApiKey, message: `Private code ${recipient.code}`,
     private_customer_identifier: { status: 'delivered' },
   } });
-  const result = await service.getSmsDeliveryReport('508436', { inspect: true });
+  const result = await service.getSmsDeliveryReport('390012', { inspect: true });
   assert.equal(result.state, 'unknown', 'Inspection never promotes an unrecognized schema to delivery.');
   const entries = result.reportShape.entries;
+  assert.equal(result.reportShape.currentSenderMode, 'account-default');
   assert.ok(entries.some(entry => entry.path === '$.data.delivery_status' && entry.recognizedStatus === 'sent'));
   assert.ok(entries.some(entry => entry.path === '$.data.message_id' && entry.type === 'number'));
   assert.ok(entries.some(entry => entry.path === '$.data.delivered' && entry.reportedBoolean === false));
-  assert.doesNotMatch(JSON.stringify(result.reportShape), /508436|583726|256700000000|private-delivery-fixture-key|private_customer_identifier|Private code/);
+  assert.doesNotMatch(JSON.stringify(result.reportShape), /390012|583726|256700000000|private-delivery-fixture-key|private_customer_identifier|Private code/);
   const nested = fixture({ status: 'success', data: { report: { report: { report: { report: { status: 'delivered' } } } } } });
   const limited = await nested.service.getSmsDeliveryReport('YL-reference', { inspect: true });
   assert.equal(limited.reportShape.truncated, true);
@@ -129,7 +141,7 @@ test('the read-only CLI distinguishes delivered, failed, pending and unknown wit
     assert.doesNotMatch(result.stdout + result.stderr, /private-delivery-fixture-key|583726|256700000000|private provider text/);
   }
   const inspected = cli({ status: 'success', data: { delivery_status: 'sent', phone: recipient.phone,
-    api_key: configuration.yoolaApiKey, message: recipient.code } }, ['--message-id', '508436', '--inspect']);
+    api_key: configuration.yoolaApiKey, message: recipient.code } }, ['--message-id', '390012', '--inspect']);
   assert.equal(inspected.status, 3);
   assert.match(inspected.stdout, /Redacted delivery fields:/);
   assert.match(inspected.stdout, /"path":"\$\.data\.delivery_status","type":"string","recognizedStatus":"sent"/);

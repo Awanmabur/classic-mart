@@ -82,6 +82,9 @@ explicit `delivery_status`, `delivery` or `message_status` fields conservatively
 is failure; `sent`, `pending`, `queued` or `processing` is still unconfirmed.
 Missing, generic `success`, conflicting or unrecognized delivery fields remain
 unknown. The top-level API `status` never establishes handset delivery.
+The observed live response uses `sms_status: "sent"`. This dispatch field is a
+fallback when explicit delivery fields are absent and maps to pending, never
+handset delivery. An explicit final delivery field takes priority over it.
 Exit codes are 0 for provider-reported delivered, 1 for failure, 2 for invalid
 command usage and 3 for pending/unknown. Errors use the existing safe SMS codes.
 The command prints fixed classifications, never the raw response or private data.
@@ -96,6 +99,9 @@ create an additional SMS, or treat the inspection as proof of delivery. The
 summary helps update the parser from actual provider fields rather than guessed
 aliases. Replace example placeholders with the actual message reference; literal
 placeholders are rejected before any provider request.
+Inspection also identifies whether the current application configuration uses a
+custom sender or Yoola's account default, without printing the sender value.
+This describes the current configuration, not proof of the message's route.
 
 Endpoint/field evidence is the source of
 [chariot-sms-test at e694237](https://github.com/Awanmabur/chariot-sms-test/blob/e694237edf03c2445c722f1f4b3bf5801a2740d2/src/lib/provider.js#L29),
