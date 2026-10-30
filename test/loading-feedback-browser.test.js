@@ -63,9 +63,15 @@ test('loading feedback follows actual work without changing requests, cancelled 
       const write = requests.find(request => request.method() === 'POST');
       assert.equal(write.postData(), 'intent=publish&_csrf=fixture');
       assert.equal(write.headers()['x-fixture'], 'write');
-      await pending[0].fulfill({ contentType: 'text/plain', body: 'read' });
+      const readRoute = pending.find(route => route.request().method() === 'GET'
+        && new URL(route.request().url()).pathname === '/api/read');
+      const writeRoute = pending.find(route => route.request().method() === 'POST'
+        && new URL(route.request().url()).pathname === '/api/write');
+      assert.ok(readRoute, 'The overlapping GET must be intercepted.');
+      assert.ok(writeRoute, 'The overlapping POST must be intercepted.');
+      await readRoute.fulfill({ contentType: 'text/plain', body: 'read' });
       await expect(loader).toBeVisible();
-      await pending[1].fulfill({ contentType: 'text/plain', body: 'write' });
+      await writeRoute.fulfill({ contentType: 'text/plain', body: 'write' });
       assert.deepEqual(await page.evaluate(() => window.pendingRequests), ['read', 'write']);
       await expect(loader).toBeHidden();
       assert.deepEqual(errors, []);
