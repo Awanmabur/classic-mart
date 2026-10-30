@@ -227,24 +227,55 @@ defaultOpenMenus.forEach(element => {
 /**
  * handle top level submenu click
  */
-FIRST_SUB_MENUS_BTN.forEach(element => {
-  element.addEventListener("click", () => {
-    if (SIDEBAR_EL.classList.contains("collapsed"))
-    PoppersInstance.togglePopper(element.nextElementSibling);else
-    {
-      const parentMenu = element.closest(".menu.open-current-submenu");
-      if (parentMenu)
-      parentMenu.
-      querySelectorAll(":scope > ul > .menu-item.sub-menu > a").
-      forEach(
-      (el) =>
-      window.getComputedStyle(el.nextElementSibling).display !==
-      "none" && slideUp(el.nextElementSibling));
+ FIRST_SUB_MENUS_BTN.forEach(element => {
+   element.addEventListener("click", () => {
+     if (SIDEBAR_EL.classList.contains("collapsed")) {
+       PoppersInstance.togglePopper(element.nextElementSibling);
+     } else {
+       const parentMenu = element.closest(".menu.open-current-submenu");
+       if (parentMenu) {
+         parentMenu
+           .querySelectorAll(":scope > ul > .menu-item.sub-menu > a")
+           .forEach(el => {
+             if (window.getComputedStyle(el.nextElementSibling).display !== "none") {
+               slideUp(el.nextElementSibling);
+             }
+           });
+       }
 
-      slideToggle(element.nextElementSibling);
-    }
-  });
-});
+       // Toggle submenu visibility
+       const submenu = element.nextElementSibling;
+       slideToggle(submenu);
+
+       // Handle submenu item clicks
+       const subLinks = submenu.querySelectorAll("a");
+       subLinks.forEach(subLink => {
+         subLink.addEventListener("click", (e) => {
+           e.preventDefault();
+
+           // Close the sidebar safely (without breaking toggle)
+           SIDEBAR_EL.classList.add("collapsed");
+
+           // Optional: remove overlay or dim effect if applied
+           document.body.classList.remove("overlay-open"); // if you use such a class
+           const overlay = document.querySelector(".overlay"); // if any
+           if (overlay) overlay.remove();
+
+           // Close the submenu
+           slideUp(submenu);
+
+           // Scroll to the target section
+           const targetId = subLink.getAttribute("href");
+           const targetEl = document.querySelector(targetId);
+           if (targetEl) {
+             targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
+           }
+         });
+       });
+     }
+   });
+ });
+
 
 /**
  * handle inner submenu click
