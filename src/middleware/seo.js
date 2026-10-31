@@ -1,7 +1,7 @@
 import { AppError } from '../core/errors.js';
 import { env } from '../config/env.js';
 import { getCountry } from '../services/country.js';
-import { canonicalUrl, hasDuplicateQuery, isCountryPage, isPrivatePath, isPublicPath, pageSeo, SITE_URL } from '../services/seo.js';
+import { hasDuplicateQuery, isCountryPage, isPrivatePath, isPublicPath, pageSeo, SITE_URL } from '../services/seo.js';
 
 // Crawler directives supplement existing authentication and authorization.
 export async function seoContext(request, response, next) {
@@ -13,12 +13,12 @@ export async function seoContext(request, response, next) {
       if (values.length !== 1 || !/^[A-Z]{2}$/.test(code) || (env.security.launchCountries.length && !env.security.launchCountries.includes(code))) throw new AppError('Country page not found.', 404, 'COUNTRY_NOT_FOUND');
       const country = await getCountry(code);
       if (country.code !== code) throw new AppError('Country page not found.', 404, 'COUNTRY_NOT_FOUND');
-      if (request.user && request.country.code !== code) return response.redirect(302, canonicalUrl(request.path, request.country.code));
       request.country = country;
+      request.countrySource = 'selection';
       response.locals.country = country;
       response.locals.currency = country.currency;
       // Existing storefront reads use this preference; keep HTML and API prices in the same market.
-      if (!request.user) response.cookie('cm_country', code, { httpOnly: false, sameSite: 'lax', secure: env.isProduction, path: '/', maxAge: 31_536_000_000 });
+      response.cookie('cm_country', code, { httpOnly: true, sameSite: 'lax', secure: env.isProduction, path: '/', maxAge: 31_536_000_000 });
       response.set('Cache-Control', 'private, no-store');
     }
     response.locals.seo = pageSeo(request);
