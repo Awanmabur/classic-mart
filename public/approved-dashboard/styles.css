@@ -2368,7 +2368,7 @@ textarea:focus-visible {
 .secure-note svg,
 .policy-box > svg,
 .delivery-note > svg,
-.secure-checkout svg { width: 18px; height: 18px; flex: 0 0 18px; color: var(--blue); }
+.secure-checkout svg { width: 18px; height: 18px; flex: 0 0 18px; color: #16863b; }
 .secure-note p { margin: 0; font-size: 11px; line-height: 1.6; }
 
 .return-product { margin: 17px 0; padding: 14px; display: grid; grid-template-columns: 70px 1fr auto; gap: 12px; align-items: center; background: #fff8f3; border-radius: 17px; }
@@ -2509,6 +2509,7 @@ textarea:focus-visible {
 .checkout-total { padding: 16px 0; font-size: 13px; }
 .checkout-total strong { font-size: 18px; }
 .secure-checkout { margin-top: 13px; justify-content: center; color: var(--muted); font-size: 11px; }
+.cart-layout .secure-checkout svg { color: var(--blue); }
 .wallet-use { margin-top: 17px; padding: 14px 0 0; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; border-top: 1px solid var(--border); }
 .wallet-use strong,
 .wallet-use small { display: block; }
