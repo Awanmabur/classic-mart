@@ -32,7 +32,7 @@ test('floating guide uses a private session, safe real-price cards, accessible m
       page.on('pageerror', error => errors.push(error.message));
       await page.goto('https://guide.example/');
       assert.equal(sessionReads, 0, 'closed helper makes no requests');
-      await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+      await page.getByRole('button', { name: 'Ask Classic — open AI voice and shopping guide' }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
       await expect(page.locator('.classic-guide-status')).toContainText('Shopping in UG');
       await expect(page.locator('.classic-guide-mic')).toBeHidden();
@@ -56,7 +56,7 @@ test('floating guide uses a private session, safe real-price cards, accessible m
       await page.getByRole('button', { name: 'Close Classic guide' }).click();
       await expect(page.getByRole('dialog')).not.toBeVisible();
       await pending.fulfill({ json: { answer: 'Stale reply must not appear', products: [], links: [] } }).catch(() => {});
-      await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+      await page.getByRole('button', { name: 'Ask Classic — open AI voice and shopping guide' }).click();
       await expect(page.locator('.classic-guide-log')).not.toContainText('Stale reply');
       await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
       assert.deepEqual(errors, []);
@@ -81,7 +81,7 @@ test('guide matches capsule design; launcher drags, stays onscreen and persists'
       const failures = [];
       page.on('pageerror', error => failures.push(error.message));
       await page.goto('https://guide-drag.example/');
-      const trigger = page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' });
+      const trigger = page.getByRole('button', { name: 'Ask Classic — open AI voice and shopping guide' });
       const initial = await trigger.boundingBox();
       const back = await page.getByRole('button', { name: 'Back to top' }).boundingBox();
       assert.ok(initial.y + initial.height + 8 <= back.y, 'launcher must start above Back to top');
@@ -159,7 +159,7 @@ test('microphone is opt-in, transcripts are reviewed before sending and spoken r
       return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html lang="en"><head><link rel="stylesheet" href="/guide.css"><script defer src="/guide.js"></script></head><body><main><h1>Marketplace</h1></main></body></html>' });
     });
     const page = await context.newPage(); await page.goto('https://voice.example/');
-    await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+    await page.getByRole('button', { name: 'Ask Classic — open AI voice and shopping guide' }).click();
     assert.equal(await page.evaluate(() => window.voiceStarts), 0);
     await page.getByRole('button', { name: 'Speak your question' }).click();
     assert.equal(await page.evaluate(() => window.voiceStarts), 1);
@@ -193,12 +193,12 @@ test('a stalled guide connection times out and retry preserves a question after 
       return route.fulfill({ contentType: 'text/html', body: '<html><head><link rel="stylesheet" href="/guide.css"><script defer src="/guide.js"></script></head><body><main><h1>Marketplace</h1></main></body></html>' });
     });
     await page.goto('https://retry.example/');
-    await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+    await page.getByRole('button', { name: 'Ask Classic — open AI voice and shopping guide' }).click();
     await expect.poll(() => Boolean(firstSession)).toBe(true);
     await page.clock.fastForward(11_000);
     await expect(page.locator('.classic-guide-status')).toContainText('Connection took too long');
     await page.getByRole('button', { name: 'Close Classic guide' }).click();
-    await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+    await page.getByRole('button', { name: 'Ask Classic — open AI voice and shopping guide' }).click();
     await expect(page.locator('.classic-guide-status')).toContainText('Shopping in UG');
     await page.getByRole('textbox', { name: 'How can I help?' }).fill('Where is my profile?');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
