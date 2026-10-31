@@ -1,6 +1,6 @@
 # Launch handoff
 
-Use the reviewed `master` commit, Node.js 24 and the committed lockfile. A merge
+Use the reviewed `production` commit, Node.js 24 and the committed lockfile. A merge
 or a successful local test run does not sign off a production deployment. Keep
 the storefront in a controlled pilot until the checks below pass.
 
@@ -71,9 +71,7 @@ Deploy the Docker image or the production archive produced by
 `npm run release:production`; do not deploy the developer workspace. The Docker
 entrypoint runs both web and maintenance worker. From a source checkout use
 `NODE_ENV=production npm run start:production`; in the production archive use
-`NODE_ENV=production npm start`. Both must
-use the same configuration and build identity. `render.yaml` provides a paid
-single-service deployment with mounted storage and database-only pre-deploy work.
+`NODE_ENV=production npm start`. Both must use the same configuration and build identity. Current production uses an immutable SHA-tagged Docker image on DigitalOcean; environment secrets, persistent storage and reverse-proxy configuration remain outside the repository.
 
 After the first real HTTPS deployment, register the Pesapal notification:
 
