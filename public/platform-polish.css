@@ -23,15 +23,18 @@ body .drawer-backdrop {
   -webkit-backdrop-filter: blur(5px);
   backdrop-filter: blur(5px);
 }
-body .modal,
-body .product-detail-modal {
+body:not([data-dashboard-workspace]) .modal,
+body:not([data-dashboard-workspace]) .product-detail-modal,
+body[data-dashboard-workspace] .modal-card,
+body .record-modal,
+body .record-confirm-modal {
   border: 1px solid rgb(226 230 235 / 90%);
   border-radius: 28px;
   background: #fff;
   box-shadow: 0 24px 90px rgb(11 20 34 / 24%);
   overscroll-behavior: contain;
 }
-body .modal :is(.modal-close, .close-modal) {
+body :is(.modal-close, .close-modal, .record-modal-close) {
   display: grid;
   place-items: center;
   padding: 0;
@@ -57,8 +60,21 @@ body .product-preview-loading::before {
 }
 @keyframes cmPreviewSpin { to { transform: rotate(360deg); } }
 @media (max-width: 760px) {
-  body .modal, body .product-detail-modal { border-radius: 22px; }
+  body:not([data-dashboard-workspace]) .modal,
+  body:not([data-dashboard-workspace]) .product-detail-modal,
+  body[data-dashboard-workspace] .modal-card,
+  body .record-modal, body .record-confirm-modal { border-radius: 22px; }
 }
 @media (prefers-reduced-motion: reduce) {
   body .product-preview-loading::before { animation: none; }
+}
+
+/* Dashboard full-screen .modal is an overlay, not the dialog surface. */
+body[data-dashboard-workspace] .modal,
+body[data-dashboard-workspace] .modal-overlay { background: rgb(11 20 34 / 58%); }
+body .record-modal::backdrop,
+body .record-confirm-modal::backdrop {
+  background: rgb(11 20 34 / 58%);
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
 }
