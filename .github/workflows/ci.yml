@@ -4,6 +4,12 @@ on:
     branches: [production]
   pull_request:
   workflow_dispatch:
+# Superseded PR commits must not consume full MongoDB/browser test runners.
+# Keep production push checks serial and never cancel an active release gate.
+concurrency:
+  group: classic-mart-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   id-token: write
