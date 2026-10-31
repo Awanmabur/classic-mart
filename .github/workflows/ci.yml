@@ -42,7 +42,18 @@ jobs:
           # WiredTiger's cache cap does not cap TCMalloc's retained free heap.
           # This pinned MongoDB uses bytes/second for tcmallocReleaseRate: return
           # freed pages at 64 MiB/s and bound its per-CPU caches to 1 MiB each.
-          docker run -d --name classic-mart-mongo --network host --memory=4g --memory-swap=4g --ulimit nofile=65536:65536 mongo@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c mongod --port 27019 --replSet rs0 --bind_ip 127.0.0.1 --wiredTigerCacheSizeGB 0.25 --setParameter maxNumActiveUserIndexBuilds=1 --setParameter maxIndexBuildMemoryUsageMegabytes=64 --setParameter tcmallocMaxPerCPUCacheSize=1048576 --setParameter tcmallocReleaseRate=67108864
+          # The complete isolated database suite can run several thousand
+          # transient index builds. A 4 GiB container limit was genuinely OOM
+          # killed (exit 137) despite a 256 MiB WiredTiger cache. Our public
+          # repository's standard Ubuntu runner has 16 GB RAM; reserve at most
+          # 8 GiB for the MongoDB container and leave the rest for Node/browser.
+          # Fail explicitly if repository visibility/runner capacity changes.
+          total_kib=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+          if [ -z "$total_kib" ] || [ "$total_kib" -lt 12582912 ]; then
+            echo '::error::Classic Mart full database suite requires at least 12 GiB runner RAM for its 8 GiB MongoDB limit.' >&2
+            exit 1
+          fi
+          docker run -d --name classic-mart-mongo --network host --memory=8g --memory-swap=8g --ulimit nofile=65536:65536 mongo@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c mongod --port 27019 --replSet rs0 --bind_ip 127.0.0.1 --wiredTigerCacheSizeGB 0.25 --setParameter maxNumActiveUserIndexBuilds=1 --setParameter maxIndexBuildMemoryUsageMegabytes=64 --setParameter tcmallocMaxPerCPUCacheSize=1048576 --setParameter tcmallocReleaseRate=67108864
           docker run -d --name classic-mart-redis --network host --memory=128m redis@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0 redis-server --bind 127.0.0.1 --save '' --appendonly no --maxmemory 64mb --maxmemory-policy noeviction
           mongo_ready=false
           for i in $(seq 1 60); do
