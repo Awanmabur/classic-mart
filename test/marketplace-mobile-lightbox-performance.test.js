@@ -68,10 +68,12 @@ test('approved cart palette stays orange, while genuine delivered or verified st
     const actual = rule(storefront, selector);
     assert.doesNotMatch(actual, /#(?:159c6a|137a55|16804e)\b/i, selector + ' must not be green');
   }
-  for (const selector of ['.deal-badge', '.free-text', '.secure-checkout svg']) {
+  for (const selector of ['.deal-badge', '.free-text', '.cart-layout .secure-checkout svg']) {
     assert.doesNotMatch(rule(dashboardCss, selector), /#(?:16863b|e4f7e9)\b/i, selector + ' uses approved orange palette');
   }
   assert.match(rule(storefront, '.checkout-step.complete b'), /var\(--orange/);
   assert.match(rule(dashboardCss, '.free-text'), /var\(--blue\)/);
+  assert.match(rule(dashboardCss, '.cart-layout .secure-checkout svg'), /var\(--blue\)/);
+  assert.match(rule(dashboardCss, '.secure-checkout svg'), /#16863b/, 'other verified/security indicators retain the approved status palette');
   assert.match(rule(dashboardCss, '.status-pill.delivered'), /#16863b/, 'real delivery success remains distinguishable');
 });
