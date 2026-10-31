@@ -47,6 +47,13 @@
     margin: 0;
     padding: 0;
     place-items: center;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
+    aspect-ratio: 1 / 1;
+    border-radius: 50% !important;
+    box-sizing: border-box;
   }
   body[data-dashboard-workspace] .topbar .top-actions {
     grid-column: 2;
@@ -66,10 +73,15 @@
     place-items: center;
     width: 40px !important;
     min-width: 40px !important;
-    height: 40px;
+    height: 40px !important;
+    max-width: 40px;
+    max-height: 40px;
+    flex: 0 0 40px;
+    aspect-ratio: 1 / 1;
+    box-sizing: border-box;
     margin: 0;
     padding: 0 !important;
-    border-radius: 50%;
+    border-radius: 50% !important;
   }
   body[data-dashboard-workspace] .topbar .top-actions .ai-button > span {
     display: none !important;
