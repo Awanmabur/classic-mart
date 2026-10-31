@@ -3947,3 +3947,20 @@ body { font-size: 15px; line-height: 1.55; }
   .section-heading-actions [aria-label*="previous" i],
   .deal-actions [aria-label*="previous" i] { display: none !important; }
 }
+
+/* Mobile homepage: content swipes naturally, without left/previous arrow chrome. */
+@media (max-width: 760px) {
+  .store-section .section-heading-actions button:first-child:not(:only-child):not(.section-next-button),
+  .store-section .slider-arrow.prev,
+  .store-section [data-direction="prev"],
+  .store-section [aria-label*="left" i],
+  .store-section [aria-label*="previous" i] { display: none !important; }
+  /* Keep nav breathing room on the navy footer, never below the footer. */
+  body:has(.mobile-bottom-nav) { padding-bottom: 0 !important; }
+  body:has(.mobile-bottom-nav) .site-footer {
+    margin-bottom: 0 !important;
+    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)) !important;
+    background: var(--navy) !important;
+  }
+  body:has(.mobile-bottom-nav) .site-footer:last-child { margin-bottom: 0 !important; }
+}
