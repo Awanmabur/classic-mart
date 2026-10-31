@@ -3925,17 +3925,12 @@ body { font-size: 15px; line-height: 1.55; }
   overflow-wrap: anywhere;
 }
 
-/* Restore the three small hero-banner entrances without changing approved
-   frames or interfering with product previews and keyboard interactions. */
-@media (prefers-reduced-motion: no-preference) and (min-width: 769px) {
-  .promo-stack .promo-card { animation: cmPromoSlideIn 480ms cubic-bezier(.2,.75,.2,1) both; }
-  .promo-stack .promo-card:nth-child(2) { animation-delay: 90ms; }
-  .promo-stack .promo-card:nth-child(3) { animation-delay: 180ms; }
-  @keyframes cmPromoSlideIn {
-    from { opacity: .72; transform: translate3d(18px,0,0) scale(.985); }
-    to { opacity: 1; transform: translate3d(0,0,0) scale(1); }
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .promo-stack .promo-card { animation: none !important; }
+/* Touch devices scroll product shelves by swipe: do not draw a redundant
+   previous/left arrow over product images or title rows. Right-side navigation
+   and accessible desktop controls keep their existing approved behavior. */
+@media (max-width: 760px) {
+  .slider-arrow.prev,
+  .section-prev-button,
+  .section-scroll-prev,
+  [data-scroll-prev] { display: none !important; }
 }
