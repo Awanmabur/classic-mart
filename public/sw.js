@@ -1,5 +1,5 @@
 'use strict';
-const CACHE='classic-mart-public-v37';
+const CACHE='classic-mart-public-v36';
 const STATIC=['/offline','/favicon.ico','/favicon.png','/assets/apple-touch-icon.png','/assets/pwa-192.png','/assets/pwa-512.png','/assets/product-placeholder.svg'];
 const PRIVATE_PREFIXES=['/dashboard','/orders','/wishlist','/addresses','/rewards','/wallet','/returns','/support','/profile','/categories','/notifications','/club','/seller','/promoter','/admin','/super-admin','/operations','/finance','/warehouse','/moderation','/business','/api/','/account','/cart','/checkout','/track-order','/payments','/ask-classic','/webhooks','/login','/mfa','/signup','/verify-','/onboarding'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(STATIC)).then(()=>self.skipWaiting()));});
