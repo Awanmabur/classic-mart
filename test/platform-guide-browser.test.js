@@ -1,253 +1,140 @@
-aW1wb3J0IHRlc3QgZnJvbSAnbm9kZTp0ZXN0JzsKaW1wb3J0IGFzc2VydCBm
-cm9tICdub2RlOmFzc2VydC9zdHJpY3QnOwppbXBvcnQgZnMgZnJvbSAnbm9k
-ZTpmcy9wcm9taXNlcyc7CmltcG9ydCB7IGNocm9taXVtLCBleHBlY3QgfSBm
-cm9tICdAcGxheXdyaWdodC90ZXN0JzsKaW1wb3J0IEF4ZUJ1aWxkZXIgZnJv
-bSAnQGF4ZS1jb3JlL3BsYXl3cmlnaHQnOwoKY29uc3Qgc2NyaXB0ID0gYXdh
-aXQgZnMucmVhZEZpbGUobmV3IFVSTCgnLi4vcHVibGljL3BsYXRmb3JtLWd1
-aWRlLmpzJywgaW1wb3J0Lm1ldGEudXJsKSwgJ3V0ZjgnKTsKY29uc3Qgc3R5
-bGVzID0gYXdhaXQgZnMucmVhZEZpbGUobmV3IFVSTCgnLi4vcHVibGljL3Bs
-YXRmb3JtLWd1aWRlLmNzcycsIGltcG9ydC5tZXRhLnVybCksICd1dGY4Jyk7
-CnRlc3QoJ2Zsb2F0aW5nIGd1aWRlIHVzZXMgYSBwcml2YXRlIHNlc3Npb24s
-IHNhZmUgcmVhbC1wcmljZSBjYXJkcywgYWNjZXNzaWJsZSBtb2JpbGUgY29u
-dHJvbHMgYW5kIGNhbmNlbGxhdGlvbicsIHsgdGltZW91dDogNjBfMDAwIH0s
-IGFzeW5jICgpID0+IHsKICBjb25zdCBicm93c2VyID0gYXdhaXQgY2hyb21p
-dW0ubGF1bmNoKHsgZXhlY3V0YWJsZVBhdGg6IHByb2Nlc3MuZW52LlBMQVlX
-UklHSFRfQ0hST01JVU1fRVhFQ1VUQUJMRSB8fCB1bmRlZmluZWQsIGFyZ3M6
-IFsnLS1uby1zYW5kYm94J10gfSk7CiAgdHJ5IHsKICAgIGZvciAoY29uc3Qg
-dmlld3BvcnQgb2YgW3sgd2lkdGg6IDEzNjYsIGhlaWdodDogOTAwIH0sIHsg
-d2lkdGg6IDMyMCwgaGVpZ2h0OiA1NjggfV0pIHsKICAgICAgY29uc3QgY29u
-dGV4dCA9IGF3YWl0IGJyb3dzZXIubmV3Q29udGV4dCh7IHZpZXdwb3J0LCBy
-ZWR1Y2VkTW90aW9uOiAncmVkdWNlJyB9KTsKICAgICAgYXdhaXQgY29udGV4
-dC5hZGRJbml0U2NyaXB0KCgpID0+IHsgd2luZG93LlNwZWVjaFJlY29nbml0
-aW9uID0gdW5kZWZpbmVkOyB3aW5kb3cud2Via2l0U3BlZWNoUmVjb2duaXRp
-b24gPSB1bmRlZmluZWQ7IH0pOwogICAgICBsZXQgc2Vzc2lvblJlYWRzID0g
-MCwgcG9zdHMgPSAwLCBob2xkID0gZmFsc2U7CiAgICAgIGxldCBwZW5kaW5n
-OwogICAgICBhd2FpdCBjb250ZXh0LnJvdXRlKCdodHRwczovL2d1aWRlLmV4
-YW1wbGUvKionLCBhc3luYyByb3V0ZSA9PiB7CiAgICAgICAgY29uc3QgdXJs
-ID0gbmV3IFVSTChyb3V0ZS5yZXF1ZXN0KCkudXJsKCkpOwogICAgICAgIGlm
-ICh1cmwucGF0aG5hbWUgPT09ICcvZ3VpZGUuanMnKSByZXR1cm4gcm91dGUu
-ZnVsZmlsbCh7IGNvbnRlbnRUeXBlOiAndGV4dC9qYXZhc2NyaXB0JywgYm9k
-eTogc2NyaXB0IH0pOwogICAgICAgIGlmICh1cmwucGF0aG5hbWUgPT09ICcv
-Z3VpZGUuY3NzJykgcmV0dXJuIHJvdXRlLmZ1bGZpbGwoeyBjb250ZW50VHlw
-ZTogJ3RleHQvY3NzJywgYm9keTogc3R5bGVzIH0pOwogICAgICAgIGlmICh1
-cmwucGF0aG5hbWUgPT09ICcvYXBpL3YxL2FpL2d1aWRlL3Nlc3Npb24nKSB7
-IHNlc3Npb25SZWFkcysrOyByZXR1cm4gcm91dGUuZnVsZmlsbCh7IGpzb246
-IHsgY3NyZlRva2VuOiAnZml4dHVyZS1wcml2YXRlLWNzcmYnLCBjb3VudHJ5
-OiAnVUcnLCBsb2NhbGU6ICdlbi1VRycsIGFpQ29uZmlndXJlZDogZmFsc2Ug
-fSB9KTsgfQogICAgICAgIGlmICh1cmwucGF0aG5hbWUgPT09ICcvYXBpL3Yx
-L2FpL2d1aWRlJykgewogICAgICAgICAgcG9zdHMrKzsKICAgICAgICAgIGFz
-c2VydC5lcXVhbChyb3V0ZS5yZXF1ZXN0KCkuaGVhZGVycygpWyd4LWNzcmYt
-dG9rZW4nXSwgJ2ZpeHR1cmUtcHJpdmF0ZS1jc3JmJyk7CiAgICAgICAgICBh
-c3NlcnQuZXF1YWwocm91dGUucmVxdWVzdCgpLnBvc3REYXRhSlNPTigpLmRl
-dGFpbGVkLCBmYWxzZSk7CiAgICAgICAgICBpZiAoaG9sZCkgeyBwZW5kaW5n
-ID0gcm91dGU7IHJldHVybjsgfQogICAgICAgICAgcmV0dXJuIHJvdXRlLmZ1
-bGZpbGwoeyBqc29uOiB7IGFuc3dlcjogJ0Egc3BlYWtlciBpcyBVR1ggMTUw
-LDAwMC4nLCBhaUdlbmVyYXRlZDogZmFsc2UsIHByb2R1Y3RzOiBbeyBpZDog
-J3AxJywgbmFtZTogJzxpbWcgc3JjPXggb25lcnJvcj0id2luZG93LmluamVj
-dGVkPXRydWUiPicsIHByaWNlOiAxNTAwMDAsIGN1cnJlbmN5OiAnVUdYJywg
-c2VsbGVyOiAnUmVhbCBzaG9wJywgaHJlZjogJy9wcm9kdWN0cy9wMT9jb3Vu
-dHJ5PVVHJyB9XSwgbGlua3M6IFt7IGxhYmVsOiAnVW5zYWZlJywgaHJlZjog
-J2phdmFzY3JpcHQ6YWxlcnQoMSknIH0sIHsgbGFiZWw6ICdFeHRlcm5hbCcs
-IGhyZWY6ICdodHRwczovL2F0dGFja2VyLmludmFsaWQvJyB9LCB7IGxhYmVs
-OiAnUHJvZHVjdHMnLCBocmVmOiAnL3Byb2R1Y3RzJyB9XSB9IH0pOwogICAg
-ICAgIH0KICAgICAgICByZXR1cm4gcm91dGUuZnVsZmlsbCh7IGNvbnRlbnRU
-eXBlOiAndGV4dC9odG1sJywgYm9keTogJzwhZG9jdHlwZSBodG1sPjxodG1s
-IGxhbmc9ImVuIj48aGVhZD48bWV0YSBuYW1lPSJ2aWV3cG9ydCIgY29udGVu
-dD0id2lkdGg9ZGV2aWNlLXdpZHRoIj48bGluayByZWw9InN0eWxlc2hlZXQi
-IGhyZWY9Ii9ndWlkZS5jc3MiPjxzY3JpcHQgZGVmZXIgc3JjPSIvZ3VpZGUu
-anMiPjwvc2NyaXB0PjwvaGVhZD48Ym9keT48bWFpbj48aDE+TWFya2V0cGxh
-Y2U8L2gxPjwvbWFpbj48L2JvZHk+PC9odG1sPicgfSk7CiAgICAgIH0pOwog
-ICAgICBjb25zdCBwYWdlID0gYXdhaXQgY29udGV4dC5uZXdQYWdlKCk7IGNv
-bnN0IGVycm9ycyA9IFtdOwogICAgICBwYWdlLm9uKCdwYWdlZXJyb3InLCBl
-cnJvciA9PiBlcnJvcnMucHVzaChlcnJvci5tZXNzYWdlKSk7CiAgICAgIGF3
-YWl0IHBhZ2UuZ290bygnaHR0cHM6Ly9ndWlkZS5leGFtcGxlLycpOwogICAg
-ICBhc3NlcnQuZXF1YWwoc2Vzc2lvblJlYWRzLCAwLCAnY2xvc2VkIGhlbHBl
-ciBtYWtlcyBubyByZXF1ZXN0cycpOwogICAgICBhd2FpdCBwYWdlLmdldEJ5
-Um9sZSgnYnV0dG9uJywgeyBuYW1lOiAnT3BlbiBDbGFzc2ljIEFJIHZvaWNl
-IGFuZCBzaG9wcGluZyBndWlkZScgfSkuY2xpY2soKTsKICAgICAgYXdhaXQg
-ZXhwZWN0KHBhZ2UuZ2V0QnlSb2xlKCdkaWFsb2cnKSkudG9CZVZpc2libGUo
-KTsKICAgICAgYXdhaXQgZXhwZWN0KHBhZ2UubG9jYXRvcignLmNsYXNzaWMt
-Z3VpZGUtc3RhdHVzJykpLnRvQ29udGFpblRleHQoJ1Nob3BwaW5nIGluIFVH
-Jyk7CiAgICAgIGF3YWl0IGV4cGVjdChwYWdlLmxvY2F0b3IoJy5jbGFzc2lj
-LWd1aWRlLW1pYycpKS50b0JlSGlkZGVuKCk7CiAgICAgIGF3YWl0IGV4cGVj
-dChwYWdlLmxvY2F0b3IoJ1tkYXRhLWd1aWRlLWRldGFpbGVkXScpKS50b0Jl
-SGlkZGVuKCk7CiAgICAgIGF3YWl0IHBhZ2UuZ2V0QnlSb2xlKCd0ZXh0Ym94
-JywgeyBuYW1lOiAnSG93IGNhbiBJIGhlbHA/JyB9KS5maWxsKCdmaW5kIGEg
-c3BlYWtlciB1bmRlciBVR1ggMjAwLDAwMCcpOwogICAgICBhd2FpdCBwYWdl
-LmdldEJ5Um9sZSgnYnV0dG9uJywgeyBuYW1lOiAnU2VuZCcsIGV4YWN0OiB0
-cnVlIH0pLmNsaWNrKCk7CiAgICAgIGF3YWl0IGV4cGVjdChwYWdlLmxvY2F0
-b3IoJy5jbGFzc2ljLWd1aWRlLXByb2R1Y3RzJykpLnRvQ29udGFpblRleHQo
-JzE1MCwwMDAnKTsKICAgICAgYXdhaXQgZXhwZWN0KHBhZ2UubG9jYXRvcign
-LmNsYXNzaWMtZ3VpZGUtcHJvZHVjdHMnKSkudG9Db250YWluVGV4dCgnPGlt
-ZyBzcmM9eCcpOwogICAgICBhc3NlcnQuZXF1YWwoYXdhaXQgcGFnZS5sb2Nh
-dG9yKCcuY2xhc3NpYy1ndWlkZS1wcm9kdWN0cyBpbWcnKS5jb3VudCgpLCAw
-KTsKICAgICAgYXNzZXJ0LmVxdWFsKGF3YWl0IHBhZ2UubG9jYXRvcignLmNs
-YXNzaWMtZ3VpZGUtZGlhbG9nIGFbaHJlZl49ImphdmFzY3JpcHQ6Il0sIC5j
-bGFzc2ljLWd1aWRlLWRpYWxvZyBhW2hyZWZePSJodHRwczovL2F0dGFja2Vy
-Il0nKS5jb3VudCgpLCAwKTsKICAgICAgYXNzZXJ0LmVxdWFsKGF3YWl0IHBh
-Z2UuZXZhbHVhdGUoKCkgPT4gQm9vbGVhbih3aW5kb3cuaW5qZWN0ZWQpKSwg
-ZmFsc2UpOwogICAgICBhc3NlcnQuZXF1YWwocG9zdHMsIDEpOwogICAgICBj
-b25zdCBhY2Nlc3NpYmlsaXR5ID0gYXdhaXQgbmV3IEF4ZUJ1aWxkZXIoeyBw
-YWdlIH0pLmluY2x1ZGUoJyNjbGFzc2ljR3VpZGVEaWFsb2cnKS53aXRoVGFn
-cyhbJ3djYWcyYScsICd3Y2FnMmFhJywgJ3djYWcyMWFhJ10pLmFuYWx5emUo
-KTsKICAgICAgYXNzZXJ0LmRlZXBFcXVhbChhY2Nlc3NpYmlsaXR5LnZpb2xh
-dGlvbnMubWFwKGl0ZW0gPT4gKHsgaWQ6IGl0ZW0uaWQsIGltcGFjdDogaXRl
-bS5pbXBhY3QgfSkpLCBbXSwgJ2d1aWRlIGNvbnRyb2xzLCBsYWJlbHMgYW5k
-IHRleHQgbWVldCB0aGUgc2NvcGVkIGFjY2Vzc2liaWxpdHkgY2hlY2tzJyk7
-CiAgICAgIGNvbnN0IGdlb21ldHJ5ID0gYXdhaXQgcGFnZS5nZXRCeVJvbGUo
-J2RpYWxvZycpLmV2YWx1YXRlKGRpYWxvZyA9PiB7IGNvbnN0IHJlY3QgPSBk
-aWFsb2cuZ2V0Qm91bmRpbmdDbGllbnRSZWN0KCk7IHJldHVybiB7IGxlZnQ6
-IHJlY3QubGVmdCwgcmlnaHQ6IHJlY3QucmlnaHQsIHRvcDogcmVjdC50b3As
-IGJvdHRvbTogcmVjdC5ib3R0b20sIHZpZXdwb3J0OiBpbm5lcldpZHRoLCBo
-ZWlnaHQ6IGlubmVySGVpZ2h0IH07IH0pOwogICAgICBhc3NlcnQub2soZ2Vv
-bWV0cnkubGVmdCA+PSAwICYmIGdlb21ldHJ5LnJpZ2h0IDw9IGdlb21ldHJ5
-LnZpZXdwb3J0ICYmIGdlb21ldHJ5LnRvcCA+PSAwICYmIGdlb21ldHJ5LmJv
-dHRvbSA8PSBnZW9tZXRyeS5oZWlnaHQpOwogICAgICBob2xkID0gdHJ1ZTsK
-ICAgICAgYXdhaXQgcGFnZS5nZXRCeVJvbGUoJ3RleHRib3gnLCB7IG5hbWU6
-ICdIb3cgY2FuIEkgaGVscD8nIH0pLmZpbGwoJ2Fub3RoZXIgcHJvZHVjdCcp
-OwogICAgICBhd2FpdCBwYWdlLmdldEJ5Um9sZSgnYnV0dG9uJywgeyBuYW1l
-OiAnU2VuZCcsIGV4YWN0OiB0cnVlIH0pLmNsaWNrKCk7CiAgICAgIGF3YWl0
-IGV4cGVjdC5wb2xsKCgpID0+IEJvb2xlYW4ocGVuZGluZykpLnRvQmUodHJ1
-ZSk7CiAgICAgIGF3YWl0IHBhZ2UuZ2V0QnlSb2xlKCdidXR0b24nLCB7IG5h
-bWU6ICdDbG9zZSBDbGFzc2ljIGd1aWRlJyB9KS5jbGljaygpOwogICAgICBh
-d2FpdCBleHBlY3QocGFnZS5nZXRCeVJvbGUoJ2RpYWxvZycpKS5ub3QudG9C
-ZVZpc2libGUoKTsKICAgICAgYXdhaXQgcGVuZGluZy5mdWxmaWxsKHsganNv
-bjogeyBhbnN3ZXI6ICdTdGFsZSByZXBseSBtdXN0IG5vdCBhcHBlYXInLCBw
-cm9kdWN0czogW10sIGxpbmtzOiBbXSB9IH0pLmNhdGNoKCgpID0+IHt9KTsK
-ICAgICAgYXdhaXQgcGFnZS5nZXRCeVJvbGUoJ2J1dHRvbicsIHsgbmFtZTog
-J09wZW4gQ2xhc3NpYyBBSSB2b2ljZSBhbmQgc2hvcHBpbmcgZ3VpZGUnIH0p
-LmNsaWNrKCk7CiAgICAgIGF3YWl0IGV4cGVjdChwYWdlLmxvY2F0b3IoJy5j
-bGFzc2ljLWd1aWRlLWxvZycpKS5ub3QudG9Db250YWluVGV4dCgnU3RhbGUg
-cmVwbHknKTsKICAgICAgYXdhaXQgZXhwZWN0KHBhZ2UuZ2V0QnlSb2xlKCdi
-dXR0b24nLCB7IG5hbWU6ICdTZW5kJywgZXhhY3Q6IHRydWUgfSkpLnRvQmVF
-bmFibGVkKCk7CiAgICAgIGFzc2VydC5kZWVwRXF1YWwoZXJyb3JzLCBbXSk7
-CiAgICAgIGF3YWl0IGNvbnRleHQuY2xvc2UoKTsKICAgIH0KICB9IGZpbmFs
-bHkgeyBhd2FpdCBicm93c2VyLmNsb3NlKCk7IH0KfSk7Cgp0ZXN0KCdtaWNy
-b3Bob25lIGlzIG9wdC1pbiwgdHJhbnNjcmlwdHMgYXJlIHJldmlld2VkIGJl
-Zm9yZSBzZW5kaW5nIGFuZCBzcG9rZW4gcmVwbGllcyBzdG9wIG9uIGNsb3Nl
-JywgeyB0aW1lb3V0OiAzMF8wMDAgfSwgYXN5bmMgKCkgPT4gewogIGNvbnN0
-IGJyb3dzZXIgPSBhd2FpdCBjaHJvbWl1bS5sYXVuY2goeyBleGVjdXRhYmxl
-UGF0aDogcHJvY2Vzcy5lbnYuUExBWVdSSUdIVF9DSFJPTUlVTV9FWEVDVVRB
-QkxFIHx8IHVuZGVmaW5lZCwgYXJnczogWyctLW5vLXNhbmRib3gnXSB9KTsK
-ICB0cnkgewogICAgY29uc3QgY29udGV4dCA9IGF3YWl0IGJyb3dzZXIubmV3
-Q29udGV4dCgpOwogICAgYXdhaXQgY29udGV4dC5hZGRJbml0U2NyaXB0KCgp
-ID0+IHsKICAgICAgd2luZG93LnZvaWNlU3RhcnRzID0gMDsgd2luZG93LnZv
-aWNlQWJvcnRzID0gMDsgd2luZG93LnNwb2tlblJlcGxpZXMgPSBbXTsgd2lu
-ZG93LnZvaWNlQ2FuY2VscyA9IDA7CiAgICAgIHdpbmRvdy5TcGVlY2hSZWNv
-Z25pdGlvbiA9IGNsYXNzIHsKICAgICAgICBjb25zdHJ1Y3RvcigpIHsgd2lu
-ZG93LmFjdGl2ZVJlY29nbml0aW9uID0gdGhpczsgfQogICAgICAgIHN0YXJ0
-KCkgeyB3aW5kb3cudm9pY2VTdGFydHMrKzsgdGhpcy5vbnN0YXJ0Py4oKTsg
-fQogICAgICAgIGFib3J0KCkgeyB3aW5kb3cudm9pY2VBYm9ydHMrKzsgdGhp
-cy5vbmVuZD8uKCk7IH0KICAgICAgfTsKICAgICAgT2JqZWN0LmRlZmluZVBy
-b3BlcnR5KHdpbmRvdywgJ3NwZWVjaFN5bnRoZXNpcycsIHsgdmFsdWU6IHsg
-Y2FuY2VsKCkgeyB3aW5kb3cudm9pY2VDYW5jZWxzKys7IH0sIHNwZWFrKHZh
-bHVlKSB7IHdpbmRvdy5zcG9rZW5SZXBsaWVzLnB1c2godmFsdWUudGV4dCk7
-IH0gfSB9KTsKICAgICAgd2luZG93LlNwZWVjaFN5bnRoZXNpc1V0dGVyYW5j
-ZSA9IGNsYXNzIHsgY29uc3RydWN0b3IodGV4dCkgeyB0aGlzLnRleHQgPSB0
-ZXh0OyB9IH07CiAgICB9KTsKICAgIGxldCBwb3N0cyA9IDA7CiAgICBhd2Fp
-dCBjb250ZXh0LnJvdXRlKCdodHRwczovL3ZvaWNlLmV4YW1wbGUvKionLCBy
-b3V0ZSA9PiB7CiAgICAgIGNvbnN0IHVybCA9IG5ldyBVUkwocm91dGUucmVx
-dWVzdCgpLnVybCgpKTsKICAgICAgaWYgKHVybC5wYXRobmFtZSA9PT0gJy9n
-dWlkZS5qcycpIHJldHVybiByb3V0ZS5mdWxmaWxsKHsgY29udGVudFR5cGU6
-ICd0ZXh0L2phdmFzY3JpcHQnLCBib2R5OiBzY3JpcHQgfSk7CiAgICAgIGlm
-ICh1cmwucGF0aG5hbWUgPT09ICcvZ3VpZGUuY3NzJykgcmV0dXJuIHJvdXRl
-LmZ1bGZpbGwoeyBjb250ZW50VHlwZTogJ3RleHQvY3NzJywgYm9keTogc3R5
-bGVzIH0pOwogICAgICBpZiAodXJsLnBhdGhuYW1lLmVuZHNXaXRoKCcvc2Vz
-c2lvbicpKSByZXR1cm4gcm91dGUuZnVsZmlsbCh7IGpzb246IHsgY3NyZlRv
-a2VuOiAndm9pY2UtY3NyZicsIGNvdW50cnk6ICdVRycsIGxvY2FsZTogJ2Vu
-LVVHJywgYWlDb25maWd1cmVkOiB0cnVlIH0gfSk7CiAgICAgIGlmICh1cmwu
-cGF0aG5hbWUgPT09ICcvYXBpL3YxL2FpL2d1aWRlJykgeyBwb3N0cysrOyBy
-ZXR1cm4gcm91dGUuZnVsZmlsbCh7IGpzb246IHsgYW5zd2VyOiAnT3BlbiBB
-Y2NvdW50IHNlY3VyaXR5IHRvIGNoYW5nZSB5b3VyIHBhc3N3b3JkLicsIHBy
-b2R1Y3RzOiBbXSwgbGlua3M6IFt7IGxhYmVsOiAnU2VjdXJpdHknLCBocmVm
-OiAnL2FjY291bnQvc2VjdXJpdHknIH1dIH0gfSk7IH0KICAgICAgcmV0dXJu
-IHJvdXRlLmZ1bGZpbGwoeyBjb250ZW50VHlwZTogJ3RleHQvaHRtbCcsIGJv
-ZHk6ICc8IWRvY3R5cGUgaHRtbD48aHRtbCBsYW5nPSJlbiI+PGhlYWQ+PGxp
-bmsgcmVsPSJzdHlsZXNoZWV0IiBocmVmPSIvZ3VpZGUuY3NzIj48c2NyaXB0
-IGRlZmVyIHNyYz0iL2d1aWRlLmpzIj48L3NjcmlwdD48L2hlYWQ+PGJvZHk+
-PG1haW4+PGgxPk1hcmtldHBsYWNlPC9oMT48L21haW4+PC9ib2R5PjwvaHRt
-bD4nIH0pOwogICAgfSk7CiAgICBjb25zdCBwYWdlID0gYXdhaXQgY29udGV4
-dC5uZXdQYWdlKCk7IGF3YWl0IHBhZ2UuZ290bygnaHR0cHM6Ly92b2ljZS5l
-eGFtcGxlLycpOwogICAgYXdhaXQgcGFnZS5nZXRCeVJvbGUoJ2J1dHRvbics
-IHsgbmFtZTogJ09wZW4gQ2xhc3NpYyBBSSB2b2ljZSBhbmQgc2hvcHBpbmcg
-Z3VpZGUnIH0pLmNsaWNrKCk7CiAgICBhc3NlcnQuZXF1YWwoYXdhaXQgcGFn
-ZS5ldmFsdWF0ZSgoKSA9PiB3aW5kb3cudm9pY2VTdGFydHMpLCAwKTsKICAg
-IGF3YWl0IHBhZ2UuZ2V0QnlSb2xlKCdidXR0b24nLCB7IG5hbWU6ICdTcGVh
-ayB5b3VyIHF1ZXN0aW9uJyB9KS5jbGljaygpOwogICAgYXNzZXJ0LmVxdWFs
-KGF3YWl0IHBhZ2UuZXZhbHVhdGUoKCkgPT4gd2luZG93LnZvaWNlU3RhcnRz
-KSwgMSk7CiAgICBhd2FpdCBwYWdlLmV2YWx1YXRlKCgpID0+IHdpbmRvdy5h
-Y3RpdmVSZWNvZ25pdGlvbi5vbnJlc3VsdCh7IHJlc3VsdHM6IFtbeyB0cmFu
-c2NyaXB0OiAnV2hlcmUgY2FuIEkgY2hhbmdlIG15IHBhc3N3b3JkPycgfV1d
-IH0pKTsKICAgIGF3YWl0IGV4cGVjdChwYWdlLmdldEJ5Um9sZSgndGV4dGJv
-eCcsIHsgbmFtZTogJ0hvdyBjYW4gSSBoZWxwPycgfSkpLnRvSGF2ZVZhbHVl
-KCdXaGVyZSBjYW4gSSBjaGFuZ2UgbXkgcGFzc3dvcmQ/Jyk7CiAgICBhc3Nl
-cnQuZXF1YWwocG9zdHMsIDAsICd2b2ljZSBkb2VzIG5vdCBhdXRvbWF0aWNh
-bGx5IHNlbmQgcG90ZW50aWFsbHkgaW5jb3JyZWN0IHRyYW5zY3JpcHRpb24n
-KTsKICAgIGF3YWl0IHBhZ2UuZ2V0QnlSb2xlKCdjaGVja2JveCcsIHsgbmFt
-ZTogJ1JlYWQgcmVwbGllcyBhbG91ZCcgfSkuY2hlY2soKTsKICAgIGF3YWl0
-IHBhZ2UuZ2V0QnlSb2xlKCdidXR0b24nLCB7IG5hbWU6ICdTZW5kJywgZXhh
-Y3Q6IHRydWUgfSkuY2xpY2soKTsKICAgIGF3YWl0IGV4cGVjdC5wb2xsKCgp
-ID0+IHBhZ2UuZXZhbHVhdGUoKCkgPT4gd2luZG93LnNwb2tlblJlcGxpZXMu
-bGVuZ3RoKSkudG9CZSgxKTsKICAgIGF3YWl0IHBhZ2UuZ2V0QnlSb2xlKCdi
-dXR0b24nLCB7IG5hbWU6ICdDbG9zZSBDbGFzc2ljIGd1aWRlJyB9KS5jbGlj
-aygpOwogICAgYXNzZXJ0Lm9rKGF3YWl0IHBhZ2UuZXZhbHVhdGUoKCkgPT4g
-d2luZG93LnZvaWNlQ2FuY2VscykgPiAwKTsKICAgIGFzc2VydC5vayhhd2Fp
-dCBwYWdlLmV2YWx1YXRlKCgpID0+IHdpbmRvdy52b2ljZUFib3J0cykgPiAw
-KTsKICAgIGF3YWl0IGNvbnRleHQuY2xvc2UoKTsKICB9IGZpbmFsbHkgeyBh
-d2FpdCBicm93c2VyLmNsb3NlKCk7IH0KfSk7Cgp0ZXN0KCdhIHN0YWxsZWQg
-Z3VpZGUgY29ubmVjdGlvbiB0aW1lcyBvdXQgYW5kIHJldHJ5IHByZXNlcnZl
-cyBhIHF1ZXN0aW9uIGFmdGVyIGEgZmFpbGVkIHJlcXVlc3QnLCB7IHRpbWVv
-dXQ6IDMwXzAwMCB9LCBhc3luYyAoKSA9PiB7CiAgY29uc3QgYnJvd3NlciA9
-IGF3YWl0IGNocm9taXVtLmxhdW5jaCh7IGV4ZWN1dGFibGVQYXRoOiBwcm9j
-ZXNzLmVudi5QTEFZV1JJR0hUX0NIUk9NSVVNX0VYRUNVVEFCTEUgfHwgdW5k
-ZWZpbmVkLCBhcmdzOiBbJy0tbm8tc2FuZGJveCddIH0pOwogIHRyeSB7CiAg
-ICBjb25zdCBwYWdlID0gYXdhaXQgYnJvd3Nlci5uZXdQYWdlKCk7IGF3YWl0
-IHBhZ2UuY2xvY2suaW5zdGFsbCgpOwogICAgbGV0IGZpcnN0U2Vzc2lvbiwg
-c2Vzc2lvblJlYWRzID0gMDsKICAgIGF3YWl0IHBhZ2Uucm91dGUoJ2h0dHBz
-Oi8vcmV0cnkuZXhhbXBsZS8qKicsIHJvdXRlID0+IHsKICAgICAgY29uc3Qg
-cGF0aCA9IG5ldyBVUkwocm91dGUucmVxdWVzdCgpLnVybCgpKS5wYXRobmFt
-ZTsKICAgICAgaWYgKHBhdGggPT09ICcvZ3VpZGUuanMnKSByZXR1cm4gcm91
-dGUuZnVsZmlsbCh7IGNvbnRlbnRUeXBlOiAndGV4dC9qYXZhc2NyaXB0Jywg
-Ym9keTogc2NyaXB0IH0pOwogICAgICBpZiAocGF0aCA9PT0gJy9ndWlkZS5j
-c3MnKSByZXR1cm4gcm91dGUuZnVsZmlsbCh7IGNvbnRlbnRUeXBlOiAndGV4
-dC9jc3MnLCBib2R5OiBzdHlsZXMgfSk7CiAgICAgIGlmIChwYXRoLmVuZHNX
-aXRoKCcvc2Vzc2lvbicpKSB7CiAgICAgICAgaWYgKCsrc2Vzc2lvblJlYWRz
-ID09PSAxKSB7IGZpcnN0U2Vzc2lvbiA9IHJvdXRlOyByZXR1cm47IH0KICAg
-ICAgICByZXR1cm4gcm91dGUuZnVsZmlsbCh7IGpzb246IHsgY3NyZlRva2Vu
-OiAncmV0cnktY3NyZicsIGNvdW50cnk6ICdVRycsIGxvY2FsZTogJ2VuLVVH
-JywgYWlDb25maWd1cmVkOiBmYWxzZSB9IH0pOwogICAgICB9CiAgICAgIGlm
-IChwYXRoID09PSAnL2FwaS92MS9haS9ndWlkZScpIHJldHVybiByb3V0ZS5m
-dWxmaWxsKHsgc3RhdHVzOiA1MDMsIGpzb246IHsgZXJyb3I6IHsgbWVzc2Fn
-ZTogJ1RlbXBvcmFyaWx5IHVuYXZhaWxhYmxlLiBQbGVhc2UgcmV0cnkuJyB9
-IH0gfSk7CiAgICAgIHJldHVybiByb3V0ZS5mdWxmaWxsKHsgY29udGVudFR5
-cGU6ICd0ZXh0L2h0bWwnLCBib2R5OiAnPGh0bWw+PGhlYWQ+PGxpbmsgcmVs
-PSJzdHlsZXNoZWV0IiBocmVmPSIvZ3VpZGUuY3NzIj48c2NyaXB0IGRlZmVy
-IHNyYz0iL2d1aWRlLmpzIj48L3NjcmlwdD48L2hlYWQ+PGJvZHk+PG1haW4+
-PGgxPk1hcmtldHBsYWNlPC9oMT48L21haW4+PC9ib2R5PjwvaHRtbD4nIH0p
-OwogICAgfSk7CiAgICBhd2FpdCBwYWdlLmdvdG8oJ2h0dHBzOi8vcmV0cnku
-ZXhhbXBsZS8nKTsKICAgIGF3YWl0IHBhZ2UuZ2V0QnlSb2xlKCdidXR0b24n
-LCB7IG5hbWU6ICdPcGVuIENsYXNzaWMgQUkgdm9pY2UgYW5kIHNob3BwaW5n
-IGd1aWRlJyB9KS5jbGljaygpOwogICAgYXdhaXQgZXhwZWN0LnBvbGwoKCkg
-PT4gQm9vbGVhbihmaXJzdFNlc3Npb24pKS50b0JlKHRydWUpOwogICAgYXdh
-aXQgcGFnZS5jbG9jay5mYXN0Rm9yd2FyZCgxMV8wMDApOwogICAgYXdhaXQg
-ZXhwZWN0KHBhZ2UubG9jYXRvcignLmNsYXNzaWMtZ3VpZGUtc3RhdHVzJykp
-LnRvQ29udGFpblRleHQoJ0Nvbm5lY3Rpb24gdG9vayB0b28gbG9uZycpOwog
-ICAgYXdhaXQgcGFnZS5nZXRCeVJvbGUoJ2J1dHRvbicsIHsgbmFtZTogJ0Ns
-b3NlIENsYXNzaWMgZ3VpZGUnIH0pLmNsaWNrKCk7CiAgICBhd2FpdCBwYWdl
-LmdldEJ5Um9sZSgnYnV0dG9uJywgeyBuYW1lOiAnT3BlbiBDbGFzc2ljIEFJ
-IHZvaWNlIGFuZCBzaG9wcGluZyBndWlkZScgfSkuY2xpY2soKTsKICAgIGF3
-YWl0IGV4cGVjdChwYWdlLmxvY2F0b3IoJy5jbGFzc2ljLWd1aWRlLXN0YXR1
-cycpKS50b0NvbnRhaW5UZXh0KCdTaG9wcGluZyBpbiBVRycpOwogICAgYXdh
-aXQgcGFnZS5nZXRCeVJvbGUoJ3RleHRib3gnLCB7IG5hbWU6ICdIb3cgY2Fu
-IEkgaGVscD8nIH0pLmZpbGwoJ1doZXJlIGlzIG15IHByb2ZpbGU/Jyk7CiAg
-ICBhd2FpdCBwYWdlLmdldEJ5Um9sZSgnYnV0dG9uJywgeyBuYW1lOiAnU2Vu
-ZCcsIGV4YWN0OiB0cnVlIH0pLmNsaWNrKCk7CiAgICBhd2FpdCBleHBlY3Qo
-cGFnZS5sb2NhdG9yKCcuY2xhc3NpYy1ndWlkZS1sb2cnKSkudG9Db250YWlu
-VGV4dCgnVGVtcG9yYXJpbHkgdW5hdmFpbGFibGUnKTsKICAgIGF3YWl0IGV4
-cGVjdChwYWdlLmdldEJ5Um9sZSgndGV4dGJveCcsIHsgbmFtZTogJ0hvdyBj
-YW4gSSBoZWxwPycgfSkpLnRvSGF2ZVZhbHVlKCdXaGVyZSBpcyBteSBwcm9m
-aWxlPycpOwogICAgYXdhaXQgZXhwZWN0KHBhZ2UuZ2V0QnlSb2xlKCdidXR0
-b24nLCB7IG5hbWU6ICdTZW5kJywgZXhhY3Q6IHRydWUgfSkpLnRvQmVFbmFi
-bGVkKCk7CiAgICBhd2FpdCBmaXJzdFNlc3Npb24uYWJvcnQoKS5jYXRjaCgo
-KSA9PiB7fSk7CiAgfSBmaW5hbGx5IHsgYXdhaXQgYnJvd3Nlci5jbG9zZSgp
-OyB9Cn0pOwo=
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { chromium, expect } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+
+const script = await fs.readFile(new URL('../public/platform-guide.js', import.meta.url), 'utf8');
+const styles = await fs.readFile(new URL('../public/platform-guide.css', import.meta.url), 'utf8');
+test('floating guide uses a private session, safe real-price cards, accessible mobile controls and cancellation', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+  try {
+    for (const viewport of [{ width: 1366, height: 900 }, { width: 320, height: 568 }]) {
+      const context = await browser.newContext({ viewport, reducedMotion: 'reduce' });
+      await context.addInitScript(() => { window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; });
+      let sessionReads = 0, posts = 0, hold = false;
+      let pending;
+      await context.route('https://guide.example/**', async route => {
+        const url = new URL(route.request().url());
+        if (url.pathname === '/guide.js') return route.fulfill({ contentType: 'text/javascript', body: script });
+        if (url.pathname === '/guide.css') return route.fulfill({ contentType: 'text/css', body: styles });
+        if (url.pathname === '/api/v1/ai/guide/session') { sessionReads++; return route.fulfill({ json: { csrfToken: 'fixture-private-csrf', country: 'UG', locale: 'en-UG', aiConfigured: false } }); }
+        if (url.pathname === '/api/v1/ai/guide') {
+          posts++;
+          assert.equal(route.request().headers()['x-csrf-token'], 'fixture-private-csrf');
+          assert.equal(route.request().postDataJSON().detailed, false);
+          if (hold) { pending = route; return; }
+          return route.fulfill({ json: { answer: 'A speaker is UGX 150,000.', aiGenerated: false, products: [{ id: 'p1', name: '<img src=x onerror="window.injected=true">', price: 150000, currency: 'UGX', seller: 'Real shop', href: '/products/p1?country=UG' }], links: [{ label: 'Unsafe', href: 'javascript:alert(1)' }, { label: 'External', href: 'https://attacker.invalid/' }, { label: 'Products', href: '/products' }] } });
+        }
+        return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width"><link rel="stylesheet" href="/guide.css"><script defer src="/guide.js"></script></head><body><main><h1>Marketplace</h1></main></body></html>' });
+      });
+      const page = await context.newPage(); const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto('https://guide.example/');
+      assert.equal(sessionReads, 0, 'closed helper makes no requests');
+      await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await expect(page.locator('.classic-guide-status')).toContainText('Shopping in UG');
+      await expect(page.locator('.classic-guide-mic')).toBeHidden();
+      await expect(page.locator('[data-guide-detailed]')).toBeHidden();
+      await page.getByRole('textbox', { name: 'How can I help?' }).fill('find a speaker under UGX 200,000');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect(page.locator('.classic-guide-products')).toContainText('150,000');
+      await expect(page.locator('.classic-guide-products')).toContainText('<img src=x');
+      assert.equal(await page.locator('.classic-guide-products img').count(), 0);
+      assert.equal(await page.locator('.classic-guide-dialog a[href^="javascript:"], .classic-guide-dialog a[href^="https://attacker"]').count(), 0);
+      assert.equal(await page.evaluate(() => Boolean(window.injected)), false);
+      assert.equal(posts, 1);
+      const accessibility = await new AxeBuilder({ page }).include('#classicGuideDialog').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+      assert.deepEqual(accessibility.violations.map(item => ({ id: item.id, impact: item.impact })), [], 'guide controls, labels and text meet the scoped accessibility checks');
+      const geometry = await page.getByRole('dialog').evaluate(dialog => { const rect = dialog.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, viewport: innerWidth, height: innerHeight }; });
+      assert.ok(geometry.left >= 0 && geometry.right <= geometry.viewport && geometry.top >= 0 && geometry.bottom <= geometry.height);
+      hold = true;
+      await page.getByRole('textbox', { name: 'How can I help?' }).fill('another product');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect.poll(() => Boolean(pending)).toBe(true);
+      await page.getByRole('button', { name: 'Close Classic guide' }).click();
+      await expect(page.getByRole('dialog')).not.toBeVisible();
+      await pending.fulfill({ json: { answer: 'Stale reply must not appear', products: [], links: [] } }).catch(() => {});
+      await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+      await expect(page.locator('.classic-guide-log')).not.toContainText('Stale reply');
+      await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  } finally { await browser.close(); }
+});
+
+test('microphone is opt-in, transcripts are reviewed before sending and spoken replies stop on close', { timeout: 30_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+  try {
+    const context = await browser.newContext();
+    await context.addInitScript(() => {
+      window.voiceStarts = 0; window.voiceAborts = 0; window.spokenReplies = []; window.voiceCancels = 0;
+      window.SpeechRecognition = class {
+        constructor() { window.activeRecognition = this; }
+        start() { window.voiceStarts++; this.onstart?.(); }
+        abort() { window.voiceAborts++; this.onend?.(); }
+      };
+      Object.defineProperty(window, 'speechSynthesis', { value: { cancel() { window.voiceCancels++; }, speak(value) { window.spokenReplies.push(value.text); } } });
+      window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+    });
+    let posts = 0;
+    await context.route('https://voice.example/**', route => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/guide.js') return route.fulfill({ contentType: 'text/javascript', body: script });
+      if (url.pathname === '/guide.css') return route.fulfill({ contentType: 'text/css', body: styles });
+      if (url.pathname.endsWith('/session')) return route.fulfill({ json: { csrfToken: 'voice-csrf', country: 'UG', locale: 'en-UG', aiConfigured: true } });
+      if (url.pathname === '/api/v1/ai/guide') { posts++; return route.fulfill({ json: { answer: 'Open Account security to change your password.', products: [], links: [{ label: 'Security', href: '/account/security' }] } }); }
+      return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html lang="en"><head><link rel="stylesheet" href="/guide.css"><script defer src="/guide.js"></script></head><body><main><h1>Marketplace</h1></main></body></html>' });
+    });
+    const page = await context.newPage(); await page.goto('https://voice.example/');
+    await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+    assert.equal(await page.evaluate(() => window.voiceStarts), 0);
+    await page.getByRole('button', { name: 'Speak your question' }).click();
+    assert.equal(await page.evaluate(() => window.voiceStarts), 1);
+    await page.evaluate(() => window.activeRecognition.onresult({ results: [[{ transcript: 'Where can I change my password?' }]] }));
+    await expect(page.getByRole('textbox', { name: 'How can I help?' })).toHaveValue('Where can I change my password?');
+    assert.equal(posts, 0, 'voice does not automatically send potentially incorrect transcription');
+    await page.getByRole('checkbox', { name: 'Read replies aloud' }).check();
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.spokenReplies.length)).toBe(1);
+    await page.getByRole('button', { name: 'Close Classic guide' }).click();
+    assert.ok(await page.evaluate(() => window.voiceCancels) > 0);
+    assert.ok(await page.evaluate(() => window.voiceAborts) > 0);
+    await context.close();
+  } finally { await browser.close(); }
+});
+
+test('a stalled guide connection times out and retry preserves a question after a failed request', { timeout: 30_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+  try {
+    const page = await browser.newPage(); await page.clock.install();
+    let firstSession, sessionReads = 0;
+    await page.route('https://retry.example/**', route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/guide.js') return route.fulfill({ contentType: 'text/javascript', body: script });
+      if (path === '/guide.css') return route.fulfill({ contentType: 'text/css', body: styles });
+      if (path.endsWith('/session')) {
+        if (++sessionReads === 1) { firstSession = route; return; }
+        return route.fulfill({ json: { csrfToken: 'retry-csrf', country: 'UG', locale: 'en-UG', aiConfigured: false } });
+      }
+      if (path === '/api/v1/ai/guide') return route.fulfill({ status: 503, json: { error: { message: 'Temporarily unavailable. Please retry.' } } });
+      return route.fulfill({ contentType: 'text/html', body: '<html><head><link rel="stylesheet" href="/guide.css"><script defer src="/guide.js"></script></head><body><main><h1>Marketplace</h1></main></body></html>' });
+    });
+    await page.goto('https://retry.example/');
+    await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+    await expect.poll(() => Boolean(firstSession)).toBe(true);
+    await page.clock.fastForward(11_000);
+    await expect(page.locator('.classic-guide-status')).toContainText('Connection took too long');
+    await page.getByRole('button', { name: 'Close Classic guide' }).click();
+    await page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' }).click();
+    await expect(page.locator('.classic-guide-status')).toContainText('Shopping in UG');
+    await page.getByRole('textbox', { name: 'How can I help?' }).fill('Where is my profile?');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.locator('.classic-guide-log')).toContainText('Temporarily unavailable');
+    await expect(page.getByRole('textbox', { name: 'How can I help?' })).toHaveValue('Where is my profile?');
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+    await firstSession.abort().catch(() => {});
+  } finally { await browser.close(); }
+});
