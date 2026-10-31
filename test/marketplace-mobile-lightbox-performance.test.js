@@ -55,3 +55,23 @@ test('mobile dashboard header preserves logo left, AI then menu right, and hides
     }
   } finally { await browser.close(); }
 });
+
+test('approved cart palette stays orange, while genuine delivered or verified statuses remain semantic', () => {
+  const storefront = source('public/storefront-pages.css');
+  const dashboardCss = source('public/approved-dashboard/styles.css');
+  const rule = (css, selector) => {
+    const start = css.indexOf(selector + ' {');
+    assert.ok(start >= 0, 'Expected selector: ' + selector);
+    return css.slice(start, css.indexOf('}', start) + 1);
+  };
+  for (const selector of ['.checkout-step.complete b', '.checkout-step.complete strong', '.checkout-step-line.complete', '.cart-coupon-status']) {
+    const actual = rule(storefront, selector);
+    assert.doesNotMatch(actual, /#(?:159c6a|137a55|16804e)\b/i, selector + ' must not be green');
+  }
+  for (const selector of ['.deal-badge', '.free-text', '.secure-checkout svg']) {
+    assert.doesNotMatch(rule(dashboardCss, selector), /#(?:16863b|e4f7e9)\b/i, selector + ' uses approved orange palette');
+  }
+  assert.match(rule(storefront, '.checkout-step.complete b'), /var\(--orange/);
+  assert.match(rule(dashboardCss, '.free-text'), /var\(--blue\)/);
+  assert.match(rule(dashboardCss, '.status-pill.delivered'), /#16863b/, 'real delivery success remains distinguishable');
+});
