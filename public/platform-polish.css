@@ -14,3 +14,51 @@ body.classic-ai-page main.classic-ai-shell { padding-inline: 0; }
 }
 @media (max-width: 760px) { :root { --cm-page-gutter: 24px; } }
 @media (max-width: 420px) { :root { --cm-page-gutter: 16px; } }
+
+/* Unified lightweight lightbox treatment; preserve each modal's sizing,
+   focus/ARIA semantics, content, backdrops and existing JS close behavior. */
+body .modal-backdrop,
+body .drawer-backdrop {
+  background: rgb(11 20 34 / 61%);
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+}
+body .modal,
+body .product-detail-modal {
+  border: 1px solid rgb(226 230 235 / 90%);
+  border-radius: 28px;
+  background: #fff;
+  box-shadow: 0 24px 90px rgb(11 20 34 / 24%);
+  overscroll-behavior: contain;
+}
+body .modal :is(.modal-close, .close-modal) {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+}
+body .product-preview-loading {
+  display: grid;
+  min-height: 200px;
+  place-items: center;
+  gap: 12px;
+  text-align: center;
+  color: var(--navy, #172033);
+}
+body .product-preview-loading::before {
+  content: "";
+  display: block;
+  width: 28px;
+  height: 28px;
+  border: 3px solid #ffe8d8;
+  border-top-color: var(--orange, #ff6500);
+  border-radius: 50%;
+  animation: cmPreviewSpin .7s linear infinite;
+}
+@keyframes cmPreviewSpin { to { transform: rotate(360deg); } }
+@media (max-width: 760px) {
+  body .modal, body .product-detail-modal { border-radius: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body .product-preview-loading::before { animation: none; }
+}
