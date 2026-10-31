@@ -1508,8 +1508,13 @@ textarea:focus-visible {
     background: rgba(7, 22, 48, 0.43);
   }
 
+  /* Keep outside-tap dismissal functional without dimming the phone screen. */
   .sidebar-overlay.show {
     display: block;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .dashboard {
