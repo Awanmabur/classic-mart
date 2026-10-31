@@ -241,8 +241,13 @@ test('public account and seller links preserve the intended journey in the real 
           assert.match(await page.locator('#profileButton small').textContent(), /Seller/);
           await page.goto(base + '/profile');
           await page.waitForURL(base + '/seller/overview');
-          const searchButton = await page.locator('.search button').boundingBox();
-          assert.ok(searchButton.x >= 0 && searchButton.x + searchButton.width <= width, 'the approved search action stays inside the viewport');
+          if (width === 390) {
+            assert.equal(await page.locator('#searchForm').isVisible(), false, 'dashboard search is intentionally hidden on phones');
+            assert.equal(await page.locator('#mobileMenuBtn').isVisible(), true, 'mobile navigation remains accessible');
+          } else {
+            const searchButton = await page.locator('.search button').boundingBox();
+            assert.ok(searchButton && searchButton.x >= 0 && searchButton.x + searchButton.width <= width, 'the desktop search action stays inside the viewport');
+          }
           await page.screenshot({ path: `/tmp/classicmart-public-entry-seller-${width}.png`, fullPage: true, animations: 'disabled' });
           assert.equal((await User.findOne({ emailNormalized: email })).role, 'seller');
         } finally { await context.close(); }
