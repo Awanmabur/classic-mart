@@ -3874,7 +3874,9 @@ body { font-size: 15px; line-height: 1.55; }
   font: inherit;
   text-align: inherit;
   cursor: pointer;
+  text-decoration: none;
 }
+.product-preview-button.product-preview-button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .search-result-option[aria-selected="true"] { background: #f3f4f6; }
 
 @media (max-width: 900px) {
@@ -3921,4 +3923,19 @@ body { font-size: 15px; line-height: 1.55; }
   -webkit-line-clamp: 3;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+
+/* Restore the three small hero-banner entrances without changing approved
+   frames or interfering with product previews and keyboard interactions. */
+@media (prefers-reduced-motion: no-preference) and (min-width: 769px) {
+  .promo-stack .promo-card { animation: cmPromoSlideIn 480ms cubic-bezier(.2,.75,.2,1) both; }
+  .promo-stack .promo-card:nth-child(2) { animation-delay: 90ms; }
+  .promo-stack .promo-card:nth-child(3) { animation-delay: 180ms; }
+  @keyframes cmPromoSlideIn {
+    from { opacity: .72; transform: translate3d(18px,0,0) scale(.985); }
+    to { opacity: 1; transform: translate3d(0,0,0) scale(1); }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .promo-stack .promo-card { animation: none !important; }
 }
