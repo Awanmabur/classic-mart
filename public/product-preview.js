@@ -550,7 +550,7 @@
       openModal(returnFocus);
       // Request only the selected product before fetching optional personal
       // catalogue state. A guest no longer downloads the entire catalogue.
-      const catalogueTask = (document.body.dataset.storefrontAuthenticated === 'true' || window.ClassicMartCatalogueReady)
+      const catalogueTask = (document.body.dataset.storefrontAuthenticated === 'true' || document.querySelector('meta[name="csrf-token"]')?.content || window.ClassicMartCatalogueReady)
         ? ensureCatalogue().catch(() => null) : Promise.resolve(null);
       const response = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, {
         credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store',
@@ -566,7 +566,7 @@
       else state.products.unshift(product);
       renderProduct(product);
       const wishlist = qs('#productModalWishlist');
-      if (wishlist && !state.loaded && document.body.dataset.storefrontAuthenticated === 'true') wishlist.disabled = true;
+      if (wishlist && !state.loaded && (document.body.dataset.storefrontAuthenticated === 'true' || document.querySelector('meta[name="csrf-token"]')?.content)) wishlist.disabled = true;
       loadAiEnhancements(product);
       // The catalogue can finish later; never overwrite the verified detail
       // with an earlier price or stock snapshot.
