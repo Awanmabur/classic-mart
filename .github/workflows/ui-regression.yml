@@ -1,0 +1,27 @@
+name: Classic Mart UI regression fast gate
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mart-ui-regression-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/prepare-ci-browser.js
+      - name: Test existing loader, guide, mobile and motion regression
+        run: node --test --test-reporter=spec test/platform-guide-browser.test.js test/loading-feedback-browser.test.js test/marketplace-mobile-lightbox-performance.test.js test/platform-motion-browser.test.js
+        env:
+          NODE_ENV: test
