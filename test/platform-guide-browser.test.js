@@ -54,7 +54,7 @@ test('floating guide uses a private session, safe real-price cards, accessible m
       assert.equal(await page.evaluate(() => Boolean(window.injected)), false);
       assert.equal(posts, 1);
       const accessibility = await new AxeBuilder({ page }).include('#classicGuideDialog').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
-      assert.deepEqual(accessibility.violations.map(item => ({ id: item.id, impact: item.impact })), [], 'guide controls, labels and text meet the scoped accessibility checks');
+      assert.deepEqual(accessibility.violations.map(item => ({ id: item.id, impact: item.impact, nodes: item.nodes.map(node => ({ target: node.target, summary: node.failureSummary })) })), [], 'guide controls, labels and text meet the scoped accessibility checks');
       const geometry = await page.getByRole('dialog').evaluate(dialog => { const rect = dialog.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, viewport: innerWidth, height: innerHeight }; });
       assert.ok(geometry.left >= 0 && geometry.right <= geometry.viewport && geometry.top >= 0 && geometry.bottom <= geometry.height);
       hold = true;
