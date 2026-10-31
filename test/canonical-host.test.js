@@ -1,25 +1,16 @@
-aW1wb3J0IHRlc3QgZnJvbSAnbm9kZTp0ZXN0JzsKaW1wb3J0IGFzc2VydCBm
-cm9tICdub2RlOmFzc2VydC9zdHJpY3QnOwppbXBvcnQgZXhwcmVzcyBmcm9t
-ICdleHByZXNzJzsKaW1wb3J0IHJlcXVlc3QgZnJvbSAnc3VwZXJ0ZXN0JzsK
-aW1wb3J0IHsgY2Fub25pY2FsSG9zdCB9IGZyb20gJy4uL3NyYy9taWRkbGV3
-YXJlL2Nhbm9uaWNhbC1ob3N0LmpzJzsKCmNvbnN0IGFwcCA9ICgpID0+IGV4
-cHJlc3MoKS51c2UoY2Fub25pY2FsSG9zdCh7IG9yaWdpbjogJ2h0dHBzOi8v
-Y2xhc3NpYy1tYXJ0LmNvbScsIGVuYWJsZWQ6IHRydWUgfSkpLnVzZSgoX3Jl
-cSwgcmVzKSA9PiByZXMuc2VuZFN0YXR1cygyMDApKTsKdGVzdCgnd3d3IHJl
-ZGlyZWN0cyB0byBjb25maWd1cmVkIEhUVFBTIGFwZXggYW5kIHByZXNlcnZl
-cyBjb3VudHJ5L3Byb2R1Y3QgVVJMcycsIGFzeW5jICgpID0+IHsKICBjb25z
-dCByZXNwb25zZSA9IGF3YWl0IHJlcXVlc3QoYXBwKCkpLmdldCgnL3Byb2R1
-Y3RzL3ByZF9vbmU/Y291bnRyeT1VRycpLnNldCgnSG9zdCcsICd3d3cuY2xh
-c3NpYy1tYXJ0LmNvbScpLmV4cGVjdCgzMDgpOwogIGFzc2VydC5lcXVhbChy
-ZXNwb25zZS5oZWFkZXJzLmxvY2F0aW9uLCAnaHR0cHM6Ly9jbGFzc2ljLW1h
-cnQuY29tL3Byb2R1Y3RzL3ByZF9vbmU/Y291bnRyeT1VRycpOwp9KTsKdGVz
-dCgnaG9zdCBoZWFkZXJzIGNhbm5vdCBzZWxlY3QgYSByZWRpcmVjdCBkZXN0
-aW5hdGlvbiBhbmQgbXV0YXRpb25zIGFyZSBub3QgcmVkaXJlY3RlZCcsIGFz
-eW5jICgpID0+IHsKICBhd2FpdCByZXF1ZXN0KGFwcCgpKS5nZXQoJy9wcm9k
-dWN0cycpLnNldCgnSG9zdCcsICdjbGFzc2ljLW1hcnQuY29tJykuc2V0KCdY
-LUZvcndhcmRlZC1Ib3N0JywgJ2F0dGFja2VyLmludmFsaWQnKS5leHBlY3Qo
-MjAwKTsKICBhd2FpdCByZXF1ZXN0KGFwcCgpKS5nZXQoJy9wcm9kdWN0cycp
-LnNldCgnSG9zdCcsICdhdHRhY2tlci5pbnZhbGlkJykuZXhwZWN0KDIwMCk7
-CiAgYXdhaXQgcmVxdWVzdChhcHAoKSkucG9zdCgnL2NoZWNrb3V0Jykuc2V0
-KCdIb3N0JywgJ3d3dy5jbGFzc2ljLW1hcnQuY29tJykuZXhwZWN0KDIwMCk7
-Cn0pOwo=
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import request from 'supertest';
+import { canonicalHost } from '../src/middleware/canonical-host.js';
+
+const app = () => express().use(canonicalHost({ origin: 'https://classic-mart.com', enabled: true })).use((_req, res) => res.sendStatus(200));
+test('www redirects to configured HTTPS apex and preserves country/product URLs', async () => {
+  const response = await request(app()).get('/products/prd_one?country=UG').set('Host', 'www.classic-mart.com').expect(308);
+  assert.equal(response.headers.location, 'https://classic-mart.com/products/prd_one?country=UG');
+});
+test('host headers cannot select a redirect destination and mutations are not redirected', async () => {
+  await request(app()).get('/products').set('Host', 'classic-mart.com').set('X-Forwarded-Host', 'attacker.invalid').expect(200);
+  await request(app()).get('/products').set('Host', 'attacker.invalid').expect(200);
+  await request(app()).post('/checkout').set('Host', 'www.classic-mart.com').expect(200);
+});
