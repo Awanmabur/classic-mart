@@ -1,35 +1,27 @@
-aW1wb3J0IHRlc3QgZnJvbSAnbm9kZTp0ZXN0JzsKaW1wb3J0IGFzc2VydCBm
-cm9tICdub2RlOmFzc2VydC9zdHJpY3QnOwppbXBvcnQgcmVxdWVzdCBmcm9t
-ICdzdXBlcnRlc3QnOwoKcHJvY2Vzcy5lbnYuTk9ERV9FTlYgPSAndGVzdCc7
-CnByb2Nlc3MuZW52Lk1PTkdPX1VSSSA9ICcnOwpwcm9jZXNzLmVudi5DTEFT
-U0lDX01BUlRfVEVTVF9NT05HT19PVkVSUklERSA9ICcnOwpjb25zdCB7IGNy
-ZWF0ZUFwcCB9ID0gYXdhaXQgaW1wb3J0KCcuLi9zcmMvYXBwLmpzJyk7CmNv
-bnN0IGFwcCA9IGNyZWF0ZUFwcChudWxsKTsKCnRlc3QoJ2Fub255bW91cyBn
-dWlkZSBib290c3RyYXBzIGEgcHJpdmF0ZSBDU1JGIHNlc3Npb24gYW5kIGFj
-Y2VwdHMgb25seSBpdHMgdmFsaWQgdG9rZW4nLCBhc3luYyAoKSA9PiB7CiAg
-Y29uc3QgY2xpZW50ID0gcmVxdWVzdC5hZ2VudChhcHApOwogIGNvbnN0IHNl
-c3Npb24gPSBhd2FpdCBjbGllbnQuZ2V0KCcvYXBpL3YxL2FpL2d1aWRlL3Nl
-c3Npb24nKS5leHBlY3QoMjAwKTsKICBhc3NlcnQub2soc2Vzc2lvbi5ib2R5
-LmNzcmZUb2tlbi5sZW5ndGggPj0gMzIpOwogIGFzc2VydC5tYXRjaChzZXNz
-aW9uLmhlYWRlcnNbJ2NhY2hlLWNvbnRyb2wnXSwgL3ByaXZhdGUvKTsKICBh
-c3NlcnQubWF0Y2goc2Vzc2lvbi5oZWFkZXJzWydjYWNoZS1jb250cm9sJ10s
-IC9uby1zdG9yZS8pOwogIGFzc2VydC5tYXRjaChzZXNzaW9uLmhlYWRlcnNb
-J3gtcm9ib3RzLXRhZyddLCAvbm9pbmRleC8pOwogIGFzc2VydC5lcXVhbChz
-ZXNzaW9uLmJvZHkuY291bnRyeSwgJ1VHJyk7CiAgYXdhaXQgY2xpZW50LnBv
-c3QoJy9hcGkvdjEvYWkvZ3VpZGUnKS5zZW5kKHsgbWVzc2FnZTogJ1doZXJl
-IGNhbiBJIGNoYW5nZSBteSBwYXNzd29yZD8nIH0pLmV4cGVjdCg0MDMpOwog
-IGNvbnN0IHJlc3BvbnNlID0gYXdhaXQgY2xpZW50LnBvc3QoJy9hcGkvdjEv
-YWkvZ3VpZGUnKS5zZXQoJ1gtQ1NSRi1Ub2tlbicsIHNlc3Npb24uYm9keS5j
-c3JmVG9rZW4pLnNlbmQoeyBtZXNzYWdlOiAnV2hlcmUgY2FuIEkgY2hhbmdl
-IG15IHBhc3N3b3JkPycgfSkuZXhwZWN0KDIwMCk7CiAgYXNzZXJ0LmVxdWFs
-KHJlc3BvbnNlLmJvZHkubGlua3NbMF0uaHJlZiwgJy9hY2NvdW50L3NlY3Vy
-aXR5Jyk7CiAgYXNzZXJ0LmVxdWFsKHJlc3BvbnNlLmJvZHkuYWlHZW5lcmF0
-ZWQsIGZhbHNlKTsKICBhc3NlcnQub2soIUpTT04uc3RyaW5naWZ5KHJlc3Bv
-bnNlLmJvZHkpLmluY2x1ZGVzKHNlc3Npb24uYm9keS5jc3JmVG9rZW4pKTsK
-ICBhd2FpdCBjbGllbnQucG9zdCgnL2FwaS92MS9haS9ndWlkZScpLnNldCgn
-WC1DU1JGLVRva2VuJywgc2Vzc2lvbi5ib2R5LmNzcmZUb2tlbikuc2VuZCh7
-IG1lc3NhZ2U6ICd4Jy5yZXBlYXQoMjAwMSkgfSkuZXhwZWN0KDQyMik7CiAg
-Y29uc3Qgb3RoZXIgPSByZXF1ZXN0LmFnZW50KGFwcCk7CiAgYXdhaXQgb3Ro
-ZXIucG9zdCgnL2FwaS92MS9haS9ndWlkZScpLnNldCgnWC1DU1JGLVRva2Vu
-Jywgc2Vzc2lvbi5ib2R5LmNzcmZUb2tlbikuc2VuZCh7IG1lc3NhZ2U6ICdI
-ZWxsbycgfSkuZXhwZWN0KDQwMyk7Cn0pOwo=
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import request from 'supertest';
+
+process.env.NODE_ENV = 'test';
+process.env.MONGO_URI = '';
+process.env.CLASSIC_MART_TEST_MONGO_OVERRIDE = '';
+const { createApp } = await import('../src/app.js');
+const app = createApp(null);
+
+test('anonymous guide bootstraps a private CSRF session and accepts only its valid token', async () => {
+  const client = request.agent(app);
+  const session = await client.get('/api/v1/ai/guide/session').expect(200);
+  assert.ok(session.body.csrfToken.length >= 32);
+  assert.match(session.headers['cache-control'], /private/);
+  assert.match(session.headers['cache-control'], /no-store/);
+  assert.match(session.headers['x-robots-tag'], /noindex/);
+  assert.equal(session.body.country, 'UG');
+  await client.post('/api/v1/ai/guide').send({ message: 'Where can I change my password?' }).expect(403);
+  const response = await client.post('/api/v1/ai/guide').set('X-CSRF-Token', session.body.csrfToken).send({ message: 'Where can I change my password?' }).expect(200);
+  assert.equal(response.body.links[0].href, '/account/security');
+  assert.equal(response.body.aiGenerated, false);
+  assert.ok(!JSON.stringify(response.body).includes(session.body.csrfToken));
+  await client.post('/api/v1/ai/guide').set('X-CSRF-Token', session.body.csrfToken).send({ message: 'x'.repeat(2001) }).expect(422);
+  const other = request.agent(app);
+  await other.post('/api/v1/ai/guide').set('X-CSRF-Token', session.body.csrfToken).send({ message: 'Hello' }).expect(403);
+});
