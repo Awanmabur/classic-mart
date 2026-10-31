@@ -24,6 +24,9 @@ import { writeAudit } from '../services/audit.js';
 import { createApproval } from '../services/stage9.js';
 import { assertOperationalCountry, operationalCountriesFor, operationalCountryScope } from '../services/authorization.js';
 import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
+import { randomToken } from '../core/crypto.js';
+import { platformGuide, guideIntent } from '../services/platform-guide.js';
+import { env } from '../config/env.js';
 
 const router=Router();
 const aiLimit=rateLimit({ scope: 'ai:1',windowMs:60_000,limit:20,standardHeaders:'draft-8',legacyHeaders:false});
@@ -34,6 +37,24 @@ function supportOnly(req,_res,next){return supportRoles.has(req.user?.role)?next
 function adminOnly(req,_res,next){return adminRoles.has(req.user?.role)?next():next(new AppError('Administrator access required.',403,'FORBIDDEN'));}
 function countryScope(req){return operationalCountryScope(req.user,'country');}
 function requireAiFeature(key){return (req,_res,next)=>req.features?.[key]===false?next(new AppError('This Classic AI feature is not enabled for your account/country.',404,'AI_FEATURE_DISABLED')):next();}
+
+// Create anonymous CSRF state only after the visitor opens the helper. Ordinary
+// public page visits remain cacheable and do not create a session for the widget.
+router.get('/api/v1/ai/guide/session',noStore,aiLimit,featureContext,requireAiFeature('classic_ai.ask'),(req,res)=>{
+  req.session.csrfToken ||= randomToken();
+  res.json({csrfToken:req.session.csrfToken,country:req.country.code,locale:req.country.locale||'en',aiConfigured:Boolean(env.ai.provider!=='disabled'&&env.ai.chatModel&&env.ai.apiKey)});
+});
+router.post('/api/v1/ai/guide',noStore,aiLimit,featureContext,requireAiFeature('classic_ai.ask'),async(req,res,next)=>{
+  try {
+    const input=z.object({message:z.string().trim().min(2).max(2000),detailed:z.boolean().optional().default(false)}).parse(req.body);
+    if(input.detailed&&!guideIntent(input.message,req.country.currency).destination){
+      const result=await askClassic(req,input.message);
+      return res.json({...result,links:[{label:'Ask Classic AI',href:'/ask-classic'}],country:req.country.code,
+        products:result.products.slice(0,5).map(p=>({id:p.id,name:p.name,price:p.price,currency:p.currency,stock:p.stock,href:`/products/${encodeURIComponent(p.id)}?country=${req.country.code}`,seller:p.seller?.name||''}))});
+    }
+    return res.json(await platformGuide(req,input.message));
+  }catch(error){next(error);}
+});
 
 router.get('/ask-classic',noStore,featureContext,requireAiFeature('classic_ai.ask'),async(req,res,next)=>{try{const recommendations=await recommendationsFor(req,{limit:8});res.render('ask-classic',{result:null,recommendations,visualResults:[],question:''});}catch(e){next(e);}});
 
