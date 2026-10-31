@@ -1686,35 +1686,18 @@
 
     cards.forEach((card, index) => {
       let timer = null;
-      let finishTimer = null;
-      let remainingMotions = [];
-      const clearMotion = () => {
-        window.clearTimeout(finishTimer);
-        finishTimer = null;
-        card.classList.remove(...motionClasses);
-      };
       const stop = () => {
         window.clearTimeout(timer);
         timer = null;
-        clearMotion();
+        card.classList.remove(...motionClasses);
       };
       const run = () => {
         timer = null;
         if (!marketingMotionAllowed(card)) return stop();
-        clearMotion();
-        // Show every approved effect before repeating one. The preceding
-        // animation has settled long before this timer, so no layout flush is
-        // needed to restart a randomly repeated CSS animation.
-        if (!remainingMotions.length) {
-          remainingMotions = [...motions];
-          for (let next = remainingMotions.length - 1; next > 0; next -= 1) {
-            const pick = Math.floor(Math.random() * (next + 1));
-            [remainingMotions[next], remainingMotions[pick]] = [remainingMotions[pick], remainingMotions[next]];
-          }
-        }
-        const motion = remainingMotions.pop();
+        card.classList.remove(...motionClasses);
+        void card.offsetWidth;
+        const motion = motions[Math.floor(Math.random() * motions.length)];
         card.classList.add(`promo-motion-${motion}`);
-        finishTimer = window.setTimeout(clearMotion, 1150);
         timer = window.setTimeout(run, 3000 + Math.random() * 3200 + index * 320);
       };
       const refresh = () => {
@@ -1722,7 +1705,7 @@
         if (timer === null) timer = window.setTimeout(run, 1200 + index * 850 + Math.random() * 900);
       };
       card.addEventListener('animationend', event => {
-        if (event.target === card) clearMotion();
+        if (event.target === card) card.classList.remove(...motionClasses);
       });
       watchInteraction(card, refresh);
       controllers.push({ refresh, stop });
