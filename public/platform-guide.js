@@ -13,7 +13,7 @@
   // DOM text nodes below, without interpreting model or catalogue text as HTML.
   dialog.innerHTML = `<header class="classic-guide-head"><div><h2 id="classicGuideTitle">Ask Classic</h2><p>Find products. Find your way.</p></div><button class="classic-guide-close" type="button" aria-label="Close Classic guide">×</button></header>
     <div class="classic-guide-log" role="log" aria-label="Your guide conversation" aria-live="polite" aria-relevant="additions"></div>
-    <form class="classic-guide-form"><label for="classicGuideQuestion">How can I help?</label><div class="classic-guide-compose"><button class="classic-guide-mic" type="button" aria-label="Speak your question" aria-pressed="false">${microphone}</button><input id="classicGuideQuestion" name="message" type="text" minlength="2" maxlength="2000" required autocomplete="off" placeholder="Find a speaker under UGX 200,000"><button class="classic-guide-send" type="submit">Send</button></div><div class="classic-guide-options"><label><input type="checkbox" name="speak">Read replies aloud</label><label hidden data-guide-detailed><input type="checkbox" name="detailed">Detailed AI answer</label></div><p class="classic-guide-status" role="status"></p><p class="classic-guide-disclosure">Microphone starts only when you tap it. Your browser may use its speech service. Review the text before sending. Detailed AI sends your question and public catalogue facts to our AI provider.</p></form>`;
+    <form class="classic-guide-form"><label for="classicGuideQuestion">How can I help?</label><div class="classic-guide-compose"><button class="classic-guide-mic" type="button" aria-label="Speak your question" aria-pressed="false">${microphone}</button><input id="classicGuideQuestion" name="message" type="text" minlength="2" maxlength="2000" required autocomplete="off" placeholder="Find a speaker under UGX 200,000"><button class="classic-guide-send" type="button">Send</button></div><div class="classic-guide-options"><label><input type="checkbox" name="speak">Read replies aloud</label><label hidden data-guide-detailed><input type="checkbox" name="detailed">Detailed AI answer</label></div><p class="classic-guide-status" role="status"></p><p class="classic-guide-disclosure">Microphone starts only when you tap it. Your browser may use its speech service. Review the text before sending. Detailed AI sends your question and public catalogue facts to our AI provider.</p></form>`;
   document.body.append(trigger, dialog);
   const form = dialog.querySelector('form'), input = form.elements.message;
   const log = dialog.querySelector('[role="log"]'), status = dialog.querySelector('.classic-guide-status');
@@ -104,6 +104,7 @@
     try { current.start(); } catch { recognition = null; sayStatus('Microphone could not start. Please type your question.'); }
   });
   form.elements.speak.addEventListener('change', () => { if (!form.elements.speak.checked) window.speechSynthesis?.cancel(); });
+  send.addEventListener('click', () => form.requestSubmit());
   form.addEventListener('submit', async event => {
     event.preventDefault(); const text = input.value.trim(); if (text.length < 2 || send.disabled) return;
     stopAudio(); const version = ++generation; send.disabled = true; message(text, true); input.value = ''; sayStatus('Finding current information…');
