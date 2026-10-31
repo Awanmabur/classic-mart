@@ -1,0 +1,16 @@
+/* A shared storefront grid; live role dashboards retain their approved grid. */
+:root { --cm-page-max: var(--container, 1410px); --cm-page-gutter: 34px; }
+body:not([data-dashboard-workspace]) :is(.container, main.page-shell, main.classic-ai-shell) {
+  width: min(var(--cm-page-max), calc(100% - var(--cm-page-gutter)));
+  max-width: none;
+  margin-inline: auto;
+}
+body.classic-ai-page main.classic-ai-shell { padding-inline: 0; }
+.utility-location { border-radius: 999px; }
+#locationForm #locationInput {
+  min-height: 46px;
+  border-radius: 999px;
+  padding-inline: 18px;
+}
+@media (max-width: 760px) { :root { --cm-page-gutter: 24px; } }
+@media (max-width: 420px) { :root { --cm-page-gutter: 16px; } }
