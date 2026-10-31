@@ -39,8 +39,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PROMOTE_SHA: ${{ inputs.commit_sha }}
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${PROMOTE_SHA}&status=success&per_page=20" > /tmp/ci-runs.json
-          jq -e --arg sha "$PROMOTE_SHA" '.workflow_runs | map(select(.head_sha == $sha and .conclusion == "success" and .event == "push" and .head_branch == "production")) | length > 0' /tmp/ci-runs.json >/dev/null
+          # The promoting CI workflow can still be finishing its own dispatch
+          # job. Wait for that exact SHA's completed successful push run.
+          # Never accept PR success, other branches, or a different build.
+          for attempt in $(seq 1 18); do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${PROMOTE_SHA}&status=success&per_page=20" > /tmp/ci-runs.json
+            if jq -e --arg sha "$PROMOTE_SHA" '.workflow_runs | map(select(.head_sha == $sha and .conclusion == "success" and .event == "push" and .head_branch == "production")) | length > 0' /tmp/ci-runs.json >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Exact production push CI did not finish successfully; deployment denied.' >&2
+          exit 1
 
   staging:
     needs: verify-certified-commit

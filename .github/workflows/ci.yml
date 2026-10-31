@@ -191,3 +191,20 @@ jobs:
         uses: ./.github/actions/attest-with-retry
         with:
           subject-path: artifacts/signing-preflight.json
+  auto-promote:
+    # Never grant dispatch authority to a pull request or an unverified build.
+    needs: [verify, signing-preflight]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/production' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Dispatch staging, canary and production with the exact certified SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROMOTE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          gh workflow run deploy.yml --ref production -f "commit_sha=$PROMOTE_SHA"
+
