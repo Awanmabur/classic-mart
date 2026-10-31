@@ -2224,7 +2224,7 @@ textarea:focus-visible {
 }
 .product-image img { width: 82%; height: 82%; object-fit: contain; }
 .product-image .heart-button { position: absolute; top: 11px; right: 11px; }
-.deal-badge { position: absolute; top: 12px; left: 12px; z-index: 2; padding: 5px 9px; color: #16863b; background: #e4f7e9; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.deal-badge { position: absolute; top: 12px; left: 12px; z-index: 2; padding: 5px 9px; color: var(--blue-dark); background: var(--blue-soft); border-radius: 999px; font-size: 11px; font-weight: 600; }
 .product-info { padding: 15px; }
 .product-info > small { color: var(--blue); font-size: 11px; }
 .product-info h3 { min-height: 35px; margin: 5px 0 7px; font-size: 12px; line-height: 1.45; font-weight: 600; }
@@ -2368,7 +2368,7 @@ textarea:focus-visible {
 .secure-note svg,
 .policy-box > svg,
 .delivery-note > svg,
-.secure-checkout svg { width: 18px; height: 18px; flex: 0 0 18px; color: #16863b; }
+.secure-checkout svg { width: 18px; height: 18px; flex: 0 0 18px; color: var(--blue); }
 .secure-note p { margin: 0; font-size: 11px; line-height: 1.6; }
 
 .return-product { margin: 17px 0; padding: 14px; display: grid; grid-template-columns: 70px 1fr auto; gap: 12px; align-items: center; background: #fff8f3; border-radius: 17px; }
@@ -2505,7 +2505,7 @@ textarea:focus-visible {
 .summary-lines div,
 .checkout-total { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; }
 .summary-lines span { color: var(--muted); }
-.free-text { color: #16863b; }
+.free-text { color: var(--blue); }
 .checkout-total { padding: 16px 0; font-size: 13px; }
 .checkout-total strong { font-size: 18px; }
 .secure-checkout { margin-top: 13px; justify-content: center; color: var(--muted); font-size: 11px; }
