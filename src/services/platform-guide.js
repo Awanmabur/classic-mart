@@ -1,158 +1,53 @@
-aW1wb3J0IHsgc2VhcmNoU3RvcmVmcm9udCB9IGZyb20gJy4vc3RvcmVmcm9u
-dC5qcyc7CgovLyBMaW5rcyBhcmUgbWFpbnRhaW5lZCBieSB0aGUgYXBwbGlj
-YXRpb24sIG5ldmVyIHN1cHBsaWVkIGJ5IGEgbW9kZWwgb3IgYSBjYWxsZXIu
-CmNvbnN0IGRlc3RpbmF0aW9ucyA9IFsKICB7IHBhdHRlcm46IC9cYihwYXNz
-d29yZHxzZWN1cml0eXxhdXRoZW50aWNhdG9yfG1mYXxwYXNza2V5KVxiL2ks
-IGxhYmVsOiAnQWNjb3VudCBzZWN1cml0eScsIGhyZWY6ICcvYWNjb3VudC9z
-ZWN1cml0eScsIGFuc3dlcjogJ09wZW4gQWNjb3VudCBzZWN1cml0eSB0byBt
-YW5hZ2UgeW91ciBwYXNzd29yZCBhbmQgc2lnbi1pbiBtZXRob2RzLicgfSwK
-ICB7IHBhdHRlcm46IC9cYih0cmFja3x0cmFja2luZ3xzaGlwbWVudHxwYXJj
-ZWwpXGIvaSwgbGFiZWw6ICdUcmFjayBhbiBvcmRlcicsIGhyZWY6ICcvdHJh
-Y2stb3JkZXInLCBhbnN3ZXI6ICdVc2UgVHJhY2sgYW4gb3JkZXIgd2l0aCB5
-b3VyIG9yZGVyIHJlZmVyZW5jZS4gWW91ciBhY2NvdW50IGFsc28gc2hvd3Mg
-eW91ciBvd24gb3JkZXJzLicgfSwKICB7IHBhdHRlcm46IC9cYih3aXNobGlz
-dHxmYXZvdXJpdGVzfGZhdm9yaXRlcylcYi9pLCBsYWJlbDogJ1lvdXIgd2lz
-aGxpc3QnLCBocmVmOiAnL3dpc2hsaXN0JywgYW5zd2VyOiAnWW91ciB3aXNo
-bGlzdCBrZWVwcyB0aGUgcHJvZHVjdHMgeW91IGhhdmUgc2F2ZWQuIE9wZW4g
-YSBsaXN0aW5nIHRvIGNoZWNrIGl0cyBjdXJyZW50IHByaWNlIGFuZCBhdmFp
-bGFiaWxpdHkuJyB9LAogIHsgcGF0dGVybjogL1xiKGFkZHJlc3N8YWRkcmVz
-c2VzKVxiL2ksIGxhYmVsOiAnU2F2ZWQgYWRkcmVzc2VzJywgaHJlZjogJy9h
-ZGRyZXNzZXMnLCBhbnN3ZXI6ICdPcGVuIFNhdmVkIGFkZHJlc3NlcyB0byBy
-ZXZpZXcgb3IgdXBkYXRlIHlvdXIgZGVsaXZlcnkgZGV0YWlscy4gVGhlIGFk
-ZHJlc3MgeW91IGNob29zZSBhdCBjaGVja291dCBkZXRlcm1pbmVzIHRoZSBh
-Y3R1YWwgZGVsaXZlcnkgb3B0aW9ucy4nIH0sCiAgeyBwYXR0ZXJuOiAvXGIo
-cmVmdW5kfHJldHVybnxkYW1hZ2VkfGNhbmNlbC4qb3JkZXIpXGIvaSwgbGFi
-ZWw6ICdZb3VyIG9yZGVycycsIGhyZWY6ICcvb3JkZXJzJywgYW5zd2VyOiAn
-T3BlbiB5b3VyIG9yZGVyIHRvIHNlZSBpdHMgYXZhaWxhYmxlIHJldHVybiwg
-Y2FuY2VsbGF0aW9uIGFuZCBzdXBwb3J0IGFjdGlvbnMuIEVsaWdpYmlsaXR5
-IGlzIGNoZWNrZWQgb24gdGhlIG9yZGVyLicgfSwKICB7IHBhdHRlcm46IC9c
-YihvcmRlcnM/fHB1cmNoYXNlcz98cmVjZWlwdHM/KVxiL2ksIGxhYmVsOiAn
-WW91ciBvcmRlcnMnLCBocmVmOiAnL29yZGVycycsIGFuc3dlcjogJ1lvdXIg
-b3JkZXJzIHBhZ2Ugc2hvd3MgdGhlIHB1cmNoYXNlcyBiZWxvbmdpbmcgdG8g
-eW91ciBhY2NvdW50LCB0aGVpciBzdGF0dXMgYW5kIGF2YWlsYWJsZSBhY3Rp
-b25zLicgfSwKICB7IHBhdHRlcm46IC9cYihkZWxpdmVyeXxzaGlwcGluZ3xs
-b2NhdGlvbnxjb3VudHJ5fGNvdW50cmllcylcYi9pLCBsYWJlbDogJ0RlbGl2
-ZXJ5IGluZm9ybWF0aW9uJywgaHJlZjogJy9zaGlwcGluZycsIGFuc3dlcjog
-J0Nob29zZSB5b3VyIHNob3BwaW5nIGNvdW50cnkgYXQgdGhlIHRvcCBsZWZ0
-IGFuZCB1c2UgQ2hvb3NlIGRlbGl2ZXJ5IGxvY2F0aW9uIGluIHRoZSBoZWFk
-ZXIuIERlbGl2ZXJ5IGF2YWlsYWJpbGl0eSBhbmQgY2hhcmdlcyBhcmUgY29u
-ZmlybWVkIGZvciB5b3VyIGFkZHJlc3MgYXQgY2hlY2tvdXQuJyB9LAogIHsg
-cGF0dGVybjogL1xiKHNlbGx8c2VsbGVyfHN0b3JlfHZlbmRvcilcYi9pLCBs
-YWJlbDogJ1NlbGwgb24gQ2xhc3NpYyBNYXJ0JywgaHJlZjogJy9zaWdudXA/
-cm9sZT1zZWxsZXInLCBhbnN3ZXI6ICdTdGFydCB3aXRoIGEgU2VsbGVyIGFj
-Y291bnQsIHRoZW4gY29tcGxldGUgc3RvcmUgc2V0dXAgYW5kIHZlcmlmaWNh
-dGlvbi4gRXhpc3Rpbmcgc2VsbGVycyBjYW4gb3BlbiB0aGVpciB3b3Jrc3Bh
-Y2UuJyB9LAogIHsgcGF0dGVybjogL1xiKHdhbGxldHxiYWxhbmNlfHRvcC4/
-dXApXGIvaSwgbGFiZWw6ICdZb3VyIHdhbGxldCcsIGhyZWY6ICcvd2FsbGV0
-JywgYW5zd2VyOiAnWW91ciB3YWxsZXQgcGFnZSBzaG93cyB5b3VyIG93biBi
-YWxhbmNlIGFuZCBzdXBwb3J0ZWQgZnVuZGluZyBvcHRpb25zLiBDaGVjayB0
-aGUgZGV0YWlscyB0aGVyZSBiZWZvcmUgYXV0aG9yaXppbmcgYW55IHBheW1l
-bnQuJyB9LAogIHsgcGF0dGVybjogL1xiKGNhcnR8YmFza2V0fGNoZWNrb3V0
-fHBheW1lbnR8cGF5KVxiL2ksIGxhYmVsOiAnWW91ciBjYXJ0JywgaHJlZjog
-Jy9jYXJ0JywgYW5zd2VyOiAnUmV2aWV3IHlvdXIgY2FydCwgcXVhbnRpdGll
-cyBhbmQgZGVsaXZlcnkgZGV0YWlscyBiZWZvcmUgY2hlY2tvdXQuIEN1cnJl
-bnQgc3RvY2ssIHByaWNlcyBhbmQgcGF5bWVudCBvcHRpb25zIGFyZSBjaGVj
-a2VkIGJ5IHRoZSBzZXJ2ZXIuJyB9LAogIHsgcGF0dGVybjogL1xiKHN1cHBv
-cnR8Y29udGFjdHxoZWxwLiphY2NvdW50KVxiL2ksIGxhYmVsOiAnSGVscCBj
-ZW50cmUnLCBocmVmOiAnL2hlbHAnLCBhbnN3ZXI6ICdUaGUgSGVscCBjZW50
-cmUgZXhwbGFpbnMgbWFya2V0cGxhY2Ugd29ya2Zsb3dzIGFuZCBob3cgdG8g
-Y29udGFjdCBzdXBwb3J0LicgfSwKICB7IHBhdHRlcm46IC9cYihkYXNoYm9h
-cmR8d29ya3NwYWNlfGFjY291bnR8cHJvZmlsZSlcYi9pLCBsYWJlbDogJ1lv
-dXIgd29ya3NwYWNlJywgaHJlZjogJy9kYXNoYm9hcmQnLCBhbnN3ZXI6ICdP
-cGVuIHlvdXIgd29ya3NwYWNlIGZvciB0aGUgcGFnZXMgYXZhaWxhYmxlIHRv
-IHlvdXIgYWNjb3VudCBhbmQgcm9sZS4gUHJvdGVjdGVkIGFjdGlvbnMgc3Rp
-bGwgcmVxdWlyZSB5b3VyIHNpZ24taW4gYW5kIGF1dGhvcml6YXRpb24uJyB9
-LApdOwpjb25zdCBzdG9wV29yZHMgPSBuZXcgU2V0KCdhIGFuIHRoZSBpIG1l
-IG15IHdlIG91ciB5b3UgeW91ciBwbGVhc2UgY2FuIGNvdWxkIHdvdWxkIGRv
-IGRvZXMgaGF2ZSBoYXMgaXMgYXJlIHRvIGZvciBmcm9tIG9mIGluIG9uIGF0
-IGFuZCBvciB3aXRoIHRoYXQgdGhpcyB3aGF0IHdoaWNoIHdoZXJlIHdhbnQg
-bmVlZCBmaW5kIHNob3cgYnV5IGxvb2tpbmcgbG9vayBnZXQgcHJvZHVjdCBw
-cm9kdWN0cyBpdGVtIGl0ZW1zIGF2YWlsYWJsZSBjb3N0IGNvc3RzIHByaWNl
-IHByaWNlcyBob3cgbXVjaCB1bmRlciBiZWxvdyBsZXNzIHRoYW4gbWF4aW11
-bSBidWRnZXQgY2hlYXAgY2hlYXBlc3QgYWZmb3JkYWJsZSBjb21wYXJlIGJl
-c3Qgc29tZSBhbnknLnNwbGl0KCcgJykpOwoKZXhwb3J0IGZ1bmN0aW9uIGd1
-aWRlSW50ZW50KG1lc3NhZ2UsIGN1cnJlbmN5ID0gJ1VHWCcpIHsKICBjb25z
-dCBjbGVhbiA9IFN0cmluZyhtZXNzYWdlIHx8ICcnKS50cmltKCkuc2xpY2Uo
-MCwgMjAwMCk7CiAgY29uc3QgYnVkZ2V0ID0gY2xlYW4ubWF0Y2goL1xiKD86
-dW5kZXJ8YmVsb3d8YnVkZ2V0KD86XHMrb2YpP3xsZXNzXHMrdGhhbnxtYXhp
-bXVtfHVwXHMrdG8pXHMqKD86KFtBLVpdezN9KVxzKik/KFtcZCxdKyg/Olwu
-XGQrKT8pXHMqKFtrbV0pP1xiL2kpOwogIGNvbnN0IGFtb3VudCA9IGJ1ZGdl
-dCA/IE51bWJlcihidWRnZXRbMl0ucmVwbGFjZUFsbCgnLCcsICcnKSkgKiAo
-eyBrOiAxMDAwLCBtOiAxXzAwMF8wMDAgfVtidWRnZXRbM10/LnRvTG93ZXJD
-YXNlKCldIHx8IDEpIDogbnVsbDsKICBjb25zdCBidWRnZXRDdXJyZW5jeSA9
-IGJ1ZGdldD8uWzFdPy50b1VwcGVyQ2FzZSgpOwogIGNvbnN0IGN1cnJlbmN5
-TWlzbWF0Y2ggPSBCb29sZWFuKGJ1ZGdldEN1cnJlbmN5ICYmIGJ1ZGdldEN1
-cnJlbmN5ICE9PSBjdXJyZW5jeSk7CiAgY29uc3QgcXVlcnkgPSBjbGVhbi5y
-ZXBsYWNlKGJ1ZGdldD8uWzBdIHx8IC8kXi8sICcnKS5yZXBsYWNlKC9cYig/
-OlVHWHxLRVN8VFpTfFJXRnxVU0R8RVVSfEdCUClcYi9naSwgJycpCiAgICAu
-dG9Mb3dlckNhc2UoKS5yZXBsYWNlKC9bXlxwe0x9XHB7Tn1ccy1dL2d1LCAn
-ICcpLnNwbGl0KC9ccysvKS5maWx0ZXIod29yZCA9PiB3b3JkICYmICFzdG9w
-V29yZHMuaGFzKHdvcmQpKS5qb2luKCcgJykuc2xpY2UoMCwgMTIwKTsKICAv
-LyBTaG9wcGluZyBxdWVzdGlvbnMgdGFrZSBwcmlvcml0eSBvdmVyIGluY2lk
-ZW50YWwgd29yZHMgc3VjaCBhcyAic2VsbGVyIi4KICBjb25zdCBzaG9wcGlu
-ZyA9IC9cYihmaW5kfGJ1eXxwcmljZXxjb3N0fHN0b2NrfGNvbXBhcmV8dW5k
-ZXJ8YmVsb3d8YnVkZ2V0fGxvb2tpbmd8cHJvZHVjdHM/fGl0ZW1zPylcYi9p
-LnRlc3QoY2xlYW4pOwogIGNvbnN0IGRlc3RpbmF0aW9uID0gc2hvcHBpbmcg
-PyBudWxsIDogZGVzdGluYXRpb25zLmZpbmQoaXRlbSA9PiBpdGVtLnBhdHRl
-cm4udGVzdChjbGVhbikpOwogIHJldHVybiB7IHF1ZXJ5LCBkZXN0aW5hdGlv
-biwgbWF4UHJpY2U6IE51bWJlci5pc0Zpbml0ZShhbW91bnQpICYmIGFtb3Vu
-dCA+IDAgJiYgIWN1cnJlbmN5TWlzbWF0Y2ggPyBhbW91bnQgOiBudWxsLCBj
-dXJyZW5jeU1pc21hdGNoIH07Cn0KCmV4cG9ydCBhc3luYyBmdW5jdGlvbiBw
-bGF0Zm9ybUd1aWRlKHJlcXVlc3QsIG1lc3NhZ2UsIHsgc2VhcmNoID0gc2Vh
-cmNoU3RvcmVmcm9udCB9ID0ge30pIHsKICBjb25zdCBjb3VudHJ5ID0gcmVx
-dWVzdC5jb3VudHJ5OwogIGNvbnN0IGludGVudCA9IGd1aWRlSW50ZW50KG1l
-c3NhZ2UsIGNvdW50cnkuY3VycmVuY3kpOwogIGlmIChpbnRlbnQuZGVzdGlu
-YXRpb24pIHsKICAgIGNvbnN0IHsgbGFiZWwsIGhyZWYsIGFuc3dlciB9ID0g
-aW50ZW50LmRlc3RpbmF0aW9uOwogICAgcmV0dXJuIHsgYW5zd2VyLCBsaW5r
-czogW3sgbGFiZWwsIGhyZWYgfV0sIHByb2R1Y3RzOiBbXSwgbW9kZTogJ3Bs
-YXRmb3JtX2d1aWRlJywgYWlHZW5lcmF0ZWQ6IGZhbHNlLCBjb3VudHJ5OiBj
-b3VudHJ5LmNvZGUgfTsKICB9CiAgaWYgKC9eKD86aGl8aGVsbG98aGV5fGhl
-bHB8d2hhdCBjYW4geW91IGRvKVshPy5cc10qJC9pLnRlc3QobWVzc2FnZS50
-cmltKCkpKSB7CiAgICByZXR1cm4geyBhbnN3ZXI6ICdJIGNhbiBoZWxwIHlv
-dSBmaW5kIHByb2R1Y3RzIGFuZCBjdXJyZW50IHByaWNlcyBpbiB5b3VyIHNl
-bGVjdGVkIGNvdW50cnksIHRyYWNrIG9yZGVycywgY2hvb3NlIGEgZGVsaXZl
-cnkgbG9jYXRpb24gb3IgZmluZCB0aGUgcmlnaHQgYWNjb3VudCBwYWdlLiBX
-aGF0IHdvdWxkIHlvdSBsaWtlIHRvIGRvPycsIGxpbmtzOiBbeyBsYWJlbDog
-J0Jyb3dzZSBwcm9kdWN0cycsIGhyZWY6ICcvcHJvZHVjdHMnIH0sIHsgbGFi
-ZWw6ICdIZWxwIGNlbnRyZScsIGhyZWY6ICcvaGVscCcgfV0sIHByb2R1Y3Rz
-OiBbXSwgbW9kZTogJ3BsYXRmb3JtX2d1aWRlJywgYWlHZW5lcmF0ZWQ6IGZh
-bHNlLCBjb3VudHJ5OiBjb3VudHJ5LmNvZGUgfTsKICB9CiAgY29uc3QgY2F0
-YWxvZ3VlID0gYXdhaXQgc2VhcmNoKGNvdW50cnksIHsgcXVlcnk6IGludGVu
-dC5xdWVyeSB9KTsKICBjb25zdCBwcm9kdWN0cyA9IGNhdGFsb2d1ZS5wcm9k
-dWN0cy5maWx0ZXIocHJvZHVjdCA9PiBwcm9kdWN0LmN1cnJlbmN5ID09PSBj
-b3VudHJ5LmN1cnJlbmN5ICYmIE51bWJlci5pc0Zpbml0ZShwcm9kdWN0LnBy
-aWNlKSAmJiBwcm9kdWN0LnByaWNlID4gMCAmJiBwcm9kdWN0LnN0b2NrID4g
-MCAmJiAoaW50ZW50Lm1heFByaWNlID09PSBudWxsIHx8IHByb2R1Y3QucHJp
-Y2UgPD0gaW50ZW50Lm1heFByaWNlKSkKICAgIC5zbGljZSgwLCA1KS5tYXAo
-cHJvZHVjdCA9PiAoeyBpZDogcHJvZHVjdC5pZCwgbmFtZTogcHJvZHVjdC5u
-YW1lLCBwcmljZTogcHJvZHVjdC5wcmljZSwgY3VycmVuY3k6IHByb2R1Y3Qu
-Y3VycmVuY3ksIHN0b2NrOiBwcm9kdWN0LnN0b2NrLAogICAgICBocmVmOiBg
-L3Byb2R1Y3RzLyR7ZW5jb2RlVVJJQ29tcG9uZW50KHByb2R1Y3QuaWQpfT9j
-b3VudHJ5PSR7ZW5jb2RlVVJJQ29tcG9uZW50KGNvdW50cnkuY29kZSl9YCwg
-c2VsbGVyOiBwcm9kdWN0LnNlbGxlcj8ubmFtZSB8fCAnJyB9KSk7CiAgY29u
-c3QgbW9uZXkgPSB2YWx1ZSA9PiBuZXcgSW50bC5OdW1iZXJGb3JtYXQoY291
-bnRyeS5sb2NhbGUgfHwgJ2VuJywgeyBzdHlsZTogJ2N1cnJlbmN5JywgY3Vy
-cmVuY3k6IGNvdW50cnkuY3VycmVuY3kgfSkuZm9ybWF0KHZhbHVlKTsKICBs
-ZXQgYW5zd2VyID0gcHJvZHVjdHMubGVuZ3RoID8gYEhlcmUgYXJlICR7cHJv
-ZHVjdHMubGVuZ3RofSBpbi1zdG9jayBtYXRjaGVzIGluICR7Y291bnRyeS5u
-YW1lIHx8IGNvdW50cnkuY29kZX0ke2ludGVudC5tYXhQcmljZSAhPT0gbnVs
-bCA/IGAgd2l0aGluICR7bW9uZXkoaW50ZW50Lm1heFByaWNlKX1gIDogJyd9
-LiAke3Byb2R1Y3RzLnNsaWNlKDAsIDMpLm1hcChwcm9kdWN0ID0+IGAke3By
-b2R1Y3QubmFtZX06ICR7bW9uZXkocHJvZHVjdC5wcmljZSl9YCkuam9pbign
-LiAnKX0uIE9wZW4gYSBsaXN0aW5nIGZvciBpdHMgZnVsbCBkZXRhaWxzOyB0
-aGUgZmluYWwgcHJpY2UgYW5kIGRlbGl2ZXJ5IGFyZSBjb25maXJtZWQgYXQg
-Y2hlY2tvdXQuYAogICAgOiBgSSBjb3VsZCBub3QgZmluZCBhbiBpbi1zdG9j
-ayBtYXRjaCBpbiAke2NvdW50cnkubmFtZSB8fCBjb3VudHJ5LmNvZGV9JHtp
-bnRlbnQubWF4UHJpY2UgIT09IG51bGwgPyAnIHdpdGhpbiB0aGF0IGJ1ZGdl
-dCcgOiAnJ30uIFRyeSBhIHByb2R1Y3QgbmFtZSwgYnJhbmQgb3IgY2F0ZWdv
-cnksIG9yIGNoYW5nZSB5b3VyIHNob3BwaW5nIGNvdW50cnkgYXQgdGhlIHRv
-cCBsZWZ0LmA7CiAgaWYgKGludGVudC5jdXJyZW5jeU1pc21hdGNoKSBhbnN3
-ZXIgKz0gYCBUaGlzIG1hcmtldCB1c2VzICR7Y291bnRyeS5jdXJyZW5jeX07
-IEkgaGF2ZSBub3QgY29udmVydGVkIG9yIGFwcGxpZWQgYSBidWRnZXQgaW4g
-YW5vdGhlciBjdXJyZW5jeS5gOwogIHJldHVybiB7IGFuc3dlciwgbGlua3M6
-IFt7IGxhYmVsOiAnU2VlIGNhdGFsb2d1ZSByZXN1bHRzJywgaHJlZjogYC9w
-cm9kdWN0cz8ke25ldyBVUkxTZWFyY2hQYXJhbXMoeyBxOiBpbnRlbnQucXVl
-cnksIGNvdW50cnk6IGNvdW50cnkuY29kZSB9KX1gIH0sIHsgbGFiZWw6ICdB
-c2sgQ2xhc3NpYyBBSScsIGhyZWY6ICcvYXNrLWNsYXNzaWMnIH1dLCBwcm9k
-dWN0cywgbW9kZTogJ2NhdGFsb2d1ZV9ndWlkZScsIGFpR2VuZXJhdGVkOiBm
-YWxzZSwgY291bnRyeTogY291bnRyeS5jb2RlIH07Cn0K
+import { searchStorefront } from './storefront.js';
+
+// Links are maintained by the application, never supplied by a model or a caller.
+const destinations = [
+  { pattern: /\b(password|security|authenticator|mfa|passkey)\b/i, label: 'Account security', href: '/account/security', answer: 'Open Account security to manage your password and sign-in methods.' },
+  { pattern: /\b(track|tracking|shipment|parcel)\b/i, label: 'Track an order', href: '/track-order', answer: 'Use Track an order with your order reference. Your account also shows your own orders.' },
+  { pattern: /\b(wishlist|favourites|favorites)\b/i, label: 'Your wishlist', href: '/wishlist', answer: 'Your wishlist keeps the products you have saved. Open a listing to check its current price and availability.' },
+  { pattern: /\b(address|addresses)\b/i, label: 'Saved addresses', href: '/addresses', answer: 'Open Saved addresses to review or update your delivery details. The address you choose at checkout determines the actual delivery options.' },
+  { pattern: /\b(refund|return|damaged|cancel.*order)\b/i, label: 'Your orders', href: '/orders', answer: 'Open your order to see its available return, cancellation and support actions. Eligibility is checked on the order.' },
+  { pattern: /\b(orders?|purchases?|receipts?)\b/i, label: 'Your orders', href: '/orders', answer: 'Your orders page shows the purchases belonging to your account, their status and available actions.' },
+  { pattern: /\b(delivery|shipping|location|country|countries)\b/i, label: 'Delivery information', href: '/shipping', answer: 'Choose your shopping country at the top left and use Choose delivery location in the header. Delivery availability and charges are confirmed for your address at checkout.' },
+  { pattern: /\b(sell|seller|store|vendor)\b/i, label: 'Sell on Classic Mart', href: '/signup?role=seller', answer: 'Start with a Seller account, then complete store setup and verification. Existing sellers can open their workspace.' },
+  { pattern: /\b(wallet|balance|top.?up)\b/i, label: 'Your wallet', href: '/wallet', answer: 'Your wallet page shows your own balance and supported funding options. Check the details there before authorizing any payment.' },
+  { pattern: /\b(cart|basket|checkout|payment|pay)\b/i, label: 'Your cart', href: '/cart', answer: 'Review your cart, quantities and delivery details before checkout. Current stock, prices and payment options are checked by the server.' },
+  { pattern: /\b(support|contact|help.*account)\b/i, label: 'Help centre', href: '/help', answer: 'The Help centre explains marketplace workflows and how to contact support.' },
+  { pattern: /\b(dashboard|workspace|account|profile)\b/i, label: 'Your workspace', href: '/dashboard', answer: 'Open your workspace for the pages available to your account and role. Protected actions still require your sign-in and authorization.' },
+];
+const stopWords = new Set('a an the i me my we our you your please can could would do does have has is are to for from of in on at and or with that this what which where want need find show buy looking look get product products item items available cost costs price prices how much under below less than maximum budget cheap cheapest affordable compare best some any'.split(' '));
+
+export function guideIntent(message, currency = 'UGX') {
+  const clean = String(message || '').trim().slice(0, 2000);
+  const budget = clean.match(/\b(?:under|below|budget(?:\s+of)?|less\s+than|maximum|up\s+to)\s*(?:([A-Z]{3})\s*)?([\d,]+(?:\.\d+)?)\s*([km])?\b/i);
+  const amount = budget ? Number(budget[2].replaceAll(',', '')) * ({ k: 1000, m: 1_000_000 }[budget[3]?.toLowerCase()] || 1) : null;
+  const budgetCurrency = budget?.[1]?.toUpperCase();
+  const currencyMismatch = Boolean(budgetCurrency && budgetCurrency !== currency);
+  const query = clean.replace(budget?.[0] || /$^/, '').replace(/\b(?:UGX|KES|TZS|RWF|USD|EUR|GBP)\b/gi, '')
+    .toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter(word => word && !stopWords.has(word)).join(' ').slice(0, 120);
+  // Shopping questions take priority over incidental words such as "seller".
+  const shopping = /\b(find|buy|price|cost|stock|compare|under|below|budget|looking|products?|items?)\b/i.test(clean);
+  const destination = shopping ? null : destinations.find(item => item.pattern.test(clean));
+  return { query, destination, maxPrice: Number.isFinite(amount) && amount > 0 && !currencyMismatch ? amount : null, currencyMismatch };
+}
+
+export async function platformGuide(request, message, { search = searchStorefront } = {}) {
+  const country = request.country;
+  const intent = guideIntent(message, country.currency);
+  if (intent.destination) {
+    const { label, href, answer } = intent.destination;
+    return { answer, links: [{ label, href }], products: [], mode: 'platform_guide', aiGenerated: false, country: country.code };
+  }
+  if (/^(?:hi|hello|hey|help|what can you do)[!?.\s]*$/i.test(message.trim())) {
+    return { answer: 'I can help you find products and current prices in your selected country, track orders, choose a delivery location or find the right account page. What would you like to do?', links: [{ label: 'Browse products', href: '/products' }, { label: 'Help centre', href: '/help' }], products: [], mode: 'platform_guide', aiGenerated: false, country: country.code };
+  }
+  const catalogue = await search(country, { query: intent.query });
+  const products = catalogue.products.filter(product => product.currency === country.currency && Number.isFinite(product.price) && product.price > 0 && product.stock > 0 && (intent.maxPrice === null || product.price <= intent.maxPrice))
+    .slice(0, 5).map(product => ({ id: product.id, name: product.name, price: product.price, currency: product.currency, stock: product.stock,
+      href: `/products/${encodeURIComponent(product.id)}?country=${encodeURIComponent(country.code)}`, seller: product.seller?.name || '' }));
+  const money = value => new Intl.NumberFormat(country.locale || 'en', { style: 'currency', currency: country.currency }).format(value);
+  let answer = products.length ? `Here are ${products.length} in-stock matches in ${country.name || country.code}${intent.maxPrice !== null ? ` within ${money(intent.maxPrice)}` : ''}. ${products.slice(0, 3).map(product => `${product.name}: ${money(product.price)}`).join('. ')}. Open a listing for its full details; the final price and delivery are confirmed at checkout.`
+    : `I could not find an in-stock match in ${country.name || country.code}${intent.maxPrice !== null ? ' within that budget' : ''}. Try a product name, brand or category, or change your shopping country at the top left.`;
+  if (intent.currencyMismatch) answer += ` This market uses ${country.currency}; I have not converted or applied a budget in another currency.`;
+  return { answer, links: [{ label: 'See catalogue results', href: `/products?${new URLSearchParams({ q: intent.query, country: country.code })}` }, { label: 'Ask Classic AI', href: '/ask-classic' }], products, mode: 'catalogue_guide', aiGenerated: false, country: country.code };
+}
