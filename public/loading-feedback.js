@@ -5,7 +5,6 @@
   const submitting = new Map();
   const dialogOrder = [];
   let indicator, label, revealTimer, navigationTask, dialogHost;
-  let initialDocument = false, initialFinish, initialTimer;
 
   function nativeModal(element) {
     if (typeof HTMLDialogElement === 'undefined' || !(element instanceof HTMLDialogElement) || !element.isConnected || !element.open) return false;
@@ -39,10 +38,7 @@
       spinner.className = 'platform-loading-spinner';
       spinner.setAttribute('aria-hidden', 'true');
       label = document.createElement('span');
-      const brand = document.createElement('span');
-      brand.className = 'platform-loading-brand';
-      brand.setAttribute('aria-hidden', 'true');
-      indicator.append(brand, spinner, label);
+      indicator.append(spinner, label);
     }
     const parent = feedbackHost();
     if (indicator.parentElement !== parent) parent.append(indicator);
@@ -63,16 +59,14 @@
       return;
     }
     if (indicator) mount();
-    const message = initialDocument ? 'Opening Classic Mart…' : navigationTask ? 'Loading page…' : 'Working…';
-    indicator?.classList.toggle('platform-loading--splash', initialDocument);
+    const message = navigationTask ? 'Loading page…' : 'Working…';
     if (label) label.textContent = message;
     if (indicator && !indicator.hidden || revealTimer !== undefined) return;
     // Fast work finishes without a distracting flash or a forced minimum wait.
     revealTimer = setTimeout(() => {
       revealTimer = undefined;
       if (!active.size || !mount()) return;
-      indicator.classList.toggle('platform-loading--splash', initialDocument);
-      label.textContent = initialDocument ? 'Opening Classic Mart…' : navigationTask ? 'Loading page…' : 'Working…';
+      label.textContent = navigationTask ? 'Loading page…' : 'Working…';
       indicator.hidden = false;
     }, 300);
   }
@@ -219,7 +213,6 @@
   }
 
   function reset() {
-    initialFinish?.();
     finishNavigation(); active.clear(); restoreForms(); render();
   }
   window.addEventListener('pagehide', reset);
@@ -250,27 +243,4 @@
       catch (error) { if (task) finishNavigation(task); throw error; }
     },
   });
-
-  // A bounded first-visit splash follows real document loading. Cached/fast pages
-  // finish before the normal 300ms reveal and never wait for a branding timer.
-  if (document.readyState !== 'complete') {
-    let firstVisit = true;
-    try {
-      firstVisit = sessionStorage.getItem('classic-mart:splash-seen') !== '1';
-      sessionStorage.setItem('classic-mart:splash-seen', '1');
-    } catch { /* Storage restrictions must never prevent the page from opening. */ }
-    if (firstVisit) {
-      initialDocument = true;
-      const finish = begin();
-      initialFinish = () => {
-        if (!initialDocument) return;
-        initialDocument = false;
-        clearTimeout(initialTimer);
-        window.removeEventListener('load', initialFinish);
-        finish();
-      };
-      window.addEventListener('load', initialFinish, { once: true });
-      initialTimer = setTimeout(initialFinish, 2000);
-    }
-  }
 })();
