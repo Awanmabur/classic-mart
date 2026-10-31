@@ -34,19 +34,11 @@
       indicator.setAttribute('role', 'status');
       indicator.setAttribute('aria-live', 'polite');
       indicator.setAttribute('aria-atomic', 'true');
-      const brand = document.createElement('img');
-      brand.className = 'platform-loading-brand';
-      brand.src = '/approved-dashboard/assets/classic-mart-icon.png';
-      brand.alt = '';
-      brand.width = 32;
-      brand.height = 32;
-      brand.decoding = 'async';
-      brand.setAttribute('aria-hidden', 'true');
       const spinner = document.createElement('span');
       spinner.className = 'platform-loading-spinner';
       spinner.setAttribute('aria-hidden', 'true');
       label = document.createElement('span');
-      indicator.append(brand, spinner, label);
+      indicator.append(spinner, label);
     }
     const parent = feedbackHost();
     if (indicator.parentElement !== parent) parent.append(indicator);
