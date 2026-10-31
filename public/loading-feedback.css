@@ -23,22 +23,6 @@
   box-shadow: 0 4px 16px rgb(23 32 51 / 10%);
   pointer-events: none;
 }
-.platform-loading {
-  min-height: 72px;
-  width: max-content;
-  max-width: min(350px, calc(100vw - 28px));
-  padding: 15px 19px;
-  border-color: #e7eaf0;
-  border-radius: 26px;
-  box-shadow: 0 20px 65px rgb(20 37 61 / 19%);
-}
-.platform-loading-brand {
-  display: block;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-}
 .platform-loading[hidden] { display: none; }
 .platform-loading-spinner {
   flex: 0 0 16px;
@@ -53,4 +37,12 @@
 @keyframes platform-loading-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .platform-loading-spinner { animation: none; }
+}
+
+/* Place pending feedback at the centre of an active native dialog. */
+dialog[open] > .platform-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
