@@ -1,82 +1,60 @@
-aW1wb3J0IHRlc3QgZnJvbSAnbm9kZTp0ZXN0JzsKaW1wb3J0IGFzc2VydCBm
-cm9tICdub2RlOmFzc2VydC9zdHJpY3QnOwppbXBvcnQgZXhwcmVzcyBmcm9t
-ICdleHByZXNzJzsKaW1wb3J0IHJlcXVlc3QgZnJvbSAnc3VwZXJ0ZXN0JzsK
-CnByb2Nlc3MuZW52Lk5PREVfRU5WID0gJ3Rlc3QnOwpwcm9jZXNzLmVudi5M
-QVVOQ0hfQ09VTlRSSUVTID0gJ1VHLEtFJzsKY29uc3QgeyBjcmVhdGVDb3Vu
-dHJ5Q29udGV4dCB9ID0gYXdhaXQgaW1wb3J0KCcuLi9zcmMvbWlkZGxld2Fy
-ZS9jb3VudHJ5LmpzJyk7CmNvbnN0IHsgdHJ1c3RlZFByb3h5TWF0Y2hlciB9
-ID0gYXdhaXQgaW1wb3J0KCcuLi9zcmMvY29yZS90cnVzdGVkLXByb3h5Lmpz
-Jyk7CmNvbnN0IGNvdW50cmllcyA9IFsKICB7IGNvZGU6ICdVRycsIGN1cnJl
-bmN5OiAnVUdYJywgYWN0aXZlOiB0cnVlIH0sCiAgeyBjb2RlOiAnS0UnLCBj
-dXJyZW5jeTogJ0tFUycsIGFjdGl2ZTogdHJ1ZSB9LAogIHsgY29kZTogJ1Ra
-JywgY3VycmVuY3k6ICdUWlMnLCBhY3RpdmU6IGZhbHNlIH0sCl07CmZ1bmN0
-aW9uIGFwcCh7IHRydXN0ZWQgPSBbXSwgdXNlciwgcmVjb3JkcyA9IGNvdW50
-cmllcyB9ID0ge30pIHsKICBjb25zdCBhcHBsaWNhdGlvbiA9IGV4cHJlc3Mo
-KTsKICBhcHBsaWNhdGlvbi51c2UoKHJlcSwgX3JlcywgbmV4dCkgPT4geyBy
-ZXEudXNlciA9IHVzZXI7IG5leHQoKTsgfSk7CiAgYXBwbGljYXRpb24udXNl
-KGNyZWF0ZUNvdW50cnlDb250ZXh0KHsgbG9hZENvdW50cmllczogYXN5bmMg
-KCkgPT4gcmVjb3JkcywgdHJ1c3RlZEdlb1Byb3h5Q2lkcnM6IHRydXN0ZWQg
-fSkpOwogIGFwcGxpY2F0aW9uLmdldCgnLycsIChyZXEsIHJlcykgPT4gcmVz
-Lmpzb24oeyBjb2RlOiByZXEuY291bnRyeS5jb2RlLCBjdXJyZW5jeTogcmVz
-LmxvY2Fscy5jdXJyZW5jeSwgc291cmNlOiByZXEuY291bnRyeVNvdXJjZSB9
-KSk7CiAgYXBwbGljYXRpb24udXNlKChlcnJvciwgX3JlcSwgcmVzLCBfbmV4
-dCkgPT4gcmVzLnN0YXR1cyhlcnJvci5zdGF0dXMgfHwgNTAwKS5qc29uKHsg
-Y29kZTogZXJyb3IuY29kZSB9KSk7CiAgcmV0dXJuIGFwcGxpY2F0aW9uOwp9
-Cgp0ZXN0KCdjb3VudHJ5IGluZmVyZW5jZSBpZ25vcmVzIHNwb29mZWQgZm9y
-d2FyZGluZyBoZWFkZXJzIHVubGVzcyB0aGUgYWN0dWFsIGVkZ2UgcGVlciBp
-cyBjb25maWd1cmVkJywgYXN5bmMgKCkgPT4gewogIGNvbnN0IHVudHJ1c3Rl
-ZCA9IGF3YWl0IHJlcXVlc3QoYXBwKCkpLmdldCgnLycpLnNldCgnQ0YtSVBD
-b3VudHJ5JywgJ0tFJykuc2V0KCdYLUZvcndhcmRlZC1Gb3InLCAnMTczLjI0
-NS40OC4xJykuZXhwZWN0KDIwMCk7CiAgYXNzZXJ0LmVxdWFsKHVudHJ1c3Rl
-ZC5ib2R5LmNvZGUsICdVRycpOwogIGNvbnN0IG90aGVyUGVlciA9IGF3YWl0
-IHJlcXVlc3QoYXBwKHsgdHJ1c3RlZDogWycxNzMuMjQ1LjQ4LjAvMjAnXSB9
-KSkuZ2V0KCcvJykuc2V0KCdDRi1JUENvdW50cnknLCAnS0UnKS5zZXQoJ1gt
-Rm9yd2FyZGVkLUZvcicsICcxNzMuMjQ1LjQ4LjEnKS5leHBlY3QoMjAwKTsK
-ICBhc3NlcnQuZXF1YWwob3RoZXJQZWVyLmJvZHkuY29kZSwgJ1VHJyk7CiAg
-Y29uc3QgZWRnZSA9IGF3YWl0IHJlcXVlc3QoYXBwKHsgdHJ1c3RlZDogWycx
-MjcuMC4wLjAvOCcsICc6OjEnXSB9KSkuZ2V0KCcvJykuc2V0KCdDRi1JUENv
-dW50cnknLCAnS0UnKS5leHBlY3QoMjAwKTsKICBhc3NlcnQuZGVlcEVxdWFs
-KGVkZ2UuYm9keSwgeyBjb2RlOiAnS0UnLCBjdXJyZW5jeTogJ0tFUycsIHNv
-dXJjZTogJ2VkZ2UnIH0pOwp9KTsKCnRlc3QoJ21hbnVhbCBjb3VudHJ5IG92
-ZXJyaWRlcyBhIHNhdmVkIHByZWZlcmVuY2U7IGludmFsaWQvaW5hY3RpdmUg
-dmFsdWVzIGZhbGwgdGhyb3VnaCB0byB0aGUgdHJ1c3RlZCBJUCBlc3RpbWF0
-ZScsIGFzeW5jICgpID0+IHsKICBjb25zdCBhcHBsaWNhdGlvbiA9IGFwcCh7
-IHRydXN0ZWQ6IFsnMTI3LjAuMC4wLzgnLCAnOjoxJ10sIHVzZXI6IHsgc2hv
-cHBpbmdDb3VudHJ5OiAnVUcnLCBjb3VudHJ5OiAnVUcnLCBjdXJyZW5jeTog
-J1VHWCcgfSB9KTsKICBjb25zdCBtYW51YWwgPSBhd2FpdCByZXF1ZXN0KGFw
-cGxpY2F0aW9uKS5nZXQoJy8nKS5zZXQoJ2Nvb2tpZScsICdjbV9jb3VudHJ5
-PUtFJykuc2V0KCdDRi1JUENvdW50cnknLCAnVUcnKS5leHBlY3QoMjAwKTsK
-ICBhc3NlcnQuZGVlcEVxdWFsKG1hbnVhbC5ib2R5LCB7IGNvZGU6ICdLRScs
-IGN1cnJlbmN5OiAnS0VTJywgc291cmNlOiAnc2VsZWN0aW9uJyB9KTsKICBj
-b25zdCBzYXZlZCA9IGF3YWl0IHJlcXVlc3QoYXBwbGljYXRpb24pLmdldCgn
-LycpLnNldCgnQ0YtSVBDb3VudHJ5JywgJ0tFJykuZXhwZWN0KDIwMCk7CiAg
-YXNzZXJ0LmVxdWFsKHNhdmVkLmJvZHkuY29kZSwgJ1VHJyk7CiAgY29uc3Qg
-bm9QcmVmZXJlbmNlID0gYXBwKHsgdHJ1c3RlZDogWycxMjcuMC4wLjAvOCcs
-ICc6OjEnXSwgdXNlcjogeyBzaG9wcGluZ0NvdW50cnk6ICdaWicsIGNvdW50
-cnk6ICdVRycgfSB9KTsKICBmb3IgKGNvbnN0IGNvb2tpZSBvZiBbJ2NtX2Nv
-dW50cnk9VFonLCAnY21fY291bnRyeT0lRTAlQTQlQScsICdjbV9jb3VudHJ5
-PVpaJ10pIHsKICAgIGNvbnN0IHJlc3VsdCA9IGF3YWl0IHJlcXVlc3Qobm9Q
-cmVmZXJlbmNlKS5nZXQoJy8nKS5zZXQoJ2Nvb2tpZScsIGNvb2tpZSkuc2V0
-KCdDRi1JUENvdW50cnknLCAnS0UnKS5leHBlY3QoMjAwKTsKICAgIGFzc2Vy
-dC5lcXVhbChyZXN1bHQuYm9keS5jb2RlLCAnS0UnKTsKICB9CiAgZm9yIChj
-b25zdCBpbnZhbGlkIG9mIFsnWFgnLCAnVDEnLCAnVFonLCAnS0UsVUcnXSkg
-ewogICAgY29uc3QgcmVzdWx0ID0gYXdhaXQgcmVxdWVzdChhcHAoeyB0cnVz
-dGVkOiBbJzEyNy4wLjAuMC84JywgJzo6MSddIH0pKS5nZXQoJy8nKS5zZXQo
-J0NGLUlQQ291bnRyeScsIGludmFsaWQpLmV4cGVjdCgyMDApOwogICAgYXNz
-ZXJ0LmVxdWFsKHJlc3VsdC5ib2R5LmNvZGUsICdVRycpOwogIH0KICBhd2Fp
-dCByZXF1ZXN0KGFwcCh7IHJlY29yZHM6IFtdIH0pKS5nZXQoJy8nKS5leHBl
-Y3QoNTAzLCB7IGNvZGU6ICdDT1VOVFJZX1VOQVZBSUxBQkxFJyB9KTsKfSk7
-Cgp0ZXN0KCd0cnVzdGVkIGVkZ2UgQ0lEUnMgaGFuZGxlIElQdjQtbWFwcGVk
-IHBlZXJzIGFuZCBJUHY2IGFuZCByZWplY3QgYmxhbmtldCBvciBtYWxmb3Jt
-ZWQgdHJ1c3QnLCAoKSA9PiB7CiAgY29uc3QgbWF0Y2hlcyA9IHRydXN0ZWRQ
-cm94eU1hdGNoZXIoWycxNzMuMjQ1LjQ4LjAvMjAnLCAnMjQwMDpjYjAwOjov
-MzInXSk7CiAgYXNzZXJ0LmVxdWFsKG1hdGNoZXMoJzo6ZmZmZjoxNzMuMjQ1
-LjQ4LjEnKSwgdHJ1ZSk7CiAgYXNzZXJ0LmVxdWFsKG1hdGNoZXMoJzI0MDA6
-Y2IwMDo6MTIzNCcpLCB0cnVlKTsKICBhc3NlcnQuZXF1YWwobWF0Y2hlcygn
-MjQwMDpmZmZmOjoxMjM0JyksIGZhbHNlKTsKICBhc3NlcnQuZXF1YWwobWF0
-Y2hlcygnbm90LWFuLWFkZHJlc3MnKSwgZmFsc2UpOwogIGZvciAoY29uc3Qg
-aW52YWxpZCBvZiBbJzAuMC4wLjAvMCcsICc6Oi8wJywgJ3RydWUnLCAnbG9v
-cGJhY2snLCAnMTczLjI0NS40OC4wLzMzJywgJzI0MDA6Y2IwMDo6LzEyOScs
-ICcxMjcuMC4wLjEvJ10pIHsKICAgIGFzc2VydC50aHJvd3MoKCkgPT4gdHJ1
-c3RlZFByb3h5TWF0Y2hlcihbaW52YWxpZF0pLCAvVHJ1c3RlZCBwcm94eSBy
-YW5nZXMvKTsKICB9Cn0pOwo=
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import request from 'supertest';
+
+process.env.NODE_ENV = 'test';
+process.env.LAUNCH_COUNTRIES = 'UG,KE';
+const { createCountryContext } = await import('../src/middleware/country.js');
+const { trustedProxyMatcher } = await import('../src/core/trusted-proxy.js');
+const countries = [
+  { code: 'UG', currency: 'UGX', active: true },
+  { code: 'KE', currency: 'KES', active: true },
+  { code: 'TZ', currency: 'TZS', active: false },
+];
+function app({ trusted = [], user, records = countries } = {}) {
+  const application = express();
+  application.use((req, _res, next) => { req.user = user; next(); });
+  application.use(createCountryContext({ loadCountries: async () => records, trustedGeoProxyCidrs: trusted }));
+  application.get('/', (req, res) => res.json({ code: req.country.code, currency: res.locals.currency, source: req.countrySource }));
+  application.use((error, _req, res, _next) => res.status(error.status || 500).json({ code: error.code }));
+  return application;
+}
+
+test('country inference ignores spoofed forwarding headers unless the actual edge peer is configured', async () => {
+  const untrusted = await request(app()).get('/').set('CF-IPCountry', 'KE').set('X-Forwarded-For', '173.245.48.1').expect(200);
+  assert.equal(untrusted.body.code, 'UG');
+  const otherPeer = await request(app({ trusted: ['173.245.48.0/20'] })).get('/').set('CF-IPCountry', 'KE').set('X-Forwarded-For', '173.245.48.1').expect(200);
+  assert.equal(otherPeer.body.code, 'UG');
+  const edge = await request(app({ trusted: ['127.0.0.0/8', '::1'] })).get('/').set('CF-IPCountry', 'KE').expect(200);
+  assert.deepEqual(edge.body, { code: 'KE', currency: 'KES', source: 'edge' });
+});
+
+test('manual country overrides a saved preference; invalid/inactive values fall through to the trusted IP estimate', async () => {
+  const application = app({ trusted: ['127.0.0.0/8', '::1'], user: { shoppingCountry: 'UG', country: 'UG', currency: 'UGX' } });
+  const manual = await request(application).get('/').set('cookie', 'cm_country=KE').set('CF-IPCountry', 'UG').expect(200);
+  assert.deepEqual(manual.body, { code: 'KE', currency: 'KES', source: 'selection' });
+  const saved = await request(application).get('/').set('CF-IPCountry', 'KE').expect(200);
+  assert.equal(saved.body.code, 'UG');
+  const noPreference = app({ trusted: ['127.0.0.0/8', '::1'], user: { shoppingCountry: 'ZZ', country: 'UG' } });
+  for (const cookie of ['cm_country=TZ', 'cm_country=%E0%A4%A', 'cm_country=ZZ']) {
+    const result = await request(noPreference).get('/').set('cookie', cookie).set('CF-IPCountry', 'KE').expect(200);
+    assert.equal(result.body.code, 'KE');
+  }
+  for (const invalid of ['XX', 'T1', 'TZ', 'KE,UG']) {
+    const result = await request(app({ trusted: ['127.0.0.0/8', '::1'] })).get('/').set('CF-IPCountry', invalid).expect(200);
+    assert.equal(result.body.code, 'UG');
+  }
+  await request(app({ records: [] })).get('/').expect(503, { code: 'COUNTRY_UNAVAILABLE' });
+});
+
+test('trusted edge CIDRs handle IPv4-mapped peers and IPv6 and reject blanket or malformed trust', () => {
+  const matches = trustedProxyMatcher(['173.245.48.0/20', '2400:cb00::/32']);
+  assert.equal(matches('::ffff:173.245.48.1'), true);
+  assert.equal(matches('2400:cb00::1234'), true);
+  assert.equal(matches('2400:ffff::1234'), false);
+  assert.equal(matches('not-an-address'), false);
+  for (const invalid of ['0.0.0.0/0', '::/0', 'true', 'loopback', '173.245.48.0/33', '2400:cb00::/129', '127.0.0.1/']) {
+    assert.throws(() => trustedProxyMatcher([invalid]), /Trusted proxy ranges/);
+  }
+});
