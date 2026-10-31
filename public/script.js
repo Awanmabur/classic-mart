@@ -1329,6 +1329,16 @@
     qsa('.mobile-more-wrap').forEach((wrapper) => wrapper.remove());
   }
 
+  // Product titles retain button-style previews with a real URL fallback.
+  // Anchor role=button must support Space as well as Enter for keyboard users.
+  document.addEventListener('keydown', event => {
+    if (event.key !== ' ' || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+    const title = event.target instanceof Element ? event.target.closest('a.product-preview-button[role="button"]') : null;
+    if (!title) return;
+    event.preventDefault();
+    title.click();
+  });
+
   async function handleDocumentClick(event) {
     const cartLink = event.target.closest('a[href="/cart"], a[href^="/cart"]');
     if (cartLink) {
