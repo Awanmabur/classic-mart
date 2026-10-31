@@ -16,6 +16,8 @@
   .platform-motion-enter[data-platform-motion="zoom"] { animation-name: cmEntranceZoom; }
   .platform-motion-enter[data-platform-motion="zoom-out"] { animation-name: cmEntranceZoomOut; }
   .platform-motion-enter[data-platform-motion="drop"] { animation-name: cmEntranceDrop; animation-duration: 640ms; }
+  .platform-motion-enter[data-platform-motion="flip-x"] { animation-name: cmEntranceFlipX; }
+  .platform-motion-enter[data-platform-motion="flip-y"] { animation-name: cmEntranceFlipY; }
 }
 @keyframes cmEntranceUp {
   from { opacity: 0; transform: translate3d(0, 32px, 0) var(--cm-motion-rest); }
@@ -45,6 +47,16 @@
   0% { opacity: 0; transform: translate3d(0, -40px, 0) scale(.985) var(--cm-motion-rest); }
   72% { opacity: var(--cm-motion-opacity, 1); transform: translate3d(0, 2px, 0) var(--cm-motion-rest); }
   100% { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
+}
+/* Portfolio Smoove-style 3D card reveals, with restrained depth so forms,
+   dashboards and product shelves remain readable on mobile hardware. */
+@keyframes cmEntranceFlipX {
+  from { opacity: 0; transform: perspective(900px) translate3d(0, 35px, -80px) rotateX(55deg) var(--cm-motion-rest); }
+  to { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
+}
+@keyframes cmEntranceFlipY {
+  from { opacity: 0; transform: perspective(900px) translate3d(0, 0, -90px) rotateY(-55deg) var(--cm-motion-rest); }
+  to { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
 }
 @media (prefers-reduced-motion: reduce) {
   .platform-motion-enter { animation: none !important; }
