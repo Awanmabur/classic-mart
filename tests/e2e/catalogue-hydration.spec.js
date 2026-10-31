@@ -81,6 +81,15 @@ for (const path of ['/', '/products']) {
   });
 }
 
+// Inline status regions can coexist with the shared transient toast. Assert
+// the actual visible toast, rather than matching every flash-content span.
+async function expectTransientToast(page, message) {
+  const toast = page.locator('[data-platform-flash-toast]');
+  await expect(toast).toHaveCount(1);
+  await expect(toast).toBeVisible();
+  await expect(toast.locator('.platform-flash-content')).toHaveText(message);
+}
+
 const previewTarget = (page, path) => path === '/'
   ? page.locator('#trendingGrid .product-preview-button').first()
   : page.locator('#catalogProductGrid .catalog-product-image').first();
@@ -129,7 +138,7 @@ for (const path of ['/', '/products']) {
       } }) });
     });
     await previewTarget(page, path).click();
-    await expect(page.locator('.platform-flash-content')).toContainText('This product is no longer available.');
+    await expectTransientToast(page, 'This product is no longer available.');
     expect(detailRequests).toBe(1);
     await expect(page.locator('#productModal')).not.toBeVisible();
     await expect(page.locator('#productModal [data-modal-add-cart]')).not.toBeVisible();
@@ -198,7 +207,7 @@ test('switching an open homepage preview removes old purchase controls until the
     await expect(page.locator('#productModalWishlist')).toBeDisabled();
     await expect(page.locator('#productModal [role="status"]')).toContainText('Loading product preview');
     release();
-    await expect(page.locator('.platform-flash-content')).toContainText('Related listing was withdrawn.');
+    await expectTransientToast(page, 'Related listing was withdrawn.');
     await expect(page.locator('#productModal')).not.toBeVisible();
   } finally { release(); }
 });
