@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { runWithCiTestServices } from './ci-test-services.js';
 
@@ -33,9 +34,35 @@ if (process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI) {
 }
 if (process.argv.includes('--coverage')) nodeArgs.push('--experimental-test-coverage');
 if (process.env.GITHUB_ACTIONS === 'true' && process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI && process.platform === 'linux') {
-  // A stopped database must fail promptly with its container state, rather than
-  // leaving every remaining fixture waiting for server-selection timeouts.
-  process.exitCode = await runWithCiTestServices({ args: [...nodeArgs, ...files] });
+  // Repeated isolated databases/index builds make MongoDB's allocator retain
+  // memory across a very long suite. Run every file, but split the suite into
+  // deterministic shards and restart only the disposable CI MongoDB between
+  // shards so allocator growth cannot turn a passing suite into runner OOM.
+  const shardCount = Math.max(1, Math.min(8, Number(process.env.CLASSIC_MART_CI_TEST_SHARDS) || 4));
+  async function resetDisposableServices() {
+    const restarted = spawnSync('docker', ['restart', 'classic-mart-mongo'], { stdio: 'inherit', shell: false });
+    if (restarted.status !== 0) throw new Error('Could not restart disposable CI MongoDB between test shards.');
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const ready = spawnSync('docker', ['exec', 'classic-mart-mongo', 'mongosh', '--port', '27019', '--quiet',
+        '--eval', 'if(!db.hello().isWritablePrimary) quit(1)'], { stdio: 'ignore', shell: false });
+      if (ready.status === 0) break;
+      if (attempt === 59) throw new Error('Disposable CI MongoDB did not return as writable primary after restart.');
+      await delay(1000);
+    }
+    const flushed = spawnSync('docker', ['exec', 'classic-mart-redis', 'redis-cli', 'FLUSHALL'], { stdio: 'ignore', shell: false });
+    if (flushed.status !== 0) throw new Error('Could not reset disposable CI Redis between test shards.');
+  }
+  for (let shardIndex = 0; shardIndex < shardCount; shardIndex += 1) {
+    if (shardIndex) await resetDisposableServices();
+    const shardFiles = files.filter((_file, index) => index % shardCount === shardIndex);
+    if (!shardFiles.length) continue;
+    console.log(`CI test shard ${shardIndex + 1}/${shardCount}: ${shardFiles.length} files`);
+    const code = await runWithCiTestServices({ args: [...nodeArgs, ...shardFiles] });
+    if (code !== 0) {
+      process.exitCode = code;
+      break;
+    }
+  }
 } else {
   const result = spawnSync(process.execPath, [...nodeArgs, ...files], {
     stdio: 'inherit',
