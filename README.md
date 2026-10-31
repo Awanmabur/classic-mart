@@ -123,7 +123,7 @@ All real uploaded marketplace media uses the object-storage boundary. With `MEDI
 
 Production remains fail-closed. It requires managed MongoDB, Redis, private Cloudflare R2, HTTPS, live Pesapal API 3.0 credentials, SMTP, SMS, malware scanning, production secrets, explicit launch countries and security/DR configuration. Production bootstrap creates only platform primitives and categories; production data gates block legacy development/demo markers while accepting the official initial catalogue.
 
-Use the generated **production launch package** for Render against the same explicit real Atlas database. Start with the [launch handoff](docs/production/LAUNCH.md) and [production setup](PRODUCTION_SETUP.md) for configuration, administrator setup, Pesapal IPN registration and the final launch gate.
+Use the generated **production launch package** with the reviewed Docker deployment against the same explicit real Atlas database. Start with the [launch handoff](docs/production/LAUNCH.md) and [production setup](PRODUCTION_SETUP.md) for configuration, administrator setup, Pesapal IPN registration and the final launch gate.
 
 ## Security
 
