@@ -65,6 +65,76 @@ test('floating guide uses a private session, safe real-price cards, accessible m
   } finally { await browser.close(); }
 });
 
+test('guide matches capsule design; launcher drags, stays onscreen and persists', { timeout: 45_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+  try {
+    for (const viewport of [{ width: 1200, height: 800 }, { width: 360, height: 700 }]) {
+      const context = await browser.newContext({ viewport });
+      await context.route('https://guide-drag.example/**', route => {
+        const path = new URL(route.request().url()).pathname;
+        if (path === '/guide.js') return route.fulfill({ contentType: 'text/javascript', body: script });
+        if (path === '/guide.css') return route.fulfill({ contentType: 'text/css', body: styles });
+        if (path.endsWith('/session')) return route.fulfill({ json: { csrfToken: 'design-csrf', country: 'UG', locale: 'en-UG', aiConfigured: false } });
+        return route.fulfill({ contentType: 'text/html', body: '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width"><style>:root{--orange:#ff6500;--navy:#14253d}.back-to-top{position:fixed;bottom:22px;right:22px;width:40px;height:40px}@media(max-width:760px){.back-to-top{bottom:14px;right:14px;width:36px;height:36px}}</style><link rel="stylesheet" href="/guide.css"><script defer src="/guide.js"></script></head><body><main><h1>Marketplace</h1></main><button class="back-to-top" aria-label="Back to top"></button></body></html>' });
+      });
+      const page = await context.newPage();
+      const failures = [];
+      page.on('pageerror', error => failures.push(error.message));
+      await page.goto('https://guide-drag.example/');
+      const trigger = page.getByRole('button', { name: 'Open Classic AI voice and shopping guide' });
+      const initial = await trigger.boundingBox();
+      const back = await page.getByRole('button', { name: 'Back to top' }).boundingBox();
+      assert.ok(initial.y + initial.height + 8 <= back.y, 'launcher must start above Back to top');
+      await page.mouse.move(initial.x + initial.width / 2, initial.y + initial.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(20, 180, { steps: 8 });
+      await page.mouse.up();
+      const moved = await trigger.boundingBox();
+      assert.ok(moved.x >= 8 && moved.y >= 8 && moved.x + moved.width <= viewport.width - 7 && moved.y + moved.height <= viewport.height - 7);
+      assert.ok(Math.abs(moved.x - initial.x) > 10 || Math.abs(moved.y - initial.y) > 10);
+      await expect(page.getByRole('dialog')).not.toBeVisible();
+      assert.ok(await trigger.evaluate(node => localStorage.getItem('classic-mart:guide-launcher:v1')));
+      await page.reload();
+      const restored = await trigger.boundingBox();
+      assert.ok(Math.abs(restored.x - moved.x) <= 2 && Math.abs(restored.y - moved.y) <= 2);
+      await trigger.focus();
+      await page.keyboard.press('Alt+ArrowRight');
+      const keyboardMoved = await trigger.boundingBox();
+      assert.ok(keyboardMoved.x > restored.x, 'Alt+ArrowRight repositions launcher');
+      await page.keyboard.press('Alt+Home');
+      const reset = await trigger.boundingBox();
+      assert.ok(Math.abs(reset.y - initial.y) <= 2);
+      await trigger.click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      const design = await page.evaluate(() => {
+        const dialog = document.querySelector('#classicGuideDialog');
+        const close = dialog.querySelector('.classic-guide-close');
+        const icon = close.querySelector('svg');
+        const input = dialog.querySelector('#classicGuideQuestion');
+        const send = dialog.querySelector('.classic-guide-send');
+        const css = getComputedStyle;
+        const distance = (a, b) => Math.abs(a.left + a.width/2 - b.left - b.width/2)
+          + Math.abs(a.top + a.height/2 - b.top - b.height/2);
+        return {
+          sendColor: css(send).color, sendRadius: parseFloat(css(send).borderTopLeftRadius),
+          inputRadius: parseFloat(css(input).borderTopLeftRadius),
+          triggerColor: css(document.querySelector('.classic-guide-trigger')).color,
+          closeOffset: distance(close.getBoundingClientRect(), icon.getBoundingClientRect()),
+          dialog: dialog.getBoundingClientRect().toJSON(),
+        };
+      });
+      assert.equal(design.sendColor, 'rgb(255, 255, 255)');
+      assert.equal(design.triggerColor, 'rgb(255, 255, 255)');
+      assert.ok(design.sendRadius >= 20 && design.inputRadius >= 20);
+      assert.ok(design.closeOffset <= 2, 'close icon centred');
+      assert.ok(design.dialog.left >= 0 && design.dialog.right <= viewport.width);
+      assert.ok(design.dialog.top >= 0 && design.dialog.bottom <= viewport.height);
+      assert.deepEqual(failures, []);
+      await context.close();
+    }
+  } finally { await browser.close(); }
+});
+
 test('microphone is opt-in, transcripts are reviewed before sending and spoken replies stop on close', { timeout: 30_000 }, async () => {
   const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
   try {
