@@ -115,22 +115,14 @@ test('category carousel cache namespace advances for always-loaded taxonomy',()=
 });
 
 
-test('production release includes a Render launch blueprint with secret prompts and durable disk',()=>{
+test('production release is provider-neutral and excludes the retired Render blueprint',()=>{
   const blueprintUrl=new URL('../render.yaml',import.meta.url);
-  assert.ok(fs.existsSync(blueprintUrl),'render.yaml must exist for production launch');
-  const blueprint=fs.readFileSync(blueprintUrl,'utf8');
   const builder=read('scripts/build-production-release.js');
-  assert.match(blueprint,/type:\s*web/);
-  assert.match(blueprint,/runtime:\s*docker/);
-  assert.match(blueprint,/plan:\s*1c-2g/);
-  assert.match(blueprint,/healthCheckPath:\s*\/health\/ready/);
-  assert.match(blueprint,/mountPath:\s*\/var\/data/);
-  assert.match(blueprint,/numInstances:\s*1/);
-  assert.match(blueprint,/preDeployCommand:\s*node scripts\/migrate-production\.js --apply && node scripts\/bootstrap-production\.js && node scripts\/check-production-data\.js/);
-  for(const key of ['MONGO_URI','PESAPAL_CONSUMER_KEY','PESAPAL_CONSUMER_SECRET','SMTP_PASSWORD','YOOLA_API_KEY','SIEM_TOKEN']){
-    assert.match(blueprint,new RegExp(`key:\\s*${key}[\\s\\S]{0,80}sync:\\s*false`));
-  }
-  assert.match(builder,/['"]render\.yaml['"]/);
+  const cleanBuilder=read('scripts/build-clean-app-release.js');
+  assert.equal(fs.existsSync(blueprintUrl),false,'retired render.yaml must not ship');
+  assert.doesNotMatch(builder,/render\.yaml|RENDER_GIT_COMMIT/);
+  assert.doesNotMatch(cleanBuilder,/render\.yaml|RENDER_GIT_COMMIT/);
+  assert.match(read('docs/production/LAUNCH.md'),/DigitalOcean|immutable SHA-tagged Docker image/);
 });
 
 test('production release demo-path scan uses real word boundaries',()=>{
@@ -165,9 +157,10 @@ test('production release content scan blocks development identities outside data
 test('first production deploy can precede Pesapal IPN registration while checkout and launch remain fail-closed',()=>{
   const pesapal=read('src/services/pesapal.js');
   const launch=read('scripts/launch-check.js');
-  const blueprint=read('render.yaml');
+  const prod=read('.env.production.example');
   assert.doesNotMatch(envSource,/\['PESAPAL_CONSUMER_KEY','PESAPAL_CONSUMER_SECRET','PESAPAL_IPN_ID'\]/);
   assert.match(pesapal,/if \(!env\.pesapal\.notificationId\) throw new AppError\('Pesapal IPN ID is not configured\.'/);
   assert.match(launch,/!env\.pesapal\.notificationId[\s\S]{0,120}PESAPAL_IPN_ID/);
-  assert.doesNotMatch(blueprint,/key:\s*PESAPAL_IPN_ID/);
+  assert.match(prod,/^PESAPAL_IPN_ID=$/m);
 });
+
