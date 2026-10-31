@@ -1,49 +1,35 @@
-aW1wb3J0IHRlc3QgZnJvbSAnbm9kZTp0ZXN0JzsKaW1wb3J0IGFzc2VydCBm
-cm9tICdub2RlOmFzc2VydC9zdHJpY3QnOwppbXBvcnQgeyBndWlkZUludGVu
-dCwgcGxhdGZvcm1HdWlkZSB9IGZyb20gJy4uL3NyYy9zZXJ2aWNlcy9wbGF0
-Zm9ybS1ndWlkZS5qcyc7Cgpjb25zdCBjb3VudHJ5ID0geyBjb2RlOiAnVUcn
-LCBuYW1lOiAnVWdhbmRhJywgY3VycmVuY3k6ICdVR1gnLCBsb2NhbGU6ICdl
-bi1VRycgfTsKdGVzdCgnZ3VpZGUgcGFyc2VzIHNwb2tlbiBidWRnZXRzIHdp
-dGhvdXQgaW52ZW50aW5nIGN1cnJlbmN5IGNvbnZlcnNpb24nLCAoKSA9PiB7
-CiAgYXNzZXJ0LmRlZXBFcXVhbChndWlkZUludGVudCgnRmluZCBtZSBhIHNw
-ZWFrZXIgdW5kZXIgVUdYIDIwMCwwMDAnLCAnVUdYJyksIHsgcXVlcnk6ICdz
-cGVha2VyJywgZGVzdGluYXRpb246IG51bGwsIG1heFByaWNlOiAyMDAwMDAs
-IGN1cnJlbmN5TWlzbWF0Y2g6IGZhbHNlIH0pOwogIGFzc2VydC5lcXVhbChn
-dWlkZUludGVudCgnbGFwdG9wIGJlbG93IDEuNW0nKS5tYXhQcmljZSwgMTUw
-MDAwMCk7CiAgY29uc3QgZm9yZWlnbiA9IGd1aWRlSW50ZW50KCdmaW5kIGEg
-c3BlYWtlciB1bmRlciBVU0QgMjAwJywgJ1VHWCcpOwogIGFzc2VydC5lcXVh
-bChmb3JlaWduLmN1cnJlbmN5TWlzbWF0Y2gsIHRydWUpOwogIGFzc2VydC5l
-cXVhbChmb3JlaWduLm1heFByaWNlLCBudWxsKTsKfSk7CnRlc3QoJ25hdmln
-YXRpb24gZ3VpZGUgcmVzb2x2ZXMgcmVhbCBwcm90ZWN0ZWQgZGVzdGluYXRp
-b25zIHdpdGhvdXQgaW52b2tpbmcgY2F0YWxvZ3VlIG9yIG11dGF0aW9ucycs
-IGFzeW5jICgpID0+IHsKICBjb25zdCByZXN1bHQgPSBhd2FpdCBwbGF0Zm9y
-bUd1aWRlKHsgY291bnRyeSB9LCAnV2hlcmUgZG8gSSBjaGFuZ2UgbXkgcGFz
-c3dvcmQ/JywgeyBzZWFyY2goKSB7IHRocm93IG5ldyBFcnJvcigndW5uZWNl
-c3NhcnkgZGF0YWJhc2UgY2FsbCcpOyB9IH0pOwogIGFzc2VydC5lcXVhbChy
-ZXN1bHQubGlua3NbMF0uaHJlZiwgJy9hY2NvdW50L3NlY3VyaXR5Jyk7CiAg
-YXNzZXJ0LmVxdWFsKHJlc3VsdC5haUdlbmVyYXRlZCwgZmFsc2UpOwogIGFz
-c2VydC5lcXVhbChyZXN1bHQucHJvZHVjdHMubGVuZ3RoLCAwKTsKfSk7CnRl
-c3QoJ2d1aWRlIHVzZXMgc2VsZWN0ZWQtY291bnRyeSBjYXRhbG9ndWUsIHN0
-b2NrIGFuZCBleGFjdCBjdXJyZW50IHByaWNlIGZvciBpdHMgYW5zd2VyJywg
-YXN5bmMgKCkgPT4gewogIGxldCBjYWxscyA9IDA7CiAgY29uc3QgcmVzdWx0
-ID0gYXdhaXQgcGxhdGZvcm1HdWlkZSh7IGNvdW50cnkgfSwgJ2ZpbmQgc3Bl
-YWtlciB1bmRlciBVR1ggMjAwLDAwMCcsIHsgYXN5bmMgc2VhcmNoKHNlbGVj
-dGVkLCBpbnB1dCkgewogICAgY2FsbHMrKzsgYXNzZXJ0LmVxdWFsKHNlbGVj
-dGVkLCBjb3VudHJ5KTsgYXNzZXJ0LmVxdWFsKGlucHV0LnF1ZXJ5LCAnc3Bl
-YWtlcicpOwogICAgcmV0dXJuIHsgcHJvZHVjdHM6IFsKICAgICAgeyBpZDog
-J3ByZF9vaycsIG5hbWU6ICc8c2NyaXB0PnNwZWFrZXI8L3NjcmlwdD4nLCBj
-dXJyZW5jeTogJ1VHWCcsIHByaWNlOiAxNTAwMDAsIHN0b2NrOiAyLCBzZWxs
-ZXI6IHsgbmFtZTogJ1ZlcmlmaWVkIHNob3AnIH0gfSwKICAgICAgeyBpZDog
-J3ByZF9vdmVyJywgbmFtZTogJ0V4cGVuc2l2ZScsIGN1cnJlbmN5OiAnVUdY
-JywgcHJpY2U6IDMwMDAwMCwgc3RvY2s6IDIgfSwKICAgICAgeyBpZDogJ3By
-ZF9lbXB0eScsIG5hbWU6ICdTb2xkIG91dCcsIGN1cnJlbmN5OiAnVUdYJywg
-cHJpY2U6IDEwMDAwMCwgc3RvY2s6IDAgfSwKICAgICAgeyBpZDogJ3ByZF9v
-dGhlcicsIG5hbWU6ICdXcm9uZyBjdXJyZW5jeScsIGN1cnJlbmN5OiAnVVNE
-JywgcHJpY2U6IDEwLCBzdG9jazogMSB9LAogICAgXSB9OwogIH0gfSk7CiAg
-YXNzZXJ0LmVxdWFsKGNhbGxzLCAxKTsgYXNzZXJ0LmRlZXBFcXVhbChyZXN1
-bHQucHJvZHVjdHMubWFwKHAgPT4gcC5pZCksIFsncHJkX29rJ10pOwogIGFz
-c2VydC5lcXVhbChyZXN1bHQucHJvZHVjdHNbMF0ucHJpY2UsIDE1MDAwMCk7
-CiAgYXNzZXJ0LmVxdWFsKHJlc3VsdC5wcm9kdWN0c1swXS5ocmVmLCAnL3By
-b2R1Y3RzL3ByZF9vaz9jb3VudHJ5PVVHJyk7CiAgYXNzZXJ0Lm1hdGNoKHJl
-c3VsdC5hbnN3ZXIsIC8xNTAsMDAwLyk7CiAgYXNzZXJ0LmVxdWFsKHJlc3Vs
-dC5haUdlbmVyYXRlZCwgZmFsc2UpOwp9KTsK
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { guideIntent, platformGuide } from '../src/services/platform-guide.js';
+
+const country = { code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG' };
+test('guide parses spoken budgets without inventing currency conversion', () => {
+  assert.deepEqual(guideIntent('Find me a speaker under UGX 200,000', 'UGX'), { query: 'speaker', destination: null, maxPrice: 200000, currencyMismatch: false });
+  assert.equal(guideIntent('laptop below 1.5m').maxPrice, 1500000);
+  const foreign = guideIntent('find a speaker under USD 200', 'UGX');
+  assert.equal(foreign.currencyMismatch, true);
+  assert.equal(foreign.maxPrice, null);
+});
+test('navigation guide resolves real protected destinations without invoking catalogue or mutations', async () => {
+  const result = await platformGuide({ country }, 'Where do I change my password?', { search() { throw new Error('unnecessary database call'); } });
+  assert.equal(result.links[0].href, '/account/security');
+  assert.equal(result.aiGenerated, false);
+  assert.equal(result.products.length, 0);
+});
+test('guide uses selected-country catalogue, stock and exact current price for its answer', async () => {
+  let calls = 0;
+  const result = await platformGuide({ country }, 'find speaker under UGX 200,000', { async search(selected, input) {
+    calls++; assert.equal(selected, country); assert.equal(input.query, 'speaker');
+    return { products: [
+      { id: 'prd_ok', name: '<script>speaker</script>', currency: 'UGX', price: 150000, stock: 2, seller: { name: 'Verified shop' } },
+      { id: 'prd_over', name: 'Expensive', currency: 'UGX', price: 300000, stock: 2 },
+      { id: 'prd_empty', name: 'Sold out', currency: 'UGX', price: 100000, stock: 0 },
+      { id: 'prd_other', name: 'Wrong currency', currency: 'USD', price: 10, stock: 1 },
+    ] };
+  } });
+  assert.equal(calls, 1); assert.deepEqual(result.products.map(p => p.id), ['prd_ok']);
+  assert.equal(result.products[0].price, 150000);
+  assert.equal(result.products[0].href, '/products/prd_ok?country=UG');
+  assert.match(result.answer, /150,000/);
+  assert.equal(result.aiGenerated, false);
+});
