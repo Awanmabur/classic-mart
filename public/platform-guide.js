@@ -1,104 +1,121 @@
 (() => {
   'use strict';
-  if (window.ClassicMartGuide || !window.HTMLDialogElement || !document.body || !document.querySelector('main')) return;
-  const microphone = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg>';
-  const trigger = document.createElement('button');
-  trigger.type = 'button'; trigger.className = 'classic-guide-trigger';
-  trigger.setAttribute('aria-label', 'Ask Classic - open AI voice and shopping guide');
-  trigger.setAttribute('aria-haspopup', 'dialog'); trigger.setAttribute('aria-controls', 'classicGuideDialog');
-  trigger.innerHTML = `${microphone}<span>Ask Classic</span>`;
-  const dialog = document.createElement('dialog');
-  dialog.id = 'classicGuideDialog'; dialog.className = 'classic-guide-dialog'; dialog.setAttribute('aria-labelledby', 'classicGuideTitle');
-  // This markup is static. Questions, answers, prices and links are rendered with
-  // DOM text nodes below, without interpreting model or catalogue text as HTML.
-  dialog.innerHTML = `<header class="classic-guide-head"><div><h2 id="classicGuideTitle">Ask Classic</h2><p>Find products. Find your way.</p></div><button class="classic-guide-close" type="button" aria-label="Close Classic guide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 5 19 19M19 5 5 19"/></svg></button></header>
-    <div class="classic-guide-log" role="log" aria-label="Your guide conversation" aria-live="polite" aria-relevant="additions"></div>
-    <form class="classic-guide-form"><label for="classicGuideQuestion">How can I help?</label><div class="classic-guide-compose"><button class="classic-guide-mic" type="button" aria-label="Speak your question" aria-pressed="false">${microphone}</button><input id="classicGuideQuestion" name="message" type="text" minlength="2" maxlength="2000" required autocomplete="off" placeholder="Find a speaker under UGX 200,000"><button class="classic-guide-send" type="button">Send</button></div><div class="classic-guide-options"><label><input type="checkbox" name="speak">Read replies aloud</label><label hidden data-guide-detailed><input type="checkbox" name="detailed">Detailed AI answer</label></div><p class="classic-guide-status" aria-live="polite" aria-atomic="true"></p><p class="classic-guide-disclosure">Microphone starts only when you tap it. Your browser may use its speech service. Review the text before sending. Detailed AI sends your question and public catalogue facts to our AI provider.</p></form>`;
-  document.body.append(trigger, dialog);
-  const form = dialog.querySelector('form'), input = form.elements.message;
-  const log = dialog.querySelector('[role="log"]'), status = dialog.querySelector('.classic-guide-status');
-  const mic = dialog.querySelector('.classic-guide-mic'), send = dialog.querySelector('.classic-guide-send');
+  if (window.ClassicMartGuide || !document.body || !document.querySelector('main')) return;
 
-  // No third-party drag library or network calls. Persist only a normalized
-  // launcher position, not the conversation or shopper's location.
-  const positionKey = 'classic-mart:guide-launcher:v1';
-  const edgeGap = 8;
-  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-  const bounds = () => ({
-    x: Math.max(edgeGap, document.documentElement.clientWidth - trigger.offsetWidth - edgeGap),
-    y: Math.max(edgeGap, window.innerHeight - trigger.offsetHeight - edgeGap),
+  // Voice-first assistant: no text input or chat modal. Only a user gesture
+  // starts microphone capture. Answers come from the existing read-only guide API.
+  const microphone = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg>';
+  const stopIcon = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'classic-guide-trigger';
+  trigger.setAttribute('aria-label', 'Ask Classic - start voice assistant');
+  trigger.setAttribute('aria-pressed', 'false');
+  trigger.innerHTML = microphone + '<span>Ask Classic</span>';
+
+  const hud = document.createElement('section');
+  hud.className = 'classic-voice-hud';
+  hud.id = 'classicVoiceHud';
+  hud.hidden = true;
+  hud.setAttribute('role', 'region');
+  hud.setAttribute('aria-label', 'Classic Mart voice assistant status');
+  hud.innerHTML = '<div class="classic-voice-hud-head"><span class="classic-voice-indicator" aria-hidden="true"></span><strong>Classic AI Voice</strong><button class="classic-voice-stop" type="button" aria-label="Stop Classic AI voice assistant">' + stopIcon + '</button></div><div class="classic-voice-waves" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div><p class="classic-voice-status" role="status" aria-live="polite" aria-atomic="true">Tap to speak</p><p class="classic-voice-notice">Microphone starts on tap. Recognized words are sent to Classic Mart for an answer. Your browser may use a speech service.</p><a class="classic-voice-fallback" href="/ask-classic" hidden>Open Classic AI without voice</a>';
+  document.body.append(trigger, hud);
+  const status = hud.querySelector('.classic-voice-status');
+  const fallback = hud.querySelector('.classic-voice-fallback');
+  const stop = hud.querySelector('.classic-voice-stop');
+
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SynthUtterance = window.SpeechSynthesisUtterance;
+  const synth = window.speechSynthesis;
+  const storageKey = 'classic-mart:guide-launcher:v1';
+  const edge = 8;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const limits = () => ({
+    x: Math.max(edge, document.documentElement.clientWidth - trigger.offsetWidth - edge),
+    y: Math.max(edge, window.innerHeight - trigger.offsetHeight - edge)
   });
   let dragging = null, ignoreClick = false, resizeFrame = 0;
-  trigger.title = 'Drag to move. Alt + arrow keys to reposition. Alt + Home to reset.';
+  let recognition = null, session = null, sessionTask = null, sessionController = null, request = null;
+  let speech = null, lastAnswer = '', version = 0;
+  let state = 'idle';
+  trigger.title = 'Tap to speak, tap again to stop. Drag to move; Alt + arrows reposition, Alt + Home resets.';
   trigger.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown Alt+Home');
 
+  function placeHud() {
+    if (hud.hidden) return;
+    const r = trigger.getBoundingClientRect();
+    const w = hud.offsetWidth, h = hud.offsetHeight;
+    const maxX = Math.max(edge, document.documentElement.clientWidth - w - edge);
+    const maxY = Math.max(edge, window.innerHeight - h - edge);
+    // Put the compact audio display above the button, or below if dragged near the top.
+    const top = r.top - h - 10 >= edge ? r.top - h - 10 : r.bottom + 10;
+    hud.style.left = Math.round(clamp(r.left + r.width / 2 - w / 2, edge, maxX)) + 'px';
+    hud.style.top = Math.round(clamp(top, edge, maxY)) + 'px';
+  }
   function placeLauncher(x, y, persist = false) {
-    const limit = bounds();
-    const left = Math.round(clamp(x, edgeGap, limit.x));
-    const top = Math.round(clamp(y, edgeGap, limit.y));
+    const limit = limits();
+    const left = Math.round(clamp(x, edge, limit.x));
+    const top = Math.round(clamp(y, edge, limit.y));
     trigger.dataset.positioned = 'true';
-    trigger.style.left = left + 'px';
-    trigger.style.top = top + 'px';
-    trigger.style.right = 'auto';
-    trigger.style.bottom = 'auto';
+    Object.assign(trigger.style, { left: left + 'px', top: top + 'px', right: 'auto', bottom: 'auto' });
     if (persist) {
-      const width = Math.max(1, limit.x - edgeGap), height = Math.max(1, limit.y - edgeGap);
-      try { localStorage.setItem(positionKey, JSON.stringify({
-        x: (left - edgeGap) / width, y: (top - edgeGap) / height,
-      })); } catch { /* private storage is optional */ }
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({
+          x: (left - edge) / Math.max(1, limit.x - edge),
+          y: (top - edge) / Math.max(1, limit.y - edge)
+        }));
+      } catch { /* Storage is optional. */ }
     }
+    placeHud();
   }
   function restoreLauncher() {
     try {
-      const value = JSON.parse(localStorage.getItem(positionKey) || 'null');
-      if (!value || !Number.isFinite(value.x) || !Number.isFinite(value.y)
-          || value.x < 0 || value.x > 1 || value.y < 0 || value.y > 1) return;
-      const limit = bounds();
-      placeLauncher(edgeGap + value.x * Math.max(1, limit.x - edgeGap),
-        edgeGap + value.y * Math.max(1, limit.y - edgeGap));
-    } catch { /* retain the safe default above Back to top */ }
+      const p = JSON.parse(localStorage.getItem(storageKey) || 'null');
+      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1) return;
+      const limit = limits();
+      placeLauncher(edge + p.x * Math.max(1, limit.x - edge), edge + p.y * Math.max(1, limit.y - edge));
+    } catch { /* Keep default above the Back to top control. */ }
   }
   function resetLauncher() {
-    try { localStorage.removeItem(positionKey); } catch {}
-    trigger.removeAttribute('data-positioned');
-    for (const value of ['left', 'top', 'right', 'bottom', 'transform']) trigger.style.removeProperty(value);
+    try { localStorage.removeItem(storageKey); } catch {}
+    delete trigger.dataset.positioned;
+    for (const name of ['left', 'top', 'right', 'bottom', 'transform']) trigger.style.removeProperty(name);
+    placeHud();
   }
   trigger.addEventListener('pointerdown', event => {
-    if (!event.isPrimary || event.button !== 0 || dialog.open) return;
-    const rect = trigger.getBoundingClientRect();
+    if (!event.isPrimary || event.button !== 0) return;
+    const r = trigger.getBoundingClientRect();
     dragging = { id: event.pointerId, x: event.clientX, y: event.clientY,
-      left: rect.left, top: rect.top, dx: 0, dy: 0, moved: false, frame: 0 };
+      left: r.left, top: r.top, dx: 0, dy: 0, moved: false, frame: 0 };
     try { trigger.setPointerCapture(event.pointerId); } catch {}
   });
   trigger.addEventListener('pointermove', event => {
-    if (!dragging || dragging.id !== event.pointerId) return;
-    const dx = event.clientX - dragging.x, dy = event.clientY - dragging.y;
-    if (!dragging.moved && Math.hypot(dx, dy) < 6) return;
-    dragging.moved = true;
-    dragging.dx = dx; dragging.dy = dy;
+    const d = dragging;
+    if (!d || event.pointerId !== d.id) return;
+    const dx = event.clientX - d.x, dy = event.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 6) return;
+    d.moved = true; d.dx = dx; d.dy = dy;
     trigger.dataset.dragging = 'true';
     event.preventDefault();
-    if (!dragging.frame) {
-      const state = dragging;
-      state.frame = requestAnimationFrame(() => {
-        state.frame = 0;
-        if (dragging !== state) return;
-        const limit = bounds();
-        const x = clamp(state.left + state.dx, edgeGap, limit.x);
-        const y = clamp(state.top + state.dy, edgeGap, limit.y);
-        trigger.style.transform = 'translate3d(' + (x - state.left) + 'px, ' + (y - state.top) + 'px, 0)';
-      });
-    }
+    if (!d.frame) d.frame = requestAnimationFrame(() => {
+      d.frame = 0;
+      if (dragging !== d) return;
+      const limit = limits();
+      const x = clamp(d.left + d.dx, edge, limit.x);
+      const y = clamp(d.top + d.dy, edge, limit.y);
+      trigger.style.transform = 'translate3d(' + (x - d.left) + 'px,' + (y - d.top) + 'px,0)';
+    });
   });
   function endDrag(event, cancelled = false) {
     if (!dragging || event.pointerId !== dragging.id) return;
-    const state = dragging; dragging = null;
-    if (state.frame) cancelAnimationFrame(state.frame);
+    const d = dragging; dragging = null;
+    if (d.frame) cancelAnimationFrame(d.frame);
     trigger.style.removeProperty('transform');
     delete trigger.dataset.dragging;
-    if (trigger.hasPointerCapture?.(state.id)) trigger.releasePointerCapture(state.id);
-    if (!cancelled && state.moved) {
-      placeLauncher(state.left + event.clientX - state.x, state.top + event.clientY - state.y, true);
+    if (trigger.hasPointerCapture?.(d.id)) trigger.releasePointerCapture(d.id);
+    if (!cancelled && d.moved) {
+      placeLauncher(d.left + event.clientX - d.x, d.top + event.clientY - d.y, true);
       ignoreClick = true;
       setTimeout(() => { ignoreClick = false; }, 0);
     }
@@ -113,130 +130,194 @@
   trigger.addEventListener('keydown', event => {
     if (!event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key === 'Home') { event.preventDefault(); resetLauncher(); return; }
-    const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-    const direction = arrows[event.key];
-    if (!direction) return;
+    const directions = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    const dir = directions[event.key];
+    if (!dir) return;
     event.preventDefault();
-    const rect = trigger.getBoundingClientRect();
-    const step = event.shiftKey ? 42 : 18;
-    placeLauncher(rect.left + direction[0] * step, rect.top + direction[1] * step, true);
+    const r = trigger.getBoundingClientRect();
+    const amount = event.shiftKey ? 42 : 18;
+    placeLauncher(r.left + dir[0] * amount, r.top + dir[1] * amount, true);
   });
   window.addEventListener('resize', () => {
     if (dragging || resizeFrame) return;
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = 0;
       if (trigger.hasAttribute('data-positioned')) restoreLauncher();
+      placeHud();
     });
   }, { passive: true });
   restoreLauncher();
 
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let session = null, bootstrap = null, bootstrapController = null, request = null, recognition = null, generation = 0;
-  const sayStatus = text => { status.textContent = text; };
-  function safeLink(href) {
-    try { const url = new URL(href, location.origin); return url.origin === location.origin && !url.username && !url.password ? `${url.pathname}${url.search}${url.hash}` : null; } catch { return null; }
-  }
-  function message(text, question = false) {
-    const node = document.createElement('article'); node.className = `classic-guide-message${question ? ' classic-guide-message--question' : ''}`;
-    const p = document.createElement('p'); p.textContent = text; node.append(p); log.append(node);
-    // Keep DOM and spoken-history memory bounded during long shopping sessions.
-    while (log.children.length > 24) log.firstElementChild.remove();
-    log.scrollTop = log.scrollHeight;
-    return node;
-  }
-  function renderReply(payload) {
-    const node = message(String(payload.answer || 'Open the Help centre for more guidance.'));
-    const label = document.createElement('small'); label.textContent = payload.aiGenerated ? 'AI-generated · check current listing details' : 'Live catalogue and platform guide'; node.prepend(label);
-    const products = document.createElement('div'); products.className = 'classic-guide-products';
-    for (const product of (payload.products || []).slice(0, 5)) {
-      const href = safeLink(product.href); if (!href) continue;
-      const link = document.createElement('a'); link.href = href;
-      const name = document.createElement('strong'); name.textContent = String(product.name || 'View product');
-      const detail = document.createElement('span');
-      try { detail.textContent = new Intl.NumberFormat(session?.locale || 'en', { style: 'currency', currency: product.currency }).format(product.price); } catch { detail.textContent = `${product.currency || ''} ${Number(product.price) || 0}`; }
-      if (product.seller) detail.textContent += ` · ${String(product.seller)}`;
-      link.append(name, detail); products.append(link);
-    }
-    if (products.children.length) node.append(products);
-    const links = document.createElement('div'); links.className = 'classic-guide-links';
-    for (const item of (payload.links || []).slice(0, 5)) {
-      const href = safeLink(item.href); if (!href) continue;
-      const link = document.createElement('a'); link.href = href; link.textContent = String(item.label || 'Open page'); links.append(link);
-    }
-    node.append(links); log.scrollTop = log.scrollHeight;
-    if (form.elements.speak.checked && window.speechSynthesis && window.SpeechSynthesisUtterance) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(String(payload.answer || '').slice(0, 1500));
-      utterance.lang = session?.locale || document.documentElement.lang || 'en'; window.speechSynthesis.speak(utterance);
-    }
-  }
-  async function initialize() {
-    if (session) return session;
-    if (bootstrap) return bootstrap;
-    const active = (async () => {
-      const controller = new AbortController(); bootstrapController = controller;
-      const timer = setTimeout(() => controller.abort(), 10_000);
-      try {
-        const response = await fetch('/api/v1/ai/guide/session', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }, signal: controller.signal });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.csrfToken) throw new Error(payload.error?.message || 'The guide is temporarily unavailable. Use the Help centre or try again.');
-        session = payload; dialog.querySelector('[data-guide-detailed]').hidden = !payload.aiConfigured; return session;
-      } finally { clearTimeout(timer); if (bootstrapController === controller) bootstrapController = null; }
-    })();
-    bootstrap = active;
-    try { return await active; } finally { if (bootstrap === active) bootstrap = null; }
-  }
-  async function open() {
-    if (dialog.open) { input.focus(); return; }
-    const opening = ++generation;
-    dialog.showModal();
-    trigger.setAttribute('aria-expanded', 'true'); input.focus();
-    if (!log.children.length) message('Hello! Ask about a product and budget, or tell me which part of Classic Mart you need help finding.');
-    sayStatus('Connecting to your selected market…');
-    try { const ready = await initialize(); if (dialog.open && opening === generation) sayStatus(`Shopping in ${ready.country}. Type a question or use the microphone.`); }
-    catch (error) { if (dialog.open && opening === generation) sayStatus(error.name === 'AbortError' ? 'Connection took too long. Please try sending your question again.' : error.message); }
+  function setState(next, message) {
+    state = next;
+    trigger.dataset.voiceState = next;
+    trigger.setAttribute('aria-pressed', String(next === 'listening'));
+    hud.dataset.voiceState = next;
+    hud.hidden = next === 'idle';
+    status.textContent = message;
+    stop.hidden = next === 'unsupported' || next === 'idle';
+    fallback.hidden = next !== 'unsupported' && next !== 'error';
+    if (!hud.hidden) requestAnimationFrame(placeHud);
   }
   function stopAudio() {
-    recognition?.abort(); recognition = null; mic.setAttribute('aria-pressed', 'false'); window.speechSynthesis?.cancel();
+    const active = recognition; recognition = null;
+    if (active) {
+      active.onresult = null; active.onerror = null; active.onend = null;
+      try { active.abort(); } catch {}
+    }
+    if (synth) { try { synth.cancel(); } catch {} }
+    speech = null;
   }
-  function close() { if (dialog.open) dialog.close(); }
-  trigger.addEventListener('click', open);
-  dialog.querySelector('.classic-guide-close').addEventListener('click', close);
-  dialog.addEventListener('close', () => { generation++; request?.abort(); bootstrapController?.abort(); request = null; stopAudio(); send.disabled = false; trigger.setAttribute('aria-expanded', 'false'); trigger.focus({ preventScroll: true }); });
-  if (!Recognition) { mic.hidden = true; input.placeholder = 'Type a product or platform question'; }
-  mic.addEventListener('click', () => {
-    if (recognition) { stopAudio(); sayStatus('Listening stopped.'); return; }
-    window.speechSynthesis?.cancel();
-    const current = new Recognition(); recognition = current;
-    current.lang = session?.locale || document.documentElement.lang || 'en'; current.interimResults = false; current.continuous = false; current.maxAlternatives = 1;
-    current.onstart = () => { if (recognition !== current) return; mic.setAttribute('aria-pressed', 'true'); sayStatus('Listening… tap the microphone to stop.'); };
-    current.onresult = event => { if (recognition !== current || !dialog.open) return; input.value = String(event.results[0]?.[0]?.transcript || '').slice(0, 2000); sayStatus('Review your question, then send.'); input.focus(); };
-    current.onerror = event => { if (recognition !== current) return; sayStatus(event.error === 'not-allowed' ? 'Microphone permission was denied. You can type your question.' : 'Speech recognition is unavailable. Please type your question.'); };
-    current.onend = () => { if (recognition === current) { recognition = null; mic.setAttribute('aria-pressed', 'false'); } };
-    try { current.start(); } catch { recognition = null; sayStatus('Microphone could not start. Please type your question.'); }
-  });
-  form.elements.speak.addEventListener('change', () => { if (!form.elements.speak.checked) window.speechSynthesis?.cancel(); });
-  // Keep this widget isolated from unrelated page form submit selectors.
-  send.addEventListener('click', () => form.requestSubmit());
-  form.addEventListener('submit', async event => {
-    event.preventDefault(); const text = input.value.trim(); if (text.length < 2 || send.disabled) return;
-    stopAudio(); const version = ++generation; send.disabled = true; message(text, true); input.value = ''; sayStatus('Finding current information…');
+  function close() {
+    version++;
+    request?.abort(); request = null;
+    sessionController?.abort(); sessionController = null;
+    sessionTask = null;
+    stopAudio();
+    setState('idle', '');
+  }
+  stop.addEventListener('click', close);
+
+  async function initialize() {
+    if (session) return session;
+    if (sessionTask) return sessionTask;
+    const controller = new AbortController();
+    sessionController = controller;
+    const timer = setTimeout(() => controller.abort(), 10000);
+    const task = (async () => {
+      try {
+        const response = await fetch('/api/v1/ai/guide/session', {
+          credentials: 'same-origin', cache: 'no-store',
+          headers: { Accept: 'application/json' }, signal: controller.signal
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.csrfToken) throw new Error(payload.error?.message || 'Voice guide unavailable.');
+        session = payload; return session;
+      } finally {
+        clearTimeout(timer);
+        if (sessionController === controller) sessionController = null;
+      }
+    })();
+    sessionTask = task;
+    try { return await task; } finally { if (sessionTask === task) sessionTask = null; }
+  }
+
+  function speakAnswer(answer, generation) {
+    if (!synth || !SynthUtterance) {
+      if (generation === version) setState('error', 'Audio playback is unavailable. Open Classic AI for the full answer.');
+      return;
+    }
     try {
-      const ready = await initialize(); if (version !== generation || !dialog.open) return;
+      synth.cancel();
+      const utterance = new SynthUtterance(answer.slice(0, 1600));
+      utterance.lang = session?.locale || document.documentElement.lang || 'en';
+      speech = utterance;
+      utterance.onstart = () => {
+        if (generation === version) setState('speaking', 'Speaking your answer. Tap Stop to end.');
+      };
+      utterance.onend = () => {
+        if (generation === version) setState('ready', 'Answer complete. Tap the microphone to ask again.');
+        if (speech === utterance) speech = null;
+      };
+      utterance.onerror = () => {
+        if (generation === version) setState('error', 'Could not play the answer. Open Classic AI to read it.');
+        if (speech === utterance) speech = null;
+      };
+      synth.speak(utterance);
+      if (generation === version) setState('speaking', 'Speaking your answer. Tap Stop to end.');
+    } catch {
+      if (generation === version) setState('error', 'Speech playback failed. Open Classic AI for a text answer.');
+    }
+  }
+
+  async function ask(transcript, generation) {
+    if (generation !== version) return;
+    const question = String(transcript || '').trim().slice(0, 2000);
+    if (question.length < 2) { setState('ready', 'I did not catch that. Tap the microphone to try again.'); return; }
+    setState('thinking', 'Finding the latest product and platform information…');
+    try {
+      const ready = await initialize();
+      if (generation !== version) return;
       const controller = new AbortController(); request = controller;
-      const timer = setTimeout(() => controller.abort(), 30_000);
-      let response, payload;
-      try { response = await fetch('/api/v1/ai/guide', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': ready.csrfToken }, body: JSON.stringify({ message: text, detailed: form.elements.detailed.checked }), signal: controller.signal }); payload = await response.json().catch(() => ({})); }
-      finally { clearTimeout(timer); }
-      if (version !== generation || !dialog.open) return;
-      if (!response.ok) { if (response.status === 403) session = null; throw new Error(payload.error?.message || (response.status === 429 ? 'Please wait a moment before asking again.' : 'The guide could not complete that request. Please try again.')); }
-      if (typeof payload.answer !== 'string') throw new Error('The guide returned an incomplete reply. Please try again.');
-      renderReply(payload); sayStatus('Reply ready. Prices and availability can change.');
+      const timer = setTimeout(() => controller.abort(), 30000);
+      let response, data;
+      try {
+        response = await fetch('/api/v1/ai/guide', {
+          method: 'POST', credentials: 'same-origin', cache: 'no-store',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': ready.csrfToken },
+          body: JSON.stringify({ message: question, detailed: false }), signal: controller.signal
+        });
+        data = await response.json().catch(() => ({}));
+      } finally {
+        clearTimeout(timer);
+        if (request === controller) request = null;
+      }
+      if (generation !== version) return;
+      if (!response.ok || typeof data.answer !== 'string' || !data.answer.trim()) {
+        if (response.status === 403) session = null;
+        throw new Error(data.error?.message || 'I could not retrieve an answer. Try again.');
+      }
+      lastAnswer = data.answer;
+      speakAnswer(lastAnswer, generation);
     } catch (error) {
-      if (version === generation && dialog.open) { if (!input.value) input.value = text; message(error.name === 'AbortError' ? 'That request took too long. Please try again.' : error.message); sayStatus('You can try again or open the Help centre.'); }
-    } finally { if (version === generation) { request = null; send.disabled = false; input.focus(); } }
-  });
-  window.addEventListener('pagehide', () => { generation++; request?.abort(); bootstrapController?.abort(); stopAudio(); });
-  window.addEventListener('pageshow', event => { if (event.persisted) { send.disabled = false; request = null; if (dialog.open) sayStatus('Ready for your next question.'); } });
+      if (generation !== version) return;
+      const msg = error.name === 'AbortError' ? 'That request took too long.' : 'I could not answer that request.';
+      setState('error', msg + ' Tap the microphone to retry.');
+    }
+  }
+
+  function start() {
+    // Starting recognition in this direct click handler preserves user gesture
+    // and does not request permission in background or during page load.
+    if (!Recognition) {
+      setState('unsupported', 'Voice recognition is not supported in this browser.');
+      return;
+    }
+    close();
+    const generation = version;
+    setState('connecting', 'Requesting microphone access…');
+    try {
+      const current = new Recognition();
+      recognition = current;
+      current.lang = session?.locale || document.documentElement.lang || 'en';
+      current.continuous = false;
+      current.interimResults = false;
+      current.maxAlternatives = 1;
+      current.onstart = () => {
+        if (recognition === current && version === generation) setState('listening', 'Listening… speak your question.');
+      };
+      current.onresult = event => {
+        if (recognition !== current || version !== generation) return;
+        const transcript = String(event.results?.[0]?.[0]?.transcript || '');
+        recognition = null;
+        try { current.stop?.(); } catch {}
+        void ask(transcript, generation);
+      };
+      current.onerror = event => {
+        if (version !== generation) return;
+        recognition = null;
+        setState('error', event.error === 'not-allowed' || event.error === 'service-not-allowed'
+          ? 'Microphone access denied. Check browser permission.'
+          : 'Voice recognition failed. Tap to try again.');
+      };
+      current.onend = () => {
+        if (recognition !== current || version !== generation) return;
+        recognition = null;
+        if (state === 'listening' || state === 'connecting') setState('ready', 'No speech detected. Tap the microphone to retry.');
+      };
+      current.start();
+    } catch {
+      recognition = null;
+      setState('error', 'Could not start microphone. Check microphone access and retry.');
+    }
+  }
+
+  function open() {
+    if (state === 'listening' || state === 'connecting' || state === 'thinking' || state === 'speaking') { close(); return; }
+    start();
+  }
+  trigger.addEventListener('click', open);
+  window.addEventListener('pagehide', close);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && state !== 'idle') close(); });
   window.ClassicMartGuide = Object.freeze({ open, close });
 })();
