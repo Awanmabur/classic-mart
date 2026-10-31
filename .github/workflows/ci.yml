@@ -206,5 +206,5 @@ jobs:
           PROMOTE_SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
-          gh workflow run deploy.yml --ref production -f "commit_sha=$PROMOTE_SHA"
+          gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref production -f "commit_sha=$PROMOTE_SHA"
 
