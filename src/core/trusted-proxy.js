@@ -12,6 +12,10 @@ export function trustedProxyMatcher(ranges = []) {
       throw new Error('Trusted proxy ranges must be explicit IP addresses or nonzero CIDRs.');
     }
     list.addSubnet(parts[0], prefix, family === 4 ? 'ipv4' : 'ipv6');
+    // Node/containers commonly expose an IPv4 peer as an IPv4-mapped IPv6
+    // address. Trust the mapped representation only for the exact same IPv4
+    // subnet; this does not broaden the configured range.
+    if (family === 4) list.addSubnet(`::ffff:${parts[0]}`, 96 + prefix, 'ipv6');
   }
   return address => {
     const family = isIP(address || '');
