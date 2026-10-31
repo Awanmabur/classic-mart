@@ -18,9 +18,9 @@ test('CI scans the production container and attests release provenance/SBOM',()=
 test('deployment promotion requires certified exact SHA across staging canary and production',()=>{
   const deploy=read('.github/workflows/deploy.yml');
   assert.match(deploy,/actions\/workflows\/ci\.yml\/runs\?head_sha=\$\{PROMOTE_SHA\}&status=success/);
-  assert.match(deploy,/git fetch origin refs\/heads\/master:refs\/remotes\/origin\/master/);
-  assert.match(deploy,/git merge-base --is-ancestor \"\$PROMOTE_SHA\" origin\/master/);
-  assert.match(deploy,/\.event == \"push\" and \.head_branch == \"master\"/);
+  assert.match(deploy,/git fetch origin refs\/heads\/production:refs\/remotes\/origin\/production/);
+  assert.match(deploy,/git merge-base --is-ancestor \"\$PROMOTE_SHA\" origin\/production/);
+  assert.match(deploy,/\.event == \"push\" and \.head_branch == \"production\"/);
   assert.doesNotMatch(deploy,/origin\/main|head_branch == \"main\"/);
   assert.match(deploy,/environment: staging/);
   assert.match(deploy,/environment: canary/);
@@ -36,7 +36,7 @@ test('runtime exposes non-secret build identity and deployment smoke fails on wr
   const health=read('src/routes/health.js');
   const smoke=read('scripts/deploy-smoke.js');
   const docker=read('Dockerfile');
-  assert.match(env,/process\.env\.BUILD_SHA \|\| process\.env\.RENDER_GIT_COMMIT \|\| process\.env\.SOURCE_COMMIT/);
+  assert.match(env,/process\.env\.BUILD_SHA \|\| process\.env\.SOURCE_COMMIT/);
   assert.match(health,/\/health\/version/);
   assert.match(health,/buildSha: env\.buildSha \|\| null/);
   assert.match(smoke,/EXPECTED_BUILD_SHA/);
@@ -70,7 +70,7 @@ test('sanitized release preserves source-control runtime exclusions required by 
 test('CI activates isolated live database fixtures with Chromium and the model lifecycle runner',()=>{
   const ci=read('.github/workflows/ci.yml');
   const runner=read('scripts/run-tests.js');
-  assert.match(ci,/branches: \[master\]/);
+  assert.match(ci,/branches: \[production\]/);
   assert.match(ci,/runs-on: ubuntu-22\.04/);
   const kernelGate=ci.indexOf('run: node scripts/check-ci-mongo-kernel.js');
   assert.ok(kernelGate>=0,'CI must inspect its actual kernel instead of assuming the runner label is compatible.');
