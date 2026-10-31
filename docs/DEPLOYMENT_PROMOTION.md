@@ -17,7 +17,7 @@ For every environment configure:
 
 `canary` and `production` must have required reviewers. Production must not auto-approve itself.
 
-The hosting platform must expose the deployed Git commit through one of `BUILD_SHA`, `RENDER_GIT_COMMIT` or `SOURCE_COMMIT`. `/health/version` reports that non-secret build identity.
+The hosting platform must expose the deployed Git commit through one of `BUILD_SHA` or `SOURCE_COMMIT`. `/health/version` reports that non-secret build identity.
 
 ## Promotion sequence
 
