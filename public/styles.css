@@ -3963,3 +3963,13 @@ body { font-size: 15px; line-height: 1.55; }
   }
   body:has(.mobile-bottom-nav) .site-footer:last-child { margin-bottom: 0 !important; }
 }
+
+/* Phone home shelves are touch-scrollable; remove the heading swipe buttons.
+   The earlier rules kept these 'show more' arrows visible via !important. */
+@media (max-width: 760px) {
+  body:has(.hero-grid) .section-heading-actions .section-next-button,
+  body:has(.hero-grid) .deal-actions .section-next-button,
+  body:has(.hero-grid) .slider-shell > .slider-arrow {
+    display: none !important;
+  }
+}
