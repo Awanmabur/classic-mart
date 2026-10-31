@@ -40,6 +40,16 @@ for (const path of ['/', '/products', '/categories', '/categories/electronics'])
   });
 }
 
+test('homepage product titles are crawlable links and retain the approved product preview', async ({ page }) => {
+  await openStorefront(page, '/');
+  const link = page.locator('#trendingGrid .product-preview-button').first();
+  const href = await link.getAttribute('href');
+  expect(href).toMatch(/^\/products\/[A-Za-z0-9_-]+\?country=[A-Z]{2}$/);
+  await link.click();
+  await expect(page.locator('#productModal')).toBeVisible();
+  await expect(page.locator('#productModal [data-modal-add-cart]')).toBeVisible();
+});
+
 for (const path of ['/', '/products']) {
   test(`a valid empty catalogue on ${path} stays empty without retrying a full catalogue request`, async ({ page }) => {
     const calls = catalogueRequests(page);
