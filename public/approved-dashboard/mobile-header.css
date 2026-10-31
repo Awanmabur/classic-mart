@@ -1,0 +1,83 @@
+/* Shared phone header for every approved role workspace.
+   Keep the existing logo on the left and the functional AI/menu controls
+   on the right. Desktop and tablet layouts above 760px stay untouched. */
+@media (max-width: 760px) {
+  body[data-dashboard-workspace] .topbar {
+    box-sizing: border-box;
+    height: 72px;
+    min-height: 72px;
+    padding: 0 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 72px;
+    align-items: center;
+    gap: 8px;
+  }
+  body[data-dashboard-workspace] .topbar .search,
+  body[data-dashboard-workspace] .topbar #searchForm { display: none !important; }
+  body[data-dashboard-workspace] .topbar .brand-area {
+    display: flex;
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    align-items: center;
+    overflow: visible;
+  }
+  body[data-dashboard-workspace] .topbar .dashboard-brand {
+    order: -1;
+    min-width: 0;
+    margin: 0;
+    flex: 0 1 auto;
+  }
+  body[data-dashboard-workspace] .topbar .dashboard-brand-logo {
+    display: block;
+    width: min(130px, 36vw);
+    height: auto;
+    max-height: 53px;
+    object-fit: contain;
+    object-position: left center;
+  }
+  body[data-dashboard-workspace] .topbar .mobile-menu {
+    display: grid !important;
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    z-index: 2;
+    width: 40px;
+    height: 40px;
+    margin: 0;
+    padding: 0;
+    place-items: center;
+  }
+  body[data-dashboard-workspace] .topbar .top-actions {
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0;
+    padding-right: 47px;
+    min-width: 0;
+  }
+  body[data-dashboard-workspace] .topbar .top-actions > :not(.ai-button) {
+    display: none !important;
+  }
+  body[data-dashboard-workspace] .topbar .top-actions .ai-button {
+    display: inline-grid !important;
+    place-items: center;
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px;
+    margin: 0;
+    padding: 0 !important;
+    border-radius: 50%;
+  }
+  body[data-dashboard-workspace] .topbar .top-actions .ai-button > span {
+    display: none !important;
+  }
+  body[data-dashboard-workspace] .dashboard,
+  body[data-dashboard-workspace] .dashboard.page-host {
+    padding-top: 90px;
+  }
+}
