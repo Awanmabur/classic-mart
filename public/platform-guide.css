@@ -15,7 +15,10 @@
   border-radius: 999px;
   background: var(--orange, #ff6500);
   color: #fff;
-  font: 700 14px/1.25 inherit;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
   box-shadow: 0 8px 24px rgb(17 24 39 / 18%);
   cursor: grab;
   touch-action: none;
@@ -141,7 +144,10 @@
   border-radius: 999px;
   color: #fff;
   background: var(--orange, #ff6500);
-  font: 700 13px/1.25 inherit;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
   cursor: pointer;
 }
 .classic-guide-send:hover, .classic-guide-trigger:hover { background: var(--orange-dark, #cf5000); color: #fff; }
