@@ -1,32 +1,26 @@
-aW1wb3J0IHsgZW52IH0gZnJvbSAnLi4vY29uZmlnL2Vudi5qcyc7CmltcG9y
-dCB7IEFwcEVycm9yIH0gZnJvbSAnLi4vY29yZS9lcnJvcnMuanMnOwppbXBv
-cnQgeyBVc2VyIH0gZnJvbSAnLi4vbW9kZWxzL2luZGV4LmpzJzsKaW1wb3J0
-IHsgaXNDb3VudHJ5UGFnZSB9IGZyb20gJy4vc2VvLmpzJzsKCmV4cG9ydCBh
-c3luYyBmdW5jdGlvbiBzYXZlU2hvcHBpbmdDb3VudHJ5KHJlcXVlc3QsIGNv
-dW50cnkpIHsKICBpZiAoIXJlcXVlc3QudXNlcikgcmV0dXJuOwogIC8vIE9u
-ZSBhdG9taWMgcHJlZmVyZW5jZSB1cGRhdGUuIEhvbWUgY291bnRyeSwgZ3Jh
-bnRzIGFuZCBvcmRlciBqdXJpc2RpY3Rpb24KICAvLyByZW1haW4gc2VydmVy
-LWNvbnRyb2xsZWQuIEZlbmNlIGEgcmV2b2tlZC9jaGFuZ2VkIGFjY291bnQg
-YmVmb3JlIHNhdmluZy4KICBjb25zdCBhY3RvciA9IGF3YWl0IFVzZXIuZmlu
-ZE9uZUFuZFVwZGF0ZSh7IF9pZDogcmVxdWVzdC51c2VyLl9pZCwgc3RhdHVz
-OiAnYWN0aXZlJywKICAgIF9fdjogcmVxdWVzdC51c2VyLl9fdiwgJ3NlY3Vy
-aXR5LnRva2VuVmVyc2lvbic6IHJlcXVlc3QudXNlci5zZWN1cml0eS50b2tl
-blZlcnNpb24gfSwgewogICAgJHNldDogeyBzaG9wcGluZ0NvdW50cnk6IGNv
-dW50cnkuY29kZSwgY3VycmVuY3k6IGNvdW50cnkuY3VycmVuY3kgfSwgJGlu
-YzogeyBfX3Y6IDEgfSwKICB9LCB7IHJldHVybkRvY3VtZW50OiAnYWZ0ZXIn
-LCBydW5WYWxpZGF0b3JzOiB0cnVlIH0pOwogIGlmICghYWN0b3IpIHRocm93
-IG5ldyBBcHBFcnJvcignWW91ciBhY2NvdW50IGNoYW5nZWQuIFJlZnJlc2gg
-YW5kIGNob29zZSB5b3VyIGNvdW50cnkgYWdhaW4uJywgNDA5LCAnQUNDT1VO
-VF9BQ0NFU1NfQ0hBTkdFRCcpOwogIHJlcXVlc3QudXNlciA9IGFjdG9yOwp9
-CgpleHBvcnQgZnVuY3Rpb24gc2hvcHBpbmdDb3VudHJ5UmV0dXJuKHJlZmVy
-ZXIsIGNvdW50cnlDb2RlKSB7CiAgdHJ5IHsKICAgIGlmICh0eXBlb2YgcmVm
-ZXJlciAhPT0gJ3N0cmluZycgfHwgL1tcXFx1MDAwMC1cdTAwMjBcdTAwN2Zd
-Ly50ZXN0KHJlZmVyZXIpKSByZXR1cm4gJy8nOwogICAgY29uc3QgdGFyZ2V0
-ID0gbmV3IFVSTChyZWZlcmVyLCBlbnYuYmFzZVVybCk7CiAgICBpZiAodGFy
-Z2V0Lm9yaWdpbiAhPT0gbmV3IFVSTChlbnYuYmFzZVVybCkub3JpZ2luIHx8
-IHRhcmdldC51c2VybmFtZSB8fCB0YXJnZXQucGFzc3dvcmQpIHJldHVybiAn
-Lyc7CiAgICBpZiAoaXNDb3VudHJ5UGFnZSh0YXJnZXQucGF0aG5hbWUpICYm
-IHRhcmdldC5zZWFyY2hQYXJhbXMuaGFzKCdjb3VudHJ5JykpIHRhcmdldC5z
-ZWFyY2hQYXJhbXMuc2V0KCdjb3VudHJ5JywgY291bnRyeUNvZGUpOwogICAg
-cmV0dXJuIHRhcmdldC5wYXRobmFtZSArIHRhcmdldC5zZWFyY2ggKyB0YXJn
-ZXQuaGFzaDsKICB9IGNhdGNoIHsgcmV0dXJuICcvJzsgfQp9Cg==
+import { env } from '../config/env.js';
+import { AppError } from '../core/errors.js';
+import { User } from '../models/index.js';
+import { isCountryPage } from './seo.js';
+
+export async function saveShoppingCountry(request, country) {
+  if (!request.user) return;
+  // One atomic preference update. Home country, grants and order jurisdiction
+  // remain server-controlled. Fence a revoked/changed account before saving.
+  const actor = await User.findOneAndUpdate({ _id: request.user._id, status: 'active',
+    __v: request.user.__v, 'security.tokenVersion': request.user.security.tokenVersion }, {
+    $set: { shoppingCountry: country.code, currency: country.currency }, $inc: { __v: 1 },
+  }, { returnDocument: 'after', runValidators: true });
+  if (!actor) throw new AppError('Your account changed. Refresh and choose your country again.', 409, 'ACCOUNT_ACCESS_CHANGED');
+  request.user = actor;
+}
+
+export function shoppingCountryReturn(referer, countryCode) {
+  try {
+    if (typeof referer !== 'string' || /[\\\u0000-\u0020\u007f]/.test(referer)) return '/';
+    const target = new URL(referer, env.baseUrl);
+    if (target.origin !== new URL(env.baseUrl).origin || target.username || target.password) return '/';
+    if (isCountryPage(target.pathname) && target.searchParams.has('country')) target.searchParams.set('country', countryCode);
+    return target.pathname + target.search + target.hash;
+  } catch { return '/'; }
+}
