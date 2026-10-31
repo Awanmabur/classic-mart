@@ -210,7 +210,7 @@ body.storefront-page {
 .cart-coupon-wrap { min-height: 48px; border: 1px solid #dfe3e8; border-radius: 999px; display: grid; grid-template-columns: 1fr auto; overflow: hidden; }
 .cart-coupon-wrap input { min-width: 0; border: 0; outline: 0; padding: 0 16px; }
 .cart-coupon-wrap button { border: 0; border-radius: 999px; padding: 0 17px; background: var(--navy); color: #fff; font-size: 11px; font-weight: 850; cursor: pointer; }
-.cart-coupon-status { min-height: 16px; margin: 7px 0 0; color: #16804e; font-size: 10px; }
+.cart-coupon-status { min-height: 16px; margin: 7px 0 0; color: var(--orange-dark); font-size: 10px; }
 .cart-checkout-button { width: 100%; min-height: 52px; border: 0; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; background: var(--orange); color: #fff; font-weight: 900; cursor: pointer; box-shadow: 0 14px 28px rgba(255,101,0,.18); }
 .cart-checkout-button:hover { background: var(--orange-dark); transform: translateY(-1px); }
 .cart-checkout-button img { width: 15px; filter: brightness(0) invert(1); }
@@ -345,10 +345,10 @@ body.storefront-page {
 .checkout-step small { font-size: 9.5px; }
 .checkout-step.active b { border-color: var(--orange); background: var(--orange); color: #fff; box-shadow: 0 9px 20px rgba(255,101,0,.22); }
 .checkout-step.active strong { color: var(--text); }
-.checkout-step.complete b { border-color: #159c6a; background: #159c6a; color: #fff; }
-.checkout-step.complete strong { color: #137a55; }
+.checkout-step.complete b { border-color: var(--orange); background: var(--orange-soft); color: var(--orange-dark); }
+.checkout-step.complete strong { color: var(--text); }
 .checkout-step-line { height: 2px; margin: 0 18px; background: #e8eaed; border-radius: 999px; transition: .2s ease; }
-.checkout-step-line.complete { background: #159c6a; }
+.checkout-step-line.complete { background: var(--orange); }
 .checkout-screen { animation: checkoutFade .28s ease; }
 @keyframes checkoutFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .checkout-card-kicker { display: block; margin-bottom: 4px; color: var(--orange); font-size: 9px; font-weight: 900; letter-spacing: .8px; text-transform: uppercase; }
