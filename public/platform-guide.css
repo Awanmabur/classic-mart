@@ -136,14 +136,16 @@
   font: inherit;
   font-size: 14px;
 }
+/* Keep the approved primary orange everywhere else. The small Send label
+   needs a dark brand-orange CTA surface for white text to meet WCAG 4.5:1. */
 .classic-guide-send {
   flex: none;
   min-height: 46px;
   padding: 9px 18px;
-  border: 1px solid var(--orange, #ff6500);
+  border: 1px solid #bf4500;
   border-radius: 999px;
   color: #fff;
-  background: var(--orange, #ff6500);
+  background: #bf4500;
   font-family: inherit;
   font-size: 13px;
   font-weight: 700;
