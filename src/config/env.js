@@ -202,7 +202,7 @@ export const env = Object.freeze({
   isTest: nodeEnv === 'test',
   port: integer(process.env.PORT, 3000),
   baseUrl: process.env.BASE_URL || 'http://localhost:3000',
-  buildSha: String(process.env.BUILD_SHA || process.env.RENDER_GIT_COMMIT || process.env.SOURCE_COMMIT || '').trim(),
+  buildSha: String(process.env.BUILD_SHA || process.env.SOURCE_COMMIT || '').trim(),
   mongoUri: projectMongoUri(),
   redisUrl: process.env.REDIS_URL || '',
   sessionSecret: secret(
