@@ -11,9 +11,9 @@
   gap: 9px;
   min-height: 50px;
   padding: 11px 18px;
-  border: 1px solid var(--orange-dark, #c34d00);
+  border: 1px solid #ae4400;
   border-radius: 999px;
-  background: var(--orange, #ff6500);
+  background: #ae4400;
   color: #fff;
   font-family: inherit;
   font-size: 14px;
@@ -140,17 +140,17 @@
   flex: none;
   min-height: 46px;
   padding: 9px 18px;
-  border: 1px solid var(--orange-dark, #c34d00);
+  border: 1px solid #ae4400;
   border-radius: 999px;
   color: #fff;
-  background: var(--orange, #ff6500);
+  background: #ae4400;
   font-family: inherit;
   font-size: 13px;
   font-weight: 700;
   line-height: 1.25;
   cursor: pointer;
 }
-.classic-guide-send:hover, .classic-guide-trigger:hover { background: var(--orange-dark, #cf5000); color: #fff; }
+.classic-guide-send:hover, .classic-guide-trigger:hover { background: #903800; color: #fff; }
 .classic-guide-options { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 12px; font-size: 12px; }
 .classic-guide-options label { display: inline-flex; align-items: center; gap: 6px; }
 .classic-guide-options input { accent-color: var(--orange, #ff6500); }
