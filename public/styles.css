@@ -3950,7 +3950,6 @@ body { font-size: 15px; line-height: 1.55; }
 
 /* Mobile homepage: content swipes naturally, without left/previous arrow chrome. */
 @media (max-width: 760px) {
-  .store-section .section-heading-actions button:first-child:not(:only-child):not(.section-next-button),
   .store-section .slider-arrow.prev,
   .store-section [data-direction="prev"],
   .store-section [aria-label*="left" i],
