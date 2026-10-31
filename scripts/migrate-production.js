@@ -42,13 +42,21 @@ async function countRefundCounterDrift(){
   return Number(rows[0]?.count||0);
 }
 
+function sellerOrderDoesNotRequireShipment(order){
+  if(!order)return false;
+  return ['pending_payment','payment_failed','expired','cancelled'].includes(String(order.status||''))
+    &&['unpaid','pending','failed'].includes(String(order.paymentState||''))
+    &&['unfulfilled','cancelled'].includes(String(order.fulfillmentState||''));
+}
 async function countSellerOrdersMissingSellerShipment(){
-  const rows=await models.SellerOrder.aggregate([
-    {$lookup:{from:models.SellerShipment.collection.name,localField:'_id',foreignField:'sellerOrderId',as:'sellerShipments'}},
-    {$match:{sellerShipments:{$size:0}}},
-    {$count:'count'},
-  ]);
-  return Number(rows[0]?.count||0);
+  let count=0;
+  for await(const sellerOrder of models.SellerOrder.find({}).select('_id orderId').lean().cursor()){
+    if(await models.SellerShipment.exists({sellerOrderId:sellerOrder._id}))continue;
+    const order=await models.Order.findById(sellerOrder.orderId).select('status paymentState fulfillmentState').lean();
+    if(sellerOrderDoesNotRequireShipment(order))continue;
+    count+=1;
+  }
+  return count;
 }
 async function countPlan(){
   const User=models.User,Order=models.Order,Survey=models.SatisfactionSurvey,Shipment=models.Shipment,SellerOrder=models.SellerOrder,WarehouseTask=models.WarehouseTask,ReturnRequest=models.ReturnRequest,SupportTicket=models.SupportTicket,Product=models.Product,Category=models.Category,PaymentIntent=models.PaymentIntent,CountrySetting=models.CountrySetting,ProcurementRequest=models.ProcurementRequest,PurchaseOrder=models.PurchaseOrder,BusinessInvoice=models.BusinessInvoice;
@@ -382,6 +390,9 @@ async function migrateSellerShipmentLinks(){
   let changed=0,failed=0;
   for await(const sellerOrder of models.SellerOrder.find({}).select('_id publicId orderId orderPublicId storeId storePublicId country items').lean().cursor()){
     if(await models.SellerShipment.exists({sellerOrderId:sellerOrder._id}))continue;
+    const order=await models.Order.findById(sellerOrder.orderId).select('status paymentState fulfillmentState').lean();
+    if(sellerOrderDoesNotRequireShipment(order))continue;
+    if(!order){failed+=1;continue;}
     const rootShipment=await models.Shipment.findOne({orderId:sellerOrder.orderId,kind:'outbound'}).select('_id publicId').lean();
     if(!rootShipment){failed+=1;continue;}
     const parcel=await models.Parcel.findOne({shipmentId:rootShipment._id,storePublicId:sellerOrder.storePublicId}).select('_id publicId status').lean();
