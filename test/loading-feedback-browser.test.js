@@ -60,6 +60,13 @@ test('loading feedback follows actual work without changing requests, cancelled 
       await expect(loader).toBeVisible();
       await expect(loader).toHaveAttribute('role', 'status');
       await expect(loader).toHaveText('Working…');
+      // The indicator stays centred instead of covering the header controls.
+      const centre = await loader.evaluate(element => {
+        const r = element.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, width: innerWidth, height: innerHeight };
+      });
+      assert.ok(Math.abs(centre.x - centre.width / 2) <= 2, 'loading indicator is horizontally centred');
+      assert.ok(Math.abs(centre.y - centre.height / 2) <= 2, 'loading indicator is vertically centred');
       const write = requests.find(request => request.method() === 'POST');
       assert.equal(write.postData(), 'intent=publish&_csrf=fixture');
       assert.equal(write.headers()['x-fixture'], 'write');
