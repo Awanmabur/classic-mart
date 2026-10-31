@@ -388,12 +388,22 @@ test('seller personal account pages use the authorized store shell while custome
           assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'seller');
           assert.equal(await page.getByRole('heading', { name: 'Password & security', exact: true }).count(), 1);
           assert.equal(await page.locator('#sidebar').getByText('Classic Club', { exact: true }).count(), 0);
-          await page.locator('#profileButton').click();
-          await page.locator('#profileMenu [data-page-target="seller-store"]:not([data-profile-tab])').click();
+          if (width === 390) {
+            // Phone header intentionally shows logo, AI and menu only.
+            await page.locator('#mobileMenuBtn').click();
+            await page.locator('#sidebar').getByRole('link', { name: 'Store Settings', exact: true }).click();
+          } else {
+            await page.locator('#profileButton').click();
+            await page.locator('#profileMenu [data-page-target="seller-store"]:not([data-profile-tab])').click();
+          }
           await page.waitForURL(base + '/seller/store');
           assert.equal(await page.locator('body').getAttribute('data-dashboard-workspace'), 'seller');
-          await page.locator('#profileButton').click();
-          await page.locator('#profileMenu [data-profile-tab="security"]').click();
+          if (width === 390) {
+            await page.goto(base + '/account/security');
+          } else {
+            await page.locator('#profileButton').click();
+            await page.locator('#profileMenu [data-profile-tab="security"]').click();
+          }
           await page.waitForURL(base + '/account/security');
           await page.goto(base + '/account/profile');
           assert.equal(await page.getByRole('heading', { name: 'Profile Settings', exact: true }).count(), 1);
