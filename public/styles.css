@@ -3639,7 +3639,11 @@ body { font-size: 15px; line-height: 1.55; }
 .mobile-bottom-nav { display: none; }
 
 @media (max-width: 760px) {
-  body { padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
+  /* The nav clearance belongs to the footer, not a white strip after it. */
+  body { padding-bottom: 0; }
+  body:has(.mobile-bottom-nav) .site-footer {
+    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+  }
   html { scroll-padding-top: 132px; }
   .site-header { top: 0 !important; }
   .header-main {
@@ -3933,4 +3937,13 @@ body { font-size: 15px; line-height: 1.55; }
   .section-prev-button,
   .section-scroll-prev,
   [data-scroll-prev] { display: none !important; }
+}
+
+/* Phone shelves use direct touch scrolling; hide all previous/left controls. */
+@media (max-width: 760px) {
+  .section-heading-actions .section-prev-button,
+  .deal-actions .section-prev-button,
+  .slider-shell .slider-arrow.prev,
+  .section-heading-actions [aria-label*="previous" i],
+  .deal-actions [aria-label*="previous" i] { display: none !important; }
 }
