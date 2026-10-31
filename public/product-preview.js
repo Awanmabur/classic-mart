@@ -544,14 +544,14 @@
     const id = String(productId || '');
     if (!id) return;
     try {
-      await ensureCatalogue();
-      if (operation !== state.operation) return;
-      let product = productById(id);
-      if (!product) throw new Error('This product is no longer available.');
       window.ClassicMartSharing.closeFallback();
       for (const button of [qs('#productModalShare'), qs('#productModalWishlist')]) if (button) button.disabled = true;
       content.innerHTML = '<div class="product-preview-loading" role="status">Loading product preview…</div>';
       openModal(returnFocus);
+      // Request only the selected product before fetching optional personal
+      // catalogue state. A guest no longer downloads the entire catalogue.
+      const catalogueTask = (document.body.dataset.storefrontAuthenticated === 'true' || window.ClassicMartCatalogueReady)
+        ? ensureCatalogue().catch(() => null) : Promise.resolve(null);
       const response = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, {
         credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store',
       });
@@ -560,13 +560,24 @@
       if (!response.ok || payload.product?.id !== id) {
         throw new Error(payload.error?.message || 'This product could not be refreshed. Please try again.');
       }
-      product = normalizeProduct(payload.product);
+      const product = normalizeProduct(payload.product);
       const index = state.products.findIndex((item) => item.id === product.id);
       if (index >= 0) state.products[index] = product;
-      if (operation !== state.operation) return;
+      else state.products.unshift(product);
       renderProduct(product);
-      recordRecent(product.id);
+      const wishlist = qs('#productModalWishlist');
+      if (wishlist && !state.loaded && document.body.dataset.storefrontAuthenticated === 'true') wishlist.disabled = true;
       loadAiEnhancements(product);
+      // The catalogue can finish later; never overwrite the verified detail
+      // with an earlier price or stock snapshot.
+      void catalogueTask.then(() => {
+        if (operation !== state.operation) return;
+        const current = state.products.findIndex((item) => item.id === product.id);
+        if (current >= 0) state.products[current] = product;
+        else state.products.unshift(product);
+        configureToolbar(product);
+        recordRecent(product.id);
+      });
     } catch (error) {
       if (operation !== state.operation) return;
       closeModal();
