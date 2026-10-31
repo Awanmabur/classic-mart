@@ -15,6 +15,7 @@ import { csrfProtection } from './middleware/csrf.js';
 import { enforcePrivilegedMfaEnrollment, loadUser } from './middleware/auth.js';
 import { countryContext } from './middleware/country.js';
 import { seoContext } from './middleware/seo.js';
+import { canonicalHost } from './middleware/canonical-host.js';
 import { viewLocals } from './middleware/view.js';
 import { errorHandler, notFound } from './middleware/errors.js';
 import healthRoutes from './routes/health.js';
@@ -93,7 +94,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export function createApp(redisClient) {
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', env.trustProxy);
+  app.set('trust proxy', env.trustedProxyCidrs.length ? env.trustedProxyCidrs : env.trustProxy);
   app.set('view engine', 'ejs');
   app.set('views', path.join(root, 'views'));
   app.set('view cache', env.isProduction);
@@ -159,6 +160,7 @@ export function createApp(redisClient) {
     }),
   );
   app.use(healthRoutes);
+  app.use(canonicalHost());
   app.use(discoveryRoutes);
   // Reject abuse before parsing bodies or loading sessions, actors and page data.
   app.use(rateLimit({

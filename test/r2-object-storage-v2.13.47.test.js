@@ -14,7 +14,6 @@ const productAccess=read('src/services/seller-products.js');
 const trustRoutes=read('src/routes/trust.js');
 const visualSearch=read('src/services/visual-search.js');
 const aiSource=read('src/services/ai.js');
-const render=read('render.yaml');
 const prodEnv=read('.env.production.example');
 
 test('production requires private Cloudflare R2 media storage credentials',()=>{
@@ -22,10 +21,8 @@ test('production requires private Cloudflare R2 media storage credentials',()=>{
   assert.match(envSource,/Production requires MEDIA_STORAGE_DRIVER=r2/);
   for(const key of ['R2_ENDPOINT','R2_BUCKET','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY']){
     assert.match(envSource,new RegExp(key));
-    assert.match(render,new RegExp(`key:\\s*${key}`));
     assert.match(prodEnv,new RegExp(`^${key}=`, 'm'));
   }
-  assert.match(render,/key:\s*MEDIA_STORAGE_DRIVER[\s\S]{0,80}value:\s*r2/);
   assert.match(prodEnv,/^MEDIA_STORAGE_DRIVER=r2$/m);
   assert.doesNotMatch(prodEnv,/R2_PUBLIC|r2\.dev/i);
 });

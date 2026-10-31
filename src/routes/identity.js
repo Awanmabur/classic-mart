@@ -34,6 +34,7 @@ import { noStore } from '../middleware/request.js';
 import { requireAuth } from '../middleware/auth.js';
 import { setFlash } from '../middleware/view.js';
 import { getCountries } from '../services/country.js';
+import { saveShoppingCountry, shoppingCountryReturn } from '../services/shopping-country.js';
 import { acceptReferralCode } from '../services/stage9.js';
 import { verifyMfa } from '../services/mfa.js';
 import { beginPasskeyAuthentication, currentLoginMfaActor, maskedMfaPhone, sendLoginSmsMfa, verifyLoginSmsMfa, verifyPasskeyAuthentication } from '../services/mfa-methods.js';
@@ -559,29 +560,23 @@ router.post(
     if (!/^[A-Z]{2}$/.test(code)) {
       throw new AppError('Choose a valid country.', 422, 'INVALID_COUNTRY');
     }
-    const enabled = (await getCountries()).some((country) => country.code === code);
-    if (!enabled) {
+    const selectedCountry = (await getCountries()).find((country) => country.code === code);
+    if (!selectedCountry) {
       throw new AppError(
         'That country is not currently available.',
         422,
         'COUNTRY_UNAVAILABLE',
       );
     }
+    await saveShoppingCountry(request, selectedCountry);
     response.cookie('cm_country', code, {
       httpOnly: true,
       sameSite: 'lax',
       secure: request.secure,
+      path: '/',
       maxAge: 365 * 24 * 60 * 60_000,
     });
-    if (request.user) {
-      const updated = await User.findOneAndUpdate(
-        { _id: request.user._id },
-        { $set: { country: code } },
-        { returnDocument: 'after' },
-      );
-      request.user = updated;
-    }
-    response.redirect(request.get('referer') || '/');
+    response.redirect(shoppingCountryReturn(request.get('referer'), code));
   }),
 );
 

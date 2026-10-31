@@ -20,47 +20,29 @@ This production package contains no development database bootstrap, reset toolin
 6. Yoola SMS credentials and an approved sender for phone verification.
 7. ClamAV scanning for untrusted uploads. The production Docker image includes `clamscan` and fetches signed definitions during image build. Keep definitions current through frequent rebuilds or a managed, continuously updated private `clamd` service; build-time freshness does not last indefinitely. Uploads reject stale definitions. See the scanner freshness requirements in the operating guide.
 8. Private Cloudflare R2 bucket for marketplace media. Production requires `MEDIA_STORAGE_DRIVER=r2`, the Cloudflare S3 endpoint, bucket name, Access Key ID and Secret Access Key. Keep the bucket private; do not enable `r2.dev` or public access for this launch because KYC/evidence shares the storage boundary.
-9. Durable mounted filesystem at `PERSISTENT_STORAGE_ROOT` for temporary exports/privacy files only. Marketplace uploads are stored in R2. On Render, mount `/var/data` and use `/var/data/classic-mart` as the root for those temporary operational files.
+9. Durable mounted filesystem at `PERSISTENT_STORAGE_ROOT` for temporary exports/privacy files only. Marketplace uploads are stored in R2. Mount a persistent host path into the container; never rely on the container's ephemeral writable layer for operational files.
 10. SIEM endpoint/collector and the Stage 12 launch-evidence controls required by `node scripts/launch-check.js`.
 
 
-## Render same-day deployment
+## DigitalOcean / Docker deployment
 
-The repository now includes `render.yaml`. Create/sync a Render Blueprint from the repository and provide every value marked as a secret prompt. The Blueprint pins the web service to Render `1c-2g` (1 CPU / 2 GB RAM), uses the Dockerfile, one service instance, `/health/ready`, a persistent disk mounted at `/var/data`, and runs migration + production bootstrap + development-data rejection before each deploy. Render persistent disks require a paid web-service plan.
+Classic Mart production is deployed as an immutable Docker image identified by the full reviewed Git SHA. Runtime secrets and infrastructure configuration stay outside the repository. The production host supplies the environment, persistent storage and reverse-proxy configuration; the repository does not contain a provider-specific deployment blueprint.
 
-The final Docker image contains the Node runtime and installed application
-dependencies. It excludes npm and npx; dependency installation runs in a
-separate build stage. The Blueprint and Render Shell commands below invoke
-Node directly. Source checkouts and extracted archives can still use their
-`package.json` command aliases after installing the committed lockfile.
-
-Render does not mount a service disk during `preDeployCommand`. Classic Mart therefore keeps pre-deploy work database-only; the running web and worker processes verify `/var/data/classic-mart` is writable after the disk is mounted at runtime.
-
-The first deploy requires `ADMIN_PASSWORD`. It does not require `PESAPAL_IPN_ID`, which is intentionally configured after the public HTTPS endpoint exists. After confirming Super Admin login, remove only `ADMIN_PASSWORD` from the Render environment; future deploys can rerun the bootstrap safely because the existing administrator is detected.
-
-Do not upload the local `storage`, `.classic-mart`, `.env`, test data, or the development seed media to Render. The production artifact excludes them.
-
-Builds behind a trusted TLS-inspection proxy can supply its verified CA through
-BuildKit without embedding it in the image. Set `BUILD_SHA` to the full reviewed
-Git commit before running:
+Build from the exact certified commit and keep the image tag equal to that commit SHA. Use a no-cache production rebuild when refreshing ClamAV definitions:
 
 ```bash
-docker build --pull --no-cache --secret id=build_ca,src=/absolute/path/to/trusted-ca.pem --build-arg BUILD_SHA="$BUILD_SHA" -t classic-mart .
+docker build --pull --no-cache --build-arg BUILD_SHA="$BUILD_SHA" -t "classic-mart:$BUILD_SHA" .
 ```
 
-The optional CA applies only to dependency installation; normal builds use
-Node's default trust. Never disable certificate or package-integrity checks.
-Scanner definition downloads still require separately permitted official
-ClamAV access and verified signatures.
+The final Docker image contains the Node runtime and installed application dependencies. It excludes npm and npx; dependency installation runs in a separate build stage. Source checkouts and extracted archives can still use their `package.json` command aliases after installing the committed lockfile.
 
-Definition refresh builds must bypass the cached definition layer, including
-when rebuilding the same commit. CI uses `--no-cache`; `--pull` alone does not
-refresh definitions when the base image is unchanged. On Render use **Clear
-build cache & deploy** for the scheduled refresh, unless its changing build
-arguments have separately been verified. The runtime `RENDER_GIT_COMMIT`
-fallback identifies code; it cannot invalidate Docker's build cache. Schedule
-refreshes before the two-day scanner age limit, or use continuously updated
-private `clamd`.
+The first deploy requires `ADMIN_PASSWORD` only when the trusted administrator does not already exist. After confirming Super Admin login, remove `ADMIN_PASSWORD` from the production secret environment. The application may start before `PESAPAL_IPN_ID` is registered, but checkout remains fail-closed until the live IPN is configured.
+
+Do not copy local `storage`, `.classic-mart`, `.env`, development seed media, test data or preview assets into production.
+
+Builds behind a trusted TLS-inspection proxy can supply its verified CA through BuildKit without embedding it in the image. Never disable certificate or package-integrity checks.
+
+Scanner definition refreshes must bypass the cached definition layer. CI uses `--no-cache`; production refresh builds should do the same. Schedule refreshes before the scanner age limit or use a continuously updated private `clamd` service.
 
 ## Cloudflare R2 media storage
 
@@ -78,7 +60,7 @@ R2_REGION=auto
 R2_TIMEOUT_MS=10000
 ```
 
-Never commit the Access Key ID/Secret to Git. After adding the values to Render, verify the integration from the Render Shell:
+Never commit the Access Key ID/Secret to Git. After adding the values to the production secret environment, verify the integration from the running container or a controlled production shell:
 
 ```bash
 NODE_ENV=production node scripts/check-r2.js
@@ -103,7 +85,7 @@ not automatically replayed. Permanent failure reports a sanitized storage error
 and startup exits nonzero after cleanup; stopping startup cancels the probe and
 prevents the HTTP listener or worker from starting afterwards.
 
-Uploaded marketplace media now goes to R2. The Render disk is not used for product/KYC/evidence images in production; it remains only for temporary export/privacy artifacts. The v2.13.51 development path is also R2-first when using `.env.example`; the initial catalogue import uploads its processed product images directly to the configured private R2 bucket.
+Uploaded marketplace media now goes to R2. The mounted production filesystem is not used for product/KYC/evidence images; it remains only for temporary export/privacy artifacts. The v2.13.51 development path is also R2-first when using `.env.example`; the initial catalogue import uploads its processed product images directly to the configured private R2 bucket.
 
 ## First production bootstrap
 
@@ -125,7 +107,7 @@ Register the live Pesapal IPN after the first public HTTPS deploy is reachable:
 NODE_ENV=production node scripts/pesapal-register-ipn.js
 ```
 
-Store the returned notification/IPN ID as `PESAPAL_IPN_ID` in Render, redeploy, then complete a real low-value payment certification and verify callback/IPN/provider-status reconciliation. Until the ID is configured, the storefront can run but Pesapal order submission returns a controlled configuration error instead of sending an invalid payment request.
+Store the returned notification/IPN ID as `PESAPAL_IPN_ID` in the production secret environment, redeploy, then complete a controlled live payment certification and verify callback/IPN/provider-status reconciliation. Until the ID is configured, the storefront can run but Pesapal order submission returns a controlled configuration error instead of sending an invalid payment request.
 
 ## Database migration and launch gates
 

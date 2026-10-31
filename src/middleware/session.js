@@ -43,7 +43,7 @@ export function createSessionMiddleware(redisClient) {
     resave: false,
     saveUninitialized: false,
     rolling: true,
-    proxy: env.trustProxy > 0,
+    // Defer secure-cookie detection to Express's configured proxy trust, including CIDRs.
     cookie: {
       httpOnly: true,
       secure: env.isProduction,

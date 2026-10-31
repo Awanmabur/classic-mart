@@ -28,19 +28,29 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha }}
           fetch-depth: 0
-      - name: Require the commit to be merged into master
+      - name: Require the commit to be merged into production
         env:
           PROMOTE_SHA: ${{ inputs.commit_sha }}
         run: |
-          git fetch origin refs/heads/master:refs/remotes/origin/master
-          git merge-base --is-ancestor "$PROMOTE_SHA" origin/master || { echo 'Only commits already merged into master may be promoted.' >&2; exit 1; }
+          git fetch origin refs/heads/production:refs/remotes/origin/production
+          git merge-base --is-ancestor "$PROMOTE_SHA" origin/production || { echo 'Only commits already merged into production may be promoted.' >&2; exit 1; }
       - name: Require a successful CI run for the exact commit
         env:
           GH_TOKEN: ${{ github.token }}
           PROMOTE_SHA: ${{ inputs.commit_sha }}
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${PROMOTE_SHA}&status=success&per_page=20" > /tmp/ci-runs.json
-          jq -e --arg sha "$PROMOTE_SHA" '.workflow_runs | map(select(.head_sha == $sha and .conclusion == "success" and .event == "push" and .head_branch == "master")) | length > 0' /tmp/ci-runs.json >/dev/null
+          # The promoting CI workflow can still be finishing its own dispatch
+          # job. Wait for that exact SHA's completed successful push run.
+          # Never accept PR success, other branches, or a different build.
+          for attempt in $(seq 1 18); do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${PROMOTE_SHA}&status=success&per_page=20" > /tmp/ci-runs.json
+            if jq -e --arg sha "$PROMOTE_SHA" '.workflow_runs | map(select(.head_sha == $sha and .conclusion == "success" and .event == "push" and .head_branch == "production")) | length > 0' /tmp/ci-runs.json >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Exact production push CI did not finish successfully; deployment denied.' >&2
+          exit 1
 
   staging:
     needs: verify-certified-commit

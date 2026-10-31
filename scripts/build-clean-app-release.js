@@ -14,7 +14,7 @@ const zipPath = path.join(outRoot, `${folderName}.zip`);
 
 const allow = [
   'package.json','package-lock.json','Dockerfile','.dockerignore','.env.example','.env.production.example',
-  'README.md','PRODUCTION_SETUP.md','docs/production/staged-launch.md','docs/production/LAUNCH.md','docs/production/CONFIGURATION.md','docs/production/SMS.md','docs/production/PESAPAL.md','render.yaml','src','public','views',
+  'README.md','PRODUCTION_SETUP.md','docs/production/staged-launch.md','docs/production/LAUNCH.md','docs/production/CONFIGURATION.md','docs/production/SMS.md','docs/production/PESAPAL.md','src','public','views',
   'scripts/runtime-package.js','scripts/run-production.js','scripts/bootstrap-production.js','scripts/migrate-production.js',
   'scripts/pesapal-register-ipn.js','scripts/launch-check.js','scripts/check-production-data.js',
   'scripts/deploy-smoke.js','scripts/backup-drill.js','scripts/check-r2.js','scripts/verify-mail.js','scripts/verify-sms.js','scripts/verify-mongo.js',
