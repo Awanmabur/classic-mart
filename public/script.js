@@ -346,7 +346,7 @@
           </button>
         </div>
         <div class="product-info">
-          <h3><button aria-label="Open ${escapeHtml(product.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" type="button">${escapeHtml(product.name)}</button></h3>
+          <h3><a aria-label="Open ${escapeHtml(product.name)} preview" role="button" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" href="/products/${encodeURIComponent(product.id)}?country=${encodeURIComponent(initialStorefront.country?.code || 'UG')}">${escapeHtml(product.name)}</a></h3>
           <div class="product-meta-row">
             <div class="price"><strong>${money(product.price, product.currency)}</strong></div>
             <div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div>
@@ -368,7 +368,7 @@
           <span class="category-badge">${escapeHtml(categoryLabel(product.category))}</span>
           ${sponsoredBadge(product)}
         </div>
-        <h3><button aria-label="Open ${escapeHtml(product.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" type="button">${escapeHtml(product.name)}</button></h3>
+        <h3><a aria-label="Open ${escapeHtml(product.name)} preview" role="button" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" href="/products/${encodeURIComponent(product.id)}?country=${encodeURIComponent(initialStorefront.country?.code || 'UG')}">${escapeHtml(product.name)}</a></h3>
         <div class="product-meta-row">
           <div class="price"><strong>${money(product.price, product.currency)}</strong></div>
           <div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div>
@@ -382,7 +382,7 @@
     return `
       <article class="recommend-card" data-product-preview="${product.id}">
         <div class="recommend-image">${imageWithFallback(product.image, product.name)}<span class="category-badge">${escapeHtml(categoryLabel(product.category))}</span>${sponsoredBadge(product)}</div>
-        <div><h3><button aria-label="Open ${escapeHtml(product.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" type="button">${escapeHtml(product.name)}</button></h3><div class="product-meta-row"><div class="price"><strong>${money(product.price, product.currency)}</strong></div><div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div></div></div>
+        <div><h3><a aria-label="Open ${escapeHtml(product.name)} preview" role="button" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" href="/products/${encodeURIComponent(product.id)}?country=${encodeURIComponent(initialStorefront.country?.code || 'UG')}">${escapeHtml(product.name)}</a></h3><div class="product-meta-row"><div class="price"><strong>${money(product.price, product.currency)}</strong></div><div class="rating" aria-label="${product.reviews ? `${product.rating} out of 5 stars` : 'No reviews yet'}">${compactRatingMarkup(product)}</div></div></div>
       </article>`;
   }
 
@@ -394,7 +394,7 @@
           <span class="category-badge">${escapeHtml(categoryLabel(product.category))}</span>
           ${sponsoredBadge(product)}
         </div>
-        <h3><button aria-label="Open ${escapeHtml(product.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" type="button">${escapeHtml(product.name)}</button></h3>
+        <h3><a aria-label="Open ${escapeHtml(product.name)} preview" role="button" class="product-preview-button" data-product-preview="${escapeHtml(product.id)}" href="/products/${encodeURIComponent(product.id)}?country=${encodeURIComponent(initialStorefront.country?.code || 'UG')}">${escapeHtml(product.name)}</a></h3>
         <div class="mini-card-footer"><strong>${money(product.price, product.currency)}</strong><span>${product.reviews ? `${product.rating.toFixed(1)} ★` : 'New'}</span></div>
       </article>`;
   }
