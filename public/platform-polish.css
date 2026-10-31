@@ -78,3 +78,15 @@ body .record-confirm-modal::backdrop {
   -webkit-backdrop-filter: blur(5px);
   backdrop-filter: blur(5px);
 }
+
+/* Measured Lighthouse text-contrast corrections. Only adjust the failing
+   foreground/badge shades; retain Classic Mart's approved surface palette. */
+body .promo-tech strong { color: #00635f; }
+body .promo-beauty strong { color: #a42e1a; }
+body .product-card .price strong,
+body .product-info .price strong { color: #ba341b; }
+body .product-card .add-cart:not(:hover):not(:focus-visible) {
+  color: #ac3d00;
+  border-color: #b74708;
+}
+body .product-badge.badge-red { background: #b42335; color: #fff; }
