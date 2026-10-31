@@ -1,180 +1,95 @@
-aW1wb3J0IHRlc3QgZnJvbSAnbm9kZTp0ZXN0JzsKaW1wb3J0IGFzc2VydCBm
-cm9tICdub2RlOmFzc2VydC9zdHJpY3QnOwppbXBvcnQgZnMgZnJvbSAnbm9k
-ZTpmcy9wcm9taXNlcyc7CmltcG9ydCB7IGNocm9taXVtLCBleHBlY3QgfSBm
-cm9tICdAcGxheXdyaWdodC90ZXN0JzsKCmNvbnN0IG1vdGlvbiA9IGF3YWl0
-IGZzLnJlYWRGaWxlKG5ldyBVUkwoJy4uL3B1YmxpYy9wbGF0Zm9ybS1tb3Rp
-b24uanMnLCBpbXBvcnQubWV0YS51cmwpLCAndXRmOCcpOwpjb25zdCBjc3Mg
-PSBhd2FpdCBmcy5yZWFkRmlsZShuZXcgVVJMKCcuLi9wdWJsaWMvcGxhdGZv
-cm0tbW90aW9uLmNzcycsIGltcG9ydC5tZXRhLnVybCksICd1dGY4Jyk7CmNv
-bnN0IGhvbWVwYWdlID0gYXdhaXQgZnMucmVhZEZpbGUobmV3IFVSTCgnLi4v
-cHVibGljL3NjcmlwdC5qcycsIGltcG9ydC5tZXRhLnVybCksICd1dGY4Jyk7
-CmNvbnN0IGhvbWVwYWdlQ3NzID0gYXdhaXQgZnMucmVhZEZpbGUobmV3IFVS
-TCgnLi4vcHVibGljL3N0eWxlcy5jc3MnLCBpbXBvcnQubWV0YS51cmwpLCAn
-dXRmOCcpOwpjb25zdCBiZXR3ZWVuID0gKHN0YXJ0LCBlbmQpID0+IHsKICBj
-b25zdCBmaXJzdCA9IGhvbWVwYWdlLmluZGV4T2Yoc3RhcnQpLCBsYXN0ID0g
-aG9tZXBhZ2UuaW5kZXhPZihlbmQsIGZpcnN0ICsgc3RhcnQubGVuZ3RoKTsK
-ICBhc3NlcnQub2soZmlyc3QgPj0gMCAmJiBsYXN0ID4gZmlyc3QsICdwcm9k
-dWN0aW9uIG1vdGlvbiBjb250cm9sbGVyIGJvdW5kYXJpZXMgZXhpc3QnKTsK
-ICByZXR1cm4gaG9tZXBhZ2Uuc2xpY2UoZmlyc3QsIGxhc3QpOwp9Owpjb25z
-dCBwcm9tb0hhcm5lc3MgPSBgKCgpID0+IHsgY29uc3QgcXMgPSBzID0+IGRv
-Y3VtZW50LnF1ZXJ5U2VsZWN0b3IocyksIHFzYSA9IHMgPT4gWy4uLmRvY3Vt
-ZW50LnF1ZXJ5U2VsZWN0b3JBbGwocyldOwogY29uc3QgcmVkdWNlZE1hcmtl
-dGluZ01vdGlvbiA9IG1hdGNoTWVkaWEoJyhwcmVmZXJzLXJlZHVjZWQtbW90
-aW9uOiByZWR1Y2UpJyksIG1hcmtldGluZ1BvaW50ZXJXaXRoaW4gPSBuZXcg
-V2Vha1NldCgpOwogY29uc3Qgc3RhcnRIZXJvID0gKCkgPT4ge30sIHN0b3BI
-ZXJvID0gKCkgPT4ge307IE1hdGgucmFuZG9tID0gKCkgPT4gMDsKICR7YmV0
-d2VlbignICBmdW5jdGlvbiBtYXJrZXRpbmdNb3Rpb25BbGxvd2VkKGVsZW1l
-bnQpJywgJyAgZnVuY3Rpb24gY29uZmlndXJlQ2F0YWxvZ3VlUHJpY2VSYW5n
-ZSgpJyl9CiAke2JldHdlZW4oJyAgZnVuY3Rpb24gc3RhcnRQcm9tb0FuaW1h
-dGlvbnMoKScsICcgIGZ1bmN0aW9uIGVuc3VyZU1vYmlsZUJvdHRvbU5hdigp
-Jyl9CiB3aW5kb3cucHJvbW9TdGFydHMgPSBbXTsgY29uc3QgY2xhc3NlcyA9
-IGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3IoJy5wcm9tby1jYXJkJykuY2xhc3NM
-aXN0LCBuYXRpdmVBZGQgPSBjbGFzc2VzLmFkZC5iaW5kKGNsYXNzZXMpOwog
-Y2xhc3Nlcy5hZGQgPSAoLi4ubmFtZXMpID0+IHsgZm9yIChjb25zdCBuYW1l
-IG9mIG5hbWVzKSBpZiAobmFtZS5zdGFydHNXaXRoKCdwcm9tby1tb3Rpb24t
-JykpIHdpbmRvdy5wcm9tb1N0YXJ0cy5wdXNoKG5hbWUpOyByZXR1cm4gbmF0
-aXZlQWRkKC4uLm5hbWVzKTsgfTsKIHN0YXJ0UHJvbW9BbmltYXRpb25zKCk7
-IH0pKCk7YDsKCnRlc3QoJ3Njcm9sbCBlbnRyYW5jZXMgY292ZXIgc3RvcmVm
-cm9udCBhbmQgZGFzaGJvYXJkIGNhcmRzLCBkeW5hbWljIGNvbnRlbnQsIGZv
-Y3VzIGFuZCBtb3Rpb24gcHJlZmVyZW5jZXMnLCB7IHRpbWVvdXQ6IDYwXzAw
-MCB9LCBhc3luYyAoKSA9PiB7CiAgY29uc3QgYnJvd3NlciA9IGF3YWl0IGNo
-cm9taXVtLmxhdW5jaCh7IGV4ZWN1dGFibGVQYXRoOiBwcm9jZXNzLmVudi5Q
-TEFZV1JJR0hUX0NIUk9NSVVNX0VYRUNVVEFCTEUgfHwgdW5kZWZpbmVkLCBh
-cmdzOiBbJy0tbm8tc2FuZGJveCddIH0pOwogIHRyeSB7CiAgICBmb3IgKGNv
-bnN0IGRhc2hib2FyZCBvZiBbZmFsc2UsIHRydWVdKSB7CiAgICAgIGNvbnN0
-IHBhZ2UgPSBhd2FpdCBicm93c2VyLm5ld1BhZ2UoeyB2aWV3cG9ydDogeyB3
-aWR0aDogMzkwLCBoZWlnaHQ6IDc4MCB9IH0pOwogICAgICBjb25zdCBlcnJv
-cnMgPSBbXTsgcGFnZS5vbigncGFnZWVycm9yJywgZXJyb3IgPT4gZXJyb3Jz
-LnB1c2goZXJyb3IubWVzc2FnZSkpOwogICAgICBhd2FpdCBwYWdlLnNldENv
-bnRlbnQoYDxodG1sPjxoZWFkPjxzdHlsZT5ib2R5e21hcmdpbjowO292ZXJm
-bG93LXg6aGlkZGVufW1haW57cGFkZGluZzoyMHB4fWFydGljbGV7aGVpZ2h0
-OjEzMHB4O21hcmdpbjoyMHB4IDA7cGFkZGluZzoxNnB4O2JhY2tncm91bmQ6
-I2VlZX1idXR0b257bWFyZ2luOjEwcHh9LnNwYWNlcntoZWlnaHQ6OTAwcHh9
-JHtjc3N9PC9zdHlsZT48L2hlYWQ+PGJvZHkgJHtkYXNoYm9hcmQgPyAnZGF0
-YS1kYXNoYm9hcmQtd29ya3NwYWNlPSJjdXN0b21lciInIDogJyd9PjxtYWlu
-PjxoMT5NYXJrZXRwbGFjZTwvaDE+PGRpdiBjbGFzcz0ic3BhY2VyIj48L2Rp
-dj4ke1sndXAnLCdkb3duJywnbGVmdCcsJ3JpZ2h0Jywnem9vbScsJ3pvb20t
-b3V0JywnZHJvcCddLm1hcCgobmFtZSwgaSkgPT4gYDxhcnRpY2xlIGlkPSJj
-YXJkJHtpfSIgY2xhc3M9IiR7ZGFzaGJvYXJkID8gJ3N0YXQtY2FyZCBwYW5l
-bCcgOiAncHJvZHVjdC1jYXJkJ30iIGRhdGEtc2Nyb2xsLW1vdGlvbj0iJHtu
-YW1lfSI+PGJ1dHRvbj5PcGVuICR7aX08L2J1dHRvbj48L2FydGljbGU+YCku
-am9pbignJyl9PHNlY3Rpb24gaWQ9ImNsb3NlZCIgaGlkZGVuPjxhcnRpY2xl
-IGNsYXNzPSJwYW5lbCIgaWQ9InVuaGlkZGVuIj5MYXRlciBkYXNoYm9hcmQg
-cGFnZTwvYXJ0aWNsZT48L3NlY3Rpb24+PC9tYWluPjwvYm9keT48L2h0bWw+
-YCk7CiAgICAgIGF3YWl0IHBhZ2UubW91c2UubW92ZSgzODAsIDUpOwogICAg
-ICBhd2FpdCBwYWdlLmV2YWx1YXRlKCgpID0+IHsgd2luZG93Lm1vdGlvblN0
-YXJ0cyA9IFtdOyBkb2N1bWVudC5hZGRFdmVudExpc3RlbmVyKCdhbmltYXRp
-b25zdGFydCcsIGV2ZW50ID0+IHsgaWYgKGV2ZW50LmFuaW1hdGlvbk5hbWUu
-c3RhcnRzV2l0aCgnY21FbnRyYW5jZScpKSB3aW5kb3cubW90aW9uU3RhcnRz
-LnB1c2goeyBpZDogZXZlbnQudGFyZ2V0LmlkLCBuYW1lOiBldmVudC5hbmlt
-YXRpb25OYW1lIH0pOyB9KTsgfSk7CiAgICAgIGF3YWl0IHBhZ2UuYWRkU2Ny
-aXB0VGFnKHsgY29udGVudDogbW90aW9uIH0pOwogICAgICBhc3NlcnQuZXF1
-YWwoYXdhaXQgcGFnZS5sb2NhdG9yKCcjY2FyZDAnKS5ldmFsdWF0ZShlbGVt
-ZW50ID0+IGdldENvbXB1dGVkU3R5bGUoZWxlbWVudCkub3BhY2l0eSksICcx
-JywgJ29mZnNjcmVlbiBjb250ZW50IGlzIG5ldmVyIHByZS1oaWRkZW4nKTsK
-ICAgICAgYXdhaXQgcGFnZS5sb2NhdG9yKCcjY2FyZDAnKS5zY3JvbGxJbnRv
-Vmlld0lmTmVlZGVkKCk7CiAgICAgIGF3YWl0IGV4cGVjdC5wb2xsKCgpID0+
-IHBhZ2UuZXZhbHVhdGUoKCkgPT4gd2luZG93Lm1vdGlvblN0YXJ0cy5zb21l
-KGl0ZW0gPT4gaXRlbS5pZCA9PT0gJ2NhcmQwJykpKS50b0JlKHRydWUpOwog
-ICAgICBhd2FpdCBleHBlY3QocGFnZS5sb2NhdG9yKCcjY2FyZDAnKSkubm90
-LnRvSGF2ZUNsYXNzKC9wbGF0Zm9ybS1tb3Rpb24tZW50ZXIvLCB7IHRpbWVv
-dXQ6IDIwMDAgfSk7CiAgICAgIGF3YWl0IHBhZ2UubG9jYXRvcignI2NhcmQ1
-Jykuc2Nyb2xsSW50b1ZpZXdJZk5lZWRlZCgpOwogICAgICBhd2FpdCBleHBl
-Y3QucG9sbCgoKSA9PiBwYWdlLmV2YWx1YXRlKCgpID0+IHdpbmRvdy5tb3Rp
-b25TdGFydHMuc29tZShpdGVtID0+IGl0ZW0ubmFtZSA9PT0gJ2NtRW50cmFu
-Y2Vab29tT3V0JykpKS50b0JlKHRydWUpOwogICAgICBhd2FpdCBwYWdlLmxv
-Y2F0b3IoJyNjYXJkNicpLnNjcm9sbEludG9WaWV3SWZOZWVkZWQoKTsKICAg
-ICAgYXdhaXQgZXhwZWN0LnBvbGwoKCkgPT4gcGFnZS5ldmFsdWF0ZSgoKSA9
-PiB3aW5kb3cubW90aW9uU3RhcnRzLnNvbWUoaXRlbSA9PiBpdGVtLmlkID09
-PSAnY2FyZDYnKSkpLnRvQmUodHJ1ZSk7CiAgICAgIGF3YWl0IHBhZ2UubG9j
-YXRvcignI2NhcmQ2IGJ1dHRvbicpLmZvY3VzKCk7CiAgICAgIGF3YWl0IGV4
-cGVjdChwYWdlLmxvY2F0b3IoJyNjYXJkNicpKS5ub3QudG9IYXZlQ2xhc3Mo
-L3BsYXRmb3JtLW1vdGlvbi1lbnRlci8pOwogICAgICBhd2FpdCBwYWdlLmV2
-YWx1YXRlKCgpID0+IHsgZG9jdW1lbnQuYWN0aXZlRWxlbWVudC5ibHVyKCk7
-IGNvbnN0IGNhcmQgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCdhcnRpY2xl
-Jyk7IGNhcmQuaWQgPSAnZHluYW1pYyc7IGNhcmQuY2xhc3NOYW1lID0gJ3Bh
-bmVsJzsgY2FyZC50ZXh0Q29udGVudCA9ICdOZXcgbGl2ZSBkYXRhJzsgZG9j
-dW1lbnQucXVlcnlTZWxlY3RvcignbWFpbicpLmFwcGVuZChjYXJkKTsgfSk7
-CiAgICAgIGF3YWl0IHBhZ2UubG9jYXRvcignI2R5bmFtaWMnKS5zY3JvbGxJ
-bnRvVmlld0lmTmVlZGVkKCk7CiAgICAgIGF3YWl0IGV4cGVjdC5wb2xsKCgp
-ID0+IHBhZ2UuZXZhbHVhdGUoKCkgPT4gd2luZG93Lm1vdGlvblN0YXJ0cy5z
-b21lKGl0ZW0gPT4gaXRlbS5pZCA9PT0gJ2R5bmFtaWMnKSkpLnRvQmUodHJ1
-ZSk7CiAgICAgIGF3YWl0IHBhZ2UuZXZhbHVhdGUoKCkgPT4geyBkb2N1bWVu
-dC5xdWVyeVNlbGVjdG9yKCcjY2xvc2VkJykuaGlkZGVuID0gZmFsc2U7IH0p
-OwogICAgICBhd2FpdCBwYWdlLmxvY2F0b3IoJyN1bmhpZGRlbicpLnNjcm9s
-bEludG9WaWV3SWZOZWVkZWQoKTsKICAgICAgYXdhaXQgZXhwZWN0LnBvbGwo
-KCkgPT4gcGFnZS5ldmFsdWF0ZSgoKSA9PiB3aW5kb3cubW90aW9uU3RhcnRz
-LnNvbWUoaXRlbSA9PiBpdGVtLmlkID09PSAndW5oaWRkZW4nKSkpLnRvQmUo
-dHJ1ZSk7CiAgICAgIGF3YWl0IHBhZ2UuZW11bGF0ZU1lZGlhKHsgcmVkdWNl
-ZE1vdGlvbjogJ3JlZHVjZScgfSk7CiAgICAgIGF3YWl0IGV4cGVjdChwYWdl
-LmxvY2F0b3IoJy5wbGF0Zm9ybS1tb3Rpb24tZW50ZXInKSkudG9IYXZlQ291
-bnQoMCk7CiAgICAgIGFzc2VydC5lcXVhbChhd2FpdCBwYWdlLmxvY2F0b3Io
-JyN1bmhpZGRlbicpLmV2YWx1YXRlKGVsZW1lbnQgPT4gZ2V0Q29tcHV0ZWRT
-dHlsZShlbGVtZW50KS5vcGFjaXR5KSwgJzEnKTsKICAgICAgYXNzZXJ0Lm9r
-KGF3YWl0IHBhZ2UuZXZhbHVhdGUoKCkgPT4gZG9jdW1lbnQuZG9jdW1lbnRF
-bGVtZW50LnNjcm9sbFdpZHRoIDw9IGlubmVyV2lkdGgpLCAnZGlyZWN0aW9u
-YWwgZWZmZWN0cyBuZXZlciBpbnRyb2R1Y2UgaG9yaXpvbnRhbCBzY3JvbGxp
-bmcnKTsKICAgICAgYXNzZXJ0LmRlZXBFcXVhbChlcnJvcnMsIFtdKTsKICAg
-ICAgYXdhaXQgcGFnZS5jbG9zZSgpOwogICAgfQogICAgY29uc3QgbG93RGF0
-YSA9IGF3YWl0IGJyb3dzZXIubmV3UGFnZSgpOwogICAgYXdhaXQgbG93RGF0
-YS5zZXRDb250ZW50KGA8aHRtbCBkYXRhLWxvdy1kYXRhPSJ0cnVlIj48aGVh
-ZD48c3R5bGU+JHtjc3N9PC9zdHlsZT48L2hlYWQ+PGJvZHk+PG1haW4+PGFy
-dGljbGUgY2xhc3M9InBhbmVsIj5WaXNpYmxlIGNvbnRlbnQ8L2FydGljbGU+
-PC9tYWluPjwvYm9keT48L2h0bWw+YCk7CiAgICBhd2FpdCBsb3dEYXRhLmFk
-ZFNjcmlwdFRhZyh7IGNvbnRlbnQ6IG1vdGlvbiB9KTsKICAgIGFzc2VydC5l
-cXVhbChhd2FpdCBsb3dEYXRhLmxvY2F0b3IoJy5wbGF0Zm9ybS1tb3Rpb24t
-ZW50ZXInKS5jb3VudCgpLCAwKTsKICAgIGFzc2VydC5lcXVhbChhd2FpdCBs
-b3dEYXRhLmxvY2F0b3IoJ2FydGljbGUnKS5ldmFsdWF0ZShlbGVtZW50ID0+
-IGdldENvbXB1dGVkU3R5bGUoZWxlbWVudCkub3BhY2l0eSksICcxJyk7CiAg
-ICBhd2FpdCBsb3dEYXRhLmNsb3NlKCk7CiAgfSBmaW5hbGx5IHsgYXdhaXQg
-YnJvd3Nlci5jbG9zZSgpOyB9Cn0pOwoKdGVzdCgnc21hbGwgaGVybyBiYW5u
-ZXJzIGN5Y2xlIHRocm91Z2ggYWxsIHNldmVuIHByb2R1Y3Rpb24gZWZmZWN0
-cyBhbmQgcGF1c2UgZm9yIGludGVyYWN0aW9uIGFuZCByZWR1Y2VkIG1vdGlv
-bicsIHsgdGltZW91dDogMzBfMDAwIH0sIGFzeW5jICgpID0+IHsKICBjb25z
-dCBicm93c2VyID0gYXdhaXQgY2hyb21pdW0ubGF1bmNoKHsgZXhlY3V0YWJs
-ZVBhdGg6IHByb2Nlc3MuZW52LlBMQVlXUklHSFRfQ0hST01JVU1fRVhFQ1VU
-QUJMRSB8fCB1bmRlZmluZWQsIGFyZ3M6IFsnLS1uby1zYW5kYm94J10gfSk7
-CiAgdHJ5IHsKICAgIGNvbnN0IHBhZ2UgPSBhd2FpdCBicm93c2VyLm5ld1Bh
-Z2UoeyB2aWV3cG9ydDogeyB3aWR0aDogMTM2NiwgaGVpZ2h0OiA5MDAgfSB9
-KTsKICAgIGF3YWl0IHBhZ2UuY2xvY2suaW5zdGFsbCgpOwogICAgYXdhaXQg
-cGFnZS5zZXRDb250ZW50KGA8aHRtbD48aGVhZD48c3R5bGU+JHtob21lcGFn
-ZUNzc308L3N0eWxlPjwvaGVhZD48Ym9keT48bWFpbj48ZGl2IGNsYXNzPSJw
-cm9tby1zdGFjayIgc3R5bGU9IndpZHRoOjMwMHB4Ij48YXJ0aWNsZSBjbGFz
-cz0icHJvbW8tY2FyZCI+PGltZyBhbHQ9IiIgc3JjPSJkYXRhOmltYWdlL3N2
-Zyt4bWwsJTNDc3ZnIHhtbG5zPSdodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2
-Zycgd2lkdGg9JzEwMCcgaGVpZ2h0PScxMDAnJTNFJTNDL3N2ZyUzRSI+PGRp
-dj48aDI+RGlzY292ZXIgcHJvZHVjdHM8L2gyPjxidXR0b24+QnJvd3NlPC9i
-dXR0b24+PC9kaXY+PC9hcnRpY2xlPjwvZGl2PjwvbWFpbj48L2JvZHk+PC9o
-dG1sPmApOwogICAgYXdhaXQgcGFnZS5tb3VzZS5tb3ZlKDEzMDAsIDgwMCk7
-CiAgICBhd2FpdCBwYWdlLmFkZFNjcmlwdFRhZyh7IGNvbnRlbnQ6IHByb21v
-SGFybmVzcyB9KTsKICAgIGZvciAobGV0IGkgPSAwOyBpIDwgNzsgaSsrKSB7
-CiAgICAgIGF3YWl0IHBhZ2UuY2xvY2suZmFzdEZvcndhcmQoMzMwMCk7CiAg
-ICAgIGFzc2VydC5lcXVhbChhd2FpdCBwYWdlLmxvY2F0b3IoJy5wcm9tby1j
-YXJkJykuZXZhbHVhdGUoZWxlbWVudCA9PiBnZXRDb21wdXRlZFN0eWxlKGVs
-ZW1lbnQpLm9wYWNpdHkpLCAnMScsICdwcm9tb3Rpb25hbCBsYWJlbHMgc3Rh
-eSBvcGFxdWUgZHVyaW5nIGVmZmVjdHMnKTsKICAgIH0KICAgIGNvbnN0IHN0
-YXJ0cyA9IGF3YWl0IHBhZ2UuZXZhbHVhdGUoKCkgPT4gd2luZG93LnByb21v
-U3RhcnRzKTsKICAgIGFzc2VydC5lcXVhbChuZXcgU2V0KHN0YXJ0cy5zbGlj
-ZSgwLCA3KSkuc2l6ZSwgNywgJ2FsbCBzbGlkZS96b29tL2ZhZGUgZWZmZWN0
-cyBydW4gYmVmb3JlIHJlcGVhdHMnKTsKICAgIGF3YWl0IHBhZ2UuaG92ZXIo
-Jy5wcm9tby1jYXJkJyk7CiAgICBjb25zdCBwYXVzZWQgPSBhd2FpdCBwYWdl
-LmV2YWx1YXRlKCgpID0+IHdpbmRvdy5wcm9tb1N0YXJ0cy5sZW5ndGgpOwog
-ICAgYXdhaXQgcGFnZS5jbG9jay5mYXN0Rm9yd2FyZCgyMF8wMDApOwogICAg
-YXNzZXJ0LmVxdWFsKGF3YWl0IHBhZ2UuZXZhbHVhdGUoKCkgPT4gd2luZG93
-LnByb21vU3RhcnRzLmxlbmd0aCksIHBhdXNlZCk7CiAgICBhd2FpdCBwYWdl
-Lm1vdXNlLm1vdmUoMTMwMCwgODAwKTsKICAgIGF3YWl0IHBhZ2UubG9jYXRv
-cignLnByb21vLWNhcmQgYnV0dG9uJykuZm9jdXMoKTsKICAgIGF3YWl0IHBh
-Z2UuY2xvY2suZmFzdEZvcndhcmQoMjBfMDAwKTsKICAgIGFzc2VydC5lcXVh
-bChhd2FpdCBwYWdlLmV2YWx1YXRlKCgpID0+IHdpbmRvdy5wcm9tb1N0YXJ0
-cy5sZW5ndGgpLCBwYXVzZWQpOwogICAgYXdhaXQgcGFnZS5ldmFsdWF0ZSgo
-KSA9PiBkb2N1bWVudC5hY3RpdmVFbGVtZW50LmJsdXIoKSk7CiAgICBhd2Fp
-dCBwYWdlLmVtdWxhdGVNZWRpYSh7IHJlZHVjZWRNb3Rpb246ICdyZWR1Y2Un
-IH0pOwogICAgYXdhaXQgcGFnZS5jbG9jay5mYXN0Rm9yd2FyZCgyMF8wMDAp
-OwogICAgYXNzZXJ0LmVxdWFsKGF3YWl0IHBhZ2UuZXZhbHVhdGUoKCkgPT4g
-d2luZG93LnByb21vU3RhcnRzLmxlbmd0aCksIHBhdXNlZCk7CiAgICBhc3Nl
-cnQuZXF1YWwoYXdhaXQgcGFnZS5sb2NhdG9yKCcucHJvbW8tY2FyZCcpLmV2
-YWx1YXRlKGVsZW1lbnQgPT4gZ2V0Q29tcHV0ZWRTdHlsZShlbGVtZW50KS5v
-cGFjaXR5KSwgJzEnKTsKICAgIGFzc2VydC5lcXVhbChhd2FpdCBwYWdlLmxv
-Y2F0b3IoJy5wcm9tby1jYXJkIGgyJykuZXZhbHVhdGUoZWxlbWVudCA9PiBn
-ZXRDb21wdXRlZFN0eWxlKGVsZW1lbnQpLm9wYWNpdHkpLCAnMScpOwogIH0g
-ZmluYWxseSB7IGF3YWl0IGJyb3dzZXIuY2xvc2UoKTsgfQp9KTsK
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { chromium, expect } from '@playwright/test';
+
+const motion = await fs.readFile(new URL('../public/platform-motion.js', import.meta.url), 'utf8');
+const css = await fs.readFile(new URL('../public/platform-motion.css', import.meta.url), 'utf8');
+const homepage = await fs.readFile(new URL('../public/script.js', import.meta.url), 'utf8');
+const homepageCss = await fs.readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
+const between = (start, end) => {
+  const first = homepage.indexOf(start), last = homepage.indexOf(end, first + start.length);
+  assert.ok(first >= 0 && last > first, 'production motion controller boundaries exist');
+  return homepage.slice(first, last);
+};
+const promoHarness = `(() => { const qs = s => document.querySelector(s), qsa = s => [...document.querySelectorAll(s)];
+ const reducedMarketingMotion = matchMedia('(prefers-reduced-motion: reduce)'), marketingPointerWithin = new WeakSet();
+ const startHero = () => {}, stopHero = () => {}; Math.random = () => 0;
+ ${between('  function marketingMotionAllowed(element)', '  function configureCataloguePriceRange()')}
+ ${between('  function startPromoAnimations()', '  function ensureMobileBottomNav()')}
+ window.promoStarts = []; const classes = document.querySelector('.promo-card').classList, nativeAdd = classes.add.bind(classes);
+ classes.add = (...names) => { for (const name of names) if (name.startsWith('promo-motion-')) window.promoStarts.push(name); return nativeAdd(...names); };
+ startPromoAnimations(); })();`;
+
+test('scroll entrances cover storefront and dashboard cards, dynamic content, focus and motion preferences', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+  try {
+    for (const dashboard of [false, true]) {
+      const page = await browser.newPage({ viewport: { width: 390, height: 780 } });
+      const errors = []; page.on('pageerror', error => errors.push(error.message));
+      await page.setContent(`<html><head><style>body{margin:0;overflow-x:hidden}main{padding:20px}article{height:130px;margin:20px 0;padding:16px;background:#eee}button{margin:10px}.spacer{height:900px}${css}</style></head><body ${dashboard ? 'data-dashboard-workspace="customer"' : ''}><main><h1>Marketplace</h1><div class="spacer"></div>${['up','down','left','right','zoom','zoom-out','drop'].map((name, i) => `<article id="card${i}" class="${dashboard ? 'stat-card panel' : 'product-card'}" data-scroll-motion="${name}"><button>Open ${i}</button></article>`).join('')}<section id="closed" hidden><article class="panel" id="unhidden">Later dashboard page</article></section></main></body></html>`);
+      await page.mouse.move(380, 5);
+      await page.evaluate(() => { window.motionStarts = []; document.addEventListener('animationstart', event => { if (event.animationName.startsWith('cmEntrance')) window.motionStarts.push({ id: event.target.id, name: event.animationName }); }); });
+      await page.addScriptTag({ content: motion });
+      assert.equal(await page.locator('#card0').evaluate(element => getComputedStyle(element).opacity), '1', 'offscreen content is never pre-hidden');
+      await page.locator('#card0').scrollIntoViewIfNeeded();
+      await expect.poll(() => page.evaluate(() => window.motionStarts.some(item => item.id === 'card0'))).toBe(true);
+      await expect(page.locator('#card0')).not.toHaveClass(/platform-motion-enter/, { timeout: 2000 });
+      await page.locator('#card5').scrollIntoViewIfNeeded();
+      await expect.poll(() => page.evaluate(() => window.motionStarts.some(item => item.name === 'cmEntranceZoomOut'))).toBe(true);
+      await page.locator('#card6').scrollIntoViewIfNeeded();
+      await expect.poll(() => page.evaluate(() => window.motionStarts.some(item => item.id === 'card6'))).toBe(true);
+      await page.locator('#card6 button').focus();
+      await expect(page.locator('#card6')).not.toHaveClass(/platform-motion-enter/);
+      await page.evaluate(() => { document.activeElement.blur(); const card = document.createElement('article'); card.id = 'dynamic'; card.className = 'panel'; card.textContent = 'New live data'; document.querySelector('main').append(card); });
+      await page.locator('#dynamic').scrollIntoViewIfNeeded();
+      await expect.poll(() => page.evaluate(() => window.motionStarts.some(item => item.id === 'dynamic'))).toBe(true);
+      await page.evaluate(() => { document.querySelector('#closed').hidden = false; });
+      await page.locator('#unhidden').scrollIntoViewIfNeeded();
+      await expect.poll(() => page.evaluate(() => window.motionStarts.some(item => item.id === 'unhidden'))).toBe(true);
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await expect(page.locator('.platform-motion-enter')).toHaveCount(0);
+      assert.equal(await page.locator('#unhidden').evaluate(element => getComputedStyle(element).opacity), '1');
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'directional effects never introduce horizontal scrolling');
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    const lowData = await browser.newPage();
+    await lowData.setContent(`<html data-low-data="true"><head><style>${css}</style></head><body><main><article class="panel">Visible content</article></main></body></html>`);
+    await lowData.addScriptTag({ content: motion });
+    assert.equal(await lowData.locator('.platform-motion-enter').count(), 0);
+    assert.equal(await lowData.locator('article').evaluate(element => getComputedStyle(element).opacity), '1');
+    await lowData.close();
+  } finally { await browser.close(); }
+});
+
+test('small hero banners cycle through all seven production effects and pause for interaction and reduced motion', { timeout: 30_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
+    await page.clock.install();
+    await page.setContent(`<html><head><style>${homepageCss}</style></head><body><main><div class="promo-stack" style="width:300px"><article class="promo-card"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3C/svg%3E"><div><h2>Discover products</h2><button>Browse</button></div></article></div></main></body></html>`);
+    await page.mouse.move(1300, 800);
+    await page.addScriptTag({ content: promoHarness });
+    for (let i = 0; i < 7; i++) {
+      await page.clock.fastForward(3300);
+      assert.equal(await page.locator('.promo-card').evaluate(element => getComputedStyle(element).opacity), '1', 'promotional labels stay opaque during effects');
+    }
+    const starts = await page.evaluate(() => window.promoStarts);
+    assert.equal(new Set(starts.slice(0, 7)).size, 7, 'all slide/zoom/fade effects run before repeats');
+    await page.hover('.promo-card');
+    const paused = await page.evaluate(() => window.promoStarts.length);
+    await page.clock.fastForward(20_000);
+    assert.equal(await page.evaluate(() => window.promoStarts.length), paused);
+    await page.mouse.move(1300, 800);
+    await page.locator('.promo-card button').focus();
+    await page.clock.fastForward(20_000);
+    assert.equal(await page.evaluate(() => window.promoStarts.length), paused);
+    await page.evaluate(() => document.activeElement.blur());
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.clock.fastForward(20_000);
+    assert.equal(await page.evaluate(() => window.promoStarts.length), paused);
+    assert.equal(await page.locator('.promo-card').evaluate(element => getComputedStyle(element).opacity), '1');
+    assert.equal(await page.locator('.promo-card h2').evaluate(element => getComputedStyle(element).opacity), '1');
+  } finally { await browser.close(); }
+});
