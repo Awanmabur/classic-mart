@@ -45,13 +45,13 @@ test('CI requires an existing environment file rather than creating a mistyped d
   await assert.rejects(fs.stat(missing), error => error.code === 'ENOENT');
 });
 
-test('CI prepares its browser before canonical tests and only tracks the retained master branch', async () => {
+test('CI prepares its browser before canonical tests and tracks the certified production branch', async () => {
   const workflow = await fs.readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const install = workflow.indexOf('playwright install --with-deps chromium');
   const prepare = workflow.indexOf('node scripts/prepare-ci-browser.js');
   const tests = workflow.indexOf('run: npm test');
   assert.ok(install >= 0 && prepare > install && tests > prepare);
-  assert.match(workflow, /branches: \[master\]/);
+  assert.match(workflow, /branches: \[production\]/);
   assert.match(workflow, /npm run browser:ci/);
   assert.doesNotMatch(workflow, /continue-on-error/);
 });
