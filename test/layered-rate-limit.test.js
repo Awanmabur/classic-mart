@@ -1,100 +1,77 @@
-aW1wb3J0IHRlc3QgZnJvbSAnbm9kZTp0ZXN0JzsKaW1wb3J0IGFzc2VydCBm
-cm9tICdub2RlOmFzc2VydC9zdHJpY3QnOwppbXBvcnQgZXhwcmVzcyBmcm9t
-ICdleHByZXNzJzsKaW1wb3J0IHJlcXVlc3QgZnJvbSAnc3VwZXJ0ZXN0JzsK
-aW1wb3J0IHNlc3Npb24gZnJvbSAnZXhwcmVzcy1zZXNzaW9uJzsKCnByb2Nl
-c3MuZW52Lk5PREVfRU5WID0gJ3Rlc3QnOwpjb25zdCB7IGRlZmF1bHQ6IHJh
-dGVMaW1pdCwgYWNjb3VudFJhdGVMaW1pdEtleSwgZGV2aWNlUmF0ZUxpbWl0
-S2V5IH0gPSBhd2FpdCBpbXBvcnQoJy4uL3NyYy9taWRkbGV3YXJlL3JhdGUt
-bGltaXQuanMnKTsKbGV0IHNjb3BlID0gMDsKZnVuY3Rpb24gYXBwbGljYXRp
-b24ob3B0aW9ucyA9IHt9LCB7IHVzZXIsIGRldmljZSwgcHJveHkgPSAnbG9v
-cGJhY2snIH0gPSB7fSkgewogIGNvbnN0IGFwcCA9IGV4cHJlc3MoKTsKICBh
-cHAuc2V0KCd0cnVzdCBwcm94eScsIHByb3h5KTsKICBhcHAudXNlKChyZXEs
-IF9yZXMsIG5leHQpID0+IHsKICAgIHJlcS51c2VyID0gdXNlciB8fCAocmVx
-LmdldCgneC10ZXN0LWFjdG9yJykgPyB7IF9pZDogcmVxLmdldCgneC10ZXN0
-LWFjdG9yJykgfSA6IG51bGwpOwogICAgcmVxLmRldmljZSA9IGRldmljZTsK
-ICAgIG5leHQoKTsKICB9KTsKICBhcHAudXNlKHJhdGVMaW1pdCh7IHNjb3Bl
-OiAndGVzdDpsYXllcmVkOicgKyArK3Njb3BlLCB3aW5kb3dNczogNjBfMDAw
-LCBsaW1pdDogMiwKICAgIHN0YW5kYXJkSGVhZGVyczogJ2RyYWZ0LTgnLCBs
-ZWdhY3lIZWFkZXJzOiBmYWxzZSwgLi4ub3B0aW9ucyB9KSk7CiAgYXBwLmdl
-dCgnLycsIChfcmVxLCByZXMpID0+IHJlcy5zZW5kKCdvaycpKTsKICByZXR1
-cm4gYXBwOwp9Cgp0ZXN0KCdJUCBjYXAgc3Vydml2ZXMgdXNlci1hZ2VudCBy
-b3RhdGlvbiBhbmQgaW52ZW50ZWQgZGV2aWNlIGhlYWRlcnMnLCBhc3luYyAo
-KSA9PiB7CiAgY29uc3QgYXBwID0gYXBwbGljYXRpb24oKTsKICBmb3IgKGxl
-dCBpID0gMDsgaSA8IDI7IGkrKykgYXdhaXQgcmVxdWVzdChhcHApLmdldCgn
-LycpLnNldCgnVXNlci1BZ2VudCcsICdyb3RhdGluZy0nICsgaSkuc2V0KCd4
-LWRldmljZS1pZCcsICduZXctJyArIGkpLmV4cGVjdCgyMDApOwogIGNvbnN0
-IGJsb2NrZWQgPSBhd2FpdCByZXF1ZXN0KGFwcCkuZ2V0KCcvJykuc2V0KCdV
-c2VyLUFnZW50JywgJ2Fub3RoZXInKS5zZXQoJ3gtZGV2aWNlLWlkJywgJ2Fu
-b3RoZXInKS5leHBlY3QoNDI5KTsKICBhc3NlcnQub2soTnVtYmVyKGJsb2Nr
-ZWQuaGVhZGVyc1sncmV0cnktYWZ0ZXInXSkgPiAwKTsKfSk7Cgp0ZXN0KCdv
-bmUgYXV0aGVudGljYXRlZCBhY2NvdW50IGNhbm5vdCByZXNldCBpdHMgcXVv
-dGEgYnkgY2hhbmdpbmcgSVAgb3Igc2Vzc2lvbicsIGFzeW5jICgpID0+IHsK
-ICBjb25zdCBhcHAgPSBhcHBsaWNhdGlvbigpOwogIGZvciAobGV0IGkgPSAx
-OyBpIDw9IDI7IGkrKykgYXdhaXQgcmVxdWVzdChhcHApLmdldCgnLycpLnNl
-dCgnWC1Gb3J3YXJkZWQtRm9yJywgJzE5OC41MS4xMDAuJyArIGkpLnNldCgn
-eC10ZXN0LWFjdG9yJywgJ2FjY291bnQtYScpLmV4cGVjdCgyMDApOwogIGF3
-YWl0IHJlcXVlc3QoYXBwKS5nZXQoJy8nKS5zZXQoJ1gtRm9yd2FyZGVkLUZv
-cicsICcxOTguNTEuMTAwLjMnKS5zZXQoJ3gtdGVzdC1hY3RvcicsICdhY2Nv
-dW50LWEnKS5leHBlY3QoNDI5KTsKICBhd2FpdCByZXF1ZXN0KGFwcCkuZ2V0
-KCcvJykuc2V0KCdYLUZvcndhcmRlZC1Gb3InLCAnMTk4LjUxLjEwMC40Jyku
-c2V0KCd4LXRlc3QtYWN0b3InLCAnYWNjb3VudC1iJykuZXhwZWN0KDIwMCk7
-Cn0pOwoKdGVzdCgnZXhpc3RpbmcgY3VzdG9tIGFjY291bnQga2V5cyByZXRh
-aW4gYSBzZXBhcmF0ZSBJUCBjYXAgYWNyb3NzIGRpZmZlcmVudCBhY2NvdW50
-cycsIGFzeW5jICgpID0+IHsKICBjb25zdCBhcHAgPSBhcHBsaWNhdGlvbih7
-IGtleUdlbmVyYXRvcjogcmVxID0+IHJlcS51c2VyLl9pZCB9KTsKICBmb3Ig
-KGNvbnN0IGlkIG9mIFsnYScsICdiJ10pIGF3YWl0IHJlcXVlc3QoYXBwKS5n
-ZXQoJy8nKS5zZXQoJ3gtdGVzdC1hY3RvcicsIGlkKS5leHBlY3QoMjAwKTsK
-ICBhd2FpdCByZXF1ZXN0KGFwcCkuZ2V0KCcvJykuc2V0KCd4LXRlc3QtYWN0
-b3InLCAnYycpLmV4cGVjdCg0MjkpOwp9KTsKCnRlc3QoJ3ZlcmlmaWVkIGRl
-dmljZSBxdW90YSBzdXJ2aXZlcyBuZXR3b3JrIGNoYW5nZXMgYW5kIGtleXMg
-bmV2ZXIgY29udGFpbiByYXcgaWRlbnRpZmllcnMnLCBhc3luYyAoKSA9PiB7
-CiAgY29uc3QgdXNlciA9IHsgX2lkOiAncHJpdmF0ZS1hY2NvdW50LWlkJyB9
-LCBkZXZpY2UgPSB7IF9pZDogJ3ByaXZhdGUtZGV2aWNlLWlkJywgdXNlcklk
-OiB1c2VyLl9pZCB9OwogIGNvbnN0IGFwcCA9IGFwcGxpY2F0aW9uKHsgbGlt
-aXQ6IDEwLCBhY2NvdW50TGltaXQ6IDEwLCBkZXZpY2VMaW1pdDogMiB9LCB7
-IHVzZXIsIGRldmljZSB9KTsKICBmb3IgKGxldCBpID0gMTsgaSA8PSAyOyBp
-KyspIGF3YWl0IHJlcXVlc3QoYXBwKS5nZXQoJy8nKS5zZXQoJ1gtRm9yd2Fy
-ZGVkLUZvcicsICcxOTguNTEuMTAwLicgKyBpKS5leHBlY3QoMjAwKTsKICBh
-d2FpdCByZXF1ZXN0KGFwcCkuZ2V0KCcvJykuc2V0KCdYLUZvcndhcmRlZC1G
-b3InLCAnMTk4LjUxLjEwMC4zJykuc2V0KCd4LWRldmljZS1pZCcsICdmb3Jn
-ZWQnKS5leHBlY3QoNDI5KTsKICBjb25zdCBhY2NvdW50S2V5ID0gYWNjb3Vu
-dFJhdGVMaW1pdEtleSh7IHVzZXIgfSk7CiAgY29uc3QgZGV2aWNlS2V5ID0g
-ZGV2aWNlUmF0ZUxpbWl0S2V5KHsgdXNlciwgZGV2aWNlIH0pOwogIGFzc2Vy
-dC5tYXRjaChhY2NvdW50S2V5LCAvXlthLWYwLTldezY0fSQvKTsKICBhc3Nl
-cnQubWF0Y2goZGV2aWNlS2V5LCAvXlthLWYwLTldezY0fSQvKTsKICBhc3Nl
-cnQubm90RXF1YWwoYWNjb3VudEtleSwgZGV2aWNlS2V5KTsKICBhc3NlcnQu
-ZXF1YWwoZGV2aWNlUmF0ZUxpbWl0S2V5KHsgdXNlciwgZGV2aWNlOiB7IC4u
-LmRldmljZSwgdXNlcklkOiAnYW5vdGhlcicgfSB9KSwgJycpOwogIGFzc2Vy
-dC5lcXVhbChkZXZpY2VSYXRlTGltaXRLZXkoeyB1c2VyLCBkZXZpY2U6IHsg
-Li4uZGV2aWNlLCByZXZva2VkQXQ6IG5ldyBEYXRlKCkgfSB9KSwgJycpOwog
-IGFzc2VydC5lcXVhbChhY2NvdW50UmF0ZUxpbWl0S2V5KHsgdXNlcjogeyBf
-aWQ6ICd4Jy5yZXBlYXQoMTYxKSB9IH0pLCAnJyk7Cn0pOwoKdGVzdCgnYW5v
-bnltb3VzIGZvcm0gc2Vzc2lvbiBoYXMgaXRzIG93biBidWNrZXQgd2hpbGUg
-Y2xlYXJpbmcgY29va2llcyBjYW5ub3QgZGVmZWF0IHRoZSBJUCBjYXAnLCBh
-c3luYyAoKSA9PiB7CiAgY29uc3QgYXBwID0gZXhwcmVzcygpOwogIGFwcC5z
-ZXQoJ3RydXN0IHByb3h5JywgJ2xvb3BiYWNrJyk7CiAgYXBwLnVzZShzZXNz
-aW9uKHsgc2VjcmV0OiAnYS1sb25nLXByaXZhdGUtdGVzdC1zZXNzaW9uLXNl
-Y3JldCcsIHJlc2F2ZTogZmFsc2UsIHNhdmVVbmluaXRpYWxpemVkOiBmYWxz
-ZSB9KSk7CiAgYXBwLmdldCgnL2Zvcm0nLCAocmVxLCByZXMpID0+IHsgcmVx
-LnNlc3Npb24uY3NyZlRva2VuID0gJ2EtcmVhbC1zZXJ2ZXItc2lkZS1jc3Jm
-LXRva2VuJzsgcmVzLnNlbmQoJ3JlYWR5Jyk7IH0pOwogIGFwcC5nZXQoJy8n
-LCByYXRlTGltaXQoeyBzY29wZTogJ3Rlc3Q6c2Vzc2lvbjonICsgKytzY29w
-ZSwgd2luZG93TXM6IDYwXzAwMCwgbGltaXQ6IDEwLCBkZXZpY2VMaW1pdDog
-MiB9KSwgKF9yZXEsIHJlcykgPT4gcmVzLnNlbmQoJ29rJykpOwogIGNvbnN0
-IGFnZW50ID0gcmVxdWVzdC5hZ2VudChhcHApOwogIGF3YWl0IGFnZW50Lmdl
-dCgnL2Zvcm0nKS5leHBlY3QoMjAwKTsKICBmb3IgKGxldCBpID0gMTsgaSA8
-PSAyOyBpKyspIGF3YWl0IGFnZW50LmdldCgnLycpLnNldCgnWC1Gb3J3YXJk
-ZWQtRm9yJywgJzE5OC41MS4xMDAuJyArIGkpLmV4cGVjdCgyMDApOwogIGF3
-YWl0IGFnZW50LmdldCgnLycpLnNldCgnWC1Gb3J3YXJkZWQtRm9yJywgJzE5
-OC41MS4xMDAuMycpLmV4cGVjdCg0MjkpOwp9KTsKCnRlc3QoJ0lQdjYgcm90
-YXRpb24gd2l0aGluIG9uZSAvNTYgc2hhcmVzIHRoZSBzYW1lIElQIHF1b3Rh
-JywgYXN5bmMgKCkgPT4gewogIGNvbnN0IGFwcCA9IGFwcGxpY2F0aW9uKCk7
-CiAgYXdhaXQgcmVxdWVzdChhcHApLmdldCgnLycpLnNldCgnWC1Gb3J3YXJk
-ZWQtRm9yJywgJzIwMDE6ZGI4OmFiY2Q6MTIwMDo6MScpLmV4cGVjdCgyMDAp
-OwogIGF3YWl0IHJlcXVlc3QoYXBwKS5nZXQoJy8nKS5zZXQoJ1gtRm9yd2Fy
-ZGVkLUZvcicsICcyMDAxOmRiODphYmNkOjEyZmY6OjInKS5leHBlY3QoMjAw
-KTsKICBhd2FpdCByZXF1ZXN0KGFwcCkuZ2V0KCcvJykuc2V0KCdYLUZvcndh
-cmRlZC1Gb3InLCAnMjAwMTpkYjg6YWJjZDoxMmFhOjozJykuZXhwZWN0KDQy
-OSk7CiAgYXdhaXQgcmVxdWVzdChhcHApLmdldCgnLycpLnNldCgnWC1Gb3J3
-YXJkZWQtRm9yJywgJzIwMDE6ZGI4OmFiY2Q6MTMwMDo6MScpLmV4cGVjdCgy
-MDApOwp9KTsK
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import express from 'express';
+import request from 'supertest';
+import session from 'express-session';
+
+process.env.NODE_ENV = 'test';
+const { default: rateLimit, accountRateLimitKey, deviceRateLimitKey } = await import('../src/middleware/rate-limit.js');
+let scope = 0;
+function application(options = {}, { user, device, proxy = 'loopback' } = {}) {
+  const app = express();
+  app.set('trust proxy', proxy);
+  app.use((req, _res, next) => {
+    req.user = user || (req.get('x-test-actor') ? { _id: req.get('x-test-actor') } : null);
+    req.device = device;
+    next();
+  });
+  app.use(rateLimit({ scope: 'test:layered:' + ++scope, windowMs: 60_000, limit: 2,
+    standardHeaders: 'draft-8', legacyHeaders: false, ...options }));
+  app.get('/', (_req, res) => res.send('ok'));
+  return app;
+}
+
+test('IP cap survives user-agent rotation and invented device headers', async () => {
+  const app = application();
+  for (let i = 0; i < 2; i++) await request(app).get('/').set('User-Agent', 'rotating-' + i).set('x-device-id', 'new-' + i).expect(200);
+  const blocked = await request(app).get('/').set('User-Agent', 'another').set('x-device-id', 'another').expect(429);
+  assert.ok(Number(blocked.headers['retry-after']) > 0);
+});
+
+test('one authenticated account cannot reset its quota by changing IP or session', async () => {
+  const app = application();
+  for (let i = 1; i <= 2; i++) await request(app).get('/').set('X-Forwarded-For', '198.51.100.' + i).set('x-test-actor', 'account-a').expect(200);
+  await request(app).get('/').set('X-Forwarded-For', '198.51.100.3').set('x-test-actor', 'account-a').expect(429);
+  await request(app).get('/').set('X-Forwarded-For', '198.51.100.4').set('x-test-actor', 'account-b').expect(200);
+});
+
+test('existing custom account keys retain a separate IP cap across different accounts', async () => {
+  const app = application({ keyGenerator: req => req.user._id });
+  for (const id of ['a', 'b']) await request(app).get('/').set('x-test-actor', id).expect(200);
+  await request(app).get('/').set('x-test-actor', 'c').expect(429);
+});
+
+test('verified device quota survives network changes and keys never contain raw identifiers', async () => {
+  const user = { _id: 'private-account-id' }, device = { _id: 'private-device-id', userId: user._id };
+  const app = application({ limit: 10, accountLimit: 10, deviceLimit: 2 }, { user, device });
+  for (let i = 1; i <= 2; i++) await request(app).get('/').set('X-Forwarded-For', '198.51.100.' + i).expect(200);
+  await request(app).get('/').set('X-Forwarded-For', '198.51.100.3').set('x-device-id', 'forged').expect(429);
+  const accountKey = accountRateLimitKey({ user });
+  const deviceKey = deviceRateLimitKey({ user, device });
+  assert.match(accountKey, /^[a-f0-9]{64}$/);
+  assert.match(deviceKey, /^[a-f0-9]{64}$/);
+  assert.notEqual(accountKey, deviceKey);
+  assert.equal(deviceRateLimitKey({ user, device: { ...device, userId: 'another' } }), '');
+  assert.equal(deviceRateLimitKey({ user, device: { ...device, revokedAt: new Date() } }), '');
+  assert.equal(accountRateLimitKey({ user: { _id: 'x'.repeat(161) } }), '');
+});
+
+test('anonymous form session has its own bucket while clearing cookies cannot defeat the IP cap', async () => {
+  const app = express();
+  app.set('trust proxy', 'loopback');
+  app.use(session({ secret: 'a-long-private-test-session-secret', resave: false, saveUninitialized: false }));
+  app.get('/form', (req, res) => { req.session.csrfToken = 'a-real-server-side-csrf-token'; res.send('ready'); });
+  app.get('/', rateLimit({ scope: 'test:session:' + ++scope, windowMs: 60_000, limit: 10, deviceLimit: 2 }), (_req, res) => res.send('ok'));
+  const agent = request.agent(app);
+  await agent.get('/form').expect(200);
+  for (let i = 1; i <= 2; i++) await agent.get('/').set('X-Forwarded-For', '198.51.100.' + i).expect(200);
+  await agent.get('/').set('X-Forwarded-For', '198.51.100.3').expect(429);
+});
+
+test('IPv6 rotation within one /56 shares the same IP quota', async () => {
+  const app = application();
+  await request(app).get('/').set('X-Forwarded-For', '2001:db8:abcd:1200::1').expect(200);
+  await request(app).get('/').set('X-Forwarded-For', '2001:db8:abcd:12ff::2').expect(200);
+  await request(app).get('/').set('X-Forwarded-For', '2001:db8:abcd:12aa::3').expect(429);
+  await request(app).get('/').set('X-Forwarded-For', '2001:db8:abcd:1300::1').expect(200);
+});
