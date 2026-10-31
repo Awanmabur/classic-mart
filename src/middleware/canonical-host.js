@@ -1,23 +1,19 @@
-aW1wb3J0IHsgZW52IH0gZnJvbSAnLi4vY29uZmlnL2Vudi5qcyc7CgovLyBP
-bmx5IHRoZSB3d3cvYXBleCBhbGlhcyBvZiB0aGUgY29uZmlndXJlZCBvcmln
-aW4gaXMgcmVkaXJlY3RlZC4gQXJiaXRyYXJ5IEhvc3QKLy8gb3IgWC1Gb3J3
-YXJkZWQtSG9zdCB2YWx1ZXMgY2FuIG5ldmVyIHN1cHBseSB0aGUgcmVkaXJl
-Y3QgZGVzdGluYXRpb24uCmV4cG9ydCBmdW5jdGlvbiBjYW5vbmljYWxIb3N0
-KHsgb3JpZ2luID0gZW52LmJhc2VVcmwsIGVuYWJsZWQgPSBlbnYuaXNQcm9k
-dWN0aW9uIH0gPSB7fSkgewogIGNvbnN0IGNhbm9uaWNhbCA9IG5ldyBVUkwo
-b3JpZ2luKTsKICBjb25zdCBob3N0bmFtZSA9IGNhbm9uaWNhbC5ob3N0bmFt
-ZS50b0xvd2VyQ2FzZSgpOwogIGNvbnN0IGFsaWFzID0gaG9zdG5hbWUuc3Rh
-cnRzV2l0aCgnd3d3LicpID8gaG9zdG5hbWUuc2xpY2UoNCkgOiBgd3d3LiR7
-aG9zdG5hbWV9YDsKICByZXR1cm4gKHJlcXVlc3QsIHJlc3BvbnNlLCBuZXh0
-KSA9PiB7CiAgICBpZiAoIWVuYWJsZWQgfHwgIVsnR0VUJywgJ0hFQUQnXS5p
-bmNsdWRlcyhyZXF1ZXN0Lm1ldGhvZCkpIHJldHVybiBuZXh0KCk7CiAgICBs
-ZXQgaG9zdDsKICAgIHRyeSB7IGhvc3QgPSBuZXcgVVJMKGBodHRwczovLyR7
-cmVxdWVzdC5nZXQoJ2hvc3QnKSB8fCAnJ31gKS5ob3N0bmFtZS50b0xvd2Vy
-Q2FzZSgpOyB9IGNhdGNoIHsgcmV0dXJuIG5leHQoKTsgfQogICAgaWYgKGhv
-c3QgIT09IGFsaWFzKSByZXR1cm4gbmV4dCgpOwogICAgY29uc3QgcGF0aCA9
-IHJlcXVlc3Qub3JpZ2luYWxVcmwgfHwgJy8nOwogICAgaWYgKCFwYXRoLnN0
-YXJ0c1dpdGgoJy8nKSB8fCBwYXRoLnN0YXJ0c1dpdGgoJy8vJykgfHwgcGF0
-aC5pbmNsdWRlcygnXFwnKSkgcmV0dXJuIG5leHQoKTsKICAgIHJlc3BvbnNl
-LnNldCgnQ2FjaGUtQ29udHJvbCcsICdwcml2YXRlLCBuby1zdG9yZScpOwog
-ICAgcmV0dXJuIHJlc3BvbnNlLnJlZGlyZWN0KDMwOCwgY2Fub25pY2FsLm9y
-aWdpbiArIHBhdGgpOwogIH07Cn0K
+import { env } from '../config/env.js';
+
+// Only the www/apex alias of the configured origin is redirected. Arbitrary Host
+// or X-Forwarded-Host values can never supply the redirect destination.
+export function canonicalHost({ origin = env.baseUrl, enabled = env.isProduction } = {}) {
+  const canonical = new URL(origin);
+  const hostname = canonical.hostname.toLowerCase();
+  const alias = hostname.startsWith('www.') ? hostname.slice(4) : `www.${hostname}`;
+  return (request, response, next) => {
+    if (!enabled || !['GET', 'HEAD'].includes(request.method)) return next();
+    let host;
+    try { host = new URL(`https://${request.get('host') || ''}`).hostname.toLowerCase(); } catch { return next(); }
+    if (host !== alias) return next();
+    const path = request.originalUrl || '/';
+    if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\')) return next();
+    response.set('Cache-Control', 'private, no-store');
+    return response.redirect(308, canonical.origin + path);
+  };
+}
