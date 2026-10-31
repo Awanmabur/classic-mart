@@ -11,7 +11,7 @@ const previewJs = source('public/product-preview.js');
 const modalCss = source('public/platform-polish.css');
 const dashboard = source('views/approved-dashboard.ejs');
 
-test('approved dashboard includes the cross-role phone header and non-blocking centered brand loader', () => {
+test('approved dashboard includes the cross-role phone header and one centered original loader', () => {
   assert.match(dashboard, /approved-dashboard\/mobile-header\.css/);
   assert.match(mobileCss, /max-width:\s*760px/);
   assert.match(mobileCss, /\.topbar #searchForm\s*\{\s*display:\s*none !important/);
@@ -19,10 +19,10 @@ test('approved dashboard includes the cross-role phone header and non-blocking c
   assert.match(mobileCss, /\.topbar \.mobile-menu/);
   assert.match(loaderCss, /top:\s*50%/);
   assert.match(loaderCss, /left:\s*50%/);
-  assert.match(loaderJs, /platform-loading-brand/);
-  assert.match(loaderJs, /approved-dashboard\/assets\/classic-mart-icon\.png/);
-  assert.match(modalCss, /body \.modal-backdrop/);
-  assert.match(modalCss, /body \.product-preview-loading/);
+  assert.match(loaderJs, /platform-loading-spinner/);
+  assert.doesNotMatch(loaderJs, /platform-loading-brand/);
+  assert.doesNotMatch(modalCss, /cmPreviewSpin/);
+  assert.doesNotMatch(modalCss, /body \.product-badge\.badge-red/);
 });
 
 test('single-product preview does not block on full catalog and still validates current product before rendering', () => {
