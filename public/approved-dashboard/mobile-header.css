@@ -39,11 +39,9 @@
   }
   body[data-dashboard-workspace] .topbar .mobile-menu {
     display: grid !important;
-    position: absolute;
-    top: 50%;
-    right: 10px;
-    transform: translateY(-50%);
-    z-index: 2;
+    position: static;
+    transform: none;
+    flex: 0 0 40px;
     width: 40px;
     height: 40px;
     margin: 0;
@@ -56,11 +54,11 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 0;
-    padding-right: 47px;
+    gap: 7px;
+    padding-right: 0;
     min-width: 0;
   }
-  body[data-dashboard-workspace] .topbar .top-actions > :not(.ai-button) {
+  body[data-dashboard-workspace] .topbar .top-actions > :not(.ai-button):not(.mobile-menu) {
     display: none !important;
   }
   body[data-dashboard-workspace] .topbar .top-actions .ai-button {
