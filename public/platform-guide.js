@@ -4,7 +4,7 @@
   const microphone = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg>';
   const trigger = document.createElement('button');
   trigger.type = 'button'; trigger.className = 'classic-guide-trigger';
-  trigger.setAttribute('aria-label', 'Open Classic AI voice and shopping guide');
+  trigger.setAttribute('aria-label', 'Ask Classic — open AI voice and shopping guide');
   trigger.setAttribute('aria-haspopup', 'dialog'); trigger.setAttribute('aria-controls', 'classicGuideDialog');
   trigger.innerHTML = `${microphone}<span>Ask Classic</span>`;
   const dialog = document.createElement('dialog');
