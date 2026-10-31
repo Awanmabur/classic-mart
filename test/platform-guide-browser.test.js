@@ -32,6 +32,14 @@ test('floating guide uses a private session, safe real-price cards, accessible m
       page.on('pageerror', error => errors.push(error.message));
       await page.goto('https://guide.example/');
       assert.equal(sessionReads, 0, 'closed helper makes no requests');
+      assert.equal(await page.evaluate(() => Boolean(window.ClassicMartGuide)), true,
+        'Voice guide did not initialize: ' + JSON.stringify(errors) + '; DOM=' +
+        JSON.stringify(await page.evaluate(() => ({
+          hasMain: !!document.querySelector('main'),
+          dialogSupported: !!window.HTMLDialogElement,
+          trigger: document.querySelector('.classic-guide-trigger')?.outerHTML || null,
+          scripts: [...document.scripts].map(el => el.src)
+        }))));
       await page.getByRole('button', { name: 'Ask Classic — open AI voice and shopping guide' }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
       await expect(page.locator('.classic-guide-status')).toContainText('Shopping in UG');
