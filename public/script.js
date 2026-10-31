@@ -1489,6 +1489,10 @@
 
     const productPreview = event.target.closest('[data-product-preview]');
     if (productPreview) {
+      const link = event.target.closest('a[href]');
+      // Preserve native open-in-new-tab behaviour for crawlable product links.
+      if (link && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)) return;
+      if (link) event.preventDefault();
       openProductModal(productPreview.dataset.productPreview);
       return;
     }
