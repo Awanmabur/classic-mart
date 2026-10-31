@@ -1,0 +1,6 @@
+<% const history = historyPage || {}; if (history.firstHref || history.nextHref) { %>
+<nav class="card-actions" aria-label="<%= historyLabel || 'History pages' %>">
+  <% if (history.firstHref) { %><a class="outline-button" href="<%= history.firstHref %>">Newest</a><% } %>
+  <% if (history.nextHref) { %><a class="soft-button" href="<%= history.nextHref %>" rel="next">Older <%= historyLabel || 'entries' %></a><% } %>
+</nav>
+<% } %>

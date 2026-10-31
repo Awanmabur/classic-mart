@@ -1,28 +1,86 @@
+import { restrictedOptionalUserIds } from './optional-processing.js';
+import { optionalNotificationRecipient } from './customer-notification-policy.js';
 import mongoose from 'mongoose';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import {
   BusinessBudget, Campaign, CountrySetting, CustomerCatalogueState, PriceSchedule, ProcurementRequest, Product, ProductVariant, PurchaseOrder, QuoteRequest,
-  SellerPromotion, StoreBroadcast, User,
+  SellerPromotion, Store, StoreBroadcast, StoreMember, User,
 } from '../models/index.js';
 import { addOutboxEvent } from './outbox.js';
 import { acceptPurchaseOrderIntoCommerce } from './business-fulfillment.js';
 import { issueQuotationDocument } from './business-documents.js';
 import { cursorScope, cursorSort, pageResult } from './pagination.js';
+import { assertSellerCouponCodeAvailable } from './country-coupons.js';
+import { writeAudit } from './audit.js';
 
 function activeWindowQuery(now=new Date()){return {status:'active',startsAt:{$lte:now},$or:[{endsAt:null},{endsAt:{$exists:false}},{endsAt:{$gt:now}}]};}
-export async function createSellerPromotion(request,input){
-  const type=input.type;const productIds=[...new Set((input.productPublicIds||[]).map(String).filter(Boolean))];
-  const products=productIds.length?await Product.find({publicId:{$in:productIds},storeId:request.store._id}).lean():[];
-  if(productIds.length!==products.length)throw new AppError('Every promotion product must belong to your store.',422,'PROMOTION_PRODUCT_INVALID');
-  const discountBps=Math.max(0,Math.min(9000,Number(input.discountBps||0)));const fixed=Math.max(0,Number(input.fixedDiscountMinor||0));
-  if(['voucher','bundle','quantity_break'].includes(type)&&discountBps<=0&&fixed<=0)throw new AppError('Enter a discount for this promotion.',422,'PROMOTION_DISCOUNT_REQUIRED');
-  if(type==='voucher'&&!String(input.code||'').trim())throw new AppError('Voucher code is required.',422,'PROMOTION_CODE_REQUIRED');
-  if(productIds.length&&['voucher','bundle','quantity_break'].includes(type)){
-    const variants=await ProductVariant.find({productId:{$in:products.map(p=>p._id)},active:true}).lean();
-    for(const v of variants){const floor=Number(v.minimumPriceMinor||0);const discounted=Math.max(0,v.priceMinor-Math.max(fixed,Math.floor(v.priceMinor*discountBps/10000)));if(floor>0&&discounted<floor)throw new AppError(`Promotion would price ${v.sku} below its minimum price.`,409,'MINIMUM_PRICE_VIOLATION');}
+
+const SPONSORED_CACHE_TTL_MS = 20_000;
+const sponsoredOfferCache = new Map();
+
+export function clearSponsoredOfferCache(country = '') {
+  const code = String(country || '').trim().toUpperCase();
+  if (code) sponsoredOfferCache.delete(code);
+  else sponsoredOfferCache.clear();
+}
+
+async function loadSponsoredOfferState(countryCode) {
+  const nowMs = Date.now();
+  const cached = sponsoredOfferCache.get(countryCode);
+  if (cached?.value && cached.expiresAt > nowMs) return cached.value;
+  if (cached?.promise) return cached.promise;
+  const now = new Date(nowMs);
+  const promise = Promise.all([
+    SellerPromotion.find({ country: countryCode, type: 'sponsored', ...activeWindowQuery(now) })
+      .select('publicId productPublicIds disclosureText')
+      .lean(),
+    Campaign.find({
+      country: countryCode,
+      status: 'active',
+      visibility: 'public',
+      $and: [
+        { $or: [{ startsAt: null }, { startsAt: { $exists: false } }, { startsAt: { $lte: now } }] },
+        { $or: [{ endsAt: null }, { endsAt: { $exists: false } }, { endsAt: { $gt: now } }] },
+      ],
+    }).select('publicId productPublicIds commissionBps disclosureText').lean(),
+    CountrySetting.findOne({ code: countryCode, active: true }).select('growth.promoterCommissionBps policyVersion').lean(),
+  ]).then(([placements, campaigns, setting]) => ({ placements, campaigns, setting }));
+  sponsoredOfferCache.set(countryCode, { ...cached, promise });
+  try {
+    const value = await promise;
+    sponsoredOfferCache.set(countryCode, { value, expiresAt: Date.now() + SPONSORED_CACHE_TTL_MS, promise: null });
+    return value;
+  } catch (error) {
+    sponsoredOfferCache.delete(countryCode);
+    throw error;
   }
-  try{return await SellerPromotion.create({publicId:publicId('spr'),storeId:request.store._id,storePublicId:request.store.publicId,country:request.store.country,currency:request.store.currency,type,name:String(input.name).trim().slice(0,140),code:String(input.code||'').trim().toUpperCase(),productPublicIds:productIds,discountBps,fixedDiscountMinor:fixed,minQuantity:Math.max(1,Number(input.minQuantity||1)),minSubtotalMinor:Math.max(0,Number(input.minSubtotalMinor||0)),disclosureText:String(input.disclosureText||'Sponsored placement.').trim().slice(0,300),startsAt:input.startsAt?new Date(input.startsAt):new Date(),endsAt:input.endsAt?new Date(input.endsAt):undefined,status:input.status==='active'?'active':'draft',createdByUserId:request.user._id});}catch(error){if(error?.code===11000)throw new AppError('That voucher code is already in use.',409,'PROMOTION_CODE_EXISTS');throw error;}
+}
+export async function createSellerPromotion(request,input){
+  const session=await mongoose.startSession();
+  let row;
+  try {
+    const {lockSellerGrowthStore}=await import('./seller-growth-pages.js');
+    await session.withTransaction(async()=>{
+      const store=await lockSellerGrowthStore(request,'growth',session);
+      const type=input.type;const productIds=[...new Set((input.productPublicIds||[]).map(String).filter(Boolean))];
+      const products=productIds.length?await Product.find({publicId:{$in:productIds},storeId:store._id}).session(session).lean():[];
+      if(productIds.length!==products.length)throw new AppError('Every promotion product must belong to your store.',422,'PROMOTION_PRODUCT_INVALID');
+      const discountBps=Math.max(0,Math.min(9000,Number(input.discountBps||0)));const fixed=Math.max(0,Number(input.fixedDiscountMinor||0));
+      if(['voucher','bundle','quantity_break'].includes(type)&&discountBps<=0&&fixed<=0)throw new AppError('Enter a discount for this promotion.',422,'PROMOTION_DISCOUNT_REQUIRED');
+      if(type==='voucher'&&!String(input.code||'').trim())throw new AppError('Voucher code is required.',422,'PROMOTION_CODE_REQUIRED');
+      if(type==='voucher')await assertSellerCouponCodeAvailable(store,input.code,session);
+      if(productIds.length&&['voucher','bundle','quantity_break'].includes(type)){
+        const variants=await ProductVariant.find({productId:{$in:products.map(p=>p._id)},active:true}).session(session).lean();
+        for(const v of variants){const floor=Number(v.minimumPriceMinor||0);const discounted=Math.max(0,v.priceMinor-Math.max(fixed,Math.floor(v.priceMinor*discountBps/10000)));if(floor>0&&discounted<floor)throw new AppError(`Promotion would price ${v.sku} below its minimum price.`,409,'MINIMUM_PRICE_VIOLATION');}
+      }
+      [row]=await SellerPromotion.create([{publicId:publicId('spr'),storeId:store._id,storePublicId:store.publicId,country:store.country,currency:store.currency,type,name:String(input.name).trim().slice(0,140),code:String(input.code||'').trim().toUpperCase(),productPublicIds:productIds,discountBps,fixedDiscountMinor:fixed,minQuantity:Math.max(1,Number(input.minQuantity||1)),minSubtotalMinor:Math.max(0,Number(input.minSubtotalMinor||0)),disclosureText:String(input.disclosureText||'Sponsored placement.').trim().slice(0,300),startsAt:input.startsAt?new Date(input.startsAt):new Date(),endsAt:input.endsAt?new Date(input.endsAt):undefined,status:input.status==='active'?'active':'draft',createdByUserId:request.user._id}],{session});
+      const auditRequest={id:request.id||publicId('req'),user:request.user,ip:request.ip||'',get:typeof request.get==='function'?request.get.bind(request):()=>''};
+      await writeAudit(auditRequest,type==='voucher'?'seller.coupon.created':'seller.promotion.created',{targetType:'seller_promotion',targetPublicId:row.publicId,country:store.country,session,metadata:{type,storePublicId:store.publicId}});
+    });
+  } catch(error) {if(error?.code===11000)throw new AppError('That voucher code is already in use.',409,'PROMOTION_CODE_EXISTS');throw error;}
+  finally {await session.endSession();}
+  clearSponsoredOfferCache(request.store.country);return row;
 }
 
 export async function promotionMarginPreview(request,input){
@@ -34,11 +92,42 @@ export async function promotionMarginPreview(request,input){
   return variants.map(v=>{const raw=Math.max(fixed,Math.floor(v.priceMinor*discountBps/10000));const floor=Math.min(v.priceMinor,Math.max(0,Number(v.minimumPriceMinor||0)));const discountMinor=Math.min(raw,Math.max(0,v.priceMinor-floor));const netPriceMinor=v.priceMinor-discountMinor;const costMinor=Math.max(0,Number(v.costMinor||0));return{productPublicId:pmap.get(String(v.productId))?.publicId||'',title:pmap.get(String(v.productId))?.title||'',variantPublicId:v.publicId,sku:v.sku,priceMinor:v.priceMinor,minimumPriceMinor:floor,costMinor,discountMinor,netPriceMinor,marginMinor:netPriceMinor-costMinor,marginBps:netPriceMinor>0?Math.floor((netPriceMinor-costMinor)*10000/netPriceMinor):0};});
 }
 
-export async function setSellerPromotionStatus(request,id,status){const row=await SellerPromotion.findOne({publicId:id,storeId:request.store._id});if(!row)throw new AppError('Promotion not found.',404,'PROMOTION_NOT_FOUND');row.status=status;await row.save();return row;}
+export async function setSellerPromotionStatus(request,id,status){const row=await SellerPromotion.findOne({publicId:id,storeId:request.store._id});if(!row)throw new AppError('Promotion not found.',404,'PROMOTION_NOT_FOUND');row.status=status;await row.save();clearSponsoredOfferCache(request.store.country);return row;}
 export async function scheduleVariantPrice(request,input){const variant=await ProductVariant.findOne({publicId:input.variantId,storeId:request.store._id,active:true});if(!variant)throw new AppError('Variant not found.',404,'VARIANT_NOT_FOUND');const minimum=Math.max(Number(variant.minimumPriceMinor||0),Number(input.minimumPriceMinor||0));const next=Number(input.newPriceMinor);if(next<minimum)throw new AppError('Scheduled price cannot be below the minimum price.',409,'MINIMUM_PRICE_VIOLATION');variant.minimumPriceMinor=minimum;if(input.costMinor!==undefined)variant.costMinor=Math.max(0,Number(input.costMinor));await variant.save();return PriceSchedule.create({publicId:publicId('psch'),storeId:request.store._id,variantId:variant._id,variantPublicId:variant.publicId,previousPriceMinor:variant.priceMinor,newPriceMinor:next,minimumPriceMinor:minimum,startsAt:new Date(input.startsAt),status:'scheduled',createdByUserId:request.user._id});}
 export async function applyDuePriceSchedules(){const due=await PriceSchedule.find({status:'scheduled',startsAt:{$lte:new Date()}}).limit(100);for(const row of due){const variant=await ProductVariant.findById(row.variantId);if(!variant){row.status='failed';row.failureReason='Variant no longer exists.';await row.save();continue;}if(row.newPriceMinor<Math.max(row.minimumPriceMinor,variant.minimumPriceMinor||0)){row.status='failed';row.failureReason='Minimum price changed before schedule execution.';await row.save();continue;}variant.priceMinor=row.newPriceMinor;variant.minimumPriceMinor=Math.max(variant.minimumPriceMinor||0,row.minimumPriceMinor);await variant.save();row.status='applied';row.appliedAt=new Date();await row.save();}}
 export async function createStoreBroadcast(request,input){const row=await StoreBroadcast.create({publicId:publicId('brd'),storeId:request.store._id,storePublicId:request.store.publicId,country:request.store.country,subject:String(input.subject).trim().slice(0,180),body:String(input.body).trim().slice(0,4000),status:'draft',createdByUserId:request.user._id});return row;}
-export async function queueStoreBroadcast(request,id){const row=await StoreBroadcast.findOne({publicId:id,storeId:request.store._id,status:'draft'});if(!row)throw new AppError('Draft broadcast not found.',404,'BROADCAST_NOT_FOUND');const states=await CustomerCatalogueState.find({followedStoreIds:request.store._id}).select('userId').lean();const ids=states.map(s=>s.userId);const users=ids.length?await User.find({_id:{$in:ids},status:'active',country:request.store.country,'consents.marketing':true}).select('publicId email country').lean():[];for(const user of users)await addOutboxEvent({type:'store.broadcast',aggregateType:'store_broadcast',aggregatePublicId:row.publicId,payload:{userPublicId:user.publicId,email:user.email,subject:row.subject,body:row.body,storePublicId:request.store.publicId,country:user.country,consentBasis:'marketing+follow'}});row.status='queued';row.recipientCount=users.length;row.queuedAt=new Date();await row.save();return row;}
+export async function queueStoreBroadcast(request, id) {
+  const row = await StoreBroadcast.findOne({ publicId: id, storeId: request.store._id, status: 'draft' });
+  if (!row) throw new AppError('Draft broadcast not found.', 404, 'BROADCAST_NOT_FOUND');
+  const states = await CustomerCatalogueState.find({ followedStoreIds: request.store._id }).select('userId').lean();
+  const ids = states.map(state => state.userId), restricted = await restrictedOptionalUserIds();
+  const users = ids.length ? await User.find({ _id: { $in: ids, $nin: restricted }, status: 'active', country: request.store.country,
+    emailVerifiedAt: { $type: 'date' }, 'consents.marketing': true, 'preferences.notifications.offers': true }).select('publicId email country').lean() : [];
+  for (const user of users) await addOutboxEvent({ type: 'store.broadcast', aggregateType: 'store_broadcast', aggregatePublicId: row.publicId,
+    payload: { userPublicId: user.publicId, email: user.email, subject: row.subject, body: row.body, storePublicId: request.store.publicId,
+      country: user.country, consentBasis: 'marketing+follow' } });
+  row.status = users.length ? 'queued' : 'sent'; row.recipientCount = users.length; row.queuedAt = new Date();
+  await row.save(); return row;
+}
+
+/** Recheck the sender, live store, current follow and current recipient consent
+ * at dispatch. Queued contact details never remain delivery authority. */
+export async function prepareStoreBroadcastDelivery(event) {
+  const broadcast = await StoreBroadcast.findOne({ publicId: event.aggregatePublicId, status: 'queued', country: event.payload?.country }).lean();
+  if (!broadcast) return null;
+  const store = await Store.findOne({ _id: broadcast.storeId, publicId: broadcast.storePublicId, country: broadcast.country, status: 'verified' }).lean();
+  if (!store || !await User.exists({ _id: broadcast.createdByUserId, status: 'active' })) return null;
+  const sender = await StoreMember.exists({ storeId: store._id, userId: broadcast.createdByUserId, status: 'active', role: { $in: ['owner', 'admin', 'support'] } });
+  if (!sender) return null;
+  const identity = await User.findOne({ publicId: event.payload?.userPublicId, country: broadcast.country }).select('_id').lean();
+  const user = identity ? await optionalNotificationRecipient(identity._id, 'offers') : null;
+  if (!user || !await CustomerCatalogueState.exists({ userId: user._id, followedStoreIds: store._id })) return null;
+  // Consent and a followed store do not prove ownership of an email address.
+  // Recheck the exact current address immediately before returning delivery work.
+  if (!await User.exists({ _id: user._id, country: broadcast.country, status: 'active', email: user.email,
+    emailVerifiedAt: { $type: 'date' } })) return null;
+  return { email: user.email, subject: broadcast.subject, text: broadcast.body };
+}
 export async function sellerRespondQuote(request,id,{message,offeredUnitMinor=[],validUntil}){
   const session=await mongoose.startSession();let result;
   try{await session.withTransaction(async()=>{
@@ -88,12 +177,23 @@ export async function sellerGrowthWorkspace(request){
   return {promotions:promotionsPage.items,schedules:schedulesPage.items,broadcasts:broadcastsPage.items,quotes:quotesPage.items,variants:variantsPage.items,purchaseOrders:purchaseOrdersPage.items,products:productsPage.items,queuePages:{promotions:promotionsPage.page,schedules:schedulesPage.page,broadcasts:broadcastsPage.page,quotes:quotesPage.page,variants:variantsPage.page,purchaseOrders:purchaseOrdersPage.page,products:productsPage.page}};
 }
 
-export async function promotionQuote({rows,country,codes=[]}){
+export async function promotionQuote({rows,country,codes=[],session=null}){
+  if(session && !session.inTransaction())throw new AppError('Promotion reservations require the checkout transaction.',500,'PROMOTION_TRANSACTION_REQUIRED');
   if(!rows.length)return {discountMinor:0,freeShipping:false,applications:[],storeDiscounts:{}};
-  const now=new Date();const storeIds=[...new Set(rows.map(r=>r.storeId))];const promos=await SellerPromotion.find({country,...activeWindowQuery(now),storePublicId:{$in:storeIds}}).lean();const codeSet=new Set(codes.map(v=>String(v).trim().toUpperCase()).filter(Boolean));let discount=0;let freeShipping=false;const applications=[];const storeDiscounts={};
+  const now=new Date();const storeIds=[...new Set(rows.map(r=>r.storeId))];const promos=await SellerPromotion.find({country,...activeWindowQuery(now),storePublicId:{$in:storeIds}}).session(session).lean();const codeSet=new Set(codes.map(v=>String(v).trim().toUpperCase()).filter(Boolean));let discount=0;let freeShipping=false;const applications=[];const storeDiscounts={};
   const byStore=new Map();const capacity=new Map();for(const row of rows){const arr=byStore.get(row.storeId)||[];arr.push(row);byStore.set(row.storeId,arr);const key=`${row.storeId}:${row.variantId||row.productId}`;const floor=Math.min(Number(row.priceMinor||0),Math.max(0,Number(row.minimumPriceMinor||0)));capacity.set(key,Math.max(0,(Number(row.priceMinor||0)-floor)*Number(row.quantity||0)));}
   for(const promo of promos){const items=byStore.get(promo.storePublicId)||[];if(!items.length)continue;const eligible=promo.productPublicIds.length?items.filter(i=>promo.productPublicIds.includes(i.productId)):items;const eligibleSubtotal=eligible.reduce((sum,item)=>sum+Number(item.priceMinor||0)*Number(item.quantity||0),0);const eligibleQty=eligible.reduce((sum,item)=>sum+Number(item.quantity||0),0);if(!eligible.length||eligibleSubtotal<promo.minSubtotalMinor||eligibleQty<promo.minQuantity)continue;if(promo.type==='voucher'&&!codeSet.has(promo.code))continue;if(promo.type==='bundle'&&!promo.productPublicIds.every(id=>items.some(i=>i.productId===id)))continue;if(promo.type==='free_shipping'){freeShipping=true;applications.push({id:promo.publicId,type:promo.type,name:promo.name,discountMinor:0});continue;}if(promo.type==='sponsored')continue;
     const raw=Math.max(Number(promo.fixedDiscountMinor||0),Math.floor(eligibleSubtotal*Number(promo.discountBps||0)/10000));const availableCapacity=eligible.reduce((sum,row)=>sum+(capacity.get(`${row.storeId}:${row.variantId||row.productId}`)||0),0);let value=Math.min(eligibleSubtotal,raw,availableCapacity);if(value<=0)continue;const applied=value;for(const row of eligible){if(value<=0)break;const key=`${row.storeId}:${row.variantId||row.productId}`;const remaining=capacity.get(key)||0;const consume=Math.min(remaining,value);capacity.set(key,remaining-consume);value-=consume;}discount+=applied;storeDiscounts[promo.storePublicId]=(storeDiscounts[promo.storePublicId]||0)+applied;applications.push({id:promo.publicId,type:promo.type,name:promo.name,discountMinor:applied});}
+  if(session){
+    const appliedIds=new Set(applications.map(application=>application.id));
+    for(const promo of promos.filter(row=>appliedIds.has(row.publicId))){
+      // Checkout and a concurrent pause/edit must conflict on the same source.
+      // Preserve Seller form revisions and updatedAt for this private read fence.
+      const claimed=await SellerPromotion.updateOne({_id:promo._id,publicId:promo.publicId,storeId:promo.storeId,storePublicId:promo.storePublicId,country,
+        __v:promo.__v===undefined?{$exists:false}:promo.__v,...activeWindowQuery(new Date())},{$inc:{checkoutReadRevision:1}},{session,timestamps:false});
+      if(claimed.modifiedCount!==1)throw new AppError('A Seller offer changed. Review checkout again.',409,'PROMOTION_CHANGED');
+    }
+  }
   return {discountMinor:discount,freeShipping,applications,storeDiscounts};
 }
 export function marketplacePromoterCampaignPublicId(country) {
@@ -103,25 +203,8 @@ export function marketplacePromoterCampaignPublicId(country) {
 
 export async function activeSponsoredProducts(country, productPublicIds = []) {
   const countryCode = String(country || '').trim().toUpperCase();
-  const now = new Date();
   const ids = [...new Set((productPublicIds || []).map((value) => String(value || '').trim()).filter(Boolean))];
-  const [placements, campaigns, setting] = await Promise.all([
-    SellerPromotion.find({ country: countryCode, type: 'sponsored', ...activeWindowQuery(now) })
-      .select('publicId productPublicIds disclosureText')
-      .lean(),
-    Campaign.find({
-      country: countryCode,
-      status: 'active',
-      visibility: 'public',
-      $and: [
-        { $or: [{ startsAt: null }, { startsAt: { $exists: false } }, { startsAt: { $lte: now } }] },
-        { $or: [{ endsAt: null }, { endsAt: { $exists: false } }, { endsAt: { $gt: now } }] },
-      ],
-    })
-      .select('publicId productPublicIds commissionBps disclosureText')
-      .lean(),
-    CountrySetting.findOne({ code: countryCode, active: true }).select('growth.promoterCommissionBps policyVersion').lean(),
-  ]);
+  const { placements, campaigns, setting } = await loadSponsoredOfferState(countryCode);
 
   const map = new Map();
   const defaultCommissionBps = Math.max(0, Math.min(5000, Number(setting?.growth?.promoterCommissionBps ?? 300) || 0));

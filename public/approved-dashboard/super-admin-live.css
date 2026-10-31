@@ -1,0 +1,23 @@
+/* Super Admin controls use the approved Country Admin control geometry. */
+body[data-dashboard-workspace="superadmin"] .country-admin-heading-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:10px; min-width:0; }
+body[data-dashboard-workspace="superadmin"] .country-admin-country-filter { margin:0; display:flex; align-items:center; flex-wrap:wrap; gap:7px; min-width:0; }
+body[data-dashboard-workspace="superadmin"] .country-admin-country-filter select { min-width:0; max-width:100%; }
+body[data-dashboard-workspace="superadmin"] .country-admin-fidelity-page .role-table-panel > .role-panel-head { flex-wrap:wrap; }
+body[data-dashboard-workspace="superadmin"] .country-admin-fidelity-page .role-table-tools { max-width:100%; flex-wrap:wrap; }
+body[data-dashboard-workspace="superadmin"] .country-admin-compact-filter { margin:0; display:flex; align-items:center; gap:7px; flex-wrap:wrap; min-width:0; }
+body[data-dashboard-workspace="superadmin"] .country-admin-compact-filter .role-mini-search { flex:none; min-width:160px; width:170px; height:36px; }
+body[data-dashboard-workspace="superadmin"] .country-admin-record-tabs { flex-wrap:nowrap; overflow-x:auto; }
+body[data-dashboard-workspace="superadmin"] .country-admin-record-tabs a { min-height:31px; padding:0 12px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--border); border-radius:var(--radius-pill,999px); color:#526078; background:#fff; font-size:11.5px; font-weight:600; line-height:1.35; text-decoration:none; white-space:nowrap; }
+body[data-dashboard-workspace="superadmin"] .country-admin-record-tabs a.active { color:#fff; border-color:var(--blue); background:var(--blue); }
+body[data-dashboard-workspace="superadmin"] .country-admin-record-action { padding:1px 6px; display:inline-flex; align-items:center; justify-content:center; border-radius:var(--radius-button,12px); text-decoration:none; }
+body[data-dashboard-workspace="superadmin"] .country-admin-page-control { min-width:27px; min-height:27px; padding:0 9px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--border); border-radius:var(--radius-button,12px); color:#56647b; background:#fff; font-size:11px; }
+body[data-dashboard-workspace="superadmin"] .country-admin-page-control.active { color:#fff; border-color:var(--blue); background:var(--blue); }
+body[data-dashboard-workspace="superadmin"] .country-admin-page-control[aria-disabled="true"] { opacity:.6; }
+body[data-dashboard-workspace="superadmin"] .country-admin-fidelity-page .role-workflow-grid a { grid-column:2; justify-self:start; min-height:29px; padding:0 10px; display:inline-flex; align-items:center; border-radius:var(--radius-button,12px); color:var(--blue); background:#fff8f3; font-size:11.5px; font-weight:600; text-decoration:none; }
+body[data-dashboard-workspace="superadmin"] .country-admin-fidelity-page .role-metric strong { white-space:normal; overflow-wrap:anywhere; }
+body[data-dashboard-workspace="superadmin"] .country-admin-fidelity-page :is(.role-health-rows b,.role-activity-panel p) { overflow-wrap:anywhere; }
+@media(max-width:700px) {
+  body[data-dashboard-workspace="superadmin"] .country-admin-heading-actions { width:100%; justify-content:flex-start; }
+  body[data-dashboard-workspace="superadmin"] .country-admin-compact-filter .role-mini-search { min-width:0; width:100%; }
+  body[data-dashboard-workspace="superadmin"] .country-admin-fidelity-page .role-table-tools { width:100%; }
+}

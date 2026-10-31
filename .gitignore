@@ -2,16 +2,20 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 node_modules/
 
 # Classic Mart local/runtime state
 .classic-mart/
 storage/uploads/
 storage/exports/
+storage/privacy/
 logs/
 artifacts/
 coverage/
 dist/
+test-results/
+playwright-report/
 
 # Generated release/runtime files
 *.log

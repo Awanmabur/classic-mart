@@ -1,0 +1,100 @@
+/* The live notification action is nested in a CSRF-protected form. Match the
+   approved direct-child button without changing ordinary dashboard controls. */
+body[data-dashboard-live="true"] .notification-list article > form {
+  display: contents;
+}
+
+body[data-dashboard-live="true"] .notification-list article > form > button {
+  display: block;
+  min-height: auto;
+  padding: 0 10px;
+  border: 0;
+  color: #778397;
+  background: transparent;
+  font-size: 11px;
+}
+
+/* Clear Cart uses a button instead of the preview's link. Keep the approved
+   plain-link padding, type and colors while centering its native button text. */
+body[data-dashboard-live="true"] button.plain-link[data-cart-clear] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Live product photographs use the homepage's 23px corners. Keep original
+   image dimensions, containment, card borders and action placement intact. */
+body[data-dashboard-live="true"] #pageHost :is(.product-image img, .wishlist-item img, .seller-product-image,
+  .cart-item > img, .order-row > img, .single-product-img, .order-products-stack img) {
+  border-radius: 23px;
+  clip-path: var(--catalogue-photo-clip, none);
+}
+
+/* Native forms add a wrapper that the approved preview does not have. Keep
+   real submit/cancel controls separate from fields and from one another. */
+body[data-dashboard-live="true"] #pageHost :is(.form-panel, .role-form-section) > form > :is(.role-form-grid, label, .form-intro) + :is(button.primary-button, button.soft-button, button.outline-button) {
+  margin-block-start: 16px;
+}
+
+body[data-dashboard-live="true"] #pageHost .role-form-grid > :is(.wide, div):has(> :is(button.primary-button, button.soft-button, button.outline-button, a.primary-button, a.soft-button, a.outline-button) ~ :is(button.primary-button, button.soft-button, button.outline-button, a.primary-button, a.soft-button, a.outline-button)) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+body[data-dashboard-live="true"] #pageHost .role-form-grid > .wide:has(> :is(button, a)) {
+  grid-column: 1 / -1;
+}
+
+body[data-dashboard-live="true"] #pageHost :is(.row-actions, .card-actions, .seller-verification-actions, .warehouse-live-actions) {
+  gap: 10px;
+}
+
+body[data-dashboard-live="true"] #pageHost .profile-summary > .dashboard-form {
+  margin-block-start: 18px;
+}
+
+/* Category identities keep the same circle as their homepage counterparts. */
+body[data-dashboard-live="true"] .category-card > span {
+  overflow: hidden;
+}
+
+body[data-dashboard-live="true"] .category-card img {
+  border-radius: 50%;
+}
+
+/* A real form adds an extra box to action rows that the static preview lacks. */
+body[data-dashboard-live="true"] :is(.card-actions, .row-actions):has(> form) {
+  flex-wrap: wrap;
+}
+
+body[data-dashboard-live="true"] :is(.card-actions, .row-actions) > form {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 620px) {
+  /* Unlike the preview's dismiss icon, this is the real saved read action.
+     Keep it reachable below the notification text on small screens. */
+  body[data-dashboard-live="true"] .notification-list article > form > button {
+    min-height: 0;
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  /* The preview's mobile .soft-button placement belongs to order cards. A
+     form submit must not create two extra grid columns beside its fields. */
+  body[data-dashboard-live="true"] .dashboard-form > .soft-button {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    justify-self: start;
+  }
+
+  body[data-dashboard-live="true"] .role-upload-box > .soft-button {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    justify-self: center;
+  }
+}

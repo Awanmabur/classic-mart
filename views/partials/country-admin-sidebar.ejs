@@ -1,0 +1,20 @@
+<%
+const sidebarScope = liveAdmin.context?.country || '';
+const sidebarQuery = new URLSearchParams({ ...(sidebarScope ? { country: sidebarScope } : {}), report: 'operational' });
+const sidebarHealth = liveAdmin.sidebar?.supportServiceLevel;
+const sidebarMarket = liveAdmin.context?.countries?.find(row => row.code === sidebarScope);
+%>
+<aside class="sidebar" id="sidebar">
+  <nav class="side-navigation">
+    <% let previousGroup = ''; for (const item of liveAdmin.navigation || []) { if (item.group && item.group !== previousGroup) { previousGroup = item.group; %><span class="nav-section-label"><%= item.group %></span><% } %>
+      <a class="side-link <%= initialPage === item.id ? 'active' : '' %>" href="<%= item.href + (sidebarScope ? '?country=' + encodeURIComponent(sidebarScope) : '') %>" data-page-target="<%= item.id %>"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></a>
+    <% } %>
+  </nav>
+  <section class="sidebar-club-card">
+    <span class="sidebar-crown"><svg><use href="#i-shield"></use></svg></span>
+    <h3>Country operations</h3><p class="member-copy"><%= sidebarMarket?.name || 'All assigned countries' %></p>
+    <p><%= Number.isFinite(sidebarHealth) ? sidebarHealth.toFixed(1) + '% support service level' : 'No support SLA observations' %></p>
+    <a class="primary-button full-button" href="<%= '/admin/reports?' + sidebarQuery %>">Review Queue</a>
+  </section>
+  <button class="logout-button" data-action="logout"><svg><use href="#i-logout"></use></svg><span>Log Out</span></button>
+</aside>

@@ -14,3 +14,47 @@ npm-debug.log*
 *.sha256
 
 storage/exports/
+storage/privacy/
+
+# Engineering references, tests and generated packages never enter the image context.
+dashboard-preview/
+docs/
+test/
+tests/
+.github/
+playwright.config.js
+DASHBOARD_PREVIEW.md
+CLEAN_MANIFEST.json
+PRODUCTION_MANIFEST.json
+RELEASE_MANIFEST.json
+dist/
+test-results/
+playwright-report/
+
+# Development-only data and prototype browser engines.
+src/config/initial-catalogue.js
+src/core/local-mongo.js
+public/assets/products/
+public/dashboard-assets/
+public/approved-dashboard/script.js
+public/approved-dashboard/role-workspaces.js
+public/approved-dashboard/enhancements.js
+public/approved-dashboard/session-controls.js
+
+# Only the build-time package helper and operational scripts enter the context.
+scripts/*
+!scripts/runtime-package.js
+!scripts/run-production.js
+!scripts/bootstrap-production.js
+!scripts/migrate-production.js
+!scripts/pesapal-register-ipn.js
+!scripts/launch-check.js
+!scripts/check-production-data.js
+!scripts/deploy-smoke.js
+!scripts/backup-drill.js
+!scripts/check-r2.js
+!scripts/verify-mail.js
+!scripts/verify-sms.js
+!scripts/launch-evidence.js
+!scripts/staff-access.js
+!scripts/operator-input.js

@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asyncHandler, AppError } from '../core/errors.js';
-import { hasPermission } from '../core/roles.js';
-import { Product, ProductMedia, Store, VerificationDocument } from '../models/index.js';
+import { AppError, asyncHandler } from '../core/errors.js';
 import { noStore } from '../middleware/request.js';
 import { isMediaObjectNotFound } from '../services/object-storage.js';
+import { readVerificationDocumentBuffer } from '../services/verification-media.js';
+import { Store } from '../models/index.js';
+import { writeAudit } from '../services/audit.js';
+import { currentRequestDevice } from '../services/moderation-workspace-access.js';
 import { sendStoredMedia } from '../services/media-delivery.js';
+import { readableVerificationDocument } from '../services/seller-verification.js';
+import { readableSellerProductImage } from '../services/seller-products.js';
 
 const router = Router();
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -24,41 +28,43 @@ async function sendFirstStoredMedia(response, keys, options) {
   return false;
 }
 
-router.get('/media/catalogue/:publicId', asyncHandler(async (request, response) => {
-  const media = await ProductMedia.findOne({ publicId: request.params.publicId }).select('+storageKey +thumbnailStorageKey');
-  if (!media) throw new AppError('Media not found.', 404, 'MEDIA_NOT_FOUND');
-  const product = await Product.findById(media.productId).select('ownerUserId status countries');
-  const mayModerate = hasPermission(request.user, 'catalogue:moderate') && (request.user.role !== 'country_admin' || product?.countries.includes(request.user.country));
-  const isPublic = media.status === 'approved' && product?.status === 'published';
-  const mayPreview = isPublic || String(product?.ownerUserId) === String(request.user?._id) || mayModerate;
-  if (!mayPreview) throw new AppError('Media not found.', 404, 'MEDIA_NOT_FOUND');
+export async function sendCatalogueImage(request, response, { media, isPublic }, authorize) {
+  if (!isPublic) response.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
   const preferredKey = request.query.size === 'thumb' ? media.thumbnailStorageKey : media.storageKey;
   const sent = await sendFirstStoredMedia(response, [preferredKey, media.storageKey], {
-    cacheControl: isPublic ? 'public, max-age=300, stale-while-revalidate=3600' : 'private, no-store',
+    cacheControl: isPublic ? 'public, max-age=60, must-revalidate' : 'private, no-store',
     contentType: 'image/webp',
+    authorize,
   });
   if (sent) return;
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('Content-Type', 'image/svg+xml');
   response.setHeader('X-Classic-Mart-Media-Fallback', 'missing-object');
   return response.sendFile(productPlaceholder);
+}
+
+router.get('/media/catalogue/:publicId', asyncHandler(async (request, response) => {
+  const initial = await readableSellerProductImage(request, request.params.publicId);
+  return sendCatalogueImage(request, response, initial, async () => {
+      const current = await readableSellerProductImage(request, request.params.publicId);
+      if (current.isPublic !== initial.isPublic || current.media.storageKey !== initial.media.storageKey || current.media.thumbnailStorageKey !== initial.media.thumbnailStorageKey) {
+        throw new AppError('Image not found.', 404, 'MEDIA_NOT_FOUND');
+      }
+  });
 }));
 
 router.get('/media/verification/:publicId', noStore, asyncHandler(async (request, response) => {
-  if (!request.user) throw new AppError('Authentication required.', 401, 'UNAUTHENTICATED');
-  const document = await VerificationDocument.findOne({ publicId: request.params.publicId }).select('+storageKey');
-  if (!document) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
-  let mayModerate = hasPermission(request.user, 'catalogue:moderate');
-  if (mayModerate && request.user.role === 'country_admin') {
-    mayModerate = Boolean(await Store.exists({ _id: document.storeId, country: request.user.country }));
-  }
-  const mayView = String(document.userId) === String(request.user._id) || mayModerate;
-  if (!mayView) throw new AppError('Document not found.', 404, 'DOCUMENT_NOT_FOUND');
-  return sendStoredMedia(response, document.storageKey, {
-    cacheControl: 'private, no-store',
-    contentType: 'image/webp',
-    contentDisposition: 'inline',
-  });
+  const document = await readableVerificationDocument(request, request.params.publicId);
+  const data = await readVerificationDocumentBuffer(document);
+  await readableVerificationDocument(request, request.params.publicId);
+  await currentRequestDevice(request);
+  const store = await Store.findById(document.storeId).select('country').lean();
+  await writeAudit(request, 'seller.verification_document_viewed', { targetType: 'verification_document',
+    targetPublicId: document.publicId, country: store?.country });
+  await readableVerificationDocument(request, request.params.publicId);
+  await currentRequestDevice(request);
+  response.set({ 'Cache-Control': 'private, no-store', 'Content-Type': 'image/webp', 'X-Content-Type-Options': 'nosniff', 'X-Robots-Tag': 'noindex, nofollow, noarchive' });
+  return response.send(data);
 }));
 
 export default router;

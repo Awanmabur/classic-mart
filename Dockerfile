@@ -1,27 +1,45 @@
 FROM node:24-bookworm-slim AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+COPY scripts/runtime-package.js ./scripts/
+RUN node --input-type=module -e "import { rewriteRuntimePackage } from './scripts/runtime-package.js'; rewriteRuntimePackage('/app', 'production');"
+# Optional CA for trusted enterprise/cloud TLS proxies. The mount is build-only;
+# normal builds use Node's default certificate trust and verification stays on.
+RUN --mount=type=secret,id=build_ca \
+  if [ -s /run/secrets/build_ca ]; then \
+    NODE_EXTRA_CA_CERTS=/run/secrets/build_ca npm ci --omit=dev; \
+  else npm ci --omit=dev; fi
 
 FROM node:24-bookworm-slim
+# Runtime entry points invoke Node directly. Keep npm's build tooling and its
+# bundled dependencies in the installation stage, outside the runtime filesystem.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 RUN apt-get update \
   && apt-get install -y --no-install-recommends clamav clamav-freshclam ca-certificates \
-  && freshclam \
   && rm -rf /var/lib/apt/lists/*
-ARG BUILD_SHA=unknown
+ARG BUILD_SHA=
 ENV NODE_ENV=production
 ENV BUILD_SHA=$BUILD_SHA
+# A new explicit build SHA refreshes definitions; same-SHA refreshes use --no-cache.
+RUN freshclam
+ENV NPM_CONFIG_CACHE=/tmp/classicmart-npm-cache
 WORKDIR /app
 RUN groupadd --system --gid 10001 classicmart \
   && useradd --system --uid 10001 --gid classicmart --home-dir /app classicmart \
   && mkdir -p /var/data/classic-mart/uploads /var/data/classic-mart/exports /var/data/classic-mart/privacy /app/scripts \
-  && chown -R classicmart:classicmart /var/data/classic-mart /app/scripts
+  && chown -R classicmart:classicmart /var/data/classic-mart
 COPY --from=dependencies /app/node_modules ./node_modules
-COPY --chown=classicmart:classicmart package.json package-lock.json ./
-COPY --chown=classicmart:classicmart src ./src
-COPY --chown=classicmart:classicmart public ./public
-COPY --chown=classicmart:classicmart views ./views
-COPY --chown=classicmart:classicmart scripts/run-production.js scripts/bootstrap-production.js scripts/migrate-production.js scripts/pesapal-register-ipn.js scripts/launch-check.js scripts/check-production-data.js scripts/deploy-smoke.js scripts/backup-drill.js ./scripts/
+COPY --from=dependencies /app/package.json /app/package-lock.json ./
+COPY src ./src
+COPY public ./public
+COPY views ./views
+COPY scripts/run-production.js scripts/bootstrap-production.js scripts/migrate-production.js scripts/pesapal-register-ipn.js scripts/launch-check.js scripts/check-production-data.js scripts/deploy-smoke.js scripts/backup-drill.js scripts/check-r2.js scripts/verify-mail.js scripts/verify-sms.js scripts/launch-evidence.js scripts/staff-access.js scripts/operator-input.js ./scripts/
+# Checkouts can have a restrictive umask. Make root-owned code readable to the
+# runtime user while keeping only the external storage directories writable.
+RUN chmod -R a+rX /app/src /app/public /app/views /app/scripts \
+  && chmod -R a-w /app/src /app/public /app/views /app/scripts \
+  && chmod 0444 /app/package.json /app/package-lock.json \
+  && chmod 0555 /app
 USER classicmart
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \

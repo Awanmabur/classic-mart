@@ -20,4 +20,6 @@ const payoutSchema=new Schema({
   providerReference:{type:String,maxlength:180},
   failureMessage:{type:String,maxlength:400}
 },{timestamps:true,optimisticConcurrency:true});
+payoutSchema.index({disbursementProvider:1,providerReference:1},{unique:true,name:'unique_payout_external_reference',partialFilterExpression:{providerReference:{$type:'string',$gt:''}}});
+payoutSchema.index({payoutAccountId:1,createdAt:-1});
 export const Payout=mongoose.model('Payout',payoutSchema);

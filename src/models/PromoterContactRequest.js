@@ -30,6 +30,7 @@ const promoterContactRequestSchema = new Schema(
 );
 
 promoterContactRequestSchema.index({ promoterUserId: 1, status: 1, lastMessageAt: -1 });
+promoterContactRequestSchema.index({ customerUserId: 1, lastMessageAt: -1 });
 promoterContactRequestSchema.index({ customerUserId: 1, promoterUserId: 1, createdAt: -1 });
 
 export const PromoterContactRequest = mongoose.model('PromoterContactRequest', promoterContactRequestSchema);

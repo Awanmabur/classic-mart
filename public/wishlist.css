@@ -4,3 +4,8 @@
 @media(max-width:760px){.wishlist-hero-copy{align-items:flex-start;display:grid}.wishlist-hero-actions{width:100%}.wishlist-hero-actions button{flex:1;padding:0 12px}.wishlist-overview{grid-template-columns:1fr 1fr}.wishlist-overview article:last-child{grid-column:1/-1}.wishlist-workspace,.wishlist-recommendations{border-radius:19px;padding:16px}.wishlist-toolbar{align-items:flex-start}.wishlist-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.wishlist-card-image{height:155px}.wishlist-grid.compact .wishlist-card-image{height:140px}.wishlist-card-body{padding:12px}.wishlist-card h3{font-size:12px}.wishlist-card-actions{grid-template-columns:1fr 38px}.wishlist-card-actions button,.wishlist-card-actions a{min-height:38px}.wishlist-remove{width:33px;height:33px}}
 @media(max-width:390px){.wishlist-hero-actions button{font-size:10px}.wishlist-overview{gap:8px}.wishlist-overview article{padding:13px}.wishlist-card-image{height:138px}.wishlist-grid.compact .wishlist-card-image{height:128px}.wishlist-toolbar{display:grid}.wishlist-toolbar label{justify-content:space-between}.wishlist-toolbar select{max-width:180px}.wishlist-pricing strong{font-size:15px}}
 .wishlist-hero-actions>a{min-height:45px;border:0;border-radius:999px;padding:0 17px;display:inline-flex;align-items:center;gap:8px;background:#ff6500;color:#fff;font-weight:850;text-decoration:none}.wishlist-hero-actions>a img{filter:brightness(0) invert(1)}
+
+/* v2.13.50 compact wishlist media */
+.wishlist-card-image { height: 158px; }
+.wishlist-grid.compact .wishlist-card-image { height: 142px; }
+@media(max-width:760px){.wishlist-card-image{height:146px}.wishlist-grid.compact .wishlist-card-image{height:132px}}

@@ -4,6 +4,7 @@ import { env } from '../src/config/env.js';
 import { launchReadiness } from '../src/services/launch.js';
 import mongoose from 'mongoose';
 import { ensureMediaStorageReady } from '../src/services/object-storage.js';
+import { scanUpload } from '../src/services/malware.js';
 const configFailures=[];
 const developmentDataChecks=[
   ['users',{$or:[{publicId:/^usr_demo_/},{emailNormalized:/@classicmart\.local$/i}]}],
@@ -17,12 +18,13 @@ if(!env.security.privilegedMfaRequired)configFailures.push('PRIVILEGED_MFA_REQUI
 if(env.security.siem.mode==='off')configFailures.push('SIEM_MODE is off');
 if(!env.pesapal.notificationId)configFailures.push('PESAPAL_IPN_ID is not configured');
 if(!env.security.idsEnabled||!env.security.ipsEnabled)configFailures.push('IDS/IPS must be enabled');
+await scanUpload(Buffer.from('Classic Mart launch scanner readiness probe.\n'));
 await ensureMediaStorageReady();
 await connectDatabase();
 try{
   const developmentData=[];
   for(const [collection,filter] of developmentDataChecks){const found=await mongoose.connection.db.collection(collection).findOne(filter,{projection:{_id:1}});if(found)developmentData.push(collection);}
   const readiness=await launchReadiness();
-  const failures=[...configFailures,...developmentData.map(collection=>`development data present: ${collection}`),...readiness.missing.map(item=>`${item.key}: ${item.status}`),...readiness.recoveryIssues,...readiness.unresolved.map(item=>`${item.publicId}: unresolved ${item.severity} finding` )];
+  const failures=[...new Set([...configFailures,...developmentData.map(collection=>`development data present: ${collection}`),...readiness.missing.map(item=>`${item.key}: ${item.status}`),...readiness.evidenceIssues,...readiness.recoveryIssues,...readiness.unresolved.map(item=>`${item.publicId}: unresolved ${item.severity} finding` )])];
   if(failures.length){console.error('Launch gate blocked:\n- '+failures.join('\n- '));process.exitCode=1;}else console.log(`Stage 12 launch gate passed for ${env.security.launchCountries.join(', ')}.`);
 }finally{await disconnectDatabase();}

@@ -1,0 +1,272 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import http from 'node:http';
+import { EventEmitter } from 'node:events';
+import mongoose from 'mongoose';
+import request from 'supertest';
+
+process.env.NODE_ENV = 'test'; process.env.SIMPLE_LOGIN = 'false'; process.env.PRIVILEGED_MFA_REQUIRED = 'true'; process.env.MAIL_MODE = 'log'; process.env.SMS_MODE = 'log'; process.env.REDIS_URL = '';
+const uri = process.env.CLASSIC_MART_LIVE_TEST_MONGO_URI;
+const csrf = html => html.match(/(?:name="_csrf"[^>]*value|name="csrf-token" content)="([^"]+)"/)[1];
+
+test('Country growth publication data and CSV values remain inert', async () => {
+  const { safeCmsUrl, safeCmsData, cmsRevisionDigest, countryGrowthCsvCell } = await import('../src/services/country-admin-growth-pages.js');
+  assert.equal(safeCmsUrl('/assets/image-placeholder.svg'), '/assets/image-placeholder.svg');
+  for (const input of ['javascript:alert(1)', '//example.com/image', 'https://example.com/tracker', '/assets/../private', '/media/%2e%2e/private', '/media/%2fprivate', 'data:image/svg+xml,<svg onload=alert(1)>']) assert.equal(safeCmsUrl(input), '');
+  assert.deepEqual(safeCmsData({ image: 'javascript:alert(1)', href: 'javascript:alert(1)', html: '<svg onload=alert(1)>', action: 'Browse products' }), { action: 'Browse products' });
+  assert.deepEqual(safeCmsData(null), {});
+  const revision = { version: 1, title: 'Help', body: 'Approved copy', data: {}, createdByUserId: 'author', reason: 'Verified copy' };
+  assert.notEqual(cmsRevisionDigest(revision), cmsRevisionDigest({ ...revision, body: 'Changed after approval' }));
+  assert.notEqual(cmsRevisionDigest(revision), cmsRevisionDigest({ ...revision, createdByUserId: 'different author' }));
+  for (const input of ['=SUM(1,2)', '\t+cmd', '\uFEFF@HYPERLINK("x")', '\u0000-1+cmd']) assert.ok(countryGrowthCsvCell(input).startsWith('"\''));
+});
+
+test('explicit country-coupon line settlement validates exact allocations and preserves default seller shares', async () => {
+  const {allocateSellerLineSettlement,proportionalSettlementSlice}=await import('../src/services/money.js');
+  const items=[{lineTotalMinor:20002},{lineTotalMinor:12003}],legacy=allocateSellerLineSettlement(items,{discountMinor:1000}); assert.deepEqual(legacy.map(row=>row.discountMinor),[624,376]);
+  const exact=allocateSellerLineSettlement(items,{discountMinor:2378,platformFeeMinor:1481,lineDiscounts:[2002,376]}); assert.deepEqual(exact.map(row=>row.customerPaidMinor),[18000,11627]); assert.equal(proportionalSettlementSlice(exact[1].customerPaidMinor,0,1,3),3875); assert.equal(proportionalSettlementSlice(exact[1].customerPaidMinor,1,2,3),7752);
+  assert.deepEqual(allocateSellerLineSettlement(items,{discountMinor:1000,lineDiscounts:legacy.map(row=>row.discountMinor)}),legacy);
+  for(const lineDiscounts of [[1000],[-1,2379],[20003,-17625],[2002,375],['2002',376],null]) assert.throws(()=>allocateSellerLineSettlement(items,{discountMinor:2378,lineDiscounts}),error=>error.code==='SETTLEMENT_INVALID');
+});
+
+test('Country growth uses actual scoped coupon checkout, consent delivery and independently approved public CMS', { skip: !uri, timeout: 240_000 }, async t => {
+  assert.equal(new URL(uri).hostname, '127.0.0.1'); assert.match(new URL(uri).pathname, /test|verification/i);
+  const suffix = crypto.randomBytes(7).toString('hex'), transports = []; await mongoose.connect(uri, { dbName: `classicmart_country_growth_test_${suffix}` });
+  try {
+    const models = await import('../src/models/index.js'); const { User, PlatformGrant, Device, CountrySetting, Store, StoreMember, SellerPromotion, Category, Product, ProductVariant, Warehouse, StockItem, PickupPoint, ShippingZone, DeliveryProfile, Shipment, Parcel, EvidenceDocument, SellerOrder, ReturnRequest, Refund, LedgerTransaction, Coupon, MarketingCampaign, Campaign, CmsContent, ApprovalRequest, OutboxEvent, AuditLog, Order } = models;
+    const growth = await import('../src/services/country-admin-growth-pages.js'); const sellerGrowth=await import('../src/services/seller-growth.js'); const sellerGrowthPages=await import('../src/services/seller-growth-pages.js'); const checkout = await import('../src/services/checkout.js'); const stage9 = await import('../src/services/stage9.js');
+    const { processNotificationOutbox } = await import('../src/services/outbox.js'); const { createApp } = await import('../src/app.js'); const { hashPassword, hashToken } = await import('../src/core/crypto.js'); const { encryptSensitive } = await import('../src/core/sensitive.js'); const { totpCode } = await import('../src/services/mfa.js');
+    for (const Model of Object.values(mongoose.models)) await Model.init();
+    await CountrySetting.create([{ code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG', timeZone: 'Africa/Kampala', phonePrefix: '+256' }, { code: 'KE', name: 'Kenya', currency: 'KES', locale: 'en-KE', timeZone: 'Africa/Nairobi', phonePrefix: '+254' }]);
+    const password = `CountryGrowth-${suffix}-A1!`, passwordHash = await hashPassword(password), secret = 'JBSWY3DPEHPK3PXP', app = createApp(null); let sequence = 0;
+    const id = prefix => `${prefix}_cg_${suffix}_${++sequence}`;
+    async function identity(role, { country = 'UG', countries = [country], managed = role === 'country_admin', storedRole = role, login = false, consent = true, offers = consent } = {}) {
+      const number = ++sequence, email = `country-growth-${suffix}-${number}@example.com`, phone = '+25670' + String(number).padStart(7,'0');
+      const user = await User.create({ publicId: id('usr'), name: 'Country Growth ' + number, email, emailNormalized: email, phone, phoneNormalized: phone, passwordHash, role:storedRole, country, currency: country === 'UG' ? 'UGX' : 'KES', operationalCountries: countries,
+        platformAccessManagedAt: managed ? new Date() : undefined, emailVerifiedAt: new Date(), phoneVerifiedAt: new Date(), onboardingCompletedAt: new Date(), preferences: { notifications: { offers } }, security: { mfaEnabled: true, mfaSecretEncrypted: encryptSensitive(secret) }, consents: { terms: true, privacy: true, marketing: consent, recordedAt: new Date() } });
+      const grant = managed ? await PlatformGrant.create({ publicId: id('pgr'), userId: user._id, role, operationalCountries: countries, startsAt: new Date(Date.now()-60000), expiresAt: new Date(Date.now()+86400000), status: 'active', reason: 'Real Country growth fixture', approvalPublicId: id('apr'), approvedByUserId: new mongoose.Types.ObjectId() }) : null;
+      const sessionID = crypto.randomUUID(); const device = await Device.create({ publicId: id('dev'), userId: user._id, sessionHash: hashToken(sessionID), label: 'Country growth test', userAgent: 'CountryGrowth/1', ipHash: 'test', lastSeenAt: new Date() });
+      let client; if (login) { const transport = new http.Agent({ localAddress: `127.0.0.${transports.length+130}`, keepAlive: false }); transports.push(transport); client = request.agent(app).use(req => req.agent(transport)); const loginPage = await client.get('/login').expect(200); await client.post('/login').type('form').send({ email, password, _csrf: csrf(loginPage.text) }).expect(302).expect('location','/mfa'); const challenge = await client.get('/mfa').expect(200); await client.post('/mfa').type('form').send({ code: totpCode(secret), _csrf: csrf(challenge.text) }).expect(302); }
+      return { user, grant, device, sessionID, client };
+    }
+    const author = await identity('country_admin',{ login:true }), reviewer = await identity('country_admin',{ login:true }), foreign = await identity('country_admin',{ country:'KE', login:true }), buyer = await identity('customer',{ login:true }), seller = await identity('seller'), optedOut = await identity('customer',{ consent:false }), foreignBuyer = await identity('customer',{ country:'KE' });
+    const managedCustomerStaff = await identity('country_admin',{storedRole:'customer'});
+    const preferenceOptOut = await identity('customer', { offers: false });
+    const scoped = (entry = author, query = {}) => ({ id: id('req'), user: entry.user, sessionID: entry.sessionID, device: entry.device, session: { userId:String(entry.user._id), tokenVersion: entry.user.security.tokenVersion }, query, country: { code:entry.user.country, currency:entry.user.currency }, requiredOperationalWorkspace: entry.user.role === 'country_admin' ? 'admin' : undefined, ip:'127.0.0.1', get:()=> 'CountryGrowth/1' });
+    const post = async (entry, page, path, payload) => { const shown = await entry.client.get(page).expect(200); return entry.client.post(path).set('accept','application/json').type('form').send({ ...payload, _csrf:csrf(shown.text) }); };
+    const store = await Store.create({ publicId:id('str'), ownerUserId:seller.user._id, name:'Country Coupon Seller', slug:id('seller'), country:'UG', currency:'UGX', status:'verified' });
+    await StoreMember.create({publicId:id('stm'),storeId:store._id,userId:seller.user._id,role:'owner',status:'active',invitedByUserId:seller.user._id,acceptedAt:new Date()});
+    const sellerRequest=()=>Object.assign(scoped(seller),{store});
+    const category = await Category.create({ publicId:id('cat'), name:'Country coupon catalogue', slug:id('category'), countries:['UG'] });
+    const product = await Product.create({ publicId:id('prd'), storeId:store._id, ownerUserId:seller.user._id, categoryId:category._id, title:'Country Coupon Product', slug:id('product'), description:'Actual checkout source product', countries:['UG'], status:'published' });
+    const variant = await ProductVariant.create({ publicId:id('var'), storeId:store._id, productId:product._id, sku:id('sku'), title:'Standard', priceMinor:10000, minimumPriceMinor:8000, currency:'UGX' });
+    const warehouse = await Warehouse.create({ publicId:id('wh'), storeId:store._id, ownerUserId:seller.user._id, name:'Country test stock', country:'UG', city:'Kampala', address:'Test warehouse' });
+    await StockItem.create({ publicId:id('stock'), storeId:store._id, warehouseId:warehouse._id, variantId:variant._id, onHand:20 }); const pickup = await PickupPoint.create({ publicId:id('pickup'), country:'UG', name:'Country pickup', city:'Kampala', address:'Test pickup' });
+    const couponInput = { country:'UG', code:`CG${suffix}`, name:'Country scoped actual coupon', scope:'seller', storePublicId:store.publicId, discountType:'percent', discountBps:1000, eligibleRoles:'customer', eligibleCategoryPublicIds:category.publicId, perUserLimit:1, usageLimit:2, startsAt:new Date(Date.now()-60000).toISOString(), endsAt:new Date(Date.now()+86400000).toISOString() };
+    let coupon;
+    await t.test('canonical pages require the current role, country grant and CSRF before mutations', async () => {
+      for (const path of ['/admin/coupons','/admin/campaigns','/admin/content']) { await request(app).get(path).set('accept','application/json').expect(401); await buyer.client.get(path).set('accept','application/json').expect(403); const page = await author.client.get(path).expect(200); assert.match(page.text,/data-dashboard-workspace="admin"/); assert.match(page.headers['cache-control'],/no-store/); assert.equal(page.headers['x-robots-tag'],'noindex, nofollow, noarchive'); }
+      await author.client.post('/admin/coupons').set('accept','application/json').type('form').send(couponInput).expect(403); assert.equal(await Coupon.countDocuments(),0);
+      await post(author,'/admin/coupons','/admin/coupons',{...couponInput,country:'KE'}).then(result => assert.equal(result.status,403));
+      const result = await post(author,'/admin/coupons','/admin/coupons',couponInput); assert.equal(result.status,200); coupon = result.body; assert.equal(coupon.country,'UG'); assert.equal(coupon.currency,'UGX');
+      await foreign.client.get('/admin/coupons?id='+coupon.publicId).set('accept','application/json').expect(404);
+    });
+    await t.test('both seller coupon entry points and Country Admin share one race-safe country code namespace', async () => {
+      const sellerInput={type:'voucher',name:'Actual seller namespace voucher',code:coupon.code,productPublicIds:[product.publicId],discountBps:1000,status:'draft'};
+      await assert.rejects(sellerGrowth.createSellerPromotion(sellerRequest(),sellerInput),error=>error.code==='PROMOTION_CODE_EXISTS'); await assert.rejects(sellerGrowthPages.createGrowthPromotion(sellerRequest(),sellerInput,true),error=>error.code==='PROMOTION_CODE_EXISTS');
+      const sellerOnly=await sellerGrowthPages.createGrowthPromotion(sellerRequest(),{...sellerInput,code:`SELLER${suffix}`},true); await assert.rejects(growth.createCountryCoupon(scoped(),{...couponInput,code:sellerOnly.code}),error=>error.code==='COUPON_CODE_EXISTS');
+      for(const [creator,prefix] of [[sellerGrowth.createSellerPromotion,'LEGACYRACE'],[(req,input)=>sellerGrowthPages.createGrowthPromotion(req,input,true),'LIVERACE']]){
+        const code=prefix+suffix; const outcomes=await Promise.allSettled([growth.createCountryCoupon(scoped(),{...couponInput,code}),creator(sellerRequest(),{...sellerInput,code})]); assert.equal(outcomes.filter(result=>result.status==='fulfilled').length,1); assert.equal(outcomes.filter(result=>result.status==='rejected'&&result.reason.status===409).length,1); assert.equal(await Coupon.countDocuments({country:'UG',code})+await SellerPromotion.countDocuments({country:'UG',code}),1);
+      }
+      const snapshot=sellerRequest(); await User.updateOne({_id:seller.user._id},{$set:{platformAccessManagedAt:new Date()}}); try{await assert.rejects(sellerGrowth.createSellerPromotion(snapshot,{...sellerInput,code:`SWITCH${suffix}`}),error=>error.code==='SELLER_IDENTITY_FORBIDDEN');}finally{await User.updateOne({_id:seller.user._id},{$unset:{platformAccessManagedAt:1}});}
+    });
+    await t.test('coupon activation, version conflicts and real checkout persist source allocation and quota once', async () => {
+      const activated = await growth.changeCountryCouponStatus(scoped(),coupon.publicId,{country:'UG',version:coupon.version,status:'active'}); coupon = activated;
+      await assert.rejects(growth.changeCountryCouponStatus(scoped(),coupon.publicId,{country:'UG',version:0,status:'paused'}), error => error.status === 409);
+      const req = scoped(buyer); await checkout.addCartItem(req,{productId:product.publicId,variantId:variant.publicId,quantity:1}); const cart = await checkout.applyCartPromotionCode(req,coupon.code); assert.equal(cart.totals.discountMinor,1000); const {countryCouponQuote}=await import('../src/services/country-coupons.js'); const staffQuote=await countryCouponQuote({rows:[{productId:product.publicId,storeId:store.publicId,priceMinor:10000,minimumPriceMinor:8000,quantity:1}],country:'UG',currency:'UGX',codes:[coupon.code],userId:managedCustomerStaff.user._id,base:{discountMinor:0,freeShipping:false,applications:[],storeDiscounts:{}}}); assert.equal(staffQuote.discountMinor,0);
+      const contact = {fullName:'Country Buyer',email:buyer.user.email,phone:buyer.user.phone,address:'Test road',city:'Kampala',country:'UG'};
+      const review = await checkout.reviewCheckout(req,{deliveryMethod:'pickup',paymentMethod:'cod',city:'Kampala',pickupPointId:pickup.publicId,contact}); assert.equal(review.totals.discountMinor,1000);
+      const input = { checkoutId:review.checkoutId,idempotencyKey:id('checkout'),deliveryMethod:'pickup',paymentMethod:'cod',pickupPointId:pickup.publicId,contact };
+      const placed = await checkout.placeOrder(req,input); const order = await Order.findOne({publicId:placed.id || placed.publicId}).lean(); assert.ok(order); assert.deepEqual(order.couponPublicIds,[coupon.publicId]); assert.equal(order.couponApplications[0].discountMinor,1000); assert.equal(order.couponApplications[0].allocations[0].storePublicId,store.publicId);
+      await checkout.placeOrder(req,input); assert.equal((await Coupon.findOne({publicId:coupon.publicId})).usageCount,1);
+      await checkout.addCartItem(req,{productId:product.publicId,variantId:variant.publicId,quantity:1}); const second = await checkout.applyCartPromotionCode(req,coupon.code); assert.equal(second.totals.discountMinor,0);
+      const current = await Coupon.findOne({publicId:coupon.publicId}); const outcomes = await Promise.allSettled([growth.changeCountryCouponStatus(scoped(),coupon.publicId,{country:'UG',version:current.__v,status:'paused'}),growth.changeCountryCouponStatus(scoped(reviewer),coupon.publicId,{country:'UG',version:current.__v,status:'archived'})]); assert.equal(outcomes.filter(result => result.status === 'fulfilled').length,1); assert.equal(outcomes.filter(result => result.status === 'rejected' && result.reason.status === 409).length,1);
+    });
+    await t.test('historical duplicate codes are rejected from actual applied seller sources during checkout recomputation', async () => {
+      let historic=await growth.createCountryCoupon(scoped(),{...couponInput,code:`HISTORIC${suffix}`}); historic=await growth.changeCountryCouponStatus(scoped(),historic.publicId,{country:'UG',version:historic.version,status:'active'});
+      await SellerPromotion.create({publicId:id('spr'),storeId:store._id,storePublicId:store.publicId,country:'UG',currency:'UGX',type:'voucher',name:'Historical duplicate source voucher',code:historic.code,productPublicIds:[product.publicId],discountBps:1000,status:'active',startsAt:new Date(Date.now()-60000),createdByUserId:seller.user._id});
+      const rows=[{productId:product.publicId,variantId:variant.publicId,storeId:store.publicId,priceMinor:10000,minimumPriceMinor:8000,quantity:1}],base=await sellerGrowth.promotionQuote({rows,country:'UG',codes:[historic.code]}); assert.ok(base.applications.some(application=>application.type==='voucher')); assert.equal(base.applications[0].code,undefined);
+      const {countryCouponQuote}=await import('../src/services/country-coupons.js'); await assert.rejects(countryCouponQuote({rows,country:'UG',currency:'UGX',codes:[historic.code],userId:buyer.user._id,base}),error=>error.code==='COUPON_CODE_AMBIGUOUS'); await assert.rejects(checkout.applyCartPromotionCode(scoped(buyer),historic.code),error=>error.code==='COUPON_CODE_AMBIGUOUS');
+    });
+    await t.test('required audit failure aborts the domain mutation', async () => {
+      const original = AuditLog.create; AuditLog.create = async function(documents,...args) { if(documents.some?.(row => row.action === 'country_admin.coupon_created')) throw new Error('Injected required audit failure'); return original.call(this,documents,...args); };
+      try { await assert.rejects(growth.createCountryCoupon(scoped(),{...couponInput,code:`ROLLBACK${suffix}`}),/Injected required audit failure/); } finally { AuditLog.create = original; }
+      assert.equal(await Coupon.countDocuments({code:`ROLLBACK${suffix}`}),0);
+    });
+    await t.test('consent queue uses actual recipients and suppresses current opt-out, country change and cancelled work', async () => {
+      const saved = await growth.saveCountryMessagingCampaign(scoped(),{country:'UG',name:'Current consent campaign',subject:'Country customer news',body:'Real consent campaign plain text',roles:'customer'});
+      const outcomes = await Promise.allSettled([growth.queueCountryMessagingCampaign(scoped(),saved.publicId,{country:'UG',version:saved.version}),growth.queueCountryMessagingCampaign(scoped(reviewer),saved.publicId,{country:'UG',version:saved.version})]); assert.equal(outcomes.filter(result=>result.status==='fulfilled').length,1);
+      const row = await MarketingCampaign.findOne({publicId:saved.publicId}); assert.equal(row.status,'running'); assert.equal(row.queuedCount,1); const events = await OutboxEvent.find({aggregatePublicId:row.publicId}); assert.equal(events.length,1); assert.equal(events[0].payload.userPublicId,buyer.user.publicId); assert.ok(!events[0].payload.email);
+      await User.updateOne({_id:buyer.user._id},{$set:{'consents.marketing':false}}); const sent = []; await processNotificationOutbox({limit:10,sendEmail:async message=>{sent.push(message); return {messageId:'test'};}}); assert.equal(sent.length,0); assert.equal((await OutboxEvent.findById(events[0]._id)).payload.deliveryStatus,'cancelled'); assert.equal((await MarketingCampaign.findById(row._id)).status,'completed');
+      await User.updateOne({_id:buyer.user._id},{$set:{'consents.marketing':true}}); assert.equal(await OutboxEvent.countDocuments({'payload.userPublicId':optedOut.user.publicId}),0); assert.equal(await OutboxEvent.countDocuments({'payload.userPublicId':foreignBuyer.user.publicId}),0); assert.equal(await OutboxEvent.countDocuments({'payload.userPublicId':managedCustomerStaff.user.publicId}),0);
+      assert.equal(await OutboxEvent.countDocuments({'payload.userPublicId':preferenceOptOut.user.publicId}),0);
+      const muted = await growth.saveCountryMessagingCampaign(scoped(),{country:'UG',name:'Changed offers preference',subject:'Current notification preference',body:'Cancel queued offers after the preference changes.',roles:'customer'});
+      await growth.queueCountryMessagingCampaign(scoped(),muted.publicId,{country:'UG',version:muted.version});
+      await User.updateOne({_id:buyer.user._id},{$set:{'preferences.notifications.offers':false}});
+      await processNotificationOutbox({limit:10,sendEmail:async message=>{sent.push(message);return {delivered:true};}});
+      assert.equal(sent.length,0);assert.equal((await OutboxEvent.findOne({aggregatePublicId:muted.publicId})).payload.deliveryStatus,'cancelled');
+      await User.updateOne({_id:buyer.user._id},{$set:{'preferences.notifications.offers':true}});
+      const next = await growth.saveCountryMessagingCampaign(scoped(),{country:'UG',name:'Cancellation campaign',subject:'Cancellation news',body:'Real work can be cancelled',roles:'customer'}); const queued = await growth.queueCountryMessagingCampaign(scoped(),next.publicId,{country:'UG',version:next.version}); await growth.cancelCountryMessagingCampaign(scoped(),next.publicId,{country:'UG',version:queued.version}); await processNotificationOutbox({limit:10,sendEmail:async message=>{sent.push(message);return {messageId:'test'};}}); assert.equal(sent.length,0);
+      const countryChanged = await growth.saveCountryMessagingCampaign(scoped(),{country:'UG',name:'Current country campaign',subject:'Country-specific news',body:'Do not send after a country change',roles:'customer'}); await growth.queueCountryMessagingCampaign(scoped(),countryChanged.publicId,{country:'UG',version:countryChanged.version}); await User.updateOne({_id:buyer.user._id},{$set:{country:'KE',currency:'KES'}}); await processNotificationOutbox({limit:10,sendEmail:async message=>{sent.push(message);return {delivered:true};}}); assert.equal(sent.length,0); await User.updateOne({_id:buyer.user._id},{$set:{country:'UG',currency:'UGX'}});
+      const dispatcher = await identity('country_admin'); const revoked = await growth.saveCountryMessagingCampaign(scoped(dispatcher),{country:'UG',name:'Revoked dispatcher campaign',subject:'Current authority news',body:'Do not send after authority is revoked',roles:'customer'}); await growth.queueCountryMessagingCampaign(scoped(dispatcher),revoked.publicId,{country:'UG',version:revoked.version}); await PlatformGrant.updateOne({_id:dispatcher.grant._id},{$set:{status:'revoked'}}); await processNotificationOutbox({limit:10,sendEmail:async message=>{sent.push(message);return {delivered:true};}}); assert.equal(sent.length,0); assert.equal((await OutboxEvent.findOne({aggregatePublicId:revoked.publicId})).payload.deliveryStatus,'cancelled');
+      const unverifiedDispatcher=await identity('country_admin'); const unverified=await growth.saveCountryMessagingCampaign(scoped(unverifiedDispatcher),{country:'UG',name:'Current staff identity campaign',subject:'Verified authority news',body:'Do not send after staff phone verification is removed',roles:'customer'}); await growth.queueCountryMessagingCampaign(scoped(unverifiedDispatcher),unverified.publicId,{country:'UG',version:unverified.version}); await User.updateOne({_id:unverifiedDispatcher.user._id},{$unset:{phoneVerifiedAt:1}}); await processNotificationOutbox({limit:10,sendEmail:async message=>{sent.push(message);return {delivered:true};}}); assert.equal(sent.length,0); assert.equal((await OutboxEvent.findOne({aggregatePublicId:unverified.publicId})).payload.deliveryStatus,'cancelled');
+      const sink = await growth.saveCountryMessagingCampaign(scoped(),{country:'UG',name:'Development sink campaign',subject:'Local-only news',body:'A development sink is never an external delivery',roles:'customer'}); await growth.queueCountryMessagingCampaign(scoped(),sink.publicId,{country:'UG',version:sink.version}); await processNotificationOutbox({limit:10,sendEmail:async()=>({delivered:false,developmentSink:true})}); const sinkEvent=await OutboxEvent.findOne({aggregatePublicId:sink.publicId}); assert.equal(sinkEvent.payload.deliveryStatus,'development_sink'); assert.match(sinkEvent.lastError,/no external email was sent/);
+    });
+    await t.test('UTC campaign schedules are independent of host timezone and reject invalid calendar dates', async () => {
+      const originalZone=process.env.TZ, instant=new Date(Date.now()+120000).toISOString().slice(0,16);
+      try { process.env.TZ='Pacific/Honolulu'; const scheduled=await growth.saveCountryMessagingCampaign(scoped(),{country:'UG',name:'UTC schedule campaign',subject:'UTC schedule',body:'Schedule at the displayed UTC time',roles:'customer',scheduledAt:instant}); assert.equal(scheduled.scheduledAt.toISOString(),instant+':00.000Z'); }
+      finally { if(originalZone===undefined)delete process.env.TZ;else process.env.TZ=originalZone; }
+      await assert.rejects(growth.saveCountryMessagingCampaign(scoped(),{country:'UG',name:'Invalid schedule',subject:'Invalid date',body:'Never save an impossible date',roles:'customer',scheduledAt:'2030-02-30T12:00'}),error=>error.code==='GROWTH_DATE_INVALID');
+    });
+    await t.test('CMS source version and revision author enforce independent publication, rollback and scheduled public rendering', async () => {
+      const input = {country:'UG',key:'help.main',type:'help',title:'Country Help',body:'Published Country Help Copy',reason:'Verified help content'}; const saved = await growth.saveCountryCmsRevision(scoped(),input); let content = saved.content;
+      const pending = await growth.requestCountryCmsPublication(scoped(),content.publicId,{country:'UG',version:content.version,revisionVersion:1,action:'publish',reason:'Publish independently verified copy'});
+      await assert.rejects(growth.decideCountryCmsApproval(scoped(),pending.publicId,{country:'UG',version:0,decision:'approve',reason:'Own request is forbidden'}),error=>error.code==='FOUR_EYES_REQUIRED');
+      await growth.decideCountryCmsApproval(scoped(reviewer),pending.publicId,{country:'UG',version:0,decision:'approve',reason:'Independent content review'}); assert.equal((await stage9.publishedCms('help.main','UG')).body,input.body); const publicPage = await request(app).get('/help').expect(200); assert.match(publicPage.text,/Published Country Help Copy/);
+      content = (await growth.loadCountryAdminGrowthPage(scoped(author,{id:content.publicId}),'admin-content')).selected;
+      const revised = await growth.saveCountryCmsRevision(scoped(),{...input,version:content.version,title:'Revised help',body:'Second Approved Country Help Copy'}); const publish = await growth.requestCountryCmsPublication(scoped(),content.publicId,{country:'UG',version:revised.content.version,revisionVersion:2,action:'publish',reason:'Publish revised help'}); await growth.decideCountryCmsApproval(scoped(reviewer),publish.publicId,{country:'UG',version:0,decision:'approve',reason:'Independent revision review'});
+      content = (await growth.loadCountryAdminGrowthPage(scoped(author,{id:content.publicId}),'admin-content')).selected; const rollback = await growth.requestCountryCmsPublication(scoped(),content.publicId,{country:'UG',version:content.version,revisionVersion:1,action:'rollback',reason:'Return to verified earlier copy'}); await growth.decideCountryCmsApproval(scoped(reviewer),rollback.publicId,{country:'UG',version:0,decision:'approve',reason:'Independent rollback review'}); assert.equal((await stage9.publishedCms('help.main','UG')).body,input.body);
+      content = (await growth.loadCountryAdminGrowthPage(scoped(author,{id:content.publicId}),'admin-content')).selected; const third = await growth.saveCountryCmsRevision(scoped(),{...input,version:content.version,body:'Scheduled Country Help Copy'}); const due = new Date(Date.now()+60000); const scheduled = await growth.requestCountryCmsPublication(scoped(),content.publicId,{country:'UG',version:third.content.version,revisionVersion:3,action:'publish',scheduledFor:due.toISOString(),reason:'Schedule verified content'}); await growth.decideCountryCmsApproval(scoped(reviewer),scheduled.publicId,{country:'UG',version:0,decision:'approve',reason:'Independent scheduled content review'}); assert.equal((await stage9.publishedCms('help.main','UG')).body,input.body); assert.equal(await stage9.publishScheduledCms(new Date(due.getTime()+1000)),1); assert.equal((await stage9.publishedCms('help.main','UG')).body,'Scheduled Country Help Copy');
+      await assert.rejects(growth.saveCountryCmsRevision(scoped(),{...input,key:'legal.privacy',type:'help'}),error=>error.status===403); await assert.rejects(growth.saveCountryCmsRevision(scoped(),{...input,key:'home.hero.unsafe',type:'hero',image:'javascript:alert(1)'}),error=>error.code==='CMS_URL_INVALID');
+    });
+    await t.test('scheduled country CMS falls back to published global copy until a valid scoped revision is active', async () => {
+      const key = `press.article.scheduled-fallback-${suffix}`;
+      const globalBody = 'Already published global article remains readable.';
+      const scopedBody = 'Independently approved country article becomes active on schedule.';
+      const futureBody = 'Future replacement must remain private until its scheduled publication.';
+      try {
+        await CmsContent.create({ publicId: id('cms'), key, type: 'press', country: '', status: 'published', activeVersion: 1,
+          revisions: [{ version: 1, title: 'Published global article', body: globalBody, reason: 'Existing approved global publication fixture', createdByUserId: author.user._id, publishedAt: new Date() }] });
+        const input = { country: 'UG', key, type: 'press', title: 'Scheduled country article', body: scopedBody, reason: 'Country override requires independent scheduled publication' };
+        let saved = await growth.saveCountryCmsRevision(scoped(), input);
+        const due = new Date(Date.now() + 120000);
+        let pending = await growth.requestCountryCmsPublication(scoped(), saved.content.publicId, { country: 'UG', version: saved.content.version, revisionVersion: 1, action: 'publish', scheduledFor: due.toISOString(), reason: 'Schedule first scoped publication' });
+        await growth.decideCountryCmsApproval(scoped(reviewer), pending.publicId, { country: 'UG', version: 0, decision: 'approve', reason: 'Independent review of scheduled country copy' });
+        let document = await CmsContent.findOne({ publicId: saved.content.publicId });
+        assert.equal(document.status, 'scheduled'); assert.equal(document.activeVersion, 0);
+        let resolved = await stage9.publishedCms(key, 'UG');
+        assert.equal(resolved.country, ''); assert.equal(resolved.body, globalBody);
+        assert.equal((await stage9.publishedCmsList({ prefix: key, type: 'press', country: 'UG' }))[0].body, globalBody);
+        let page = await request(app).get('/press/' + key).expect(200);
+        assert.ok(page.text.includes(globalBody)); assert.ok(!page.text.includes(scopedBody));
+        await CmsContent.updateOne({ _id: document._id }, { $set: { activeVersion: 999 } });
+        assert.equal((await stage9.publishedCms(key, 'UG')).body, globalBody, 'an absent scoped revision also permits the valid global fallback');
+        page = await request(app).get('/press/' + key).expect(200); assert.ok(page.text.includes(globalBody));
+        await CmsContent.updateOne({ _id: document._id }, { $set: { activeVersion: 0 } });
+        assert.equal(await stage9.publishScheduledCms(new Date(due.getTime() + 1000)), 1);
+        assert.equal((await stage9.publishedCms(key, 'UG')).body, scopedBody);
+        document = await CmsContent.findById(document._id);
+        saved = await growth.saveCountryCmsRevision(scoped(), { ...input, version: document.__v, title: 'Future country replacement', body: futureBody });
+        pending = await growth.requestCountryCmsPublication(scoped(), document.publicId, { country: 'UG', version: saved.content.version, revisionVersion: 2, action: 'publish', scheduledFor: new Date(due.getTime() + 120000).toISOString(), reason: 'Schedule next independently reviewed country revision' });
+        await growth.decideCountryCmsApproval(scoped(reviewer), pending.publicId, { country: 'UG', version: 0, decision: 'approve', reason: 'Independent review of the future replacement' });
+        resolved = await stage9.publishedCms(key, 'UG');
+        assert.equal(resolved.country, 'UG'); assert.equal(resolved.version, 1); assert.equal(resolved.body, scopedBody);
+        assert.equal((await stage9.publishedCmsList({ prefix: key, type: 'press', country: 'UG' }))[0].body, scopedBody);
+        page = await request(app).get('/press/' + key).expect(200);
+        assert.ok(page.text.includes(scopedBody)); assert.ok(!page.text.includes(futureBody));
+      } finally { await CmsContent.deleteMany({ key }); }
+    });
+    await t.test('CMS approval rechecks requester authority, revision digest and author independence, while schedules can be cancelled', async () => {
+      const independent = await identity('country_admin'), requester=await identity('country_admin');
+      const input={country:'UG',key:'home.hero.integrity',type:'hero',title:'Integrity checked content',body:'Country content requiring independent review',reason:'Verified source integrity'};
+      let saved=await growth.saveCountryCmsRevision(scoped(),input); let pending=await growth.requestCountryCmsPublication(scoped(requester),saved.content.publicId,{country:'UG',version:saved.content.version,revisionVersion:1,action:'publish',reason:'Request independent source review'});
+      await assert.rejects(growth.decideCountryCmsApproval(scoped(),pending.publicId,{country:'UG',version:0,decision:'approve',reason:'Author cannot approve their revision'}),error=>error.code==='FOUR_EYES_REQUIRED');
+      await CmsContent.updateOne({publicId:saved.content.publicId},{$set:{'revisions.0.body':'Unreviewed changed source'}});
+      await assert.rejects(growth.decideCountryCmsApproval(scoped(independent),pending.publicId,{country:'UG',version:0,decision:'approve',reason:'Reject a changed source snapshot'}),error=>error.code==='CMS_SOURCE_CHANGED');
+      assert.equal(await stage9.publishedCms(input.key,'UG'),null); await growth.decideCountryCmsApproval(scoped(independent),pending.publicId,{country:'UG',version:0,decision:'reject',reason:'Source changed after request'});
+      const current=await CmsContent.findOne({publicId:saved.content.publicId}); pending=await growth.requestCountryCmsPublication(scoped(requester),saved.content.publicId,{country:'UG',version:current.__v,revisionVersion:1,action:'publish',reason:'Review current source'});
+      await PlatformGrant.updateOne({_id:requester.grant._id},{$set:{status:'revoked'}}); await assert.rejects(growth.decideCountryCmsApproval(scoped(independent),pending.publicId,{country:'UG',version:0,decision:'approve',reason:'Revoked requester cannot authorize publication'}),error=>error.status===403); assert.equal((await ApprovalRequest.findOne({publicId:pending.publicId})).status,'requested'); assert.equal(await stage9.publishedCms(input.key,'UG'),null);
+      saved=await growth.saveCountryCmsRevision(scoped(),{...input,key:'home.hero.cancelled'}); const due=new Date(Date.now()+60000); pending=await growth.requestCountryCmsPublication(scoped(),saved.content.publicId,{country:'UG',version:saved.content.version,revisionVersion:1,action:'publish',scheduledFor:due.toISOString(),reason:'Schedule reviewed country content'}); await growth.decideCountryCmsApproval(scoped(reviewer),pending.publicId,{country:'UG',version:0,decision:'approve',reason:'Independent schedule review'});
+      await User.updateOne({_id:reviewer.user._id},{$unset:{phoneVerifiedAt:1}}); assert.equal(await stage9.publishScheduledCms(new Date(due.getTime()+1000)),0); assert.equal(await stage9.publishedCms('home.hero.cancelled','UG'),null); await User.updateOne({_id:reviewer.user._id},{$set:{phoneVerifiedAt:new Date()}});
+      const scheduled=await CmsContent.findOne({publicId:saved.content.publicId}); await assert.rejects(growth.cancelCountryCmsSchedule(scoped(),scheduled.publicId,{country:'UG',version:0,reason:'Stale cancellation must fail'}),error=>error.status===409); const cancelled=await growth.cancelCountryCmsSchedule(scoped(),scheduled.publicId,{country:'UG',version:scheduled.__v,reason:'Cancel before the scheduled release'}); assert.equal(cancelled.status,'draft'); assert.equal(cancelled.scheduledVersion,0); assert.equal(await stage9.publishScheduledCms(new Date(due.getTime()+1000)),0); assert.equal(await stage9.publishedCms('home.hero.cancelled','UG'),null); assert.equal(await AuditLog.countDocuments({action:'country_admin.cms_schedule_cancelled',targetPublicId:scheduled.publicId}),1);
+    });
+    await t.test('category-restricted coupons preserve SellerPromotion shares through genuine COD delivery, partial return and refund ledger', async () => {
+      const buyerTwo=await identity('customer'),driver=await identity('delivery'),operator=await identity('warehouse',{managed:true}),receiving=await identity('warehouse'),support=await identity('support'),financeOne=await identity('finance'),financeTwo=await identity('finance');
+      const payments=await import('../src/services/payments.js'),logistics=await import('../src/services/logistics.js'),trust=await import('../src/services/trust.js'),supportCases=await import('../src/services/support-case-pages.js'); const {decryptSensitive}=await import('../src/core/sensitive.js'),{proportionalSettlementSlice}=await import('../src/services/money.js'); const sharp=(await import('sharp')).default;
+      const deliveryWorkspace=await import('../src/services/delivery-workspace.js'),warehouseOperations=await import('../src/services/warehouse-operations.js');
+      const action=(entry,body={},publicId='',file)=>({...scoped(entry),body,params:{publicId},...(file?{file}:{})});
+      const buffer=await sharp({create:{width:400,height:400,channels:3,background:'#345678'}}).png().toBuffer();
+      const file={buffer,mimetype:'image/png',originalname:'country-coupon-physical-proof.png',size:buffer.length};
+      await deliveryWorkspace.saveDeliveryProfile(action(driver,{version:0,transport:'bicycle',serviceAreas:'Kampala',action:'save'}));
+      let profile=await DeliveryProfile.findOne({userId:driver.user._id});
+      await deliveryWorkspace.uploadDeliveryEvidence(action(driver,{version:profile.__v,documentType:'identity'},'',file),{profile:true});
+      profile=await DeliveryProfile.findById(profile._id);
+      await deliveryWorkspace.saveDeliveryProfile(action(driver,{version:profile.__v,transport:'bicycle',serviceAreas:'Kampala',action:'submit'}));
+      profile=await DeliveryProfile.findById(profile._id);
+      await deliveryWorkspace.reviewDeliveryProfile(action(operator,{version:profile.__v,decision:'approve',codEnabled:'true',reason:'Independent Warehouse review of the carrier private identity evidence.'},profile.publicId));
+      profile=await DeliveryProfile.findById(profile._id);
+      await deliveryWorkspace.setDeliveryAvailability(action(driver,{version:profile.__v,available:'true'}));
+      assert.notEqual(String(profile.reviewedByUserId),String(driver.user._id));
+      await ShippingZone.create({publicId:id('zone'),country:'UG',name:'Country coupon actual delivery',cities:['Kampala'],standardFeeMinor:500,currency:'UGX'});
+      const categoryB=await Category.create({publicId:id('cat'),name:'Country coupon excluded category',slug:id('category'),countries:['UG']}); const productB=await Product.create({publicId:id('prd'),storeId:store._id,ownerUserId:seller.user._id,categoryId:categoryB._id,title:'Ineligible category original product',slug:id('product'),description:'Must retain its SellerPromotion share only',countries:['UG'],status:'published'});
+      const variantA=await ProductVariant.create({publicId:id('var'),storeId:store._id,productId:product._id,sku:id('sku'),title:'Exact floor variant',priceMinor:10001,minimumPriceMinor:9000,currency:'UGX'}),variantB=await ProductVariant.create({publicId:id('var'),storeId:store._id,productId:productB._id,sku:id('sku'),title:'Ineligible three-unit variant',priceMinor:4001,minimumPriceMinor:3000,currency:'UGX'}); await StockItem.create([{publicId:id('stock'),storeId:store._id,warehouseId:warehouse._id,variantId:variantA._id,onHand:12},{publicId:id('stock'),storeId:store._id,warehouseId:warehouse._id,variantId:variantB._id,onHand:12}]);
+      const priorOffer=await sellerGrowthPages.createGrowthPromotion(sellerRequest(),{type:'voucher',name:'Prior actual SellerPromotion',code:`STACKSELLER${suffix}`,productPublicIds:[product.publicId],discountBps:500,status:'active'},true);
+      let categoryCoupon=await growth.createCountryCoupon(scoped(),{...couponInput,code:`CATEGORY${suffix}`,name:'Eligible category floor coupon'}); categoryCoupon=await growth.changeCountryCouponStatus(scoped(),categoryCoupon.publicId,{country:'UG',version:categoryCoupon.version,status:'active'});
+      const shopper=scoped(buyerTwo); await checkout.addCartItem(shopper,{productId:product.publicId,variantId:variantA.publicId,quantity:2}); await checkout.addCartItem(shopper,{productId:productB.publicId,variantId:variantB.publicId,quantity:3}); assert.equal((await checkout.applyCartPromotionCode(shopper,priorOffer.code)).totals.discountMinor,1000); assert.equal((await checkout.applyCartPromotionCode(shopper,categoryCoupon.code)).totals.discountMinor,2378);
+      const contact={fullName:'Actual Category Buyer',email:buyerTwo.user.email,phone:buyerTwo.user.phone,address:'Test delivery road',city:'Kampala',country:'UG'};
+      const reviewed=await checkout.reviewCheckout(shopper,{deliveryMethod:'standard',paymentMethod:'cod',city:'Kampala',contact}),placed=await checkout.placeOrder(shopper,{checkoutId:reviewed.checkoutId,idempotencyKey:id('checkout'),deliveryMethod:'standard',paymentMethod:'cod',contact}); let original=await Order.findOne({publicId:placed.id}); const sellerOrder=await SellerOrder.findOne({orderId:original._id}); const eligible=sellerOrder.items.find(item=>item.variantPublicId===variantA.publicId),ineligible=sellerOrder.items.find(item=>item.variantPublicId===variantB.publicId); assert.equal(eligible.discountMinor,2002); assert.equal(eligible.customerPaidMinor,18000); assert.equal(ineligible.discountMinor,376); assert.equal(ineligible.customerPaidMinor,11627); assert.equal(original.couponApplications[0].discountMinor,1378); assert.equal(original.couponApplications[0].lineAllocations.length,1); assert.equal(original.couponApplications[0].lineAllocations[0].orderLineId,eligible.orderLineId); assert.equal(original.couponApplications[0].lineAllocations[0].discountMinor,1378);
+      await payments.initiatePayment(shopper,{orderId:original.publicId,idempotencyKey:id('payment')});
+      let shipment=await Shipment.findOne({orderId:original._id});
+      for(const parcel of await Parcel.find({shipmentId:shipment._id}))for(const type of ['pick','pack','dispatch']){
+        const currentWarehouse=await Warehouse.findById(warehouse._id);
+        const created=await warehouseOperations.mutateWarehouse(action(operator,{warehousePublicId:warehouse.publicId,version:currentWarehouse.__v,
+          actionKey:id('warehouse_action'),type,parcelPublicId:parcel.publicId,reference:original.publicId,notes:'Actual country coupon '+type}),'create-task');
+        let task=await models.WarehouseTask.findOne({publicId:created.publicId});
+        await warehouseOperations.mutateWarehouse(action(operator,{version:task.__v},task.publicId),'claim');
+        task=await models.WarehouseTask.findById(task._id);
+        await warehouseOperations.mutateWarehouse(action(operator,{version:task.__v},task.publicId),'execute');
+        assert.equal((await models.WarehouseTask.findById(task._id)).status,'completed');
+      }
+      shipment=await Shipment.findById(shipment._id);
+      profile=await DeliveryProfile.findOne({userId:driver.user._id});
+      await deliveryWorkspace.createDeliveryOffer(action(operator,{version:shipment.__v,carrierPublicId:profile.publicId,earningMinor:100,currency:'UGX'},shipment.publicId));
+      const offer=await models.DeliveryOffer.findOne({shipmentId:shipment._id,deliveryUserId:driver.user._id,status:'offered'});
+      await deliveryWorkspace.respondDeliveryOffer(action(driver,{version:offer.__v},offer.publicId),'accept');
+      shipment=await Shipment.findById(shipment._id).select('+pickupCodeEncrypted +deliveryCodeEncrypted');
+      const pickupCode=decryptSensitive(shipment.pickupCodeEncrypted),deliveryCode=decryptSensitive(shipment.deliveryCodeEncrypted);
+      await deliveryWorkspace.advanceDelivery(action(driver,{version:shipment.__v,proofCode:pickupCode},shipment.publicId),'picked_up');
+      shipment=await Shipment.findById(shipment._id);
+      await deliveryWorkspace.advanceDelivery(action(driver,{version:shipment.__v},shipment.publicId),'in_transit');
+      shipment=await Shipment.findById(shipment._id);
+      for(const documentType of ['delivery_photo',...(shipment.proofPolicy?.signatureRequired?['delivery_signature']:[])]){
+        shipment=await Shipment.findById(shipment._id);
+        await deliveryWorkspace.uploadDeliveryEvidence(action(driver,{version:shipment.__v,documentType},shipment.publicId,file));
+      }
+      shipment=await Shipment.findById(shipment._id);
+      await deliveryWorkspace.advanceDelivery(action(driver,{version:shipment.__v,proofCode:deliveryCode},shipment.publicId),'delivered');
+      shipment=await Shipment.findById(shipment._id);
+      await deliveryWorkspace.uploadDeliveryEvidence(action(driver,{version:shipment.__v,declaredAmountMinor:shipment.cod.collectedMinor},shipment.publicId,file),{cod:true});
+      shipment=await Shipment.findById(shipment._id);
+      await assert.rejects(logistics.reconcileCod({shipment,request:scoped(financeOne)}),{code:'COD_WAREHOUSE_REVIEW_REQUIRED'});
+      assert.equal(await LedgerTransaction.countDocuments({idempotencyKey:'cod:'+shipment.publicId}),0);
+      await deliveryWorkspace.reviewCodReceipt(action(operator,{version:shipment.__v,reason:'Actual cash physically received and receipt independently reviewed.'},shipment.publicId));
+      shipment=await Shipment.findById(shipment._id);
+      await logistics.reconcileCod({shipment,request:scoped(financeOne)});
+      original=await Order.findById(original._id); assert.equal(original.paymentState,'paid'); assert.equal(original.fulfillmentState,'delivered');
+      const opened=await trust.createReturnRequest(shopper,{orderId:original.publicId,reason:'damaged',details:'Return exactly one ineligible-category unit after verified delivery',resolution:'refund',returnMethod:'dropoff',items:[{orderLineId:ineligible.orderLineId,quantity:1}]}); assert.equal(opened.requestedRefundMinor,3875); let returned=await trust.decideReturn(scoped(support),opened.returnRequest.publicId,{version:opened.returnRequest.__v,decision:'approve',note:'Verified original unit and return policy'});
+      const intake={version:returned.__v,orderLineId:ineligible.orderLineId,warehousePublicId:warehouse.publicId}; const receipt=await supportCases.uploadWarehouseReturnIntakeEvidence(scoped(receiving),returned.publicId,intake,file); await supportCases.recordWarehouseReturnIntake(scoped(receiving),returned.publicId,{...intake,version:receipt.version,evidencePublicId:receipt.evidencePublicId}); returned=await ReturnRequest.findById(returned._id); let task=await models.WarehouseTask.findOne({publicId:returned.items[0].warehouseTaskPublicId}); await warehouseOperations.mutateWarehouse(action(receiving,{version:task.__v},task.publicId),'claim'); task=await models.WarehouseTask.findById(task._id); await warehouseOperations.mutateWarehouse(action(receiving,{version:task.__v,disposition:'damaged'},task.publicId),'execute'); returned=await ReturnRequest.findById(returned._id); returned=await trust.inspectReturn(scoped(support),returned.publicId,{version:returned.__v,condition:'damaged',notes:'Actual warehouse inspection confirms original returned unit'}); await supportCases.referSupportReturnToFinance(scoped(support),returned.publicId,{version:returned.__v,note:'Independent refund of exact immutable customer-paid unit'}); returned=await ReturnRequest.findById(returned._id);
+      const refund=await payments.createRefund(scoped(financeOne),{orderId:original.publicId,amountMinor:opened.requestedRefundMinor,reason:'Approved original line return '+returned.publicId,idempotencyKey:'return-refund:'+returned.publicId,allocations:[{storePublicId:store.publicId,productPublicId:productB.publicId,orderLineId:ineligible.orderLineId,grossMinor:3875}],returnPublicId:returned.publicId,returnVersion:returned.__v}); assert.equal(refund.allocations[0].grossMinor,3875); assert.equal(refund.allocations[0].platformFeeMinor+refund.allocations[0].sellerReceivableMinor,3875); await payments.completeManualRefund(scoped(financeTwo),refund.publicId,{reference:id('actual_cash_refund'),version:refund.__v}); assert.equal((await Refund.findById(refund._id)).status,'completed'); assert.equal((await ReturnRequest.findById(returned._id)).status,'refunded'); const ledger=await LedgerTransaction.findOne({referenceType:'refund',referencePublicId:refund.publicId}); assert.equal(ledger.entries.reduce((sum,row)=>sum+row.debitMinor,0),3875); assert.equal(ledger.entries.reduce((sum,row)=>sum+row.creditMinor,0),3875);
+      assert.equal(proportionalSettlementSlice(ineligible.customerPaidMinor,1,2,3),7752); assert.equal(opened.requestedRefundMinor+7752,ineligible.customerPaidMinor); const currentSeller=await SellerOrder.findById(sellerOrder._id); assert.equal(currentSeller.items.find(item=>item.orderLineId===eligible.orderLineId).customerPaidMinor,18000); assert.equal(currentSeller.items.find(item=>item.orderLineId===ineligible.orderLineId).customerPaidMinor,11627);
+    });
+    await t.test('complete bounded CSV exports stay private and stop on current authority change', async () => {
+      const seed = []; for(let index=0;index<31;index++) seed.push({publicId:id('cpn'),code:`EXPORT${suffix}${index}`,name:index===0?'  =FORMULA':'Country export '+index,country:'UG',currency:'UGX',discountType:'fixed',discountMinor:100,createdByUserId:author.user._id,updatedByUserId:author.user._id}); await Coupon.create(seed);
+      await Coupon.create({publicId:id('cpn'),code:`FOREIGN${suffix}`,name:'FOREIGN_COUNTRY_PRIVATE',country:'KE',currency:'KES',discountType:'fixed',discountMinor:100,createdByUserId:foreign.user._id,updatedByUserId:foreign.user._id});
+      const csv = await author.client.get('/admin/coupons/export.csv').expect(200); assert.ok(csv.text.split('\r\n').filter(Boolean).length >= 33); assert.ok(!csv.text.includes('FOREIGN_COUNTRY_PRIVATE')); assert.match(csv.text,/"'=FORMULA"/); assert.match(csv.text,/"Reference","Code","Name","Country","Currency"/); assert.ok(!csv.text.includes(author.user.email));
+      const response = new EventEmitter(); response.destroyed=false; response.type=()=>response; response.set=()=>response; response.end=()=>{}; let writes=0;
+      const original=AuditLog.create; AuditLog.create=async function(documents,...args){if(documents.some?.(row=>row.action==='country_admin.growth_exported'))throw new Error('Injected required export audit failure');return original.call(this,documents,...args);}; response.write=()=>{writes++;return true;}; try{await assert.rejects(growth.streamCountryAdminGrowthCsv(scoped(),response,'admin-coupons'),/Injected required export audit failure/);}finally{AuditLog.create=original;} assert.equal(writes,0);
+      response.write=()=>{if(++writes===3){void PlatformGrant.updateOne({_id:author.grant._id},{$set:{status:'revoked'}}).then(()=>response.emit('drain'),error=>response.emit('error',error));return false;}return true;};
+      await assert.rejects(growth.streamCountryAdminGrowthCsv(scoped(),response,'admin-coupons'),error=>error.status===403); assert.equal(writes,3); assert.equal(response.listenerCount('drain'),0); assert.equal(response.listenerCount('close'),0); assert.equal(response.listenerCount('error'),0);
+    });
+  } finally { for(const transport of transports) transport.destroy(); if(mongoose.connection.readyState===1&&mongoose.models.EvidenceDocument){const {deleteMediaObject}=await import('../src/services/object-storage.js');for(const row of await mongoose.models.EvidenceDocument.find({}).select('+storageKey').lean())if(row.storageKey)await deleteMediaObject(row.storageKey).catch(()=>{});} await mongoose.connection.dropDatabase(); await mongoose.disconnect(); }
+});

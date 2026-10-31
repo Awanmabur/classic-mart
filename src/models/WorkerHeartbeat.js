@@ -5,6 +5,7 @@ const { Schema } = mongoose;
 const workerHeartbeatSchema = new Schema({
   workerId:{type:String,required:true,unique:true,immutable:true,index:true,maxlength:180},
   role:{type:String,enum:['maintenance'],default:'maintenance',required:true,index:true},
+  buildSha:{type:String,maxlength:64,default:''},
   hostname:{type:String,required:true,maxlength:180},
   pid:{type:Number,required:true,min:1},
   status:{type:String,enum:['running','stopping','error'],default:'running',index:true},
@@ -16,9 +17,10 @@ const workerHeartbeatSchema = new Schema({
   lastCycleOk:{type:Boolean,default:true},
   lastError:{type:String,maxlength:1000,default:''},
   expiresAt:{type:Date,required:true},
-},{timestamps:true});
+},{timestamps:true,bufferCommands:false});
 
 workerHeartbeatSchema.index({expiresAt:1},{expireAfterSeconds:0});
 workerHeartbeatSchema.index({role:1,status:1,lastHeartbeatAt:-1});
+workerHeartbeatSchema.index({role:1,buildSha:1,status:1,lastHeartbeatAt:-1});
 
 export const WorkerHeartbeat=mongoose.model('WorkerHeartbeat',workerHeartbeatSchema);

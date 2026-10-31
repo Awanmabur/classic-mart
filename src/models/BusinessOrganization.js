@@ -21,6 +21,18 @@ const schema=new Schema({
   invoiceTermsApproved:{type:Boolean,default:false},
   invoiceTermsDays:{type:Number,min:0,max:120,default:0},
   creditLimitMinor:{type:Number,min:0,max:10_000_000_000,default:0},
+  creditRequestedAt:Date,
+  creditRequestedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
+  creditRequesterTokenVersion:{type:Number,min:0},
+  creditRequestedLimitMinor:{type:Number,min:0,max:10_000_000_000},
+  creditRequestedTermsDays:{type:Number,min:1,max:120},
+  creditApprovedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
+  creditApprovedAt:Date,
+  creditReviewedAt:Date,
+  creditReviewedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
+  creditReviewDecision:{type:String,enum:['approve','reject','revoke']},
+  creditReviewReason:{type:String,maxlength:1000,default:''},
+  creditApprovedRequestAt:Date,
 },{timestamps:true,optimisticConcurrency:true});
 schema.index({country:1,status:1,createdAt:-1});
 export const BusinessOrganization=mongoose.model('BusinessOrganization',schema);

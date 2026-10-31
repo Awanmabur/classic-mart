@@ -116,7 +116,14 @@
     } catch (error) { if (status) status.textContent = error.message; button.disabled = false; }
   }
   async function cancelTrackedOrder(orderId, button) {
-    if (!window.confirm('Cancel this order before carrier pickup? Paid online orders will request a provider refund.')) return;
+    if (!window.ClassicMartRecordActions?.confirm) {
+      if (status) status.textContent = 'Confirmation is unavailable. Reload this page before cancelling the order.';
+      return;
+    }
+    const accepted = await window.ClassicMartRecordActions?.confirm({ title: 'Cancel this order?',
+      message: 'Cancel before carrier pickup? Paid online orders will request a provider refund.',
+      confirmLabel: 'Continue', opener: button });
+    if (!accepted || !button.isConnected || button.disabled) return;
     button.disabled = true;
     try {
       const response = await fetch(`/api/v1/orders/${encodeURIComponent(orderId)}/cancel`, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-csrf-token': csrfToken }, body: JSON.stringify({ reason: 'Customer cancelled from order tracking' }) });

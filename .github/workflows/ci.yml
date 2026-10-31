@@ -1,0 +1,187 @@
+name: Classic Mart CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+jobs:
+  verify:
+    # Ubuntu 24.04 runners now include kernels rejected by this MongoDB image.
+    # Use Jammy and verify the actual kernel; an OS label alone is insufficient.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+      - name: Verify MongoDB runner kernel
+        run: node scripts/check-ci-mongo-kernel.js
+      - run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Resolve the installed Chromium for all browser tests
+        run: node scripts/prepare-ci-browser.js
+      - name: Start MongoDB replica set and Redis
+        run: |
+          set -Eeuo pipefail
+          trap 'ci_status=$?; node scripts/ci-service-diagnostics.js || true; exit "$ci_status"' ERR
+          # Disposable databases repeatedly build/drop the complete index set.
+          # WiredTiger's cache cap does not cap TCMalloc's retained free heap.
+          # This pinned MongoDB uses bytes/second for tcmallocReleaseRate: return
+          # freed pages at 64 MiB/s and bound its per-CPU caches to 1 MiB each.
+          docker run -d --name classic-mart-mongo --network host --memory=4g --memory-swap=4g --ulimit nofile=65536:65536 mongo@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c mongod --port 27019 --replSet rs0 --bind_ip 127.0.0.1 --wiredTigerCacheSizeGB 0.25 --setParameter maxNumActiveUserIndexBuilds=1 --setParameter maxIndexBuildMemoryUsageMegabytes=64 --setParameter tcmallocMaxPerCPUCacheSize=1048576 --setParameter tcmallocReleaseRate=67108864
+          docker run -d --name classic-mart-redis --network host --memory=128m redis@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0 redis-server --bind 127.0.0.1 --save '' --appendonly no --maxmemory 64mb --maxmemory-policy noeviction
+          mongo_ready=false
+          for i in $(seq 1 60); do
+            if docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then mongo_ready=true; break; fi
+            sleep 1
+          done
+          if [ "$mongo_ready" != true ]; then echo '::error::CI MongoDB did not become reachable.'; false; fi
+          docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'try{rs.status()}catch(e){rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27019"}]})}'
+          primary_ready=false
+          for i in $(seq 1 60); do
+            if docker exec classic-mart-mongo mongosh --port 27019 --quiet --eval 'if(!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then primary_ready=true; break; fi
+            sleep 1
+          done
+          if [ "$primary_ready" != true ]; then echo '::error::CI MongoDB replica set did not elect a writable primary.'; false; fi
+          redis_ready=false
+          for i in $(seq 1 60); do
+            if [ "$(docker exec classic-mart-redis redis-cli ping 2>/dev/null)" = PONG ]; then redis_ready=true; break; fi
+            sleep 1
+          done
+          if [ "$redis_ready" != true ]; then echo '::error::CI Redis did not become ready.'; false; fi
+      - name: Static, security, frontend and functional gates
+        run: npm run check && npm run security:check && npm run frontend:audit && npm run functionality:audit
+        env: &testenv
+          NODE_ENV: test
+          MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci?replicaSet=rs0
+          REDIS_URL: redis://127.0.0.1:6379
+      - name: Automated unit, live database and workspace browser tests
+        run: npm test
+        env:
+          NODE_ENV: test
+          MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci?replicaSet=rs0
+          REDIS_URL: redis://127.0.0.1:6379
+          # The runner serializes live fixtures and preloads model initialization
+          # cleanup before each disposable test database is dropped.
+          CLASSIC_MART_LIVE_TEST_MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci_test?replicaSet=rs0
+          CLASSIC_MART_LIVE_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      - name: Database topology, integration and concurrency audits
+        run: npm run db:verify && npm run audit:integration && npm run audit:concurrency
+        env: &databaseenv
+          NODE_ENV: test
+          MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci?replicaSet=rs0
+          REDIS_URL: redis://127.0.0.1:6379
+          CLASSIC_MART_TEST_MONGO_OVERRIDE: '1'
+      - name: Migration dry run
+        run: npm run migrate:plan
+        env: *databaseenv
+      - name: Prepare deterministic browser fixture password
+        run: |
+          ADMIN_PASSWORD="Ci$(openssl rand -hex 12)A9!"
+          echo "::add-mask::$ADMIN_PASSWORD"
+          echo "ADMIN_PASSWORD=$ADMIN_PASSWORD" >> "$GITHUB_ENV"
+      - name: Seed browser test data
+        run: node scripts/seed.js
+        env: &browserenv
+          NODE_ENV: test
+          MONGO_URI: mongodb://127.0.0.1:27019/classic_mart_ci?replicaSet=rs0
+          REDIS_URL: redis://127.0.0.1:6379
+          ADMIN_EMAIL: admin@classicmart.local
+          ADMIN_PHONE: '+256700000001'
+          CLASSIC_MART_TEST_MONGO_OVERRIDE: '1'
+          SIMPLE_LOGIN: 'false'
+          PRIVILEGED_MFA_REQUIRED: 'true'
+          CLASSIC_MART_E2E_LOOPBACK_ISOLATION: '1'
+          MAIL_MODE: log
+          SMS_MODE: log
+          AI_ENABLED: 'false'
+      - name: Prepare separate Seller and Moderator browser accounts with real MFA
+        run: node scripts/seed-browser-accounts.js
+        env: *browserenv
+      - name: Browser functionality and accessibility (contrast advisory)
+        run: npm run browser:ci
+        env: *browserenv
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: classic-mart-browser-diagnostics
+          path: |
+            artifacts/ci-services.txt
+            artifacts/ci-browser-summary.json
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+      - name: Dependency vulnerability gate
+        run: npm audit --audit-level=high
+      - name: SBOM and sanitized release
+        run: npm run security:sbom && npm run release:build
+        env: *testenv
+      - name: Build production container image
+        run: |
+          docker build --pull --no-cache --build-arg BUILD_SHA=${{ github.sha }} -t classic-mart:${{ github.sha }} .
+          docker image inspect classic-mart:${{ github.sha }} --format '{{.Id}}' > artifacts/container-image-id.txt
+      - name: Verify non-root production container runtime
+        run: node scripts/check-production-container.js classic-mart:${{ github.sha }} ${{ github.sha }}
+      - name: Scan production container for HIGH/CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: classic-mart:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Attest sanitized release provenance
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/attest-with-retry
+        with:
+          subject-path: 'dist/*.zip'
+      - name: Attest sanitized release SBOM
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/attest-with-retry
+        with:
+          subject-path: 'dist/*.zip'
+          sbom-path: artifacts/classic-mart-sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: classic-mart-release
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            artifacts/classic-mart-sbom.cdx.json
+            artifacts/container-image-id.txt
+          if-no-files-found: error
+  signing-preflight:
+    # Catch runner metadata or signing-service failures before the long test
+    # suite reaches release signing. This subject is explicitly not a release.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Prepare isolated signing test subject
+        run: |
+          node --input-type=module <<'NODE'
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          mkdirSync('artifacts', { recursive: true });
+          writeFileSync('artifacts/signing-preflight.json', JSON.stringify({
+            purpose: 'CI signing preflight only; not a release artifact',
+            commit: process.env.GITHUB_SHA,
+            run: process.env.GITHUB_RUN_ID,
+          }) + '\n');
+          NODE
+      - name: Verify official signing and required bundle
+        uses: ./.github/actions/attest-with-retry
+        with:
+          subject-path: artifacts/signing-preflight.json

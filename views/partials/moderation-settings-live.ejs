@@ -1,0 +1,91 @@
+<%
+const settings = moderationFlow;
+const profile = settings.profile || {};
+const preferences = settings.preferences || {};
+const context = settings.context || {};
+const countries = context.countries || settings.countries || [];
+const selectedCountry = settings.country ?? context.country ?? '';
+const section = settings.section || 'profile';
+const draft = settings.draft || {};
+const initials = String(profile.name || user?.name || 'Moderator').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+const profileFields = [profile.name, profile.teamName, profile.email, profile.phone, profile.registrationCountry, profile.bio];
+const completion = Math.round(profileFields.filter(value => typeof value === 'string' && value.trim()).length / profileFields.length * 100);
+const tabs = [['profile','Personal information'],['business','Workspace details'],['payments','Workspace preferences'],['notifications','Communication'],['security','Password & Security']];
+const sectionHref = value => moderationPage.href + '?' + new URLSearchParams({ section: value, ...(selectedCountry ? { country: selectedCountry } : {}) });
+const eventDate = value => { const date = new Date(value); if (!value || !Number.isFinite(date.getTime())) return 'Not specified'; try { return new Intl.DateTimeFormat(user?.locale || 'en', { timeZone: settings.timeZone || 'UTC', dateStyle: 'medium', timeStyle: 'short' }).format(date); } catch { return date.toISOString(); } };
+const profileCountry = countries.find(country => country.code === profile.registrationCountry);
+const checked = value => [true, 'true', 'on', '1'].includes(value);
+%>
+<section class="app-page role-page active moderation-settings-live moderation-fidelity-page" data-page="<%= moderationPage.id %>" data-role="moderator" data-page-kind="settings">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow">Account preferences</span><h1><%= moderationPage.title %></h1><p><%= moderationPage.description %></p></div><div class="moderation-heading-actions">
+    <% if (countries.length) { %><form class="moderation-country-filter" method="get" action="<%= moderationPage.href %>"><input type="hidden" name="section" value="<%= section %>"><label class="sr-only" for="moderationSettingsCountry">Country scope</label><select id="moderationSettingsCountry" name="country"><option value="" <%= selectedCountry === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= country.code === selectedCountry ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select><button class="plain-link" type="submit">Apply</button></form><% } %>
+    <a class="outline-button icon-button" href="/account/security"><svg aria-hidden="true"><use href="#i-shield"></use></svg>Security centre</a>
+  </div></div>
+  <% if (settings.error) { %><p class="server-flash error platform-flash" role="alert"><%= settings.error %></p><% } %>
+  <div class="profile-layout role-settings-layout role-profile-settings">
+    <aside class="panel profile-summary role-profile-summary">
+      <div class="profile-avatar-wrap role-profile-avatar-wrap"><span class="role-profile-avatar"><%= initials %></span></div>
+      <h2><%= profile.name || user?.name || 'Moderator' %></h2><p><%= profile.email || '' %></p>
+      <span class="member-pill"><svg aria-hidden="true"><use href="#i-shield"></use></svg>Moderation</span>
+      <div class="profile-completion"><div><span>Profile completion</span><strong><%= completion %>%</strong></div><div><span style="width:<%= completion %>%"></span></div></div>
+      <nav class="settings-nav role-settings-nav" aria-label="Profile settings sections"><% for (const [value, label] of tabs) { %><a href="<%= sectionHref(value) %>" class="<%= section === value ? 'active' : '' %>" <%= section === value ? 'aria-current=page' : '' %>><%= label %></a><% } %></nav>
+    </aside>
+    <div class="role-settings-content">
+      <% if (section === 'profile') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="profile" method="post" action="/moderation/settings/profile">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= profile.version %>">
+        <div class="section-heading"><div><h2>Personal Information</h2><p class="form-intro">Keep the information shown across Classic Mart accurate and consistent.</p></div><% if (user?.emailVerifiedAt) { %><span class="verified-label"><svg aria-hidden="true"><use href="#i-check"></use></svg>Verified</span><% } %></div>
+        <div class="role-form-grid">
+          <label>Display name<input name="name" value="<%= draft.name ?? profile.name ?? '' %>" minlength="2" maxlength="120" autocomplete="name" required></label>
+          <label>Trust team name<input name="teamName" value="<%= draft.teamName ?? profile.teamName ?? '' %>" maxlength="140" autocomplete="organization"></label>
+          <label>Contact email<input type="email" value="<%= profile.email || '' %>" autocomplete="email" readonly></label>
+          <label>Phone number<input type="tel" value="<%= profile.phone || '' %>" autocomplete="tel" readonly></label>
+          <label>Country<input value="<%= profileCountry?.name || profile.registrationCountry || 'Not specified' %>" readonly></label>
+          <label class="wide">About<textarea name="bio" rows="5" maxlength="1000"><%= draft.bio ?? profile.bio ?? '' %></textarea></label>
+        </div>
+        <button class="primary-button" type="submit">Save Changes</button>
+      </form>
+      <% } else if (section === 'business') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="business" method="post" action="/moderation/settings" id="moderation-operating-preferences">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= preferences.version %>">
+        <input type="hidden" name="landingPage" value="<%= preferences.landingPage %>"><input type="hidden" name="density" value="<%= preferences.density %>"><input type="hidden" name="idleReminderMinutes" value="<%= preferences.idleReminderMinutes %>">
+        <h2>Workspace &amp; operating preferences</h2><p class="form-intro">These settings keep the workspace aligned with its real operating responsibility.</p>
+        <div class="role-form-grid">
+          <label>Operating region<select name="defaultCountry"><option value="" <%= (draft.defaultCountry ?? preferences.defaultCountry ?? '') === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= country.code === (draft.defaultCountry ?? preferences.defaultCountry) ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select></label>
+          <label>Coverage starts<input value="<%= settings.coverage ? eventDate(settings.coverage.startsAt) : 'Current assigned role' %>" readonly></label>
+          <label>Coverage expires<input value="<%= settings.coverage ? eventDate(settings.coverage.expiresAt) : 'While role remains active' %>" readonly></label>
+          <label>Default reporting period<select name="reportingPeriod"><% for (const [value, label] of [['30days','Last 30 days'],['7months','Last 7 months'],['year','This year']]) { %><option value="<%= value %>" <%= value === (draft.reportingPeriod ?? preferences.reportingPeriod) ? 'selected' : '' %>><%= label %></option><% } %></select></label>
+        </div><p class="form-intro">Operating preferences follow your assigned countries. Review decisions retain their recorded reasons and evidence.</p>
+        <button class="primary-button" type="submit">Save Changes</button>
+      </form>
+      <% } else if (section === 'payments') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="payments" method="post" action="/moderation/settings" id="moderation-workspace-controls">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= preferences.version %>">
+        <input type="hidden" name="defaultCountry" value="<%= preferences.defaultCountry || '' %>"><input type="hidden" name="reportingPeriod" value="<%= preferences.reportingPeriod %>">
+        <input type="hidden" name="section" value="payments">
+        <h2>Workspace controls</h2><p class="form-intro">Set sensible defaults for this operational workspace.</p>
+        <div class="role-form-grid">
+          <label>Default landing view<select name="landingPage"><% for (const option of settings.landingOptions || []) { %><option value="<%= option.id %>" <%= option.id === (draft.landingPage ?? preferences.landingPage) ? 'selected' : '' %>><%= option.label %></option><% } %></select></label>
+          <label>Default density<select name="density"><% for (const [value, label] of [['comfortable','Comfortable'],['compact','Compact']]) { %><option value="<%= value %>" <%= value === (draft.density ?? preferences.density) ? 'selected' : '' %>><%= label %></option><% } %></select></label>
+          <label>Session idle reminder<select name="idleReminderMinutes"><% for (const value of [15,30,60]) { %><option value="<%= value %>" <%= String(value) === String(draft.idleReminderMinutes ?? preferences.idleReminderMinutes) ? 'selected' : '' %>><%= value %> minutes</option><% } %></select></label>
+          <label>Timezone<input value="<%= settings.timeZone || context.timeZone || 'UTC' %>" readonly></label>
+        </div><p class="form-intro">The idle reminder helps you review unattended sessions. Reporting uses the selected country’s timezone, or UTC across countries.</p>
+        <button class="primary-button" type="submit">Save workspace controls</button>
+      </form>
+      <% } else if (section === 'notifications') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="notifications" method="post" action="/moderation/settings/communication">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= preferences.version %>">
+        <h2>Communication Preferences</h2><p class="form-intro">Choose which operational updates should reach this account.</p>
+        <div class="role-toggle-list"><% for (const item of [{name:'highRiskAlerts',title:'Priority work',description:'New high-risk products, reviews, or cases in your assigned countries'},{name:'escalationAlerts',title:'Escalations',description:'Cases referred for your team’s review or higher-risk attention'}]) { %><label><div><strong><%= item.title %></strong><small><%= item.description %></small></div><span class="switch"><input type="checkbox" name="<%= item.name %>" value="on" <%= checked(Object.hasOwn(draft, item.name) ? draft[item.name] : preferences[item.name]) ? 'checked' : '' %>><span></span></span></label><% } %></div>
+        <button class="primary-button" type="submit">Save Preferences</button>
+      </form>
+      <% } else if (section === 'security') { %>
+      <section class="panel form-panel role-settings-panel active" data-role-settings-panel="security">
+        <h2>Password &amp; Security</h2><p class="form-intro">Protect the account and review signed-in sessions.</p>
+        <div class="role-security-row"><span><svg aria-hidden="true"><use href="#i-shield"></use></svg></span><div><strong>Two-factor authentication</strong><small><%= settings.security?.mfaEnabled ? 'Authenticator enabled for this account.' : 'Authenticator enrollment is required for privileged moderation actions.' %></small></div><a class="soft-button" href="/account/security"><%= settings.security?.mfaEnabled ? 'Manage' : 'Enable' %></a></div>
+        <div class="role-security-row"><span><svg aria-hidden="true"><use href="#i-eye"></use></svg></span><div><strong>Active sessions</strong><small><%= settings.security?.activeSessions ?? '—' %> signed-in devices</small></div><a class="outline-button" href="/account/security">Review</a></div>
+      </section>
+      <% } %>
+    </div>
+  </div>
+</section>

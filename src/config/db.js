@@ -7,7 +7,7 @@ import { mongoUriOption } from '../core/mongo-uri.js';
 
 let connectionPromise;
 
-async function connectWithRetry({ autoIndex = !env.isProduction } = {}) {
+async function connectWithRetry({ autoIndex = !env.isProduction, autoCreate = autoIndex } = {}) {
   if (!env.mongoUri) {
     const error = new Error('MONGO_URI is required. Configure a managed transaction-capable MongoDB URI such as MongoDB Atlas.');
     error.code = 'MONGO_URI_REQUIRED';
@@ -25,6 +25,9 @@ async function connectWithRetry({ autoIndex = !env.isProduction } = {}) {
     try {
       const instance = await mongoose.connect(env.mongoUri, {
         autoIndex,
+        // Production and read-only CLIs use explicitly migrated collections.
+        // Compiling models must not launch competing background DDL commands.
+        autoCreate,
         maxPoolSize: 30,
         minPoolSize: env.isTest ? 0 : 2,
         maxIdleTimeMS: 30_000,
@@ -43,7 +46,7 @@ async function connectWithRetry({ autoIndex = !env.isProduction } = {}) {
       await mongoose.disconnect().catch(() => {});
       if (attempt === maximumAttempts) break;
       logger.warn(
-        { attempt, maximumAttempts, error: error.message },
+        { attempt, maximumAttempts, err: error },
         'MongoDB is not ready; retrying',
       );
       await delay(Math.min(attempt * 1_000, 3_000));

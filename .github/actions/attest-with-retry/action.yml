@@ -1,0 +1,74 @@
+name: Attest release with bounded retries
+description: Require a successful official GitHub attestation despite temporary signing-service failures.
+inputs:
+  subject-path:
+    description: Release artifact paths to attest.
+    required: true
+  sbom-path:
+    description: Optional CycloneDX or SPDX SBOM to attest.
+    required: false
+    default: ''
+outputs:
+  bundle-path:
+    description: Bundle from the successful official signing attempt.
+    value: ${{ steps.result.outputs.bundle-path }}
+  attestation-id:
+    description: GitHub attestation ID when returned by the official action.
+    value: ${{ steps.result.outputs.attestation-id }}
+  attestation-url:
+    description: GitHub attestation URL when returned by the official action.
+    value: ${{ steps.result.outputs.attestation-url }}
+runs:
+  using: composite
+  steps:
+    - name: Sign release
+      id: first
+      uses: actions/attest@v4
+      continue-on-error: true
+      with:
+        subject-path: ${{ inputs.subject-path }}
+        sbom-path: ${{ inputs.sbom-path }}
+    - name: Wait before second signing attempt
+      if: ${{ !cancelled() && steps.first.outcome == 'failure' }}
+      shell: bash
+      run: sleep 10
+    - name: Retry signing
+      id: second
+      if: ${{ !cancelled() && steps.first.outcome == 'failure' }}
+      uses: actions/attest@v4
+      continue-on-error: true
+      with:
+        subject-path: ${{ inputs.subject-path }}
+        sbom-path: ${{ inputs.sbom-path }}
+    - name: Wait before final signing attempt
+      if: ${{ !cancelled() && steps.second.outcome == 'failure' }}
+      shell: bash
+      run: sleep 30
+    - name: Final signing attempt
+      id: third
+      if: ${{ !cancelled() && steps.second.outcome == 'failure' }}
+      uses: actions/attest@v4
+      continue-on-error: true
+      with:
+        subject-path: ${{ inputs.subject-path }}
+        sbom-path: ${{ inputs.sbom-path }}
+    - name: Require successful attestation
+      id: result
+      if: ${{ always() }}
+      shell: bash
+      env:
+        ATTEST_REQUIRE_SCRIPT: ${{ github.action_path }}/require-success.js
+        CANCELLED: ${{ job.status == 'cancelled' }}
+        FIRST_OUTCOME: ${{ steps.first.outcome }}
+        FIRST_BUNDLE: ${{ steps.first.outputs.bundle-path }}
+        FIRST_ID: ${{ steps.first.outputs.attestation-id }}
+        FIRST_URL: ${{ steps.first.outputs.attestation-url }}
+        SECOND_OUTCOME: ${{ steps.second.outcome }}
+        SECOND_BUNDLE: ${{ steps.second.outputs.bundle-path }}
+        SECOND_ID: ${{ steps.second.outputs.attestation-id }}
+        SECOND_URL: ${{ steps.second.outputs.attestation-url }}
+        THIRD_OUTCOME: ${{ steps.third.outcome }}
+        THIRD_BUNDLE: ${{ steps.third.outputs.bundle-path }}
+        THIRD_ID: ${{ steps.third.outputs.attestation-id }}
+        THIRD_URL: ${{ steps.third.outputs.attestation-url }}
+      run: node "$ATTEST_REQUIRE_SCRIPT"

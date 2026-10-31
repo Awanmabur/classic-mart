@@ -1,0 +1,17 @@
+<section class="panel content-panel"><div class="section-heading"><h2>Redeem Your Points</h2><span class="muted-label">Current market rewards</span></div>
+  <% if(pageData.benefitsPaused){ %><p role="status">Rewards are paused while <%= pageData.account.reversalDebtPoints %> reversed points are reconciled. Your points history shows the adjustment.</p><% } %>
+  <div class="reward-catalog">
+    <% if(!(pageData.catalogue||[]).length){ %><div class="empty-state"><p>No point rewards are available in this market yet.</p></div><% } %>
+    <% (pageData.catalogue||[]).forEach(reward=>{ %><article class="reward-option"><span class="reward-icon"><svg><use href="#<%= reward.kind==='gold_trial'?'i-crown':reward.kind==='shipping'?'i-truck':'i-tag' %>"></use></svg></span><h3><%= reward.label %></h3><p><%= Number(reward.pointsCost).toLocaleString() %> points · Valid for <%= reward.validDays %> days</p>
+      <% if(reward.kind==='voucher'){ %><p>Save up to <%= formatMoney(reward.maximumDiscountMinor||reward.valueMinor,pageData.currency) %> on eligible goods.</p><% } %>
+      <% if(reward.kind==='shipping'){ %><p>Save up to <%= formatMoney(reward.maximumDiscountMinor||reward.valueMinor,pageData.currency) %> on delivery.</p><% } %>
+      <% if(reward.kind==='gold_trial'){ %><p><%= Number(reward.multiplierBps||10000)/10000 %>× eligible points<%= reward.trialShippingDiscountBps?' · '+Number(reward.trialShippingDiscountBps)/100+'% standard delivery discount':'' %>.</p><% } %>
+      <% if(reward.minimumSpendMinor){ %><p>Minimum spend: <%= formatMoney(reward.minimumSpendMinor,pageData.currency) %>.</p><% } %>
+      <form method="post" action="/account/rewards/redeem"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="returnTo" value="/rewards"><input type="hidden" name="rewardKey" value="<%= reward.key %>"><input type="hidden" name="idempotencyKey" value="<%= walletIdempotencyKey %>:<%= reward.key %>"><button class="soft-button" type="submit" <%= reward.available?'':'disabled' %>>Redeem <%= reward.pointsCost %> Points</button></form>
+    </article><% }) %>
+  </div>
+</section>
+<section class="panel content-panel"><div class="section-heading"><h2>Your Issued Rewards</h2><a class="plain-link" href="/categories">Start Shopping</a></div><div class="activity-list">
+  <% if(!(pageData.rewards||[]).length){ %><div class="empty-state"><p>Your redeemed rewards will appear here.</p></div><% } %>
+  <% (pageData.rewards||[]).forEach(reward=>{ %><div id="reward-<%= reward.publicId %>"><span class="reward-icon"><svg><use href="#<%= reward.kind==='gold_trial'?'i-crown':'i-tag' %>"></use></svg></span><div><strong><%= reward.label %></strong><small><%= reward.status %><%= reward.currency && reward.currency !== pageData.currency ? ' · ' + reward.currency : '' %> · Expires <%= formatDate(reward.expiresAt) %></small><small><%= reward.publicId %><% if(reward.orderHref){ %> · Order <a class="plain-link" href="<%= reward.orderHref %>"><%= reward.orderPublicId %></a><% } %></small></div><% if(reward.availableAtCheckout){ %><a class="soft-button" href="/checkout">Use at Checkout</a><% } %></div><% }) %>
+</div></section>

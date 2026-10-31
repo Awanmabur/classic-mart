@@ -73,7 +73,9 @@ export async function refreshOrderLifecycle(orderId, { session } = {}) {
   let returnQuery = ReturnRequest.find({ orderId: order._id }).select('status');
   let refundQuery = Refund.find({ orderId: order._id, status: { $in: ['pending','processing','completed'] } }).select('status amountMinor');
   if (session) { sellerQuery = sellerQuery.session(session); shipmentQuery = shipmentQuery.session(session); returnQuery = returnQuery.session(session); refundQuery = refundQuery.session(session); }
-  const [sellerOrders, outboundShipment, returns, refunds] = await Promise.all([sellerQuery.lean(), shipmentQuery.lean(), returnQuery.lean(), refundQuery.lean()]);
+  const [sellerOrders, outboundShipment, returns, refunds] = session
+    ? [await sellerQuery.lean(), await shipmentQuery.lean(), await returnQuery.lean(), await refundQuery.lean()]
+    : await Promise.all([sellerQuery.lean(), shipmentQuery.lean(), returnQuery.lean(), refundQuery.lean()]);
 
   order.fulfillmentState = deriveFulfillmentFromSellerOrders(order, sellerOrders, outboundShipment);
 

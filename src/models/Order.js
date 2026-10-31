@@ -83,7 +83,7 @@ const orderSchema = new Schema(
     deliveryMethod: { type: String, enum: ['standard', 'express', 'pickup'], required: true },
     shippingZonePublicId: { type: String, maxlength: 100, default: '' },
     pickupPointPublicId: { type: String, maxlength: 100, default: '' },
-    paymentMethod: { type: String, enum: ['card', 'mobile', 'cod', 'exchange', 'pesapal', 'credit_terms'], required: true },
+    paymentMethod: { type: String, enum: ['card', 'mobile', 'cod', 'wallet', 'exchange', 'pesapal', 'credit_terms'], required: true },
     businessOrganizationId: { type: Schema.Types.ObjectId, ref: 'BusinessOrganization', index: true },
     purchaseOrderId: { type: Schema.Types.ObjectId, ref: 'PurchaseOrder', index: true },
     purchaseOrderPublicId: { type: String, maxlength: 100, default: '', index: true },
@@ -96,7 +96,11 @@ const orderSchema = new Schema(
     refundState: { type: String, enum: ['none','pending','processing','partial','complete'], default: 'none', index: true },
     contact: { type: addressSchema, required: true },
     totals: { type: moneySchema, required: true },
+    fundingSnapshot: { type: new Schema({ rewardPublicId:{type:String,default:''},rewardGoodsMinor:{type:Number,min:0,default:0},rewardShippingMinor:{type:Number,min:0,default:0},clubShippingMinor:{type:Number,min:0,default:0},totalMinor:{type:Number,min:0,default:0},grossShippingMinor:{type:Number,min:0,default:0} },{_id:false}), default:undefined, immutable:true },
+    loyaltySnapshot: { type:new Schema({enabled:{type:Boolean,default:false},pointsPer1000Minor:{type:Number,min:0,default:0},multiplierBps:{type:Number,min:10000,default:10000},eligibleMinor:{type:Number,min:0,default:0},tier:{type:String,default:'classic'},trialRewardPublicId:{type:String,default:''}},{_id:false}), default:undefined, immutable:true },
     items: { type: [orderItemSchema], required: true, validate: value => value.length > 0 },
+    couponPublicIds: { type: [String], default: [], immutable: true },
+    couponApplications: { type: [{ publicId: String, discountMinor: Number, allocations: [{ storePublicId: String, discountMinor: Number }], lineAllocations: [{ orderLineId: { type: String, required: true }, storePublicId: { type: String, required: true }, productPublicId: { type: String, required: true }, variantPublicId: { type: String, required: true }, discountMinor: { type: Number, min: 0, required: true } }] }], default: [], immutable: true },
     sellerOrderPublicIds: { type: [String], default: [] },
     policySnapshot: { returnWindowDays: { type: Number, min: 0, default: 30 }, policyVersion: { type: String, maxlength: 40, default: '2026-07' }, platformFeeBps: { type: Number, min: 0, max: 5000, default: 500 }, taxBps: { type: Number, min: 0, max: 10000, default: 0 } },
     cancellation: { requestedAt: Date, reason: { type: String, maxlength: 300, default: '' }, inventoryRestoredAt: Date, refundPublicId: { type: String, maxlength: 100, default: '' } },
@@ -109,5 +113,12 @@ const orderSchema = new Schema(
 orderSchema.index({ sessionKey: 1, idempotencyKey: 1 }, { unique: true });
 orderSchema.index({ sessionKey: 1, createdAt: -1 });
 orderSchema.index({ userId: 1, createdAt: -1 });
+
+orderSchema.index({ userId: 1, paymentState: 1, createdAt: -1 });
+orderSchema.index({ userId: 1, fulfillmentState: 1, createdAt: -1 });
+// Public sales metrics first narrow to the displayed products before unwinding.
+orderSchema.index({ country: 1, status: 1, 'items.productId': 1 });
+
+orderSchema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
 
 export const Order = mongoose.model('Order', orderSchema);

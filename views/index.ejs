@@ -2,103 +2,23 @@
 
 <html lang="en" data-low-data="<%= user?.preferences?.lowData ? 'true' : 'false' %>">
 <head>
+<%- include('partials/brand-icons') %>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/>
 <% if (typeof productMeta !== "undefined" && productMeta) { %><base href="/"/><% } %>
-<meta content="<%= typeof productMeta !== 'undefined' && productMeta ? productMeta.description : 'Classic Mart multi-vendor ecommerce marketplace with verified sellers, real inventory and buyer protection.' %>" name="description"/>
+
 <meta content="#ff6200" name="theme-color"/>
 <link href="/manifest.webmanifest" rel="manifest"/>
-<title><%= typeof productMeta !== 'undefined' && productMeta ? `${productMeta.name} — Classic Mart` : 'Classic Mart — Everything, for everyone' %></title>
-<% if (typeof productMeta !== "undefined" && productMeta) { %><link rel="canonical" href="<%= productMeta.canonical %>"/><meta property="og:type" content="product"/><meta property="og:title" content="<%= productMeta.name %> — Classic Mart"/><meta property="og:description" content="<%= productMeta.description %>"/><meta property="og:image" content="<%= productMeta.image %>"/><script type="application/ld+json" nonce="<%= cspNonce %>"><%- productMeta.jsonLd %></script><% } %>
+<%- include("partials/seo-meta") %>
 <link href="/styles.css" rel="stylesheet"/>
 <link href="/storefront-pages.css" rel="stylesheet"/>
+<%- include('partials/flash-assets') %>
 </head>
-<body class="home-page">
+<body class="home-page" data-storefront-authenticated="<%= user ? 'true' : 'false' %>">
 <a class="skip-link" href="#mainContent">Skip to content</a>
-<div class="utility-bar">
-<div class="container utility-inner">
-<button class="utility-location text-button" data-open="locationModal" type="button">
-<img alt="" aria-hidden="true" src="/assets/icons/location-dot.svg"/>
-        Deliver to <strong id="deliveryLocation"><%= deliveryLocation || country?.name || "Uganda" %></strong>
-</button>
-<div class="shipping-note">
-<img alt="" aria-hidden="true" src="/assets/icons/truck-fast.svg"/>
-<strong>Delivery pricing</strong> calculated for your country at checkout
-      </div>
-<nav aria-label="Utility navigation" class="utility-links">
-<a class="text-button" href="/signup?role=seller">Sell on Classic Mart</a>
-<a class="text-button utility-text-link" href="/sellers">Seller Center</a><a class="text-button utility-text-link" href="/promoters">Promoters Center</a>
-<a class="text-button" href="/track-order">Track Order</a>
-<a class="text-button" href="/help">Help &amp; Support</a>
-<button aria-expanded="false" class="language-button" id="languageButton" type="button">
-<img alt="" aria-hidden="true" src="/assets/icons/globe.svg"/> <%= country?.locale?.split("-")[0].toUpperCase() || "EN" %> | <%= currency || country?.currency || "UGX" %>
-          <img alt="" aria-hidden="true" class="tiny-icon" src="/assets/icons/chevron-down.svg"/>
-</button>
-</nav>
-</div>
-</div>
-<header class="site-header" id="top">
-<div class="container header-main">
-<a aria-label="Classic Mart home" class="brand" href="#top">
-<img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"/>
-<small>Everything, for everyone</small>
-</a>
-<form class="search-bar" id="searchForm" role="search">
-<label class="sr-only" for="searchCategory">Product category</label>
-<select aria-label="Product category" class="category-select" id="searchCategory">
-<option value="all">Loading categories…</option>
-</select>
-<label class="sr-only" for="searchInput">Search products</label>
-<input autocomplete="off" id="searchInput" placeholder="Search for products, brands and more..." type="search"/>
-<div class="search-tool-actions" aria-label="Alternative search options">
-<button aria-label="Search by image" class="search-tool-button" data-image-search type="button" title="Search by image"><img alt="" aria-hidden="true" src="/assets/icons/camera.svg"/></button>
-<button aria-label="Search by voice" class="search-tool-button" data-voice-search type="button" title="Search by voice"><img alt="" aria-hidden="true" src="/assets/icons/microphone.svg"/></button>
-<input accept="image/jpeg,image/png,image/webp,image/avif" class="sr-only" data-image-search-input type="file"/>
-</div>
-<button class="search-button" type="submit">
-<img alt="" aria-hidden="true" src="/assets/icons/magnifying-glass.svg"/><span>Search</span>
-</button>
-<div aria-label="Search suggestions" class="search-suggestions" id="searchSuggestions" role="listbox"></div>
-</form>
-<div class="header-actions">
-<a aria-label="Open your Classic Mart profile" class="header-action header-action-link" href="/dashboard">
-<span class="header-action-icon"><img alt="" aria-hidden="true" src="/assets/icons/user.svg"/></span>
-<span class="header-action-copy"><small>Your account</small><strong>Profile</strong></span>
-<img alt="" aria-hidden="true" class="header-chevron" src="/assets/icons/chevron-right.svg"/>
-</a>
-<a aria-label="Open your wishlist" class="header-action wishlist-trigger" href="/wishlist"><span class="header-action-icon"><img alt="" aria-hidden="true" src="/assets/icons/heart-regular.svg"/></span><span class="header-action-copy"><small>Saved items</small><strong>Wishlist</strong></span><b class="count-badge wishlist-count-badge" data-wishlist-count="">0</b></a><a aria-label="Open your full cart and checkout" class="header-action cart-trigger" href="/cart" id="cartTrigger">
-<span class="header-action-icon"><img alt="" aria-hidden="true" src="/assets/icons/cart-shopping.svg"/></span>
-<span class="header-action-copy"><small>Your basket</small><strong>Cart</strong></span>
-<b class="count-badge" id="cartCount">0</b>
-</a>
-</div>
-</div>
-<div class="nav-shell">
-<div class="container nav-inner">
-<button aria-controls="categoryPanel" aria-expanded="false" class="browse-button" id="menuToggle" type="button">
-<img alt="" aria-hidden="true" src="/assets/icons/bars.svg"/>
-<span>Browse Categories</span>
-<img alt="" aria-hidden="true" class="browse-chevron" src="/assets/icons/chevron-down.svg"/>
-</button>
-<nav aria-label="Primary navigation" class="primary-nav" id="primaryNav">
-<span class="primary-nav-main">
-<a class="active" href="#top">Home</a>
-<a href="#categories">Categories <span class="tiny-badge" id="categoryCountBadge"><%= initialStorefront?.categories?.length || 0 %></span></a>
-<a href="#daily-deals">Flash Deals <span class="hot-badge">HOT</span></a>
-<a href="#new-arrivals">New Arrivals</a>
-<a href="#brands">Top Brands</a>
-<a href="#features">Features <img alt="" aria-hidden="true" src="/assets/icons/chevron-down.svg"/></a>
-<a href="/ask-classic">Ask Classic</a><a href="/wishlist">Wishlist</a><a href="/compare">Compare</a></span>
-<span aria-label="Featured marketplace links" class="primary-nav-end">
-<a href="#daily-deals">Best Deals</a>
-<a class="classic-live-link" href="#fresh-finds"><span aria-hidden="true" class="live-dot"></span>Classic Live</a>
-</span>
-</nav>
-
-</div>
-</div>
-</header>
+<%- include("partials/storefront-header") %>
 <main id="mainContent">
+<% if (typeof productMeta !== 'undefined' && productMeta) { %><noscript><section class="container store-section" aria-label="Product details"><%- include('partials/product-details-readable') %></section></noscript><% } %>
 <div class="container">
 <section aria-label="Featured shopping deals" class="hero-grid">
 <aside aria-label="Product categories" class="category-panel" id="categoryPanel" data-dynamic-categories>
@@ -114,16 +34,16 @@
 <button data-category="groceries" type="button"><img alt="" aria-hidden="true" src="/assets/icons/basket-shopping.svg"/><span>Groceries</span></button>
 <a class="view-all" href="#categories"><img alt="" aria-hidden="true" src="/assets/icons/table-cells-large.svg"/><span>View All Categories</span><img alt="" aria-hidden="true" src="/assets/icons/chevron-right.svg"/></a>
 </aside>
-<div class="hero-slider" id="heroSlider">
+<div class="hero-slider" id="heroSlider" data-hero-source="<%= typeof homeHeroSource === 'string' ? homeHeroSource : 'empty' %>">
 <div class="hero-track" id="heroTrack">
 <% const heroRows = (typeof homeHeroSlides !== 'undefined' && homeHeroSlides?.length) ? homeHeroSlides : []; %>
 <% if (heroRows.length) { heroRows.forEach((slide, index) => { %>
-<article class="hero-slide hero-slide-<%= ['a','b','c'][index % 3] %> <%= index===0?'is-active':'' %>">
-<div class="hero-copy"><span class="eyebrow"><%= slide.data?.eyebrow || 'Classic Mart' %></span><<%= index===0?'h1':'h2' %>><%= slide.title %></<%= index===0?'h1':'h2' %>><p><%= slide.body %></p><button class="button button-light" data-category-jump="<%= slide.data?.category || 'all' %>" type="button"><%= slide.data?.action || 'Browse products' %></button></div>
-<div aria-hidden="true" class="hero-products"><img alt="" class="hero-product hero-headphones" src="<%= slide.data?.image || '/assets/product-placeholder.svg' %>"/></div>
+<article aria-hidden="<%= index === 0 ? 'false' : 'true' %>" class="hero-slide hero-slide-<%= ['a','b','c'][index % 3] %> <%= index===0?'is-active':'' %>" <%= index === 0 ? '' : 'inert' %>>
+<div class="hero-copy"><span class="eyebrow"><%= slide.data?.eyebrow || 'Classic Mart' %></span><<%= index===0?'h1':'h2' %>><%= slide.title %></<%= index===0?'h1':'h2' %>><p><%= slide.body %></p><a class="button button-light" href="<%= slide.data?.href || '/products' %>"><%= slide.data?.action || 'Browse products' %></a></div>
+<div aria-hidden="true" class="hero-products"><img alt="" class="hero-product hero-headphones" decoding="async" fetchpriority="<%= index === 0 ? 'high' : 'low' %>" src="<%= slide.data?.image || '/assets/product-placeholder.svg' %>"/></div>
 </article>
 <% }); } else { %>
-<article class="hero-slide hero-slide-a is-active"><div class="hero-copy"><span class="eyebrow">Classic Mart</span><h1>Live marketplace catalogue</h1><p>Products, prices and availability will appear here when the marketplace database is connected.</p><a class="button button-light" href="/products">Browse products</a></div></article>
+<article aria-hidden="false" class="hero-slide hero-slide-a is-active"><div class="hero-copy"><span class="eyebrow">Classic Mart</span><h1>Find your next favourite</h1><p>Explore our categories and discover new products as sellers publish them.</p><a class="button button-light" href="/products">Browse products</a></div></article>
 <% } %>
 </div>
 <% if (heroRows.length > 1) { %><button aria-label="Previous slide" class="hero-arrow hero-prev" id="heroPrev" type="button"><img alt="" src="/assets/icons/chevron-left.svg"/></button><button aria-label="Next slide" class="hero-arrow hero-next" id="heroNext" type="button"><img alt="" src="/assets/icons/chevron-right.svg"/></button><div aria-label="Hero slides" class="hero-dots" id="heroDots"><% heroRows.forEach((_, index) => { %><button aria-label="Slide <%= index+1 %>" class="<%= index===0?'active':'' %>" data-slide="<%= index %>" type="button"></button><% }); %></div><% } %>
@@ -153,14 +73,14 @@
 <div class="section-heading">
 <h2>Trending Products</h2>
 <div class="section-heading-actions">
-<button class="filter-button" id="filterButton" type="button"><img alt="" src="/assets/icons/filter.svg"/> Filter</button>
+<button aria-controls="filterDrawer" aria-expanded="false" class="filter-button" id="filterButton" type="button"><img alt="" src="/assets/icons/filter.svg"/> Filter</button>
 <button class="section-link" data-view-products="trending" type="button">View All <img alt="" src="/assets/icons/chevron-right.svg"/></button>
 <button aria-label="Show more trending products" class="section-next-button" data-scroll-next="trendingGrid" type="button"><img alt="" src="/assets/icons/chevron-right.svg"/></button>
 </div>
 </div>
 <div class="slider-shell">
 <button aria-label="Previous products" class="slider-arrow prev" data-target="trendingGrid" type="button"><img alt="" src="/assets/icons/chevron-left.svg"/></button>
-<div class="product-grid horizontal-scroll mobile-one-half" id="trendingGrid"><% if (typeof initialStorefront !== 'undefined' && initialStorefront?.products?.length) { initialStorefront.products.slice(0,12).forEach(product => { %><article class="product-card" data-product-preview="<%= product.id %>" data-product-id="<%= product.id %>" data-category="<%= product.category %>" data-brand="<%= product.brand %>" data-price="<%= product.price %>" data-rating="<%= product.rating || 0 %>" tabindex="0" role="button" aria-label="Open <%= product.name %> preview"><div class="product-image"><span class="product-badge badge-orange"><%= product.badge || 'Available' %></span><img alt="<%= product.name %>" loading="lazy" decoding="async" src="<%= product.image || '/assets/product-placeholder.svg' %>"/><span class="category-badge"><%= product.categoryName || product.category %></span><% if (Number(product.promoterCommissionBps || 0) > 0) { const promAmount = Number(product.price || 0) * Number(product.promoterCommissionBps || 0) / 10000; %><span class="promoter-badge" title="<%= product.sponsoredDisclosure || 'Promoters may earn this amount on qualifying purchases.' %>">Prom <%= product.currency %> <%= promAmount.toLocaleString(initialStorefront.country?.locale || 'en-UG', { maximumFractionDigits: ['UGX','RWF'].includes(product.currency) ? 0 : 2 }) %></span><% } else if (product.sponsored) { %><span class="promoter-badge" title="<%= product.sponsoredDisclosure || 'Sponsored placement.' %>">Sponsored</span><% } %></div><div class="product-info"><h3><%= product.name %></h3><div class="product-meta-row"><div class="price"><strong><%= product.currency %> <%= Number(product.price || 0).toLocaleString(initialStorefront.country?.locale || 'en-UG') %></strong></div><div class="rating"><span class="rating-star" aria-hidden="true">★</span><strong><%= product.reviews ? Number(product.rating || 0).toFixed(1) : 'New' %></strong><span>(<%= product.reviews || 0 %>)</span></div></div><button class="add-cart" data-add-cart="<%= product.id %>" type="button">Add to cart</button></div></article><% }); } %></div>
+<div class="product-grid horizontal-scroll mobile-one-half" id="trendingGrid"><% if (typeof initialStorefront !== 'undefined' && initialStorefront?.products?.length) { initialStorefront.products.slice(0,12).forEach(product => { %><article class="product-card" data-product-preview="<%= product.id %>" data-product-id="<%= product.id %>" data-category="<%= product.category %>" data-brand="<%= product.brand %>" data-price="<%= product.price %>" data-rating="<%= product.rating || 0 %>"><div class="product-image"><span class="product-badge badge-orange"><%= product.badge || 'Available' %></span><img alt="<%= product.name %>" loading="lazy" decoding="async" src="<%= product.image || '/assets/product-placeholder.svg' %>"/><span class="category-badge"><%= product.categoryName || product.category %></span><% if (Number(product.promoterCommissionBps || 0) > 0) { const promAmount = Number(product.price || 0) * Number(product.promoterCommissionBps || 0) / 10000; %><span class="promoter-badge" title="<%= product.sponsoredDisclosure || 'Promoters may earn this amount on qualifying purchases.' %>">Prom <%= product.currency %> <%= promAmount.toLocaleString(initialStorefront.country?.locale || 'en-UG', { maximumFractionDigits: ['UGX','RWF'].includes(product.currency) ? 0 : 2 }) %></span><% } else if (product.sponsored) { %><span class="promoter-badge" title="<%= product.sponsoredDisclosure || 'Sponsored placement.' %>">Sponsored</span><% } %></div><div class="product-info"><h3><button aria-label="Open <%= product.name %> preview" class="product-preview-button" data-product-preview="<%= product.id %>" type="button"><%= product.name %></button></h3><div class="product-meta-row"><div class="price"><strong><%= product.currency %> <%= Number(product.price || 0).toLocaleString(initialStorefront.country?.locale || 'en-UG') %></strong></div><div class="rating"><span class="rating-star" aria-hidden="true">★</span><strong><%= product.reviews ? Number(product.rating || 0).toFixed(1) : 'New' %></strong><span>(<%= product.reviews || 0 %>)</span></div></div><button class="add-cart" data-add-cart="<%= product.id %>" type="button">Add to cart</button></div></article><% }); } %></div>
 <button aria-label="Next products" class="slider-arrow next" data-target="trendingGrid" type="button"><img alt="" src="/assets/icons/chevron-right.svg"/></button>
 </div>
 </section>
@@ -236,70 +156,56 @@
 <label class="sr-only" for="newsletterEmail">Email address</label>
 <input autocomplete="email" id="newsletterEmail" maxlength="254" name="email" placeholder="Enter your email address" required type="email"/>
 <button type="submit">Subscribe</button>
-<p aria-live="polite" class="newsletter-status" data-newsletter-status></p>
+
 </form>
 <div class="newsletter-perks"><span><img alt="" src="/assets/icons/percent.svg"/><b>Exclusive Deals</b></span><span><img alt="" src="/assets/icons/gift.svg"/><b>New Arrivals</b></span><span><img alt="" src="/assets/icons/location-dot.svg"/><b>Shopping Tips</b></span></div>
 </div>
 </section>
-<footer class="site-footer">
-<div class="container footer-grid">
-<div class="footer-about">
-<a class="brand footer-brand" href="#top"><img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"/></a>
-<p>Your one-stop marketplace for products from trusted sellers, with secure checkout and customer support.</p>
-<div class="socials" aria-label="Official Classic Mart social channels are not published yet"><span aria-label="Facebook channel not published" title="Official Facebook channel not published yet"><img alt="" src="/assets/icons/facebook-f.svg"/></span><span aria-label="X channel not published" title="Official X channel not published yet"><img alt="" src="/assets/icons/x-twitter.svg"/></span><span aria-label="Instagram channel not published" title="Official Instagram channel not published yet"><img alt="" src="/assets/icons/instagram.svg"/></span><span aria-label="YouTube channel not published" title="Official YouTube channel not published yet"><img alt="" src="/assets/icons/youtube.svg"/></span><span aria-label="Pinterest channel not published" title="Official Pinterest channel not published yet"><img alt="" src="/assets/icons/pinterest.svg"/></span></div>
-</div>
-<div><h3>Shop</h3><a href="#categories">All Categories</a><a href="#daily-deals">Flash Deals</a><a href="#new-arrivals">New Arrivals</a><a href="#brands">Top Brands</a><a class="footer-link" href="/signup?role=seller">Sell on Classic Mart</a><a href="/sellers">Browse Sellers</a><a href="/promoters">Promoters Center</a><a href="/wishlist">My Wishlist</a><a href="/dashboard">My Profile</a></div>
-<div><h3>Customer Service</h3><a class="footer-link" href="/help">Help Center</a><a class="footer-link" href="/track-order">Track Order</a><a class="footer-link" href="/returns">Returns &amp; Refunds</a><a class="footer-link" href="/shipping">Shipping Info</a><a class="footer-link" href="/contact">Contact Us</a></div>
-<div><h3>About Us</h3><a class="footer-link" href="/about">About Classic Mart</a><a class="footer-link" href="/careers">Careers</a><a class="footer-link" href="/press">Press &amp; News</a><a class="footer-link" href="/sellers">Seller Center</a></div>
-<div><h3>Policies</h3><a class="footer-link" href="/privacy">Privacy Policy</a><a class="footer-link" href="/terms">Terms of Service</a><a class="footer-link" href="/cookies">Cookie Policy</a><a class="footer-link" href="/payments">Payment Policy</a></div>
-<div class="app-download"><h3>Classic Mart App</h3><p>Install the secure Classic Mart PWA on supported phones and computers. It uses the same live prices, stock, cart, orders and payment state as the website.</p><a class="app-badge" href="/app" aria-label="Open Classic Mart installable app"><img alt="" src="/assets/pwa-192.png"/><span>INSTALLABLE<strong>Classic Mart PWA</strong></span></a></div>
-</div>
-<div class="container footer-bottom"><span>© 2026 Classic Mart. All rights reserved.</span><span>Secure payments · Buyer protection · Trusted sellers</span></div>
-</footer>
+<%- include("partials/storefront-footer") %>
 <div class="drawer-backdrop" hidden="" id="drawerBackdrop"></div>
 <%- include("partials/product-preview-modal") %>
 
 <section aria-labelledby="accountTitle" aria-modal="true" class="modal compact-modal" hidden="" id="accountModal" role="dialog">
-<button class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
+<button aria-label="Close dialog" class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
 <div class="modal-heading"><span><img alt="" src="/assets/icons/user.svg"/></span><div><h2 id="accountTitle">Welcome back</h2><p>Sign in to view orders, saved items and recommendations.</p></div></div>
 <div class="stack-form" id="loginForm"><a class="button button-primary" href="/login">Sign In Securely</a><a class="button button-secondary" href="/signup">Create Account</a></div>
 </section>
 <section aria-labelledby="locationTitle" aria-modal="true" class="modal compact-modal" hidden="" id="locationModal" role="dialog">
-<button class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
+<button aria-label="Close dialog" class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
 <div class="modal-heading"><span><img alt="" src="/assets/icons/location-dot.svg"/></span><div><h2 id="locationTitle">Choose delivery location</h2><p>We’ll use this to estimate delivery availability.</p></div></div>
-<form class="stack-form" id="locationForm"><label>Delivery city<input id="locationInput" placeholder="e.g. Kampala" required="" minlength="2" maxlength="120" type="text" value="<%= deliveryCity || '' %>"/></label><small>Country is controlled separately. Classic Mart validates this city against configured delivery zones; final fees are recalculated at checkout.</small><button class="button button-primary" type="submit">Save Location</button><p class="form-status" id="locationStatus" role="status"></p></form>
+<form class="stack-form" id="locationForm"><label>Delivery city<input id="locationInput" placeholder="e.g. Kampala" required="" minlength="2" maxlength="120" type="text" value="<%= deliveryCity || '' %>"/></label><small>Country is controlled separately. Classic Mart validates this city against configured delivery zones; final fees are recalculated at checkout.</small><button class="button button-primary" type="submit">Save Location</button><p class="form-status platform-flash" id="locationStatus" role="status"></p></form>
 </section>
 <section aria-labelledby="trackTitle" aria-modal="true" class="modal compact-modal" hidden="" id="trackModal" role="dialog">
-<button class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
+<button aria-label="Close dialog" class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
 <div class="modal-heading"><span><img alt="" src="/assets/icons/box.svg"/></span><div><h2 id="trackTitle">Track your order</h2><p>Enter an order number to view its latest status.</p></div></div>
 <form action="/track-order" class="stack-form" id="trackForm" method="get"><label>Order number<input id="trackInput" name="order" placeholder="e.g. ord_..." required="" type="text"/></label><button class="button button-primary" type="submit">Track Order</button></form>
 <div class="track-result" hidden="" id="trackResult"></div>
 </section>
 <section aria-labelledby="helpTitle" aria-modal="true" class="modal compact-modal" hidden="" id="helpModal" role="dialog">
-<button class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
+<button aria-label="Close dialog" class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
 <div class="modal-heading"><span><img alt="" src="/assets/icons/headset.svg"/></span><div><h2 id="helpTitle">How can we help?</h2><p>Choose a support option and send your message.</p></div></div>
 <div class="stack-form" id="helpForm"><p>Support requests are submitted through the protected Help Center so your contact details, order reference and SLA queue are handled by the server.</p><a class="button button-primary" href="/help">Open Help Center</a></div>
 </section>
 <section aria-labelledby="sellerTitle" aria-modal="true" class="modal compact-modal" hidden="" id="sellerModal" role="dialog">
-<button class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
+<button aria-label="Close dialog" class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
 <div class="modal-heading"><span><img alt="" src="/assets/icons/store.svg"/></span><div><h2 id="sellerTitle">Start selling on Classic Mart</h2><p>Create a storefront, list products and manage orders.</p></div></div>
-<div class="stack-form" id="sellerForm"><p>Seller details, identity verification and business information are collected in the secure onboarding workflow.</p><a class="button button-primary" href="/onboarding?role=seller">Start Seller Onboarding</a></div>
+<div class="stack-form" id="sellerForm"><p>Seller details, identity verification and business information are collected in the secure onboarding workflow.</p><a class="button button-primary" href="/signup?role=seller">Start Seller Onboarding</a></div>
 </section>
 <section aria-labelledby="checkoutTitle" aria-modal="true" class="modal compact-modal" hidden="" id="checkoutModal" role="dialog">
-<button class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
+<button aria-label="Close dialog" class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
 <div class="modal-heading"><span><img alt="" src="/assets/icons/credit-card.svg"/></span><div><h2 id="checkoutTitle">Secure checkout</h2><p>Review the server-calculated order and continue to the configured payment method.</p></div></div>
 <form class="stack-form" id="checkoutForm"><p>Checkout is handled on the secure server cart page. Classic Mart does not collect raw card details in this storefront dialog.</p><button class="button button-primary" type="submit">Continue to secure checkout</button></form>
 </section>
 <section aria-labelledby="contentModalTitle" aria-modal="true" class="modal information-modal" hidden="" id="contentModal" role="dialog">
-<button class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
+<button aria-label="Close dialog" class="modal-close icon-button" data-close-modal="" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button>
 <div id="contentModalBody"></div>
 </section>
-<section aria-hidden="true" class="filter-drawer" id="filterDrawer">
-<div class="drawer-header"><div><h2>Filter Products</h2><p>Refine the trending selection</p></div><button class="icon-button" id="closeFilter" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button></div>
+<section aria-labelledby="filterDrawerTitle" aria-modal="true" class="filter-drawer" hidden id="filterDrawer" inert role="dialog" tabindex="-1">
+<div class="drawer-header"><div><h2 id="filterDrawerTitle">Filter Products</h2><p>Refine the trending selection</p></div><button aria-label="Close product filters" class="icon-button" id="closeFilter" type="button"><img alt="" src="/assets/icons/xmark.svg"/></button></div>
 <form id="filterForm">
 <fieldset id="homepageFilterCategories"><legend>Category</legend><label><input checked="" name="filterCategory" type="radio" value="all"/> All categories</label><label><input name="filterCategory" type="radio" value="electronics"/> Electronics</label><label><input name="filterCategory" type="radio" value="fashion"/> Fashion</label><label><input name="filterCategory" type="radio" value="home"/> Home &amp; Kitchen</label><label><input name="filterCategory" type="radio" value="beauty"/> Beauty &amp; Health</label></fieldset>
-<fieldset><legend>Maximum price</legend><input id="priceRange" max="1" min="0" type="range" value="1"/><output id="priceOutput">Loading prices…</output></fieldset>
-<fieldset><legend>Sort by</legend><select id="sortSelect"><option value="featured">Featured</option><option value="price-asc">Price: Low to High</option><option value="price-desc">Price: High to Low</option><option value="rating">Customer Rating</option></select></fieldset>
+<fieldset><legend id="priceRangeLabel">Maximum price</legend><input aria-describedby="priceOutput" aria-labelledby="priceRangeLabel" id="priceRange" max="1" min="0" type="range" value="1"/><output id="priceOutput" for="priceRange">Loading prices…</output></fieldset>
+<fieldset><legend id="sortSelectLabel">Sort by</legend><select aria-labelledby="sortSelectLabel" id="sortSelect"><option value="featured">Featured</option><option value="price-asc">Price: Low to High</option><option value="price-desc">Price: High to Low</option><option value="rating">Customer Rating</option></select></fieldset>
 <button class="button button-primary" type="submit">Apply Filters</button><button class="button button-secondary" id="resetFilters" type="button">Reset</button>
 </form>
 </section>

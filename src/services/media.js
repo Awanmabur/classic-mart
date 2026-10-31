@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import multer from 'multer';
 import sharp from 'sharp';
+import { encryptPrivateBuffer } from '../core/sensitive.js';
 import { AppError } from '../core/errors.js';
 import { publicId } from '../core/ids.js';
 import { scanUpload } from './malware.js';
@@ -49,7 +50,7 @@ export const uploadVerificationImage = multer({
   },
 }).single('document');
 
-async function sanitizeImage(file) {
+async function sanitizeImage(file, limitInputPixels = 40_000_000) {
   if (!file?.buffer) {
     throw new AppError('Choose an image to upload.', 422, 'MEDIA_REQUIRED');
   }
@@ -58,7 +59,7 @@ async function sanitizeImage(file) {
   try {
     metadata = await sharp(file.buffer, {
       failOn: 'warning',
-      limitInputPixels: 40_000_000,
+      limitInputPixels,
     }).metadata();
   } catch {
     throw new AppError(
@@ -83,7 +84,7 @@ async function sanitizeImage(file) {
 
   return sharp(file.buffer, {
     failOn: 'warning',
-    limitInputPixels: 40_000_000,
+    limitInputPixels,
   })
     .rotate()
     .resize({
@@ -112,22 +113,28 @@ export async function sanitizeAndStoreProductImage({
   altText,
   position,
 }) {
-  const sanitized = await sanitizeImage(file);
+  const prepared = await prepareProductImage(file, product.publicId);
+  try {
+    return await ProductMedia.create({ publicId: publicId('med'), productId: product._id, storeId: product.storeId,
+      ...prepared, altText, position, status: 'ready' });
+  } catch (error) {
+    await deleteMediaObject(prepared.storageKey).catch(() => {});
+    await deleteMediaObject(prepared.thumbnailStorageKey).catch(() => {});
+    throw error;
+  }
+}
+
+export async function prepareProductImage(file, productPublicId) {
+  const sanitized = await sanitizeImage(file, 16_000_000);
   const thumbnail = await sharp(sanitized.data)
     .resize({ width: 480, height: 480, fit: 'inside', withoutEnlargement: true })
     .webp({ quality: 80, effort: 5 })
     .toBuffer({ resolveWithObject: true });
-  const stored = await writeSanitizedImage(product.publicId, sanitized);
-  const thumbnailStored = await writeSanitizedImage(
-    product.publicId,
-    thumbnail,
-  );
-
+  let stored, thumbnailStored;
   try {
-    return await ProductMedia.create({
-      publicId: publicId('med'),
-      productId: product._id,
-      storeId: product.storeId,
+    stored = await writeSanitizedImage(productPublicId, sanitized);
+    thumbnailStored = await writeSanitizedImage(productPublicId, thumbnail);
+    return {
       storageKey: stored.storageKey,
       thumbnailStorageKey: thumbnailStored.storageKey,
       originalName: path.basename(file.originalname).slice(0, 180),
@@ -139,13 +146,10 @@ export async function sanitizeAndStoreProductImage({
         .createHash('sha256')
         .update(sanitized.data)
         .digest('hex'),
-      altText,
-      position,
-      status: 'ready',
-    });
+    };
   } catch (error) {
-    await deleteMediaObject(stored.storageKey).catch(() => {});
-    await deleteMediaObject(thumbnailStored.storageKey).catch(() => {});
+    if (stored) await deleteMediaObject(stored.storageKey).catch(() => {});
+    if (thumbnailStored) await deleteMediaObject(thumbnailStored.storageKey).catch(() => {});
     throw error;
   }
 }
@@ -157,11 +161,7 @@ export async function sanitizeAndStoreVerificationDocument({
   user,
   documentType,
 }) {
-  const sanitized = await sanitizeImage(file);
-  const stored = await writeSanitizedImage(
-    `verification-${verification.publicId}`,
-    sanitized,
-  );
+  const prepared = await prepareVerificationDocument(file, verification.publicId);
   try {
     return await VerificationDocument.create({
       publicId: publicId('doc'),
@@ -169,30 +169,31 @@ export async function sanitizeAndStoreVerificationDocument({
       storeId: store._id,
       userId: user._id,
       documentType,
-      storageKey: stored.storageKey,
-      mimeType: 'image/webp',
-      sizeBytes: sanitized.data.length,
-      width: sanitized.info.width,
-      height: sanitized.info.height,
-      checksumSha256: crypto
-        .createHash('sha256')
-        .update(sanitized.data)
-        .digest('hex'),
+      ...prepared,
     });
   } catch (error) {
-    await deleteMediaObject(stored.storageKey).catch(() => {});
+    await deleteMediaObject(prepared.storageKey).catch(() => {});
     throw error;
   }
 }
 
+export async function prepareVerificationDocument(file, verificationPublicId) {
+  const sanitized = await sanitizeImage(file, 16_000_000);
+  const storageKey = `verification-${verificationPublicId}/${crypto.randomUUID()}.cmv`;
+  await putMediaObject(storageKey, encryptPrivateBuffer(sanitized.data, storageKey), { contentType: 'application/octet-stream', cacheControl: 'private, no-store' });
+  return { storageKey, encrypted: true, mimeType: 'image/webp', sizeBytes: sanitized.data.length,
+    width: sanitized.info.width, height: sanitized.info.height,
+    checksumSha256: crypto.createHash('sha256').update(sanitized.data).digest('hex') };
+}
 
-export async function sanitizeAndStoreEvidenceImage({ file, user, country, contextType, contextPublicId, description = '', documentType = 'general' }) {
+
+export async function sanitizeAndStoreEvidenceImage({ file, user, country, contextType, contextPublicId, description = '', documentType = 'general', contextLinePublicId = '', refundPublicId = '' }) {
   const sanitized = await sanitizeImage(file);
   const stored = await writeSanitizedImage(`evidence-${contextType}-${contextPublicId}`, sanitized);
   try {
     return await EvidenceDocument.create({
       publicId: publicId('evd'), ownerUserId: user._id, country, contextType, contextPublicId,
-      storageKey: stored.storageKey, mimeType: 'image/webp', size: sanitized.data.length, documentType,
+      storageKey: stored.storageKey, mimeType: 'image/webp', size: sanitized.data.length, documentType, contextLinePublicId, refundPublicId,
       status: 'ready', description: String(description || '').slice(0, 300),
     });
   } catch (error) {

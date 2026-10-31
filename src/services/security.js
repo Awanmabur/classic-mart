@@ -2,18 +2,17 @@ import crypto from 'node:crypto';
 import dgram from 'node:dgram';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import { securityEventPath, safeSecurityEventPath } from '../core/logging.js';
 import { hashValue, safeEqual } from '../core/crypto.js';
 import { publicId } from '../core/ids.js';
+import { createIpBlockCache } from '../core/ip-block-cache.js';
 import { Incident, IpBlock, SecurityEvent } from '../models/index.js';
 
 const SENSITIVE_PATH=/^\/(login|signup|forgot-password|reset-password|verify-|mfa|account|admin|seller|moderation|payments|webhooks|api\/)/i;
 const severityRank={low:0,medium:1,high:2,critical:3};
 const BLOCK_CACHE_LIMIT=10_000;
-const BLOCK_CACHE_TTL_MS=15_000;
-const CLEAR_CACHE_TTL_MS=15_000;
 const BLOCK_HIT_LOG_TTL_MS=60_000;
-const blockCache=new Map();
-const clearCache=new Map();
+const ipBlocks=createIpBlockCache({load:(ipHash,now)=>IpBlock.findOne({ipHash,revokedAt:null,expiresAt:{$gt:now}}).select('+ipHash')});
 const blockHitLogCache=new Map();
 let lastRetentionAt=0;
 
@@ -24,8 +23,7 @@ function boundedSet(map,key,value,limit=BLOCK_CACHE_LIMIT){
 }
 
 export function invalidateIpBlockCache(ipHash){
-  blockCache.delete(ipHash);
-  clearCache.delete(ipHash);
+  ipBlocks.invalidate(ipHash);
   blockHitLogCache.delete(ipHash);
 }
 
@@ -61,37 +59,21 @@ export async function writeSecurityEvent(request,type,options={}){
       country:options.country||request?.country?.code||request?.user?.country||'',actorUserId:options.actor?._id||request?.adminActor?._id||request?.user?._id,
       actorPublicId:options.actor?.publicId||request?.adminActor?.publicId||request?.user?.publicId||'',
       ipHash:options.ipHash||hashValue(request?.ip||''),userAgentHash:options.userAgentHash||hashValue(request?.get?.('user-agent')||''),
-      method:String(options.method||request?.method||'').slice(0,16),path:String(options.path||request?.path||request?.originalUrl||'').slice(0,500),
+      method:String(options.method||request?.method||'').slice(0,16),path:securityEventPath(request),
       statusCode:Number(options.statusCode||0)||undefined,metadata:redact(options.metadata),
       siemStatus:env.security.siem.mode==='off'?'disabled':'pending',siemNextAttemptAt:new Date(),
     };
     event.integrity=signSecurityEvent(event);
     return await SecurityEvent.create(event);
-  }catch(error){logger.error({error:error.message,type,requestId:request?.id},'Failed to write security event');return null;}
-}
-
-async function activeBlock(ipHash){
-  const now=Date.now();
-  const cached=blockCache.get(ipHash);
-  if(cached){
-    if(cached.expiresAt>now)return cached.document;
-    blockCache.delete(ipHash);
-  }
-  const clearUntil=clearCache.get(ipHash);
-  if(clearUntil&&clearUntil>now)return null;
-  clearCache.delete(ipHash);
-  const row=await IpBlock.findOne({ipHash,revokedAt:null,expiresAt:{$gt:new Date(now)}}).select('+ipHash');
-  if(row)boundedSet(blockCache,ipHash,{expiresAt:Math.min(new Date(row.expiresAt).getTime(),now+BLOCK_CACHE_TTL_MS),document:row});
-  else boundedSet(clearCache,ipHash,now+CLEAR_CACHE_TTL_MS);
-  return row;
+  }catch(error){logger.error({err:error,type,requestId:request?.id},'Failed to write security event');return null;}
 }
 
 async function createOrExtendBlock(ipHash,{reason,severity='high',sourceEventPublicId='',minutes=60}={}){
   const now=new Date();
   const current=await IpBlock.findOne({ipHash,revokedAt:null,expiresAt:{$gt:now}}).select('+ipHash');
-  if(current){current.expiresAt=new Date(Math.max(current.expiresAt.getTime(),Date.now()+minutes*60_000));current.reason=reason||current.reason;current.hitCount+=1;current.lastHitAt=now;await current.save();invalidateIpBlockCache(ipHash);boundedSet(blockCache,ipHash,{expiresAt:Math.min(current.expiresAt.getTime(),Date.now()+BLOCK_CACHE_TTL_MS),document:current});return current;}
+  if(current){current.expiresAt=new Date(Math.max(current.expiresAt.getTime(),Date.now()+minutes*60_000));current.reason=reason||current.reason;current.hitCount+=1;current.lastHitAt=now;await current.save();invalidateIpBlockCache(ipHash);ipBlocks.set(ipHash,current);return current;}
   const created=await IpBlock.create({publicId:publicId('blk'),ipHash,reason:String(reason||'Hostile request activity').slice(0,500),severity,sourceEventPublicId,expiresAt:new Date(Date.now()+minutes*60_000),hitCount:1,lastHitAt:now});
-  invalidateIpBlockCache(ipHash);boundedSet(blockCache,ipHash,{expiresAt:Math.min(created.expiresAt.getTime(),Date.now()+BLOCK_CACHE_TTL_MS),document:created});
+  invalidateIpBlockCache(ipHash);ipBlocks.set(ipHash,created);
   return created;
 }
 
@@ -142,7 +124,7 @@ async function thresholdBlock(request,detection,event){
     await writeSecurityEvent(request,'ips.ip_blocked',{category:'abuse',severity:detection.severity,result:'blocked',ipHash,metadata:{reason:detection.reason,sourceEvent:event?.publicId||'',blockPublicId:block.publicId,expiresAt:block.expiresAt}});
     await securityIncidentForBlock(request,detection,event,block);
   }catch(error){
-    logger.error({error:error.message,requestId:request?.id,type:detection.type},'IPS persistence failed after block threshold');
+    logger.error({err:error,requestId:request?.id,type:detection.type},'IPS persistence failed after block threshold');
   }
   return true;
 }
@@ -163,7 +145,7 @@ export async function securityShield(request,response,next){
       }
       return next();
     }
-    const block=await activeBlock(ipHash);
+    const block=await ipBlocks.get(ipHash);
     if(block){
       const now=Date.now();
       const nextLogAt=blockHitLogCache.get(ipHash)||0;
@@ -181,10 +163,10 @@ export async function securityShield(request,response,next){
     response.on('finish',()=>{
       if(!env.security.idsEnabled||!SENSITIVE_PATH.test(request.path||'')||![401,403,429].includes(response.statusCode))return;
       const detection={type:'abuse.sensitive_endpoint_failure',category:'abuse',severity:response.statusCode===429?'high':'medium',reason:`Repeated ${response.statusCode} responses on sensitive endpoints`};
-      writeSecurityEvent(request,detection.type,{category:detection.category,severity:detection.severity,result:'failure',statusCode:response.statusCode,ipHash}).then(event=>env.security.ipsEnabled?thresholdBlock(request,detection,event):false).catch(error=>logger.warn({error:error.message},'Security response correlation failed'));
+      writeSecurityEvent(request,detection.type,{category:detection.category,severity:detection.severity,result:'failure',statusCode:response.statusCode,ipHash}).then(event=>env.security.ipsEnabled?thresholdBlock(request,detection,event):false).catch(error=>logger.warn({err:error,requestId:request.id},'Security response correlation failed'));
     });
     return next();
-  }catch(error){logger.error({error:error.message,requestId:request.id},'Security shield failed');return next();}
+  }catch(error){logger.error({err:error,requestId:request.id},'Security shield failed');return next();}
 }
 
 export function originGuard(request,response,next){
@@ -196,8 +178,8 @@ export function originGuard(request,response,next){
 }
 
 function cefEscape(value){return String(value??'').replaceAll('\\','\\\\').replaceAll('\r','\\r').replaceAll('\n','\\n').replaceAll('|','\\|').replaceAll('=','\\=');}
-function cef(event){return `CEF:0|Classic Technologies|Classic Mart|2.13.8|${cefEscape(event.type)}|${cefEscape(event.type)}|${event.severity==='critical'?10:event.severity==='high'?8:event.severity==='medium'?5:2}|rt=${new Date(event.occurredAt).getTime()} request=${cefEscape(event.requestId)} requestMethod=${cefEscape(event.method)} requestContext=${cefEscape(event.path)} outcome=${cefEscape(event.result)} cs1Label=country cs1=${cefEscape(event.country)} cs2Label=actor cs2=${cefEscape(event.actorPublicId)} cs3Label=ipHash cs3=${cefEscape(event.ipHash)} cs4Label=userAgentHash cs4=${cefEscape(event.userAgentHash)}`;}
-function exportPayload(event){return {id:event.publicId,occurredAt:event.occurredAt,requestId:event.requestId,type:event.type,category:event.category,severity:event.severity,result:event.result,country:event.country,actorPublicId:event.actorPublicId,ipHash:event.ipHash,userAgentHash:event.userAgentHash,method:event.method,path:event.path,statusCode:event.statusCode,metadata:event.metadata};}
+function cef(event){return `CEF:0|Classic Technologies|Classic Mart|2.13.8|${cefEscape(event.type)}|${cefEscape(event.type)}|${event.severity==='critical'?10:event.severity==='high'?8:event.severity==='medium'?5:2}|rt=${new Date(event.occurredAt).getTime()} request=${cefEscape(event.requestId)} requestMethod=${cefEscape(event.method)} requestContext=${cefEscape(safeSecurityEventPath(event.path))} outcome=${cefEscape(event.result)} cs1Label=country cs1=${cefEscape(event.country)} cs2Label=actor cs2=${cefEscape(event.actorPublicId)} cs3Label=ipHash cs3=${cefEscape(event.ipHash)} cs4Label=userAgentHash cs4=${cefEscape(event.userAgentHash)}`;}
+export function securityEventExportPayload(event){return {id:event.publicId,occurredAt:event.occurredAt,requestId:event.requestId,type:event.type,category:event.category,severity:event.severity,result:event.result,country:event.country,actorPublicId:event.actorPublicId,ipHash:event.ipHash,userAgentHash:event.userAgentHash,method:event.method,path:safeSecurityEventPath(event.path),statusCode:event.statusCode,metadata:event.metadata};}
 
 async function sendUdp(body){return new Promise((resolve,reject)=>{const socket=dgram.createSocket('udp4');const buffer=Buffer.from(body);const timer=setTimeout(()=>{socket.close();reject(new Error('SIEM UDP timeout'));},env.security.siem.timeoutMs);socket.send(buffer,env.security.siem.udpPort,env.security.siem.udpHost,(error)=>{clearTimeout(timer);socket.close();if(error)reject(error);else resolve();});});}
 async function sendHttp(body,contentType){const headers={'content-type':contentType,'user-agent':'Classic-Mart-SIEM/2.13.8'};if(env.security.siem.token)headers.authorization=`Bearer ${env.security.siem.token}`;const response=await fetch(env.security.siem.url,{method:'POST',headers,body,signal:AbortSignal.timeout(env.security.siem.timeoutMs)});if(!response.ok)throw new Error(`SIEM HTTP ${response.status}`);}
@@ -223,7 +205,7 @@ export async function processSiemQueue({limit=50}={}){
   for(const row of rows){
     if(!verifySecurityEventIntegrity(row.toObject())){row.siemStatus='dead';row.siemLastError='Integrity verification failed';row.siemLastAttemptAt=new Date();await row.save();dead+=1;await integrityIncident(row);continue;}
     try{
-      const body=env.security.siem.format==='cef'?cef(row):JSON.stringify(exportPayload(row));
+      const body=env.security.siem.format==='cef'?cef(row):JSON.stringify(securityEventExportPayload(row));
       if(env.security.siem.mode==='udp')await sendUdp(body);else await sendHttp(body,env.security.siem.format==='cef'?'application/cef':'application/json');
       row.siemStatus='sent';row.siemAttempts+=1;row.siemLastAttemptAt=new Date();row.siemSentAt=new Date();row.siemLastError='';await row.save();sent+=1;
     }catch(error){

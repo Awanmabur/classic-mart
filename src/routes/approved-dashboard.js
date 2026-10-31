@@ -1,0 +1,78 @@
+import { Router } from 'express';
+import { requireAuth, requireVerified, requireOnboarding } from '../middleware/auth.js';
+import { noStore } from '../middleware/request.js';
+import { allowedWorkspacesFor, workspaceForPage, primaryWorkspaceFor } from '../dashboard/access.js';
+import { dashboardLanding } from '../dashboard/landing.js';
+import { pageWorkspace, routeForPage, defaultPageFor } from '../dashboard/registry.js';
+import { AppError, asyncHandler } from '../core/errors.js';
+import { env } from '../config/env.js';
+import { CUSTOMER_ROUTES, PUBLIC_CUSTOMER_PAGES } from '../dashboard/customer-routes.js';
+import { customerView } from '../dashboard/customer-view.js';
+import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
+import { loadCustomerDashboardPage } from '../dashboard/customer-data.js';
+import { publicId } from '../core/ids.js';
+
+const router = Router();
+const privateDashboard = (_request, response, next) => {
+  response.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  next();
+};
+const gates = [noStore, privateDashboard, requireAuth, requireVerified, requireOnboarding];
+async function renderPage(request, response, page) {
+  const workspace = workspaceForPage(request.user, page);
+  if (!workspace) throw new AppError('You do not have access to this dashboard.', 403, 'DASHBOARD_FORBIDDEN');
+  if (workspace === 'customer' && (primaryWorkspaceFor(request.user) !== 'customer' || request.session?.activeStorePublicId)) {
+    const account = await accountWorkspaceView(request, page === 'notifications' ? 'notifications' : 'shopping');
+    if (account.workspace !== 'customer') {
+      return response.render('approved-dashboard', {
+        ...account, accountPage: page, pageData: await loadCustomerDashboardPage(request, page),
+        walletIdempotencyKey: publicId('idem'),
+      });
+    }
+  }
+  if (workspace !== 'customer') throw new AppError('This operational page is unavailable.', 404, 'DASHBOARD_PAGE_NOT_FOUND');
+  return response.render('approved-dashboard', {
+    workspace, initialPage: page, allowedWorkspaces: allowedWorkspacesFor(request.user),
+    ...(workspace === 'customer' ? await customerView(request, page) : {}),
+  });
+}
+for (const [page, path] of Object.entries(CUSTOMER_ROUTES)) {
+  router.get(path, (request, _response, next) => {
+    // Existing guest catalogue, cart and return-policy routes remain public.
+    if (!request.user && PUBLIC_CUSTOMER_PAGES.has(page)) return next('route');
+    return next();
+  }, ...gates, asyncHandler(async (request, response) => {
+    if (page === 'dashboard' || page === 'profile') {
+      const landing = dashboardLanding(request.user);
+      // Generic account/profile entry belongs to the account's primary
+      // workspace. Buyer orders and other explicitly shopping pages stay
+      // accessible without turning a seller into a customer account.
+      if (landing !== CUSTOMER_ROUTES.dashboard && landing !== path) return response.redirect(landing);
+    }
+    return renderPage(request, response, page);
+  }));
+}
+router.get('/dashboard/:page', ...gates, asyncHandler(async (request, response, next) => {
+  const page = request.params.page;
+  if (!pageWorkspace(page)) return next(new AppError('Dashboard page not found.', 404, 'DASHBOARD_PAGE_NOT_FOUND'));
+  if (CUSTOMER_ROUTES[page]) {
+    const search = new URL(request.originalUrl, 'http://localhost').search;
+    return response.redirect(308, CUSTOMER_ROUTES[page] + search);
+  }
+  return renderPage(request, response, page);
+}));
+
+const aliases = {
+  '/seller': 'seller', '/promoter': 'promoter', '/admin': 'admin',
+  '/super-admin': 'superadmin', '/finance': 'finance', '/operations/support': 'support',
+  '/operations/logistics': 'warehouse', '/warehouse': 'warehouse',
+  '/moderation': 'moderator', '/business': 'business', '/account': 'customer',
+};
+for (const [path, workspace] of Object.entries(aliases)) {
+  router.get(path, ...gates, (request, response, next) => {
+    const page = defaultPageFor(workspace);
+    if (!workspaceForPage(request.user, page)) return next(new AppError('You do not have access to this dashboard.', 403, 'DASHBOARD_FORBIDDEN'));
+    return response.redirect(routeForPage(page));
+  });
+}
+export default router;

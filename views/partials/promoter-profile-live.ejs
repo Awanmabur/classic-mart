@@ -1,0 +1,97 @@
+<%
+  const promoterProfile = typeof promoterFlow !== 'undefined' ? promoterFlow : (typeof profileFlow !== 'undefined' ? profileFlow : livePromoter.profileFlow);
+  const profileActor = promoterProfile.actor;
+  const profileVerification = promoterProfile.verification || {};
+  const roleProfile = profileActor.roleProfile || {};
+  const profilePreferences = profileActor.preferences || {};
+  const profileDraft = promoterProfile.draft || {};
+  const profileSection = ['profile', 'business', 'notifications', 'security'].includes(promoterProfile.section) ? promoterProfile.section : 'profile';
+  const identityDraft = !promoterProfile.draftSection || promoterProfile.draftSection === 'identity' ? profileDraft : {};
+  const channelDraft = !promoterProfile.draftSection || ['channels', 'verification'].includes(promoterProfile.draftSection) ? profileDraft : {};
+  const preferenceDraft = !promoterProfile.draftSection || promoterProfile.draftSection === 'preferences' ? profileDraft : {};
+  const profileTextList = value => Array.isArray(value) ? value.join(', ') : String(value || '');
+  const profileStatusLabel = value => String(value || 'draft').replaceAll('_', ' ').replace(/\b\w/g, character => character.toUpperCase());
+  const profileCountry = promoterProfile.market?.name || promoterProfile.market?.countryName || promoterProfile.market?.country || profileActor.country;
+  const profileCompleteFields = [profileActor.name, roleProfile.publicName, roleProfile.bio, profileVerification.channels?.length, profileVerification.niches?.length, profileVerification.audienceLocation];
+  const profileCompletion = Math.max(0, Math.min(100, Number.isFinite(promoterProfile.completion) ? promoterProfile.completion : Math.round(profileCompleteFields.filter(Boolean).length / profileCompleteFields.length * 100)));
+  const preferenceChecked = (key, fallback) => promoterProfile.draftSection === 'preferences' || Object.prototype.hasOwnProperty.call(preferenceDraft, key) ? ['on', 'true', '1', true].includes(preferenceDraft[key]) : Boolean(fallback);
+%>
+<section class="app-page active role-page promoter-profile-live" data-page="promoter-profile" data-role="promoter">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow">Account preferences</span><h1>Promoter Profile</h1><p>Manage channels, audience details, payout information, preferences, and security.</p></div><a class="outline-button icon-button" href="/account/security"><svg><use href="#i-shield"></use></svg>Security centre</a></div>
+  <% if (promoterProfile.error) { %><div class="panel dashboard-message dashboard-message-error platform-flash" role="alert"><%= promoterProfile.error %></div><% } %>
+  <div class="profile-layout role-settings-layout role-profile-settings">
+    <aside class="panel profile-summary role-profile-summary">
+      <div class="profile-avatar-wrap role-profile-avatar-wrap"><span class="role-profile-avatar"><%= String(profileActor.name || 'CM').slice(0, 2).toUpperCase() %></span></div>
+      <h2><%= profileActor.name %></h2><p><%= profileActor.email %></p>
+      <span class="member-pill"><svg><use href="#i-award"></use></svg>Promoter</span>
+      <div class="profile-completion"><div><span>Profile completion</span><strong><%= profileCompletion %>%</strong></div><div><span style="width:<%= profileCompletion %>%"></span></div></div>
+      <nav class="settings-nav role-settings-nav" aria-label="Profile settings sections">
+        <a class="<%= profileSection === 'profile' ? 'active' : '' %>" href="/promoter/profile?section=profile" <% if (profileSection === 'profile') { %>aria-current="page"<% } %>>Personal information</a>
+        <a class="<%= profileSection === 'business' ? 'active' : '' %>" href="/promoter/profile?section=business" <% if (profileSection === 'business') { %>aria-current="page"<% } %>>Channels &amp; audience</a>
+        <a href="/promoter/payouts">Payments</a>
+        <a class="<%= profileSection === 'notifications' ? 'active' : '' %>" href="/promoter/profile?section=notifications" <% if (profileSection === 'notifications') { %>aria-current="page"<% } %>>Communication</a>
+        <a class="<%= profileSection === 'security' ? 'active' : '' %>" href="/promoter/profile?section=security" <% if (profileSection === 'security') { %>aria-current="page"<% } %>>Password &amp; Security</a>
+      </nav>
+    </aside>
+    <div class="role-settings-content">
+      <form class="panel form-panel role-settings-panel <%= profileSection === 'profile' ? 'active' : '' %>" id="promoterPersonalInformation" method="post" action="/promoter/profile/identity">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= promoterProfile.version %>">
+        <div class="section-heading"><div><h2>Personal Information</h2><p class="form-intro">Keep the information shown across Classic Mart accurate and consistent.</p></div><% if (profileVerification.status === 'verified') { %><span class="verified-label"><svg><use href="#i-check"></use></svg>Verified promoter</span><% } else { %><span class="role-status warn"><%= profileStatusLabel(profileVerification.status) %></span><% } %></div>
+        <div class="role-form-grid">
+          <label>Full name<input name="name" value="<%= identityDraft.name ?? profileActor.name %>" required minlength="2" maxlength="120" autocomplete="name"></label>
+          <label>Display name<input name="publicName" value="<%= identityDraft.publicName ?? roleProfile.publicName ?? '' %>" maxlength="100" autocomplete="nickname"></label>
+          <label>Contact email<input type="email" value="<%= profileActor.email %>" readonly autocomplete="email" aria-describedby="promoterContactHint"></label>
+          <label>Phone number<input type="tel" value="<%= profileActor.phone || '' %>" readonly autocomplete="tel" aria-describedby="promoterContactHint"></label>
+          <label>Country<input value="<%= profileCountry || '' %>" readonly></label>
+          <label class="wide">About<textarea name="bio" rows="5" maxlength="1000"><%= identityDraft.bio ?? roleProfile.bio ?? '' %></textarea></label>
+        </div>
+        <p class="form-intro" id="promoterContactHint">Contact details belong to your verified account. <a href="/account/security">Manage account security</a>.</p>
+        <button class="primary-button" type="submit">Save Changes</button>
+      </form>
+      <section class="panel form-panel role-settings-panel <%= profileSection === 'business' ? 'active' : '' %>" id="promoterChannelsAudience">
+        <h2>Channels &amp; audience</h2><p class="form-intro">These settings keep your promoter profile aligned with your audience.</p>
+        <form method="post" action="/promoter/profile/channels">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= promoterProfile.version %>"><input type="hidden" name="verificationVersion" value="<%= profileVerification.__v ?? '' %>">
+          <div class="role-form-grid">
+            <label>Channels<input name="channels" value="<%= channelDraft.channels ?? profileTextList(profileVerification.channels) %>" maxlength="509" placeholder="TikTok, Instagram, WhatsApp" aria-describedby="promoterChannelsHint" required></label>
+            <label>Audience size<input name="audienceSize" type="number" min="0" max="1000000000" step="1" inputmode="numeric" value="<%= channelDraft.audienceSize ?? profileVerification.audienceSize ?? 0 %>" required></label>
+            <label>Audience location<input name="audienceLocation" value="<%= channelDraft.audienceLocation ?? profileVerification.audienceLocation ?? '' %>" maxlength="180" placeholder="For example, Kampala"></label>
+            <label>Content categories<input name="niches" value="<%= channelDraft.niches ?? profileTextList(profileVerification.niches) %>" maxlength="611" placeholder="Technology, Fashion" aria-describedby="promoterChannelsHint" required></label>
+          </div>
+          <p class="form-intro" id="promoterChannelsHint">Separate channels and categories with commas. Submitting updated details sends your promoter profile for review.</p>
+          <label class="check-label"><input type="checkbox" name="disclosureAccepted" required <%= ['on', 'true', '1', true].includes(channelDraft.disclosureAccepted) ? 'checked' : '' %>> I will clearly disclose sponsored and affiliate promotions.</label>
+          <div class="role-create-actions">
+            <% if (!['verified', 'submitted', 'appealed'].includes(profileVerification.status)) { %><button class="primary-button" type="submit" formnovalidate>Save Changes</button><% } %>
+            <button class="outline-button" type="submit" formaction="/promoter/profile/verification"><%= profileVerification.status === 'verified' ? 'Submit Updated Details for Review' : 'Submit for Verification' %></button>
+          </div>
+        </form>
+        <div class="role-security-row"><span><svg><use href="#i-award"></use></svg></span><div><strong>Promoter verification</strong><small><%= profileStatusLabel(profileVerification.status) %><%= profileVerification.reason ? ' · ' + profileVerification.reason : '' %></small></div></div>
+        <% if (profileVerification.status === 'submitted') { %><p class="form-intro" role="status">Your promoter profile is awaiting review. Submitting again replaces the details under review.</p><% } %>
+        <% if (profileVerification.status === 'rejected') { %>
+          <form method="post" action="/promoter/verification/appeal" class="role-create-form">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= profileVerification.__v %>">
+            <label class="role-create-field wide">Why should this decision be reviewed?<textarea name="message" rows="4" minlength="10" maxlength="1000" required><%= promoterProfile.draftSection === 'appeal' ? profileDraft.message || '' : '' %></textarea></label>
+            <div class="role-create-actions"><button class="outline-button" type="submit">Submit Appeal</button></div>
+          </form>
+        <% } %>
+        <% if (profileVerification.appeal?.submittedAt) { %><p class="form-intro" role="status"><strong>Your submitted appeal:</strong> <%= profileVerification.appeal.message %><% if (profileVerification.status === 'appealed') { %> A different administrator will review your appeal.<% } %></p><% } %>
+      </section>
+      <form class="panel form-panel role-settings-panel <%= profileSection === 'notifications' ? 'active' : '' %>" id="promoterCommunication" method="post" action="/promoter/profile/preferences">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= promoterProfile.version %>">
+        <h2>Communication Preferences</h2><p class="form-intro">Choose which promoter updates should reach you.</p>
+        <div class="role-toggle-list">
+          <label><div><strong>Conversation alerts</strong><small>Notifications when a merchant sends a campaign message</small></div><span class="switch"><input type="checkbox" name="promoterMessages" <%= preferenceChecked('promoterMessages', profilePreferences.promoterMessages !== false) ? 'checked' : '' %>><span></span></span></label>
+          <label><div><strong>Marketing email</strong><small>Useful offers and promotional messages</small></div><span class="switch"><input type="checkbox" name="marketing" <%= preferenceChecked('marketing', profileActor.consents?.marketing) ? 'checked' : '' %>><span></span></span></label>
+          <label><div><strong>Low data mode</strong><small>Use less data when browsing Classic Mart</small></div><span class="switch"><input type="checkbox" name="lowData" <%= preferenceChecked('lowData', profilePreferences.lowData) ? 'checked' : '' %>><span></span></span></label>
+        </div>
+        <button class="primary-button" type="submit">Save Preferences</button>
+      </form>
+      <section class="panel form-panel role-settings-panel <%= profileSection === 'security' ? 'active' : '' %>" id="promoterSecurity">
+        <h2>Password &amp; Security</h2><p class="form-intro">Protect the account and review signed-in sessions.</p>
+        <div class="role-security-row"><span><svg><use href="#i-shield"></use></svg></span><div><strong>Two-factor authentication</strong><small><%= profileActor.security?.mfaEnabled ? 'Enabled for this account.' : 'Add an authenticator to protect this account.' %></small></div><a class="soft-button" href="/account/security"><%= profileActor.security?.mfaEnabled ? 'Manage' : 'Enable' %></a></div>
+        <div class="role-security-row"><span><svg><use href="#i-eye"></use></svg></span><div><strong>Active sessions</strong><small>Review devices signed in to your account.</small></div><a class="outline-button" href="/account/security">Review</a></div>
+        <a class="outline-button" href="/account/security">Change Password</a>
+      </section>
+    </div>
+  </div>
+</section>

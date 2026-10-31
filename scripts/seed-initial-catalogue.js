@@ -129,7 +129,7 @@ async function fetchInitialImage(name) {
   const timer = setTimeout(() => controller.abort(), 20_000);
   timer.unref?.();
   try {
-    const response = await fetch(source.url, { signal: controller.signal, redirect: 'follow', headers: { 'user-agent': 'Classic-Mart-Initial-Catalogue/2.13.49' } });
+    const response = await fetch(source.url, { signal: controller.signal, redirect: 'follow', headers: { 'user-agent': 'Classic-Mart-Initial-Catalogue/2.13.51' } });
     if (!response.ok) throw new Error(`Initial catalogue image ${name} returned HTTP ${response.status}.`);
     const finalUrl = new URL(response.url);
     if (finalUrl.protocol !== 'https:' || finalUrl.hostname !== SOURCE_HOST) throw new Error(`Initial catalogue image ${name} redirected to an unapproved host.`);

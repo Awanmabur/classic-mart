@@ -1,0 +1,12 @@
+<div class="role-create-grid">
+  <label class="role-create-field wide">Campaign name<input name="name" minlength="3" maxlength="140" value="<%= draft.name || '' %>" required></label>
+  <label class="role-create-field">Commission (basis points)<input name="commissionBps" type="number" min="1" max="5000" value="<%= draft.commissionBps || 500 %>" required></label>
+  <label class="role-create-field">Attribution days<input name="attributionDays" type="number" min="1" max="90" value="<%= draft.attributionDays || 30 %>" required></label>
+  <label class="role-create-field">Visibility<select name="visibility"><option value="public" <%= draft.visibility !== 'invite_only' ? 'selected' : '' %>>Public</option><option value="invite_only" <%= draft.visibility === 'invite_only' ? 'selected' : '' %>>Invite only</option></select></label>
+  <label class="role-create-field wide">Products<textarea name="productPublicIds" rows="2" maxlength="20000" required><%= (draft.productPublicIds || []).join('\n') %></textarea><small>Enter one approved product code per line. Available products are listed below.</small></label>
+  <label class="role-create-field wide">Factual claims<textarea name="facts" rows="3" maxlength="9000" required><%= (draft.facts || []).join('\n') %></textarea><small>Enter one factual claim per line.</small></label>
+  <label class="role-create-field wide">Allowed channels<input name="allowedChannels" maxlength="1000" value="<%= (draft.allowedChannels || []).join(', ') %>" placeholder="For example, website, social"></label>
+  <label class="role-create-field wide">Affiliate disclosure<textarea name="disclosureText" rows="2" minlength="10" maxlength="300" required><%= draft.disclosureText || 'Sponsored/affiliate promotion for Classic Mart.' %></textarea></label>
+  <label class="role-create-field">Starts at (UTC)<input name="startsAt" type="datetime-local" value="<%= draft.startsAt ? new Date(draft.startsAt).toISOString().slice(0,16) : '' %>"></label>
+  <label class="role-create-field">Ends at (UTC)<input name="endsAt" type="datetime-local" value="<%= draft.endsAt ? new Date(draft.endsAt).toISOString().slice(0,16) : '' %>"></label>
+</div>

@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
+import { env } from '../config/env.js';
+import { canonicalPhone } from '../core/phone.js';
 import { AppError } from '../core/errors.js';
+import { publicAccountType, assertPublicRegistrationOpen } from '../core/registration.js';
 import {
   hashPassword,
   hashToken,
@@ -69,23 +72,31 @@ async function issueCode({ user, purpose, ip }) {
     { userId: user._id, purpose, consumedAt: null },
     { $set: { consumedAt: new Date() } },
   );
-  await VerificationToken.create({
+  const issued = await VerificationToken.create({
     userId: user._id,
     purpose,
     tokenHash: hashToken(code),
+    recipientHash: hashValue(purpose === 'verify_phone' ? normalizePhone(user.phone) : normalizeEmail(user.email)),
     expiresAt: new Date(Date.now() + CODE_DURATION_MS),
     requestedIpHash: hashValue(ip || ''),
   });
-  const delivery = purpose === 'verify_phone'
-    ? await sendPhoneVerificationCode({ phone: user.phone, name: user.name, code })
-    : await sendVerificationCode({ email: user.email, name: user.name, code, purpose });
-  return delivery.developmentCode;
+  try {
+    const delivery = purpose === 'verify_phone'
+      ? await sendPhoneVerificationCode({ phone: normalizePhone(user.phone), name: user.name, code })
+      : await sendVerificationCode({ email: user.email, name: user.name, code, purpose });
+    return delivery.developmentCode;
+  } catch (error) {
+    // A provider failure must never leave a usable code or a false send success.
+    await VerificationToken.updateOne({ _id: issued._id, consumedAt: null }, { $set: { consumedAt: new Date() } });
+    throw error;
+  }
 }
 
 export async function registerUser(input, request) {
+  assertPublicRegistrationOpen(publicAccountType(input.accountType), { production: env.isProduction, configured: env.auth.publicRegistrationTypes.join(',') });
   assertStrongPassword(input.password);
   const emailNormalized = normalizeEmail(input.email);
-  const phoneNormalized = normalizePhone(input.phone);
+  const phoneNormalized = canonicalPhone(input.phone);
   if (!emailNormalized || !phoneNormalized) {
     throw new AppError(
       'Email and phone number are required.',
@@ -113,10 +124,10 @@ export async function registerUser(input, request) {
       name: input.name,
       email: input.email.trim(),
       emailNormalized,
-      phone: input.phone.trim(),
+      phone: phoneNormalized,
       phoneNormalized,
       passwordHash,
-      role: 'customer',
+      role: publicAccountType(input.accountType),
       country: request.country.code,
       shoppingCountry: request.country.code,
       currency: request.country.currency,
@@ -141,11 +152,13 @@ export async function registerUser(input, request) {
     throw error;
   }
 
-  const developmentCode = await issueCode({
-    user,
-    purpose: 'verify_email',
-    ip: request.ip,
-  });
+  const developmentCode = env.auth.simpleLogin
+    ? undefined
+    : await issueCode({
+        user,
+        purpose: 'verify_email',
+        ip: request.ip,
+      });
   return { user, developmentCode };
 }
 
@@ -171,10 +184,11 @@ export async function resendVerification(user, request) {
   });
 }
 
-export async function consumeCode(userId, purpose, code) {
+export async function consumeCode(userId, purpose, code, recipientHash) {
   const token = await VerificationToken.findOne({
     userId,
     purpose,
+    ...(recipientHash ? { recipientHash } : {}),
     consumedAt: null,
     expiresAt: { $gt: new Date() },
   })
@@ -191,8 +205,10 @@ export async function consumeCode(userId, purpose, code) {
 
   const matches = safeEqual(hashToken(code), token.tokenHash);
   if (!matches) {
-    token.attempts += 1;
-    await token.save();
+    await VerificationToken.updateOne(
+      { _id: token._id, consumedAt: null, attempts: { $lt: 5 } },
+      { $inc: { attempts: 1 } },
+    );
     throw new AppError(
       'The verification code is invalid or expired.',
       422,
@@ -200,9 +216,13 @@ export async function consumeCode(userId, purpose, code) {
     );
   }
 
-  token.consumedAt = new Date();
-  await token.save();
-  return token;
+  const claimed = await VerificationToken.findOneAndUpdate(
+    { _id: token._id, consumedAt: null, attempts: { $lt: 5 }, expiresAt: { $gt: new Date() } },
+    { $set: { consumedAt: new Date() } },
+    { returnDocument: 'after' },
+  );
+  if (!claimed) throw new AppError('The verification code is invalid or expired.', 422, 'INVALID_CODE');
+  return claimed;
 }
 
 export async function verifyEmail(user, code) {
@@ -224,7 +244,7 @@ export async function resendPhoneVerification(user, request) {
 
 export async function verifyPhone(user, code) {
   if (!user.emailVerifiedAt) throw new AppError('Verify your email first.', 409, 'EMAIL_UNVERIFIED');
-  await consumeCode(user._id, 'verify_phone', code);
+  await consumeCode(user._id, 'verify_phone', code, hashValue(normalizePhone(user.phone)));
   if (!user.phoneVerifiedAt) { user.phoneVerifiedAt = new Date(); await user.save(); }
   return user;
 }
@@ -340,6 +360,10 @@ export async function resetPassword(publicIdValue, code, password) {
   user.passwordHash = await hashPassword(password);
   user.security.passwordChangedAt = new Date();
   user.security.tokenVersion += 1;
+  // Setup material authorized by the previous password must not survive its
+  // replacement. Mark the private, normally unselected field for an unset.
+  user.security.mfaPendingSecretEncrypted = undefined;
+  user.markModified('security.mfaPendingSecretEncrypted');
   user.security.failedLoginCount = 0;
   user.security.lockedUntil = undefined;
   await user.save();
@@ -363,6 +387,8 @@ export async function changePassword(userId, currentPassword, newPassword) {
   user.passwordHash = await hashPassword(newPassword);
   user.security.passwordChangedAt = new Date();
   user.security.tokenVersion += 1;
+  user.security.mfaPendingSecretEncrypted = undefined;
+  user.markModified('security.mfaPendingSecretEncrypted');
   await user.save();
   return user;
 }

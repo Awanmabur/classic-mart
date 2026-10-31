@@ -10,6 +10,9 @@ const deliveryProfileSchema = new Schema({
   verificationStatus:{type:String,enum:['draft','submitted','approved','rejected','suspended'],default:'draft',index:true},
   available:{type:Boolean,default:false,index:true},
   codEnabled:{type:Boolean,default:false},
+  submittedAt:Date, submittedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
+  evidenceDocumentIds:{type:[Schema.Types.ObjectId],ref:'EvidenceDocument',default:[]},
   approvedAt:Date, reviewReason:{type:String,trim:true,maxlength:500,default:''}, reviewedAt:Date, reviewedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
 },{timestamps:true,optimisticConcurrency:true});
+deliveryProfileSchema.index({country:1,verificationStatus:1,createdAt:-1,_id:-1});
 export const DeliveryProfile=mongoose.model('DeliveryProfile',deliveryProfileSchema);

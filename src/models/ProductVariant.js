@@ -54,6 +54,7 @@ const productVariantSchema = new Schema(
 productVariantSchema.index({ storeId: 1, sku: 1 }, { unique: true });
 productVariantSchema.index({ storeId: 1, barcode: 1 }, { unique: true, partialFilterExpression: { barcode: { $type: 'string', $gt: '' } } });
 productVariantSchema.index({ productId: 1, active: 1, priceMinor: 1 });
+productVariantSchema.add({ checkoutReadRevision: { type: Number, min: 0, select: false } });
 
 export const ProductVariant = mongoose.model(
   'ProductVariant',

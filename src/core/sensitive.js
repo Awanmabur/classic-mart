@@ -72,3 +72,23 @@ export function decryptSensitive(value) {
     );
   }
 }
+
+export function encryptPrivateBuffer(value, context) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(), iv);
+  cipher.setAAD(Buffer.from(String(context), 'utf8'));
+  const encrypted = Buffer.concat([cipher.update(value), cipher.final()]);
+  return Buffer.concat([Buffer.from('CMV1'), iv, cipher.getAuthTag(), encrypted]);
+}
+
+export function decryptPrivateBuffer(value, context) {
+  try {
+    if (!Buffer.isBuffer(value) || value.length < 32 || value.subarray(0, 4).toString() !== 'CMV1') throw new Error('Invalid evidence format');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey(), value.subarray(4, 16));
+    decipher.setAAD(Buffer.from(String(context), 'utf8'));
+    decipher.setAuthTag(value.subarray(16, 32));
+    return Buffer.concat([decipher.update(value.subarray(32)), decipher.final()]);
+  } catch {
+    throw new AppError('Private evidence could not be decrypted.', 500, 'PRIVATE_EVIDENCE_INVALID');
+  }
+}

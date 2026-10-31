@@ -3,16 +3,8 @@
 
   const tokenCache = { value: '' };
 
-  function toast(message) {
-    const target = document.querySelector('#toast, #catalogToast, .page-toast');
-    if (target) {
-      target.textContent = message;
-      target.classList.add('show');
-      clearTimeout(toast.timer);
-      toast.timer = setTimeout(() => target.classList.remove('show'), 2600);
-      return;
-    }
-    window.alert(message);
+  function toast(message, options) {
+    window.ClassicMartFlash.show(message, options);
   }
 
   async function actionToken() {
@@ -105,7 +97,7 @@
       }));
       toast(products.length ? `${products.length} visual match${products.length === 1 ? '' : 'es'} found.` : 'No visual matches were found.');
     } catch (error) {
-      toast(error.message || 'Image search failed.');
+      toast(error.message || 'Image search failed.', { type: 'error' });
     } finally {
       button.classList.remove('is-loading');
       button.disabled = false;

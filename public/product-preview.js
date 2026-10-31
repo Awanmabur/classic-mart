@@ -21,6 +21,9 @@
     loaded: false,
     loading: null,
     lastFocused: null,
+    closeTimer: null,
+    focusTimer: null,
+    operation: 0,
   };
 
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -169,25 +172,23 @@
     };
   }
 
-  function showToast(message) {
-    const toast = qs('#catalogToast') || qs('#pageToast') || qs('[role="status"].page-toast');
-    if (!toast) return;
-    toast.textContent = String(message || '');
-    toast.classList.add('show');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove('show'), 2400);
+  function showToast(message, options) {
+    window.ClassicMartFlash.show(message, options);
   }
 
   async function ensureCatalogue() {
     if (state.loaded) return;
     if (state.loading) return state.loading;
     state.loading = (async () => {
-      const response = await fetch('/api/v1/storefront/catalogue', {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error?.message || 'Products could not be loaded.');
+      let payload = window.ClassicMartCatalogueReady ? await window.ClassicMartCatalogueReady : null;
+      if (!payload || !Array.isArray(payload.products)) {
+        const response = await fetch('/api/v1/storefront/catalogue', {
+          credentials: 'same-origin',
+          headers: { Accept: 'application/json' },
+        });
+        payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error?.message || 'Products could not be loaded.');
+      }
       state.products = (payload.products || []).map(normalizeProduct);
       state.categories = payload.categories || [];
       state.wishlist = payload.state?.wishlist || [];
@@ -199,28 +200,40 @@
     return state.loading;
   }
 
-  function openModal() {
-    state.lastFocused = document.activeElement;
+  function openModal(returnFocus = document.activeElement) {
+    clearTimeout(state.closeTimer);
+    clearTimeout(state.focusTimer);
+    state.lastFocused = returnFocus;
     modal.hidden = false;
+    modal.inert = false;
     backdrop.hidden = false;
+    window.ClassicMartDialogIsolation.activate(modal, [backdrop]);
     document.body.classList.add('no-scroll');
     requestAnimationFrame(() => {
+      if (modal.inert) return;
       backdrop.classList.add('show');
       modal.classList.add('open');
     });
-    setTimeout(() => modal.querySelector('button, a, input, select, textarea')?.focus(), 80);
+    state.focusTimer = setTimeout(() => {
+      if (!modal.hidden && !modal.inert) modal.querySelector('button, a, input, select, textarea')?.focus();
+    }, 80);
   }
 
   function closeModal() {
+    state.operation += 1;
+    if (modal.hidden || modal.inert) return;
     modal.classList.remove('open');
+    modal.inert = true;
+    clearTimeout(state.focusTimer);
     backdrop.classList.remove('show');
-    qs('#productShareMenu')?.setAttribute('hidden', '');
+    window.ClassicMartSharing?.closeFallback();
     document.body.classList.remove('no-scroll');
-    setTimeout(() => {
+    state.closeTimer = setTimeout(() => {
       modal.hidden = true;
       backdrop.hidden = true;
       content.innerHTML = '';
     }, 220);
+    window.ClassicMartDialogIsolation.release(modal);
     state.lastFocused?.focus?.();
   }
 
@@ -263,7 +276,7 @@
     const addLabel = addButton?.querySelector('[data-preview-add-label]');
     if (addLabel) addLabel.textContent = unavailable ? 'Out of stock' : 'Add to Cart';
     if (buyButton) buyButton.textContent = unavailable ? 'Out of stock' : 'Buy Now';
-    const shareUrl = new URL(`/products/${encodeURIComponent(product.id)}`, window.location.origin).toString();
+    const shareUrl = window.ClassicMartSharing.productUrl(product.id);
     const whatsapp = qs('.preview-whatsapp-button', modal);
     if (whatsapp) {
       whatsapp.href = `https://wa.me/?text=${encodeURIComponent(`Hello Classic Mart, I am interested in ${quantity} × ${product.name} (${product.subtitle || 'Default'}) for ${money(product.price * quantity, product.currency)}. ${shareUrl}`)}`;
@@ -272,21 +285,16 @@
 
   function configureToolbar(product) {
     const wished = state.wishlist.includes(product.id);
-    const shareUrl = new URL(`/products/${encodeURIComponent(product.id)}`, window.location.origin).toString();
     const shareButton = qs('#productModalShare');
     const wishlistButton = qs('#productModalWishlist');
-    const shareMenu = qs('#productShareMenu');
-    const copyButton = qs('#productShareCopy');
-    const whatsapp = qs('#productShareWhatsApp');
     if (shareButton) {
+      shareButton.disabled = false;
       shareButton.dataset.shareProduct = product.id;
-      shareButton.dataset.shareUrl = shareUrl;
-      shareButton.setAttribute('aria-expanded', 'false');
+      shareButton.dataset.shareTitle = product.name;
     }
-    if (shareMenu) shareMenu.hidden = true;
-    if (copyButton) copyButton.dataset.shareUrl = shareUrl;
-    if (whatsapp) whatsapp.href = `https://wa.me/?text=${encodeURIComponent(`Take a look at ${product.name} on Classic Mart. ${shareUrl}`)}`;
+    window.ClassicMartSharing.closeFallback();
     if (wishlistButton) {
+      wishlistButton.disabled = false;
       wishlistButton.dataset.wishlist = product.id;
       wishlistButton.classList.toggle('active', wished);
       wishlistButton.setAttribute('aria-pressed', String(wished));
@@ -308,7 +316,7 @@
     const dimensions = product.dimensions
       ? `${product.dimensions.width || '—'} × ${product.dimensions.height || '—'} × ${product.dimensions.depth || '—'} cm`
       : 'See packaging details';
-    const shareUrl = new URL(`/products/${encodeURIComponent(product.id)}`, window.location.origin).toString();
+    const shareUrl = window.ClassicMartSharing.productUrl(product.id);
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`Hello Classic Mart, I am interested in ${product.name} (${money(product.price, product.currency)}). ${shareUrl}`)}`;
 
     const reviewItems = product.reviewItems.slice(0, 4);
@@ -352,10 +360,10 @@
       .slice(0, 5);
 
     const relatedMarkup = relatedProducts.map((item) => `
-      <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(item.name)} preview">
+      <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}">
         <div class="preview-related-image">${imageWithFallback(item.image, item.name)}</div>
         <div class="preview-related-copy">
-          <h4>${escapeHtml(item.name)}</h4>
+          <h4><button aria-label="Open ${escapeHtml(item.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(item.id)}" type="button">${escapeHtml(item.name)}</button></h4>
           <div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${item.reviews ? `${item.rating.toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div>
           <button type="button" data-preview-related-add="${escapeHtml(item.id)}">Add to cart</button>
         </div>
@@ -483,7 +491,7 @@
           <div class="preview-panel-heading"><span>Questions &amp; alerts</span><h3 id="previewQuestionsTitle">Ask before you buy</h3></div>
           <div class="preview-question-list">${product.questions.length ? product.questions.map(feedbackQuestionMarkup).join('') : '<p class="empty-preview-copy">No answered questions yet.</p>'}</div>${product.questionPage?.hasMore ? `<button class="outline-button" type="button" data-load-more-questions>Load more questions</button>` : ``}
           <form id="previewQuestionForm" class="preview-review-form"><label>Your question<textarea name="question" rows="2" minlength="5" maxlength="500" required placeholder="Ask about size, compatibility, warranty or another product detail"></textarea></label><button class="button" type="submit">Submit question</button></form>
-          <div class="review-form-actions">${Number(product.stock||0)<=0?'<button class="button" type="button" data-product-alert="restock">Notify me when restocked</button>':''}<button class="button" type="button" data-product-alert="price_drop">Watch price drops</button></div>
+          <div class="review-form-actions preview-alert-actions">${Number(product.stock||0)<=0?'<button class="button" type="button" data-product-alert="restock">Notify me when restocked</button>':''}<button class="button" type="button" data-product-alert="price_drop">Watch price drops</button></div>
         </section>
 
         <section class="preview-related-products" aria-labelledby="previewRelatedTitle">
@@ -517,9 +525,9 @@
       const grid = qs('#previewRelatedGrid', modal);
       if (grid && similar.length) {
         grid.innerHTML = similar.slice(0, 5).map((item) => `
-          <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(item.name)} preview">
+          <article class="preview-related-card" data-product-preview="${escapeHtml(item.id)}">
             <div class="preview-related-image">${imageWithFallback(item.image, item.name)}</div>
-            <div class="preview-related-copy"><h4>${escapeHtml(item.name)}</h4><div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${Number(item.reviews || 0) ? `${Number(item.rating || 0).toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div><button type="button" data-preview-related-add="${escapeHtml(item.id)}">Add to cart</button></div>
+            <div class="preview-related-copy"><h4><button aria-label="Open ${escapeHtml(item.name)} preview" class="product-preview-button" data-product-preview="${escapeHtml(item.id)}" type="button">${escapeHtml(item.name)}</button></h4><div class="preview-related-commerce"><strong>${money(item.price, item.currency)}</strong><span>${Number(item.reviews || 0) ? `${Number(item.rating || 0).toFixed(1)} ★ (${reviewCount(item.reviews)})` : 'New'}</span></div><button type="button" data-preview-related-add="${escapeHtml(item.id)}">Add to cart</button></div>
           </article>`).join('');
       }
       const summary = reviewResult.status === 'fulfilled' ? reviewResult.value?.summary : null;
@@ -531,33 +539,38 @@
   }
 
   async function openProduct(productId) {
+    const operation = ++state.operation;
+    const returnFocus = !modal.hidden && !modal.inert ? state.lastFocused : document.activeElement;
     const id = String(productId || '');
     if (!id) return;
     try {
       await ensureCatalogue();
+      if (operation !== state.operation) return;
       let product = productById(id);
       if (!product) throw new Error('This product is no longer available.');
+      window.ClassicMartSharing.closeFallback();
+      for (const button of [qs('#productModalShare'), qs('#productModalWishlist')]) if (button) button.disabled = true;
       content.innerHTML = '<div class="product-preview-loading" role="status">Loading product preview…</div>';
-      openModal();
-      try {
-        const response = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, {
-          credentials: 'same-origin', headers: { Accept: 'application/json' },
-        });
-        if (response.ok) {
-          const payload = await response.json();
-          product = normalizeProduct({ ...product, ...(payload.product || {}) });
-          const index = state.products.findIndex((item) => item.id === product.id);
-          if (index >= 0) state.products[index] = product;
-        }
-      } catch {
-        // Keep the live catalogue card data if product detail enrichment is temporarily unavailable.
+      openModal(returnFocus);
+      const response = await fetch(`/api/v1/storefront/products/${encodeURIComponent(id)}`, {
+        credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (operation !== state.operation) return;
+      if (!response.ok || payload.product?.id !== id) {
+        throw new Error(payload.error?.message || 'This product could not be refreshed. Please try again.');
       }
+      product = normalizeProduct(payload.product);
+      const index = state.products.findIndex((item) => item.id === product.id);
+      if (index >= 0) state.products[index] = product;
+      if (operation !== state.operation) return;
       renderProduct(product);
       recordRecent(product.id);
       loadAiEnhancements(product);
     } catch (error) {
+      if (operation !== state.operation) return;
       closeModal();
-      showToast(error.message || 'Product preview could not be opened.');
+      showToast(error.message || 'Product preview could not be opened.', { type: 'error' });
     }
   }
 
@@ -582,7 +595,7 @@
         updatePurchaseSummary();
       }
     } catch (error) {
-      showToast(error.message || 'Product could not be added.');
+      showToast(error.message || 'Product could not be added.', { type: 'error' });
     } finally {
       if (button && document.body.contains(button)) button.innerHTML = previous;
       updatePurchaseSummary();
@@ -600,7 +613,7 @@
       showToast(`${product.name} added to cart`);
       button.textContent = 'Added ✓';
     } catch (error) {
-      showToast(error.message || 'Product could not be added.');
+      showToast(error.message || 'Product could not be added.', { type: 'error' });
       button.innerHTML = previous;
     } finally {
       setTimeout(() => {
@@ -636,24 +649,6 @@
     document.querySelectorAll('[data-wishlist-count]').forEach((badge) => { badge.textContent = String(state.wishlist.length); });
     configureToolbar(productById(id));
     showToast(included ? 'Product removed from wishlist' : 'Product saved to wishlist');
-  }
-
-  async function copyShareLink(url) {
-    try {
-      await navigator.clipboard.writeText(url);
-      showToast('Product link copied.');
-    } catch {
-      const input = document.createElement('textarea');
-      input.value = url;
-      input.setAttribute('readonly', '');
-      input.style.position = 'fixed';
-      input.style.opacity = '0';
-      document.body.append(input);
-      input.select();
-      document.execCommand('copy');
-      input.remove();
-      showToast('Product link copied.');
-    }
   }
 
   async function loadMoreReviews(button) {
@@ -799,17 +794,8 @@
 
     const shareButton = event.target.closest('#productModalShare');
     if (shareButton) {
-      const menu = qs('#productShareMenu');
-      if (!menu) return;
-      menu.hidden = !menu.hidden;
-      shareButton.setAttribute('aria-expanded', String(!menu.hidden));
-      return;
-    }
-
-    const copyButton = event.target.closest('[data-copy-product]');
-    if (copyButton) {
-      await copyShareLink(copyButton.dataset.shareUrl || location.href);
-      qs('#productShareMenu')?.setAttribute('hidden', '');
+      event.preventDefault();
+      await window.ClassicMartSharing.shareProduct(shareButton);
       return;
     }
 
@@ -874,10 +860,18 @@
 
   backdrop.addEventListener('click', closeModal);
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !modal.hidden) closeModal();
-    if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[data-product-preview]')) {
+    if (event.key === 'Escape') closeModal();
+    if (event.key !== 'Tab' || modal.hidden || modal.inert) return;
+    const controls = qsa('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', modal)
+      .filter(control => !control.closest('[hidden], [inert]') && control.getClientRects().length);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (event.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
       event.preventDefault();
-      openProduct(event.target.dataset.productPreview);
+      last?.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) {
+      event.preventDefault();
+      first?.focus();
     }
   });
 

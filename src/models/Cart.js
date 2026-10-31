@@ -25,4 +25,6 @@ const cartSchema = new Schema(
 
 cartSchema.index({ userId: 1, updatedAt: -1 });
 
+cartSchema.index({ userId: 1, country: 1, updatedAt: -1 });
+
 export const Cart = mongoose.model('Cart', cartSchema);

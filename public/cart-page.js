@@ -7,7 +7,7 @@
   let displayLocale = 'en-UG';
 
   function money(value) {
-    return new Intl.NumberFormat(displayLocale, { style: 'currency', currency: displayCurrency, maximumFractionDigits: displayCurrency === 'UGX' ? 0 : 2 }).format(Number(value) || 0);
+    return new Intl.NumberFormat(displayLocale, { style: 'currency', currency: displayCurrency }).format(Number(value) || 0);
   }
 
   function escapeHtml(value) {
@@ -40,6 +40,8 @@
   let displayCurrency = 'UGX';
   let catalog = [];
   let csrfToken = '';
+  let savedAddresses = [];
+  let profileLoaded = false;
 
   function productById(id) {
     const productId = String(id);
@@ -65,13 +67,8 @@
 
   function persistProduct(product) { snapshots[product.id] = product; }
 
-  function showToast(message) {
-    const toast = $('#pageToast');
-    if (!toast) return;
-    toast.textContent = message;
-    toast.classList.add('show');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove('show'), 2300);
+  function showToast(message, options) {
+    window.ClassicMartFlash.show(message, options);
   }
 
   function imageMarkup(product) {
@@ -106,6 +103,8 @@
     $$('[data-total-subtotal]').forEach(element => { element.textContent = money(totals.subtotal); });
     $$('[data-total-shipping]').forEach(element => { element.textContent = totals.shipping ? money(totals.shipping) : 'Free'; });
     $$('[data-total-discount]').forEach(element => { element.textContent = `−${money(totals.discount)}`; });
+    $$('[data-total-tax]').forEach(element => { element.textContent = money(totals.tax); });
+    $$('.tax-summary-row').forEach(row => { row.hidden = !totals.tax; });
     $$('[data-total-final]').forEach(element => { element.textContent = money(totals.total); });
     $$('.discount-summary-row').forEach(row => { row.hidden = !totals.discount; });
   }
@@ -175,7 +174,7 @@
       const next = Math.max(0, Math.min(99, (Number(cart[id]) || 0) + difference));
       await requireCartService('setQuantity').setQuantity(id, next);
       refreshCartFromStore();
-    } catch (error) { showToast(error.message); }
+    } catch (error) { showToast(error.message, { type: 'error' }); }
   }
 
   async function removeItem(id, announce = true) {
@@ -184,7 +183,7 @@
       await requireCartService('remove').remove(id);
       refreshCartFromStore();
       if (announce) showToast(`${product.name} removed from your cart`);
-    } catch (error) { showToast(error.message); }
+    } catch (error) { showToast(error.message, { type: 'error' }); }
   }
 
   async function addItem(id) {
@@ -195,7 +194,7 @@
       refreshCartFromStore();
       renderRecommendations();
       showToast(`${product.name} added to your cart`);
-    } catch (error) { showToast(error.message); }
+    } catch (error) { showToast(error.message, { type: 'error' }); }
   }
 
   function renderRecommendations() {
@@ -258,14 +257,17 @@
   function paymentSummary(data) {
     if (data.payment === 'card') return `<span class="confirm-detail-icon"><img src="/assets/icons/credit-card.svg" alt=""></span><div><strong>Card</strong><p>Payment pending · hosted payment follows order creation</p></div>`;
     if (data.payment === 'mobile') return `<span class="confirm-detail-icon"><img src="/assets/icons/mobile-screen-button.svg" alt=""></span><div><strong>Mobile money</strong><p>Payment pending · provider approval is required</p></div>`;
+    if (data.payment === 'wallet') return `<span class="confirm-detail-icon"><img src="/assets/icons/credit-card.svg" alt=""></span><div><strong>Classic Wallet</strong><p>Wallet balance is debited securely after order creation</p></div>`;
     return `<span class="confirm-detail-icon"><img src="/assets/icons/basket-shopping.svg" alt=""></span><div><strong>Cash on delivery</strong><p>Payment remains pending until delivery reconciliation.</p></div>`;
   }
 
   function buildConfirmation() {
     const data = checkoutData();
+    const quotedHours = Number(checkoutReview?.delivery?.slaHours || 0);
+    const estimate = quotedHours > 0 ? ` · Estimated within ${quotedHours} hours` : '';
     const deliveryLabels = {
-      standard: 'Standard delivery · 3–5 business days',
-      express: 'Express delivery · 1–2 business days',
+      standard: 'Standard delivery' + estimate,
+      express: 'Express delivery' + estimate,
       pickup: 'Store pickup · Collection notice will be sent'
     };
     renderConfirmItems();
@@ -326,6 +328,44 @@
     // Checkout personal data is collected only by the server-authoritative checkout flow, never browser storage.
   }
 
+  function contactData(data = checkoutData()) {
+    return { fullName: data.name, email: data.email, phone: data.phone, address: data.address, city: data.city, country: data.country, note: data.note };
+  }
+
+  function addressSource() {
+    const address = savedAddresses.find(row => row.id === $('#checkoutSavedAddress')?.value);
+    return address ? { addressPublicId: address.id, addressVersion: address.version } : {};
+  }
+
+  function fillSavedAddress(address) {
+    if (!address) return;
+    for (const [field, key] of [['Name', 'fullName'], ['Phone', 'phone'], ['Address', 'address'], ['City', 'city'], ['Note', 'note']]) {
+      const input = $('#checkout' + field);
+      if (input) input.value = address[key] || '';
+    }
+  }
+
+  async function loadCheckoutProfile() {
+    if (profileLoaded) return;
+    const response = await fetch('/checkout/profile', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || 'Your checkout details could not be loaded.');
+    savedAddresses = data.addresses || [];
+    for (const [field, key] of [['Name', 'fullName'], ['Email', 'email'], ['Phone', 'phone']]) {
+      const input = $('#checkout' + field);
+      if (input && !input.value) input.value = data.contact?.[key] || '';
+    }
+    const select = $('#checkoutSavedAddress');
+    select.innerHTML = '<option value="">Enter a new address</option>' + savedAddresses.map(row => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.label)} — ${escapeHtml(row.city)}</option>`).join('');
+    $('#savedAddressField').hidden = !savedAddresses.length;
+    const address = savedAddresses.find(row => row.isDefault);
+    if (address) { select.value = address.id; fillSavedAddress(address); }
+    const rewards = data.rewards || [];
+    $('#checkoutReward').innerHTML = '<option value="">Save rewards for later</option>' + rewards.map(row => `<option value="${escapeHtml(row.publicId)}">${escapeHtml(row.label)}</option>`).join('');
+    $('#checkoutRewardField').hidden = !rewards.length;
+    profileLoaded = true;
+  }
+
   async function loadCheckoutOptions() {
     const city = $('#checkoutCity')?.value?.trim() || '';
     try {
@@ -339,7 +379,7 @@
         if ([...select.options].some(option => option.value === current)) select.value = current;
       }
       $$('input[name="payment"]').forEach(input => { input.disabled = data.payments?.[input.value] === false; });
-    } catch (error) { showToast(error.message || 'Checkout options could not be loaded.'); }
+    } catch (error) { showToast(error.message || 'Checkout options could not be loaded.', { type: 'error' }); }
   }
 
   function updateChoiceStyles() {
@@ -354,12 +394,17 @@
 
   async function loadCatalog() {
     try {
-      const response = await fetch('/api/v1/storefront/catalogue', {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' }
-      });
-      if (!response.ok) throw new Error('Could not load catalog');
-      const data = await response.json();
+      // The shared header and cart recommendations use the same public read.
+      // Cart quantities and checkout authority still come from their own APIs.
+      if (!window.ClassicMartSharedCataloguePromise) {
+        window.ClassicMartSharedCataloguePromise = fetch('/api/v1/storefront/catalogue', {
+          credentials: 'same-origin', headers: { Accept: 'application/json' }
+        }).then(async response => {
+          if (!response.ok) throw new Error('Could not load catalog');
+          return response.json();
+        });
+      }
+      const data = await window.ClassicMartSharedCataloguePromise;
       catalog = data.products || [];
       csrfToken = data.csrfToken || window.ClassicMartCart?.getCsrfToken?.() || csrfToken;
       if (data.country?.currency) displayCurrency = data.country.currency;
@@ -386,29 +431,23 @@
     const save = event.target.closest('[data-save-later]');
     if (save) {
       const id = save.dataset.saveLater;
-      const productId = save.dataset.productId || productById(id).id;
-      const response = await fetch(
-        `/api/v1/storefront/wishlist/${encodeURIComponent(productId)}`,
-        {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            Accept: 'application/json',
-            'x-csrf-token': csrfToken,
-          },
-        },
-      );
-      if (response.status === 401) {
-        location.href = `/login?next=${encodeURIComponent('/cart')}`;
-        return;
-      }
-      if (response.ok) {
-        await removeItem(id, false);
-        showToast('Item saved to your wishlist');
-      } else {
+      save.disabled = true;
+      try {
+        if (window.ClassicMartCart?.ready) await window.ClassicMartCart.ready;
+        const response = await fetch('/api/v1/customer/cart/move-to-wishlist', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-csrf-token': window.ClassicMartCart?.getCsrfToken?.() || csrfToken },
+          body: JSON.stringify({ variantId: id, cartVersion: window.ClassicMartCart?.getVersion?.() }),
+        });
+        if (response.status === 401) { location.href = '/login?next=' + encodeURIComponent('/cart'); return; }
         const payload = await response.json().catch(() => ({}));
-        showToast(payload.error?.message || 'Item could not be saved.');
-      }
+        if (!response.ok) throw new Error(payload.error?.message || 'Item could not be saved.');
+        await window.ClassicMartCart.refresh();
+        refreshCartFromStore();
+        checkoutReview = null;
+        showToast('Item saved to your wishlist');
+      } catch (error) { showToast(error.message, { type: 'error' }); }
+      finally { save.disabled = false; }
       return;
     }
     const add = event.target.closest('[data-recommend-add]');
@@ -427,7 +466,7 @@
       await requireCartService('clear').clear();
       refreshCartFromStore();
       showToast('Your cart has been cleared');
-    } catch (error) { showToast(error.message); }
+    } catch (error) { showToast(error.message, { type: 'error' }); }
   });
 
   $('#couponForm')?.addEventListener('submit', async event => {
@@ -468,14 +507,16 @@
       showToast('Add at least one item before checkout');
       return;
     }
+    if (location.pathname !== '/checkout') { location.assign('/checkout'); return; }
     try {
       const cartResponse = await fetch('/api/v1/cart', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
       const cartData = await cartResponse.json();
       csrfToken = cartData.csrfToken || csrfToken;
       if (!cartResponse.ok || !cartData.cart?.items?.length) throw new Error('Your server cart is empty. Refresh and add the item again.');
+      await loadCheckoutProfile();
       await loadCheckoutOptions();
       setStep(2);
-    } catch (error) { showToast(error.message || 'Checkout could not start.'); }
+    } catch (error) { showToast(error.message || 'Checkout could not start.', { type: 'error' }); }
   });
 
   $('#checkoutDetailsForm')?.addEventListener('submit', async event => {
@@ -487,7 +528,8 @@
       const response = await fetch('/api/v1/checkout/review', {
         method: 'POST', credentials: 'same-origin',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
-        body: JSON.stringify({ deliveryMethod: data.delivery, paymentMethod: data.payment, city: data.city, pickupPointId: data.pickupPointId })
+        body: JSON.stringify({ deliveryMethod: data.delivery, paymentMethod: data.payment, city: data.city, pickupPointId: data.pickupPointId,
+          contact: contactData(data), rewardPublicId: $('#checkoutReward')?.value || '', ...addressSource() })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message || 'Checkout review failed.');
@@ -504,12 +546,22 @@
         $$('.discount-summary-row').forEach(row => { row.hidden = !(payload.totals.discountMinor || 0); });
       }
       setStep(3);
-    } catch (error) { showToast(error.message || 'Checkout review failed.'); }
+    } catch (error) { showToast(error.message || 'Checkout review failed.', { type: 'error' }); }
   });
 
   document.addEventListener('change', event => {
     if (event.target.matches('input[name="delivery"], input[name="payment"]')) { checkoutReview = null; updateChoiceStyles(); }
     if (event.target.matches('#checkoutCity')) loadCheckoutOptions();
+    if (event.target.matches('#checkoutSavedAddress')) {
+      fillSavedAddress(savedAddresses.find(row => row.id === event.target.value));
+      checkoutReview = null;
+      loadCheckoutOptions();
+    }
+    if (event.target.matches('#checkoutReward, #checkoutPickupPoint')) checkoutReview = null;
+  });
+  $('#checkoutDetailsForm')?.addEventListener('input', event => {
+    checkoutReview = null;
+    if (event.target.matches('#checkoutName, #checkoutPhone, #checkoutAddress, #checkoutCity, #checkoutNote')) $('#checkoutSavedAddress').value = '';
   });
 
 
@@ -532,12 +584,16 @@
           paymentMethod: data.payment,
           city: data.city,
           pickupPointId: data.pickupPointId,
-          contact: { fullName: data.name, email: data.email, phone: data.phone, address: data.address, city: data.city, country: data.country, note: data.note }
+          contact: contactData(data),
+          rewardPublicId: $('#checkoutReward')?.value || '',
+          ...addressSource()
         })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message || 'Order could not be created.');
-      await window.ClassicMartCart?.clear?.();
+      // The order transaction consumes only its reviewed cart. A second DELETE
+      // here could erase products added in another tab after that commit.
+      await window.ClassicMartCart?.refresh?.().catch(() => {});
       const paymentKey = (crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^a-zA-Z0-9-]/g, '');
       const paymentResponse = await fetch(`/api/v1/orders/${encodeURIComponent(payload.order.id)}/payment-intents`, {
         method: 'POST', credentials: 'same-origin',
@@ -573,4 +629,12 @@
     if (empty) empty.hidden = false;
   }
   loadCatalog().catch(error => console.warn('Cart catalogue recovery:', error));
+  if (document.body.dataset.checkoutEntry === 'true') {
+    Promise.resolve(window.ClassicMartCart?.ready).then(async () => {
+      refreshCartFromStore();
+      await loadCheckoutProfile();
+      await loadCheckoutOptions();
+      if (entries().length) setStep(2);
+    }).catch(error => showToast(error.message || 'Checkout could not start.'));
+  }
 })();

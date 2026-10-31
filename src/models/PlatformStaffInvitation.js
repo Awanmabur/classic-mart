@@ -15,13 +15,16 @@ const platformStaffInvitationSchema = new Schema({
   tokenHash:{type:String,required:true,select:false},
   expiresAt:{type:Date,required:true,index:true},
   invitedByUserId:{type:Schema.Types.ObjectId,ref:'User',required:true,index:true},
+  inviterGrantPublicId:{type:String,maxlength:120,default:'',immutable:true},
+  inviterTokenVersion:{type:Number,min:0,immutable:true},
   acceptedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
   acceptedAt:Date,
   approvalRequestId:{type:Schema.Types.ObjectId,ref:'ApprovalRequest'},
   approvalRequestPublicId:{type:String,maxlength:100,default:'',index:true},
   revokedByUserId:{type:Schema.Types.ObjectId,ref:'User'},
   revokedAt:Date,
-},{timestamps:true});
+},{timestamps:true,optimisticConcurrency:true});
 platformStaffInvitationSchema.index({emailHash:1,status:1,expiresAt:1});
 platformStaffInvitationSchema.index({approvalCountry:1,status:1,createdAt:-1});
+platformStaffInvitationSchema.index({emailHash:1},{name:'one_pending_staff_invitation_per_email',unique:true,partialFilterExpression:{status:'pending'}});
 export const PlatformStaffInvitation=mongoose.model('PlatformStaffInvitation',platformStaffInvitationSchema);

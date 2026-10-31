@@ -1,0 +1,8 @@
+<% if (supportPage.id === 'support-reports') { %>
+<section class="panel role-chart-panel"><div class="role-panel-head"><div><h2>Support reports</h2><p>Review recorded workload, response times and customer satisfaction across your authorized countries.</p></div></div>
+  <form method="get" action="/support/reports" class="support-compact-filter"><input type="hidden" name="country" value="<%= supportFlow.context?.country || '' %>"><% if (supportFlow.filters?.search) { %><input type="hidden" name="search" value="<%= supportFlow.filters.search %>"><% } %>
+    <label for="supportReportType">Report</label><select id="supportReportType" name="report"><% for (const option of supportFlow.reportOptions || []) { %><option value="<%= option.value %>" <%= option.value === supportFlow.report ? 'selected' : '' %>><%= option.label %></option><% } %></select>
+    <label for="supportReportPeriod">Period</label><select id="supportReportPeriod" name="period"><% for (const option of supportFlow.periodOptions || []) { %><option value="<%= option.value %>" <%= option.value === supportFlow.period ? 'selected' : '' %>><%= option.label %></option><% } %></select><button class="primary-button" type="submit">View report</button><a class="outline-button" href="<%= supportFlow.exportHref %>">Download CSV</a>
+  </form><p class="form-intro">Exports include all matching records. Customer contact details, message content and internal notes stay private. SLA percentages describe active recorded deadlines; empty samples show no observation.</p>
+</section>
+<% } %>

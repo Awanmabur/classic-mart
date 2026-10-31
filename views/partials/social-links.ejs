@@ -1,0 +1,9 @@
+<% if (Array.isArray(socialLinks) && socialLinks.length) { %>
+<div class="socials" aria-label="Classic Mart social channels">
+  <% socialLinks.forEach((social) => { %>
+    <a href="<%= social.url %>" target="_blank" rel="noopener noreferrer" aria-label="Classic Mart on <%= social.label %>" title="Classic Mart on <%= social.label %>">
+      <img alt="" src="<%= social.icon %>"/>
+    </a>
+  <% }) %>
+</div>
+<% } %>

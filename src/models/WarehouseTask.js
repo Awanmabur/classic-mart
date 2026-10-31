@@ -7,5 +7,9 @@ const warehouseTaskSchema=new Schema({
 },{timestamps:true,optimisticConcurrency:true});
 warehouseTaskSchema.index({warehouseId:1,status:1,createdAt:-1});
 warehouseTaskSchema.index({warehouseId:1,status:1,dueAt:1});
+warehouseTaskSchema.index({warehouseId:1,type:1,createdAt:-1,_id:-1});
+warehouseTaskSchema.index({warehouseId:1,createdAt:-1,_id:-1});
+warehouseTaskSchema.index({warehouseId:1,type:1,status:1,createdAt:-1,_id:-1});
+warehouseTaskSchema.index({warehouseId:1,assignedUserId:1,createdAt:-1,_id:-1});
 warehouseTaskSchema.index({sourceKey:1},{unique:true,partialFilterExpression:{sourceKey:{$type:'string',$gt:''}}});
 export const WarehouseTask=mongoose.model('WarehouseTask',warehouseTaskSchema);

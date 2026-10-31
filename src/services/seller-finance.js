@@ -27,15 +27,19 @@ function storeRefundEconomics(refund, storePublicId) {
   }), { grossMinor: 0, platformFeeMinor: 0, sellerReceivableMinor: 0 });
 }
 
-export async function sellerFinanceStatement({ store, activityCursor = '', orderCursor = '', refundCursor = '', limit = 25 }) {
+export async function sellerFinanceStatement({ store, activityCursor = '', orderCursor = '', refundCursor = '', activitySearch = '', limit = 25 }) {
   if (!store?._id || !store?.publicId) throw new AppError('Seller finance workspace is unavailable.', 409, 'SELLER_FINANCE_STORE_REQUIRED');
   const size = Math.min(50, Math.max(10, Number(limit) || 25));
   const profitabilityPromise = sellerSkuProfitability({ store, limit: 100 });
   const payable = await LedgerAccount.findOne({ code: 'seller_payable', ownerType: 'store', ownerPublicId: store.publicId, country: store.country, currency: store.currency, active: true }).lean();
   const activityBase = payable ? { country: store.country, currency: store.currency, 'entries.accountId': payable._id } : { _id: null };
-  const orderBase = { storeId: store._id };
-  const refundBase = { 'allocations.storePublicId': store.publicId };
-  const payoutBase = { ownerStoreId: store._id };
+  if (activitySearch) {
+    const search = new RegExp(String(activitySearch).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    activityBase.$or = [{ publicId: search }, { referencePublicId: search }, { description: search }];
+  }
+  const orderBase = { storeId: store._id, country: store.country, currency: store.currency };
+  const refundBase = { 'allocations.storePublicId': store.publicId, currency: store.currency };
+  const payoutBase = { ownerStoreId: store._id, currency: store.currency };
 
   const [activityRows, activityTotal, orderRows, orderTotal, refundRows, refundTotal, commerceAggregate, refundAggregate, payoutAggregate, profitability] = await Promise.all([
     LedgerTransaction.find(cursorScope(activityBase, activityCursor)).sort(cursorSort()).limit(size + 1).lean(),
@@ -45,7 +49,7 @@ export async function sellerFinanceStatement({ store, activityCursor = '', order
     Refund.find(cursorScope(refundBase, refundCursor)).populate('orderId', 'publicId').sort(cursorSort()).limit(size + 1).lean(),
     Refund.countDocuments(refundBase),
     SellerOrder.aggregate([
-      { $match: { storeId: store._id, status: { $nin: ['pending_payment', 'cancelled', 'expired'] } } },
+      { $match: { ...orderBase, status: { $nin: ['pending_payment', 'cancelled', 'expired'] } } },
       { $unwind: '$items' },
       { $group: { _id: null, grossMinor: { $sum: '$items.grossMinor' }, discountMinor: { $sum: '$items.discountMinor' }, customerPaidMinor: { $sum: '$items.customerPaidMinor' }, platformFeeMinor: { $sum: '$items.platformFeeMinor' }, sellerReceivableMinor: { $sum: '$items.sellerReceivableMinor' } } },
     ]),
@@ -66,12 +70,16 @@ export async function sellerFinanceStatement({ store, activityCursor = '', order
   activityPage.items = activityPage.items.map(row => {
     const ownEntries = (row.entries || []).filter(entry => String(entry.accountId) === String(payable?._id));
     const deltaMinor = ownEntries.reduce((sum, entry) => sum + safeInt(entry.creditMinor) - safeInt(entry.debitMinor), 0);
-    return { ...row, deltaMinor };
+    return { publicId: row.publicId, createdAt: row.createdAt, referenceType: row.referenceType,
+      referencePublicId: row.referencePublicId, description: row.description, currency: row.currency, deltaMinor };
   });
   const orderPage = pageResult(orderRows, { limit: size, total: orderTotal });
-  orderPage.items = orderPage.items.map(row => ({ ...row, economics: lineEconomics(row.items) }));
+  orderPage.items = orderPage.items.map(row => ({ publicId: row.publicId, orderPublicId: row.orderPublicId,
+    createdAt: row.createdAt, status: row.status, currency: row.currency, economics: lineEconomics(row.items) }));
   const refundPage = pageResult(refundRows, { limit: size, total: refundTotal });
-  refundPage.items = refundPage.items.map(row => ({ ...row, economics: storeRefundEconomics(row, store.publicId) }));
+  refundPage.items = refundPage.items.map(row => ({ publicId: row.publicId, orderPublicId: row.orderId?.publicId || '',
+    createdAt: row.createdAt, completedAt: row.completedAt, status: row.status, currency: row.currency,
+    economics: storeRefundEconomics(row, store.publicId) }));
 
   const refundsByStatus = Object.fromEntries(refundAggregate.map(row => [row._id, { grossMinor: safeInt(row.grossMinor), platformFeeMinor: safeInt(row.platformFeeMinor), sellerReceivableMinor: safeInt(row.sellerReceivableMinor) }]));
   const payoutsByStatus = Object.fromEntries(payoutAggregate.map(row => [row._id, { amountMinor: safeInt(row.amountMinor), count: safeInt(row.count) }]));
@@ -101,7 +109,7 @@ export async function sellerFinanceStatement({ store, activityCursor = '', order
 export async function streamSellerLedgerCsv({ store, response }) {
   if (!store?._id || !store?.publicId) throw new AppError('Seller finance workspace is unavailable.', 409, 'SELLER_FINANCE_STORE_REQUIRED');
   const payable = await LedgerAccount.findOne({ code: 'seller_payable', ownerType: 'store', ownerPublicId: store.publicId, country: store.country, currency: store.currency, active: true }).lean();
-  const csvCell = value => { let text = String(value ?? ''); if (/^[=+@-]/.test(text)) text = `'${text}`; return `"${text.replaceAll('"', '""')}"`; };
+  const csvCell = value => { let text = String(value ?? ''); if (/^[\s\u0000-\u001f]*[=+@-]/u.test(text)) text = `'${text}`; return `"${text.replaceAll('"', '""')}"`; };
   response.write('Date,Transaction,Reference type,Reference,Description,Currency,Payable change minor\n');
   if (!payable) return;
   const cursor = LedgerTransaction.find({ country: store.country, currency: store.currency, 'entries.accountId': payable._id }).sort({ createdAt: 1, _id: 1 }).lean().cursor();

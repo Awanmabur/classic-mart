@@ -24,7 +24,7 @@
       document.body.appendChild(panel);
       const rect = button.getBoundingClientRect(); panel.style.top = `${Math.min(window.innerHeight - panel.offsetHeight - 12, rect.bottom + 8)}px`; panel.style.left = `${Math.max(12, Math.min(window.innerWidth - panel.offsetWidth - 12, rect.right - panel.offsetWidth))}px`;
       button.setAttribute('aria-expanded','true');
-    } catch { window.location.href = '/dashboard'; }
+    } catch { window.location.href = '/' ; }
   });
   document.addEventListener('click', (event) => { if (panel && !panel.contains(event.target) && event.target !== button) close(); });
   window.addEventListener('resize', close, { passive:true });

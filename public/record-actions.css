@@ -1,0 +1,40 @@
+/* Record dialogs use the approved surfaces, controls and palette. */
+.record-action-group { display: inline-flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.record-action-group > form { display: inline-flex; margin: 0; }
+.record-action-icon, .record-action-group .role-row-menu { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 36px; height: 36px; padding: 8px; line-height: 1; }
+.record-action-icon svg, .role-row-menu svg, .record-modal svg, .record-confirm-modal svg { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.record-modal, .record-confirm-modal { box-sizing: border-box; position: fixed; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 0; border-radius: 24px; background: var(--surface, #fff); color: var(--text, #172033); box-shadow: 0 24px 80px rgb(18 32 51 / 24%); }
+.record-modal { width: min(1120px, calc(100vw - 32px)); }
+.record-modal::backdrop, .record-confirm-modal::backdrop { background: rgb(15 29 48 / 48%); }
+.record-modal-header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 20px 24px; background: var(--surface, #fff); }
+.record-modal-header h2 { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: 21px; line-height: 1.3; }
+.record-modal-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.record-modal-tools > :is(a, button) { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.record-modal-close { width: 36px; height: 36px; border: 0; padding: 8px; border-radius: 50%; background: var(--surface-soft, #f3f4f6); color: inherit; cursor: pointer; }
+.record-modal-content { min-width: 0; padding: 0 24px 24px; overflow-wrap: anywhere; }
+.record-modal-content > .app-page { display: block; }
+.record-modal-content .page-heading { margin-top: 0; }
+.record-modal-content .role-content-grid:has(> .role-side-stack:only-child) { grid-template-columns: minmax(0, 1fr); }
+.record-modal-content :is(.role-editor, .role-content-grid) { max-width: 100%; }
+.record-modal-content img:not(.mfa-qr-image):not([class*="avatar"]):not([src$=".svg"]) { border-radius: 23px; }
+.record-modal[data-record-mode="view"] [data-record-edit-form] :is(button:not([type]), button[type="submit"], input[type="submit"]) { display: none; }
+.record-modal[data-record-mode="view"] [data-record-edit-form] :is(input, textarea, select) { cursor: default; }
+.record-modal-status { padding: 24px; margin: 0; }
+.record-confirm-modal { width: min(440px, calc(100vw - 32px)); padding: 28px; }
+.record-confirm-symbol { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 16px; border-radius: 50%; background: var(--orange-soft, #fff2e8); color: var(--orange, #ff6500); }
+.record-confirm-modal h2 { margin: 0 0 10px; font-size: 23px; line-height: 1.3; }
+.record-confirm-modal p { margin: 0; line-height: 1.65; overflow-wrap: anywhere; }
+.record-confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.record-confirm-actions > button { min-height: 42px; padding: 9px 18px; display: inline-flex; justify-content: center; align-items: center; font: inherit; font-weight: 700; border-radius: 999px; cursor: pointer; }
+.record-confirm-cancel { border: 0; background: var(--surface-soft, #f3f4f6); color: inherit; }
+.record-confirm-continue { border: 0; background: var(--orange, #ff6500); color: #fff; }
+.record-modal :focus-visible, .record-confirm-modal :focus-visible, .record-action-icon:focus-visible { outline: 3px solid rgb(255 101 0 / 45%); outline-offset: 3px; }
+body:has(.record-modal[open], .record-confirm-modal[open]) { overflow: hidden; }
+@media (max-width: 620px) {
+  .record-modal-header { padding: 16px; gap: 10px; }
+  .record-modal-header h2 { font-size: 18px; }
+  .record-modal-content { padding: 0 16px 16px; }
+  .record-modal-content :is(.role-editor, .role-content-grid) { grid-template-columns: minmax(0, 1fr); }
+  .record-modal-tools .record-modal-full-page { font-size: 11px; }
+  .record-confirm-modal { padding: 24px; }
+}

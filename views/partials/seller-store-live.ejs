@@ -1,0 +1,53 @@
+<% const sellerStore = liveSeller.store; const ops = sellerStore.operations || {}; const draft = liveSeller.draft || {}; const activeSection = ['identity','operations','communication'].includes(liveSeller.section) ? liveSeller.section : 'identity'; const locked = !['pending_verification','verified'].includes(sellerStore.status); const storeCountry = liveSeller.countries?.find(country => country.code === sellerStore.country)?.name || sellerStore.country; %>
+<section class="app-page active role-page" data-page="seller-store" data-role="seller">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow">Account preferences</span><h1>Store Settings</h1><p>Manage your store identity, business details, policies, pickup locations, and team access.</p></div><a class="outline-button icon-button" href="/account/security"><svg><use href="#i-shield"></use></svg>Security centre</a></div>
+  <% if (liveSeller.error) { %><div class="panel dashboard-message dashboard-message-error seller-store-error platform-flash" role="alert"><%= liveSeller.error %></div><% } %>
+  <% if (locked) { %><div class="panel dashboard-message platform-flash" data-flash-persistent role="status">This store is <%= sellerStore.status %>. Settings cannot be changed.</div><% } %>
+  <div class="profile-layout role-settings-layout role-profile-settings">
+    <aside class="panel profile-summary role-profile-summary">
+      <div class="profile-avatar-wrap role-profile-avatar-wrap"><span class="role-profile-avatar"><%= sellerStore.name.slice(0,2).toUpperCase() %></span></div>
+      <h2><%= sellerStore.name %></h2><p><%= ops.supportEmail || user.email %></p>
+      <span class="member-pill"><svg><use href="#i-bag"></use></svg>Seller</span>
+      <div class="profile-completion"><div><span>Profile completion</span><strong><%= liveSeller.completion %>%</strong></div><div><span style="width:<%= liveSeller.completion %>%"></span></div></div>
+      <nav class="settings-nav role-settings-nav" aria-label="Store settings sections">
+        <button type="button" class="<%= activeSection === 'identity' ? 'active' : '' %>" data-seller-settings-tab="identity" aria-pressed="<%= activeSection === 'identity' %>" aria-controls="sellerIdentity">Store profile</button>
+        <button type="button" class="<%= activeSection === 'operations' ? 'active' : '' %>" data-seller-settings-tab="operations" aria-pressed="<%= activeSection === 'operations' %>" aria-controls="sellerOperations">Business details</button>
+        <a href="/seller/payouts">Payments</a>
+        <button type="button" class="<%= activeSection === 'communication' ? 'active' : '' %>" data-seller-settings-tab="communication" aria-pressed="<%= activeSection === 'communication' %>" aria-controls="sellerCommunication">Communication</button>
+        <button type="button" data-seller-security>Password &amp; Security</button>
+      </nav>
+    </aside>
+    <div class="role-settings-content">
+      <form id="sellerIdentity" class="panel form-panel role-settings-panel <%= activeSection === 'identity' ? 'active' : '' %>" data-seller-settings-panel="identity" method="post" action="/seller/store/identity">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= sellerStore.__v %>">
+        <div class="section-heading"><div><h2>Store identity</h2><p class="form-intro">Keep the information shown across Classic Mart accurate and consistent.</p></div><% if (sellerStore.status === 'verified') { %><span class="verified-label"><svg><use href="#i-check"></use></svg>Verified</span><% } %></div>
+        <fieldset <%= locked ? 'disabled' : '' %> class="seller-settings-fields"><div class="role-form-grid">
+          <label>Store name<input name="name" value="<%= draft.name ?? sellerStore.name %>" required minlength="2" maxlength="140" autocomplete="organization"></label>
+          <label>Contact email<input name="supportEmail" type="email" value="<%= draft.supportEmail ?? ops.supportEmail ?? '' %>" maxlength="254" autocomplete="email"></label>
+          <label>Phone number<span class="seller-store-phone-row"><span class="phone-country-control"><select class="phone-country-select" name="supportPhoneCountry" aria-label="Phone country code" autocomplete="tel-country-code" required><% for (const country of liveSeller.phoneCountries) { %><option value="<%= country.code %>" data-phone-prefix="<%= country.phonePrefix %>" <%= country.code === (draft.supportPhoneCountry ?? liveSeller.phoneCountry) ? 'selected' : '' %>><%= country.name %> (<%= country.phonePrefix %>)</option><% } %></select><span class="phone-country-display" aria-hidden="true"></span></span><input name="supportPhone" type="tel" value="<%= draft.supportPhone ?? liveSeller.supportPhoneNational %>" maxlength="30" autocomplete="tel-national" placeholder="Enter your phone number" aria-label="Phone number"></span></label>
+          <label>Country<input value="<%= storeCountry %>" readonly aria-describedby="sellerRegionHint"></label>
+          <label class="wide">About<textarea name="description" rows="5" maxlength="1500"><%= draft.description ?? sellerStore.description %></textarea></label>
+        </div><p class="form-intro" id="sellerRegionHint">Store country and settlement currency (<%= sellerStore.currency %>) are fixed to protect existing orders and accounting. Public contact details do not change your account login or verified phone.</p><button class="primary-button" type="submit">Save Changes</button></fieldset>
+      </form>
+      <form id="sellerOperations" class="panel form-panel role-settings-panel <%= activeSection === 'operations' ? 'active' : '' %>" data-seller-settings-panel="operations" method="post" action="/seller/store/operations">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= sellerStore.__v %>">
+        <h2>Business &amp; fulfilment</h2><p class="form-intro">These settings keep the workspace aligned with its real operating responsibility.</p>
+        <fieldset <%= locked ? 'disabled' : '' %> class="seller-settings-fields"><div class="role-form-grid">
+          <label>Primary category<input name="primaryCategory" value="<%= draft.primaryCategory ?? ops.primaryCategory ?? '' %>" maxlength="100"></label>
+          <label>Pickup city<input name="pickupCity" value="<%= draft.pickupCity ?? ops.pickupCity ?? '' %>" maxlength="120" autocomplete="address-level2"></label>
+          <label>Fulfilment mode<select name="fulfillmentMode" required><% for (const [value,label] of [['merchant','Seller fulfilled'],['warehouse','Warehouse fulfilled'],['hybrid','Hybrid']]) { %><option value="<%= value %>" <%= value === (draft.fulfillmentMode ?? ops.fulfillmentMode ?? 'merchant') ? 'selected' : '' %>><%= label %></option><% } %></select></label>
+          <label>Verification status<input readonly value="<%= liveSeller.verification?.status || 'Not submitted' %>"></label>
+        </div><p class="form-intro">Changing fulfilment preferences does not dispatch orders or approve store verification. <a href="/seller/verification">Review store verification</a></p><button class="primary-button" type="submit">Save Changes</button></fieldset>
+      </form>
+      <form id="sellerCommunication" class="panel form-panel role-settings-panel <%= activeSection === 'communication' ? 'active' : '' %>" data-seller-settings-panel="communication" method="post" action="/seller/store/identity">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= sellerStore.__v %>"><input type="hidden" name="name" value="<%= draft.name ?? sellerStore.name %>"><input type="hidden" name="description" value="<%= draft.description ?? sellerStore.description %>">
+        <h2>Communication Preferences</h2><p class="form-intro">Keep the email and phone customers use to contact your store accurate.</p>
+        <fieldset <%= locked ? 'disabled' : '' %> class="seller-settings-fields"><div class="role-form-grid">
+          <label class="wide">Contact email<input name="supportEmail" type="email" value="<%= draft.supportEmail ?? ops.supportEmail ?? '' %>" maxlength="254" autocomplete="email"></label>
+          <label>Phone country code<select name="supportPhoneCountry" aria-label="Communication phone country code" autocomplete="tel-country-code" required><% for (const country of liveSeller.phoneCountries) { %><option value="<%= country.code %>" <%= country.code === (draft.supportPhoneCountry ?? liveSeller.phoneCountry) ? 'selected' : '' %>><%= country.name %> (<%= country.phonePrefix %>)</option><% } %></select></label>
+          <label>Phone number<input name="supportPhone" type="tel" value="<%= draft.supportPhone ?? liveSeller.supportPhoneNational %>" maxlength="30" autocomplete="tel-national" placeholder="Enter your phone number"></label>
+        </div><p class="form-intro">These public contact details do not change your account login or verified phone.</p><button class="primary-button" type="submit">Save Preferences</button></fieldset>
+      </form>
+    </div>
+  </div>
+</section>

@@ -11,7 +11,7 @@
 
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[character]);
   function money(value, currency, locale = 'en-UG') { try { return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value); } catch { return `${currency} ${Number(value || 0).toLocaleString()}`; } }
-  function showStatus(message) { const toast = byId('pageToast'); if (!toast) return; toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
+  function showStatus(message) { window.ClassicMartFlash.show(message); }
 
   function renderProducts(products) {
     const container = byId('profileProducts');

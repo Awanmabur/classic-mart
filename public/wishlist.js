@@ -31,13 +31,8 @@
     }
   }
 
-  function toast(message) {
-    const element = qs('#pageToast');
-    if (!element) return;
-    element.textContent = message;
-    element.classList.add('show');
-    clearTimeout(toast.timer);
-    toast.timer = setTimeout(() => element.classList.remove('show'), 2_200);
+  function toast(message, options) {
+    window.ClassicMartFlash.show(message, options);
   }
 
   function card(product, canRemove = true) {
@@ -131,7 +126,7 @@
       csrfToken = payload.csrfToken || '';
       render();
     } catch (error) {
-      if (error.message !== 'Authentication required') toast(error.message);
+      if (error.message !== 'Authentication required') toast(error.message, { type: 'error' });
     }
   }
 
@@ -146,7 +141,7 @@
       if (button) button.textContent = 'Added ✓';
       return true;
     } catch (error) {
-      toast(error.message || 'Product could not be added.');
+      toast(error.message || 'Product could not be added.', { type: 'error' });
       return false;
     } finally {
       if (button) setTimeout(() => {
@@ -171,7 +166,7 @@
         render();
         toast('Product removed from wishlist');
       } catch (error) {
-        toast(error.message);
+        toast(error.message, { type: 'error' });
       }
       return;
     }
@@ -192,7 +187,7 @@
       render();
       toast('Wishlist cleared');
     } catch (error) {
-      toast(error.message);
+      toast(error.message, { type: 'error' });
     }
   });
   qs('#addAllWishlist')?.addEventListener('click', async (event) => {

@@ -1,0 +1,66 @@
+<%
+const supportAdmin = countryAdminFlow;
+const supportTicket = supportAdmin.selected;
+const supportDraft = supportAdmin.draft || {};
+const supportCasePath = supportTicket ? '/admin/support/' + encodeURIComponent(supportTicket.publicId) + '/action?country=' + encodeURIComponent(supportTicket.country) : '';
+const supportActive = supportTicket && ['open','in_progress','waiting_customer','escalated'].includes(supportTicket.status);
+const supportLabel = value => String(value || '').replaceAll('_',' ');
+%>
+<form class="panel role-form-section" method="get" action="/admin/support" aria-label="Support queue filters">
+  <input type="hidden" name="country" value="<%= supportAdmin.country || '' %>">
+  <input type="hidden" name="search" value="<%= supportAdmin.filters.search %>">
+  <input type="hidden" name="status" value="<%= supportAdmin.filters.status %>">
+  <input type="hidden" name="assignment" value="<%= supportAdmin.filters.assignment %>">
+  <div class="role-form-grid">
+    <label>Queue<select name="queue"><% for(const choice of supportAdmin.filters.queues){ %><option value="<%= choice.value %>" <%= choice.value === supportAdmin.filters.queue ? 'selected' : '' %>><%= choice.value === 'all' ? 'All queues' : choice.label %></option><% } %></select></label>
+    <label>Priority<select name="priority"><% for(const choice of supportAdmin.filters.priorities){ %><option value="<%= choice.value %>" <%= choice.value === supportAdmin.filters.priority ? 'selected' : '' %>><%= choice.value === 'all' ? 'All priorities' : choice.label %></option><% } %></select></label>
+    <label>Recorded SLA<select name="overdue"><option value="" <%= supportAdmin.filters.overdue ? '' : 'selected' %>>All requests</option><option value="1" <%= supportAdmin.filters.overdue ? 'selected' : '' %>>Overdue active requests</option></select></label>
+  </div><div class="role-create-actions"><button class="outline-button" type="submit">Apply Support Filters</button></div>
+</form>
+<% if(supportTicket){ %>
+<section class="panel role-form-section" id="country-admin-support-conversation" aria-labelledby="country-admin-support-heading">
+  <div class="role-panel-head compact"><div><span class="eyebrow">Saved support request</span><h2 id="country-admin-support-heading"><%= supportTicket.subject %></h2><p class="form-intro"><%= supportTicket.publicId %> · <%= supportTicket.country %> · <%= supportLabel(supportTicket.status) %></p></div><a class="plain-link" href="/admin/support?country=<%= supportAdmin.country || '' %>">Close conversation</a></div>
+  <% if(supportAdmin.error){ %><p class="flash error platform-flash" role="alert"><%= supportAdmin.error %></p><% } %>
+  <div class="role-form-grid">
+    <label>Requester<input readonly value="<%= supportTicket.requester.name %>"></label><label>Contact<input readonly value="<%= supportTicket.requester.emailMasked %>"></label>
+    <label>Owner<input readonly value="<%= supportTicket.owner?.name || 'Unassigned' %>"></label><label>Queue and priority<input readonly value="<%= supportTicket.queue + ' · ' + supportTicket.priority %>"></label>
+    <label>Recorded SLA due<input readonly value="<%= formatDate(supportTicket.slaDueAt) %>"></label><label>Created<input readonly value="<%= formatDate(supportTicket.createdAt) %>"></label>
+  </div>
+  <% if(supportTicket.order){ %><p class="form-intro"><strong>Original order:</strong> <a class="plain-link" href="/admin/orders?country=<%= supportTicket.country %>&amp;record=<%= encodeURIComponent(supportTicket.order.publicId) %>"><%= supportTicket.order.publicId %></a> · <%= supportLabel(supportTicket.order.fulfillmentState) %> · <%= supportLabel(supportTicket.order.paymentState) %></p><% } %>
+  <% if(supportTicket.independenceReason || supportTicket.sourceError){ %><p class="form-intro" role="status"><%= supportTicket.independenceReason || supportTicket.sourceError %></p><% } %>
+  <% if(supportTicket.mergedIntoPublicId){ %><p><a class="outline-button" href="/admin/support/<%= encodeURIComponent(supportTicket.mergedIntoPublicId) %>?country=<%= supportTicket.country %>">Open merged conversation</a></p><% } %>
+  <% if(supportTicket.canClaim){ %><form method="post" action="<%= supportCasePath %>" class="role-inline-action"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= supportTicket.version %>"><input type="hidden" name="action" value="claim"><button class="primary-button" type="submit">Claim Ticket</button></form><% } %>
+  <div class="role-stack-list" aria-label="Persisted support conversation"><% for(const note of supportTicket.notes || []){ %><article><div><strong><%= note.internal ? 'Internal staff note' : note.author + ' message' %></strong><p><%= note.message %></p><small><%= formatDate(note.at) %></small></div></article><% } %></div>
+  <% if((supportTicket.delivery || []).length){ %><details><summary>Requester delivery status</summary><% for(const delivery of supportTicket.delivery){ %><p class="form-intro">Reply <%= delivery.noteIndex %>: <%= supportLabel(delivery.status) %></p><% } %></details><% } %>
+</section>
+<% if(supportTicket.canAct && supportTicket.ownedByActor){ %>
+<% if(supportActive){ %>
+<form class="panel role-form-section" method="post" action="<%= supportCasePath %>" aria-label="Reply to saved support request">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= supportTicket.version %>"><input type="hidden" name="action" value="reply">
+  <div class="role-panel-head compact"><div><h2>Reply to the Conversation</h2><p>Public replies appear in the requester’s saved support conversation.</p></div></div>
+  <div class="role-form-grid"><label class="wide">Message<textarea name="message" rows="4" minlength="3" maxlength="2000" required><%= supportDraft.message || '' %></textarea></label>
+    <label>Visibility<select name="internal"><option value="false" <%= supportDraft.internal === 'true' ? '' : 'selected' %>>Visible to requester</option><option value="true" <%= supportDraft.internal === 'true' ? 'selected' : '' %>>Internal staff note</option></select></label>
+    <label>After a public reply<select name="status"><option value="in_progress">Keep in progress</option><option value="waiting_customer" <%= supportDraft.status === 'waiting_customer' ? 'selected' : '' %>>Wait for requester</option></select></label>
+  </div><div class="role-create-actions"><button class="primary-button" type="submit">Save Reply</button></div>
+</form>
+<section class="panel role-form-section" aria-label="Support ownership and queue">
+  <div class="role-panel-head compact"><div><h2>Ownership and Priority</h2></div></div>
+  <form method="post" action="<%= supportCasePath %>"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= supportTicket.version %>"><input type="hidden" name="action" value="update">
+    <div class="role-form-grid"><label>Queue<select name="queue"><% for(const choice of supportAdmin.filters.queues.filter(row => row.value !== 'all')){ %><option value="<%= choice.value %>" <%= (supportDraft.queue || supportTicket.queue) === choice.value ? 'selected' : '' %>><%= choice.label %></option><% } %></select></label>
+    <label>Priority<select name="priority"><% for(const choice of supportAdmin.filters.priorities.filter(row => row.value !== 'all')){ %><option value="<%= choice.value %>" <%= (supportDraft.priority || supportTicket.priority) === choice.value ? 'selected' : '' %>><%= choice.label %></option><% } %></select></label></div>
+    <div class="role-create-actions"><button class="outline-button" type="submit">Save Queue and Priority</button></div>
+  </form>
+  <% if((supportAdmin.transferCandidates || []).length){ %><form method="post" action="<%= supportCasePath %>" class="role-create-form"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= supportTicket.version %>"><input type="hidden" name="action" value="transfer"><label class="role-create-field">Transfer to current authorized Support operator<select name="recipient" required><% for(const candidate of supportAdmin.transferCandidates){ %><option value="<%= candidate.publicId %>" <%= supportDraft.recipient === candidate.publicId ? 'selected' : '' %>><%= candidate.name %></option><% } %></select></label><div class="role-create-actions"><button class="outline-button" type="submit">Transfer Ticket</button></div></form><% } %>
+  <form method="post" action="<%= supportCasePath %>" class="role-inline-action"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= supportTicket.version %>"><input type="hidden" name="action" value="release"><button class="outline-button" type="submit">Release Ownership</button></form>
+</section>
+<% } %>
+<form class="panel role-form-section" method="post" action="<%= supportCasePath %>" aria-label="Support request next step">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= supportTicket.version %>"><input type="hidden" name="action" value="status">
+  <div class="role-panel-head compact"><div><h2>Record the Next Step</h2><p>Resolving, reopening or waiting for a requester needs a public explanation.</p></div></div>
+  <% const nextStates = {open:['in_progress','escalated','resolved'],in_progress:['waiting_customer','escalated','resolved'],waiting_customer:['in_progress','escalated','resolved'],escalated:['in_progress','waiting_customer','resolved'],resolved:['closed','open'],closed:['open']}[supportTicket.status] || []; %>
+  <div class="role-form-grid"><label>Next status<select name="status" required><% for(const state of nextStates){ %><option value="<%= state %>" <%= supportDraft.status === state ? 'selected' : '' %>><%= state === 'open' ? 'Reopen' : supportLabel(state) %></option><% } %></select></label><label class="wide">Public explanation<textarea name="message" rows="3" minlength="3" maxlength="2000" required><%= supportDraft.message || '' %></textarea></label></div>
+  <div class="role-create-actions"><button class="primary-button" type="submit">Save Next Step</button></div>
+</form>
+<% } %>
+<section class="panel role-form-section"><div class="role-panel-head compact"><div><h2>Saved Workflow History</h2></div></div><% for(const entry of supportTicket.history || []){ %><p class="form-intro"><strong><%= supportLabel(entry.action) %></strong> · <%= formatDate(entry.at) %> · <%= supportLabel(entry.fromStatus) %> → <%= supportLabel(entry.toStatus) %><%= entry.note ? ' · ' + entry.note : '' %></p><% } %><% if(!(supportTicket.history || []).length){ %><p class="form-intro">No workflow changes are recorded yet.</p><% } %></section>
+<% } %>

@@ -1,0 +1,27 @@
+<% const flow = pageFlow, selectedReferral = flow.selected; if (selectedReferral) { %>
+<section class="panel form-panel role-settings-panel">
+  <div class="section-heading"><div><h2><%= selectedReferral.publicId %></h2><p class="form-intro"><%= selectedReferral.subject %> · Order <%= selectedReferral.orderPublicId %></p></div><span class="role-status"><%= selectedReferral.status %></span></div>
+  <p class="form-intro"><%= selectedReferral.reason %></p>
+  <% if (selectedReferral.description) { %><p class="form-intro"><%= selectedReferral.description %></p><% } %>
+  <div class="role-form-grid"><% for (const item of selectedReferral.items || []) { %><p><strong><%= item.title %></strong><span> · <%= item.variant || 'Standard' %> × <%= item.quantity %></span></p><% } %></div>
+  <% if (selectedReferral.sourceHref) { %><p><a class="plain-link" href="<%= selectedReferral.sourceHref %>">Review the source in this workspace</a></p><% } %>
+  <% if (selectedReferral.evidence?.length) { %><div class="role-form-grid"><% for (const evidence of selectedReferral.evidence) { %><a class="plain-link" href="<%= evidence.href %>"><%= evidence.description || 'Private case evidence' %></a><% } %></div><% } %>
+  <% if (selectedReferral.status === 'pending') { %>
+  <form class="role-inline-action" method="post" action="<%= flow.baseHref %>/<%= selectedReferral.publicId %>/claim"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedReferral.version %>"><button class="primary-button" type="submit">Claim order case</button></form>
+  <% } else if (selectedReferral.status === 'claimed' && selectedReferral.assignedToMe) { %>
+  <form class="role-form-grid" method="post" enctype="multipart/form-data" action="<%= flow.baseHref %>/<%= selectedReferral.publicId %>/evidence">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedReferral.version %>">
+    <label><span>Private evidence</span><input type="file" name="document" accept="image/jpeg,image/png,image/webp,image/avif" required></label>
+    <label><span>Description</span><input name="description" minlength="3" maxlength="300" required></label><div class="wide"><button class="outline-button" type="submit">Attach private evidence</button></div>
+  </form>
+  <form class="role-form-grid" method="post" action="<%= flow.baseHref %>/<%= selectedReferral.publicId %>/respond">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedReferral.version %>">
+    <label><span>Assessment</span><select name="finding" required><option value="recommendation">Recommendation for Support</option><option value="further_action">Further action required</option><option value="no_action">No action recommended</option></select></label>
+    <label class="wide"><span>Private response to Support</span><textarea name="summary" minlength="20" maxlength="2000" rows="5" required></textarea></label>
+    <p class="form-intro wide">This assessment does not confirm a refund or close the buyer’s dispute. Support reviews it alongside actual payment and fulfilment records.</p>
+    <div class="wide"><button class="primary-button" type="submit">Return assessment to Support</button></div>
+  </form>
+  <% } else if (selectedReferral.status === 'claimed') { %><p class="form-intro">Another authorized colleague owns this investigation.</p><% } %>
+  <% if (selectedReferral.response) { %><h3>Recorded assessment</h3><p><%= selectedReferral.response.summary %></p><p class="form-intro">Returned to Support for its separate customer resolution.</p><% } %>
+</section>
+<% } %>

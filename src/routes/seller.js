@@ -1,6 +1,10 @@
+import { inviteStoreTeamMember, updateStoreTeamMember, selectSellerWorkspace } from '../services/seller-team-pages.js';
+import { requestReviewedSellerSubscription } from '../services/seller-subscription-operations.js';
 import mongoose from 'mongoose';
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
+import { z } from 'zod';
+import { routeForPage } from '../dashboard/registry.js';
 import { asyncHandler, AppError } from '../core/errors.js';
 import { publicId, slugify } from '../core/ids.js';
 import { encryptSensitive } from '../core/sensitive.js';
@@ -28,6 +32,8 @@ import {
   User,
   VerificationDocument,
   Warehouse,
+  SubscriptionChangeRequest,
+  SubscriptionPlan,
 } from '../models/index.js';
 import {
   requireAuth,
@@ -39,6 +45,8 @@ import { noStore } from '../middleware/request.js';
 import { verifyDeferredCsrf } from '../middleware/csrf.js';
 import { loadSellerStore, requireStoreCapability } from '../middleware/store.js';
 import { getOrCreateStore } from '../services/store.js';
+import { createSellerPromotion } from '../services/seller-growth.js';
+import { requestPayout, savePayoutAccount } from '../services/payments.js';
 import { setFlash } from '../middleware/view.js';
 import { writeAudit } from '../services/audit.js';
 import { refreshOrderLifecycle } from '../services/order-state.js';
@@ -79,24 +87,28 @@ import {
 function escapeSellerSearch(value){return String(value||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 
 const router = Router();
-const uploadLimiter = rateLimit({
+const uploadLimiter = rateLimit({ scope: 'seller:1',
   windowMs: 15 * 60_000,
   limit: 30,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 });
-const workflowLimiter = rateLimit({
+const workflowLimiter = rateLimit({ scope: 'seller:2',
   windowMs: 15 * 60_000,
   limit: 80,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 });
-const importLimiter = rateLimit({
+const importLimiter = rateLimit({ scope: 'seller:3',
   windowMs: 15 * 60_000,
   limit: 12,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 });
+
+function sellerDashboardRedirect(_request, _fallback, page) {
+  return routeForPage(page);
+}
 
 router.use(
   '/seller',
@@ -139,7 +151,7 @@ async function findOwnedProduct(request) {
 }
 
 async function renderWorkspace(request, response, view) {
-  return response.render('catalog-workspace', {
+  return response.render('approved-dashboard', { workspace: 'seller', initialPage: 'seller-products', allowedWorkspaces: ['seller'],
     view,
     formatMoney: (amount, currency = request.store.currency) =>
       formatMinorUnits(amount, currency, request.user.locale),
@@ -166,17 +178,236 @@ async function assertAvailableCountries(codes) {
   }
 }
 
-router.get('/seller', (_request, response) =>
-  response.redirect('/seller/products'),
+router.get('/seller', (_request, response) => response.redirect(routeForPage('seller-overview')));
+
+
+const dashboardProductDraftSchema = z.object({
+  title: z.string().trim().min(3).max(180),
+  description: z.string().trim().min(20).max(5000),
+  categoryPublicId: z.string().trim().min(5).max(100),
+  brandPublicId: z.string().trim().max(100).optional().default(''),
+  videoUrl: z.string().trim().max(800).optional().default(''),
+  tags: z.string().trim().max(500).optional().default(''),
+  variantTitle: z.string().trim().min(1).max(120).default('Default'),
+  sku: z.string().trim().min(2).max(64),
+  price: z.string().trim().min(1).max(20),
+  compareAt: z.string().trim().max(20).optional().default(''),
+  weightGrams: z.coerce.number().int().min(0).max(2_000_000).default(0),
+});
+
+router.post(
+  '/seller/dashboard/products',
+  requireStoreCapability('catalogue'),
+  asyncHandler(async (request, response) => {
+    const raw = dashboardProductDraftSchema.parse(request.body || {});
+    const productInput = productSchema.parse({
+      title: raw.title,
+      description: raw.description,
+      categoryPublicId: raw.categoryPublicId,
+      brandPublicId: raw.brandPublicId,
+      videoUrl: raw.videoUrl,
+      countries: request.store.country,
+      tags: raw.tags,
+    });
+    const variantInput = variantSchema.parse({
+      sku: raw.sku,
+      barcode: '',
+      title: raw.variantTitle,
+      price: raw.price,
+      compareAt: raw.compareAt,
+      weightGrams: raw.weightGrams,
+      optionName: '',
+      optionValue: '',
+      active: 'yes',
+    });
+    inspectProductContent(productInput);
+    const [category, brand] = await Promise.all([
+      Category.findOne({
+        publicId: productInput.categoryPublicId,
+        active: true,
+        $or: [{ countries: { $size: 0 } }, { countries: request.store.country }],
+      }),
+      productInput.brandPublicId
+        ? Brand.findOne({ publicId: productInput.brandPublicId, status: 'approved' })
+        : null,
+    ]);
+    if (!category) throw new AppError('Category is unavailable.', 422, 'CATEGORY_UNAVAILABLE');
+    if (productInput.brandPublicId && !brand) throw new AppError('Brand is unavailable.', 422, 'BRAND_UNAVAILABLE');
+
+    const session = await mongoose.startSession();
+    let createdProduct;
+    try {
+      await session.withTransaction(async () => {
+        const duplicateSku = await ProductVariant.exists({ storeId: request.store._id, sku: variantInput.sku }).session(session);
+        if (duplicateSku) throw new AppError('That SKU is already used by this store.', 409, 'SKU_IN_USE');
+        const baseSlug = slugify(productInput.title);
+        let slug = baseSlug;
+        let suffix = 1;
+        while (await Product.exists({ storeId: request.store._id, slug }).session(session)) {
+          suffix += 1;
+          slug = `${baseSlug.slice(0, 110)}-${suffix}`;
+        }
+        [createdProduct] = await Product.create([{
+          publicId: publicId('prd'),
+          storeId: request.store._id,
+          ownerUserId: request.store.ownerUserId,
+          categoryId: category._id,
+          brandId: brand?._id,
+          title: productInput.title,
+          slug,
+          description: productInput.description,
+          videoUrl: productInput.videoUrl,
+          countries: [request.store.country],
+          tags: productInput.tags,
+          status: 'draft',
+          qualityScore: calculateQualityScore({ ...productInput, hasBrand: Boolean(brand), variantCount: 1, mediaCount: 0 }),
+        }], { session });
+        const [createdVariant] = await ProductVariant.create([{
+          publicId: publicId('var'),
+          productId: createdProduct._id,
+          storeId: request.store._id,
+          sku: variantInput.sku,
+          barcode: variantInput.barcode,
+          title: variantInput.title,
+          options: {},
+          priceMinor: toMinorUnits(variantInput.price, request.store.currency),
+          compareAtMinor: variantInput.compareAt ? toMinorUnits(variantInput.compareAt, request.store.currency) : undefined,
+          currency: request.store.currency,
+          active: true,
+          weightGrams: variantInput.weightGrams,
+        }], { session });
+        await writeAudit(request, 'catalogue.dashboard_product_created', {
+          session,
+          targetType: 'product',
+          targetPublicId: createdProduct.publicId,
+          country: request.store.country,
+          metadata: { variantPublicId: createdVariant.publicId, storePublicId: request.store.publicId },
+        });
+      });
+    } finally {
+      await session.endSession();
+    }
+    clearStorefrontCache();
+    setFlash(request, 'success', 'Product draft and first variant created. Add media and warehouse inventory before review.');
+    return response.redirect(`/seller/products/${createdProduct.publicId}`);
+  }),
 );
 
-router.post('/seller/workspace', asyncHandler(async (request, response) => {
-  const storePublicId = String(request.body.storePublicId || '').trim();
-  if (!storePublicId || storePublicId.length > 100) throw new AppError('Choose a valid seller workspace.', 422, 'SELLER_WORKSPACE_INVALID');
-  const access = await getOrCreateStore(request.user, { preferredStorePublicId: storePublicId, strictPreferred: true });
-  if (request.session) request.session.activeStorePublicId = access.store.publicId;
-  await writeAudit(request, 'seller.workspace.selected', { targetType: 'store', targetPublicId: access.store.publicId, country: access.store.country });
-  response.redirect('/seller/products');
+const dashboardCouponSchema = z.object({
+  name: z.string().trim().min(2).max(140),
+  code: z.string().trim().min(2).max(40),
+  discountBps: z.coerce.number().int().min(0).max(9000).default(0),
+  fixedDiscountMinor: z.coerce.number().int().min(0).max(2_000_000_000).default(0),
+  minSubtotalMinor: z.coerce.number().int().min(0).default(0),
+  startsAt: z.string().optional().default(''),
+  endsAt: z.string().optional().default(''),
+  status: z.enum(['draft', 'active']).default('draft'),
+});
+
+router.post(
+  '/seller/dashboard/coupons',
+  requireStoreCapability('growth'),
+  asyncHandler(async (request, response) => {
+    const input = dashboardCouponSchema.parse(request.body || {});
+    const row = await createSellerPromotion(request, {
+      ...input,
+      type: 'voucher',
+      code: input.code.toUpperCase(),
+      productPublicIds: [],
+      minQuantity: 1,
+      disclosureText: 'Seller voucher.',
+      startsAt: input.startsAt || undefined,
+      endsAt: input.endsAt || undefined,
+    });
+    await writeAudit(request, 'seller.coupon.created', { targetType: 'seller_promotion', targetPublicId: row.publicId });
+    setFlash(request, 'success', 'Voucher created. Checkout will apply it when active and eligible.');
+    return response.redirect(routeForPage('seller-coupons'));
+  }),
+);
+
+const dashboardStoreSchema = z.object({
+  name: z.string().trim().min(2).max(140),
+  description: z.string().trim().max(1500).optional().default(''),
+  primaryCategory: z.string().trim().max(100).optional().default(''),
+  pickupCity: z.string().trim().max(120).optional().default(''),
+  supportEmail: z.string().trim().email().max(254).or(z.literal('')).optional().default(''),
+  supportPhone: z.string().trim().max(32).optional().default(''),
+  fulfillmentMode: z.enum(['merchant', 'warehouse', 'hybrid']).default('merchant'),
+});
+
+router.post(
+  '/seller/dashboard/store',
+  requireStoreCapability('staff'),
+  asyncHandler(async (request, response) => {
+    const input = dashboardStoreSchema.parse(request.body || {});
+    const base = storeSchema.parse({ name: input.name, description: input.description });
+    request.store.name = base.name;
+    request.store.description = base.description;
+    request.store.operations = {
+      ...(request.store.operations?.toObject?.() || request.store.operations || {}),
+      primaryCategory: input.primaryCategory,
+      pickupCity: input.pickupCity,
+      supportEmail: input.supportEmail,
+      supportPhone: input.supportPhone,
+      fulfillmentMode: input.fulfillmentMode,
+    };
+    await request.store.save();
+    await writeAudit(request, 'seller.dashboard_store_updated', { targetType: 'store', targetPublicId: request.store.publicId });
+    setFlash(request, 'success', 'Store settings saved.');
+    return response.redirect(routeForPage('seller-store'));
+  }),
+);
+
+router.post(
+  '/seller/dashboard/subscription',
+  requireStoreCapability('staff'),
+  asyncHandler(async (request, response) => {
+    verifyDeferredCsrf(request);
+    await requestReviewedSellerSubscription(request, request.body);
+    setFlash(request, 'success', 'Subscription change request submitted. Your current plan stays unchanged until approval and payment are completed.');
+    return response.redirect(routeForPage('seller-subscription'));
+  }),
+);
+
+router.post(
+  '/seller/dashboard/payout-accounts',
+  requireStoreCapability('finance'),
+  asyncHandler(async (request, response) => {
+    const input = z.object({
+      method: z.enum(['mobile_money', 'bank']),
+      label: z.string().trim().min(2).max(100),
+      beneficiary_name: z.string().trim().min(2).max(120),
+      network: z.string().trim().max(80).optional().default(''),
+      account_bank: z.string().trim().max(120).optional().default(''),
+      account_number: z.string().trim().max(120).optional().default(''),
+      phone: z.string().trim().max(40).optional().default(''),
+    }).parse(request.body || {});
+    if (input.method === 'mobile_money' && (!input.network || !input.phone)) throw new AppError('Network and phone are required for mobile-money payouts.', 422, 'PAYOUT_DESTINATION_INVALID');
+    if (input.method === 'bank' && (!input.account_bank || !input.account_number)) throw new AppError('Bank and account number are required for bank payouts.', 422, 'PAYOUT_DESTINATION_INVALID');
+    const destination = { account_bank: input.account_bank, network: input.network, account_number: input.account_number, phone: input.phone, beneficiary_name: input.beneficiary_name };
+    const account = await savePayoutAccount(request, { method: input.method, label: input.label, destination });
+    await writeAudit(request, 'seller.payout_account_created', { targetType: 'payout_account', targetPublicId: account.publicId });
+    setFlash(request, 'success', 'Payout destination added and is awaiting verification.');
+    return response.redirect(routeForPage('seller-payouts'));
+  }),
+);
+
+router.post(
+  '/seller/dashboard/payouts',
+  requireStoreCapability('finance'),
+  asyncHandler(async (request, response) => {
+    const input = z.object({ payoutAccountId: z.string().trim().min(3).max(100), amountMinor: z.coerce.number().int().min(1).max(2_000_000_000), idempotencyKey: z.string().trim().min(8).max(120) }).parse(request.body || {});
+    const payout = await requestPayout(request, { payoutAccountId: input.payoutAccountId, amountMinor: input.amountMinor, idempotencyKey: input.idempotencyKey });
+    await writeAudit(request, 'seller.payout_requested', { targetType: 'payout', targetPublicId: payout.publicId });
+    setFlash(request, 'success', 'Payout request submitted.');
+    return response.redirect(routeForPage('seller-payouts'));
+  }),
+);
+
+router.post('/seller/workspace', workflowLimiter, asyncHandler(async (request, response) => {
+  verifyDeferredCsrf(request);
+  const result = await selectSellerWorkspace(request, request.body);
+  return response.redirect(result.landing);
 }));
 
 router.get(
@@ -202,7 +433,7 @@ router.post(
     await thread.save();
     await writeAudit(request, 'seller_contact.seller_reply', { targetType: 'seller_contact', targetPublicId: thread.publicId });
     setFlash(request, 'success', 'Reply sent to the customer.');
-    response.redirect('/seller/messages');
+    response.redirect(sellerDashboardRedirect(request, '/seller/messages', 'seller-messages'));
   }),
 );
 
@@ -217,7 +448,7 @@ router.post(
     await thread.save();
     await writeAudit(request, 'seller_contact.resolved', { targetType: 'seller_contact', targetPublicId: thread.publicId });
     setFlash(request, 'success', 'Conversation marked resolved.');
-    response.redirect('/seller/messages');
+    response.redirect(sellerDashboardRedirect(request, '/seller/messages', 'seller-messages'));
   }),
 );
 
@@ -441,35 +672,15 @@ router.post(
 
 
 
-router.get('/seller/staff', asyncHandler(async (request, response) => {
-  const members = await StoreMember.find({ storeId: request.store._id }).populate('userId','name email role status').sort({ createdAt: 1 }).lean();
-  return renderWorkspace(request, response, { section: 'staff', members });
-}));
-
+router.get('/seller/staff', (_request, response) => response.redirect(308, '/seller/team'));
 router.post('/seller/staff', workflowLimiter, asyncHandler(async (request, response) => {
-  const emailNormalized = normalizeEmail(String(request.body.email || ''));
-  const role = String(request.body.role || '');
-  if (!['admin','catalogue','fulfilment','finance','support'].includes(role)) throw new AppError('Choose a valid store staff role.', 422, 'STORE_ROLE_INVALID');
-  const user = await User.findOne({ emailNormalized, status: 'active', emailVerifiedAt: { $ne: null } });
-  if (!user) throw new AppError('That verified Classic Mart account was not found. Ask the person to create and verify an account first.', 404, 'STAFF_USER_NOT_FOUND');
-  if (user._id.equals(request.store.ownerUserId)) throw new AppError('The store owner already has full access.', 409, 'STAFF_ALREADY_OWNER');
-  if (await Store.exists({ ownerUserId: user._id })) throw new AppError('A seller-store owner cannot be added as staff to another store in this release.', 409, 'STAFF_OWNS_STORE');
-  const member = await StoreMember.findOneAndUpdate(
-    { storeId: request.store._id, userId: user._id },
-    { $set: { role, status: 'invited', invitedByUserId: request.user._id, invitedAt: new Date(), acceptedAt: null, revokedAt: null }, $setOnInsert: { publicId: publicId('stm') } },
-    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
-  );
-  await writeAudit(request, 'seller.staff_invited', { targetType: 'store_member', targetPublicId: member.publicId, metadata: { role } });
-  setFlash(request, 'success', 'Staff invitation created. The user can accept it from their dashboard.');
-  response.redirect('/seller/staff');
+  verifyDeferredCsrf(request); await inviteStoreTeamMember(request, request.body);
+  setFlash(request, 'success', 'Invitation recorded. The recipient must explicitly accept.');
+  return response.redirect('/seller/team');
 }));
-
 router.post('/seller/staff/:publicId/revoke', workflowLimiter, asyncHandler(async (request, response) => {
-  const member = await StoreMember.findOne({ publicId: request.params.publicId, storeId: request.store._id, role: { $ne: 'owner' } });
-  if (!member) throw new AppError('Store staff member not found.', 404, 'STORE_MEMBER_NOT_FOUND');
-  member.status = 'revoked'; member.revokedAt = new Date(); await member.save();
-  await writeAudit(request, 'seller.staff_revoked', { targetType: 'store_member', targetPublicId: member.publicId });
-  setFlash(request, 'success', 'Store access revoked.'); response.redirect('/seller/staff');
+  verifyDeferredCsrf(request); await updateStoreTeamMember(request, request.params.publicId, { ...request.body, action: 'revoke' });
+  setFlash(request, 'success', 'Store access revoked.'); return response.redirect('/seller/team');
 }));
 
 router.get('/seller/returns', asyncHandler(async (request, response) => {
@@ -507,7 +718,7 @@ router.post('/seller/returns/:publicId/respond', workflowLimiter, asyncHandler(a
   const message=String(request.body.message||'').trim().slice(0,2000);if(['contested','escalated'].includes(action)&&message.length<10)throw new AppError('Explain the seller return response in at least 10 characters.',422,'SELLER_RETURN_RESPONSE_REQUIRED');
   const row=await SellerReturnCase.findOne({publicId:request.params.publicId,storeId:request.store._id,status:{$ne:'resolved'}});if(!row)throw new AppError('Seller return case not found.',404,'SELLER_RETURN_NOT_FOUND');
   row.status=action;row.responseMessage=message;row.respondedByUserId=request.user._id;row.respondedAt=new Date();row.timeline.push({type:`seller_return.${action}`,message:message||`Seller marked the return ${action}.`,actorUserId:request.user._id});await row.save();
-  await writeAudit(request,`seller.return_${action}`,{targetType:'seller_return_case',targetPublicId:row.publicId,country:row.country,metadata:{returnPublicId:row.returnPublicId}});setFlash(request,'success','Seller return response recorded for marketplace support.');response.redirect('/seller/returns');
+  await writeAudit(request,`seller.return_${action}`,{targetType:'seller_return_case',targetPublicId:row.publicId,country:row.country,metadata:{returnPublicId:row.returnPublicId}});setFlash(request,'success','Seller return response recorded for marketplace support.');response.redirect(sellerDashboardRedirect(request, '/seller/returns', 'seller-returns'));
 }));
 router.post('/seller/returns/:publicId/evidence', upload(uploadVerificationImage), asyncHandler(async(request,response)=>{
   const row=await SellerReturnCase.findOne({publicId:request.params.publicId,storeId:request.store._id,status:{$ne:'resolved'}});if(!row)throw new AppError('Seller return case not found.',404,'SELLER_RETURN_NOT_FOUND');
@@ -591,18 +802,18 @@ router.post(
 
 router.get('/seller/developers', asyncHandler(async (request,response)=>{
   const data=await developerPortalData(request.user,request.store,request.query);
-  response.render('developer-portal',{...data,revealedSecret:null,revealedKey:null});
+  response.render('approved-dashboard', { workspace: 'seller', initialPage: 'seller-store', allowedWorkspaces: ['seller'],...data,revealedSecret:null,revealedKey:null});
 }));
 router.post('/seller/developers/clients', asyncHandler(async(request,response)=>{
   const scopes=Array.isArray(request.body.scopes)?request.body.scopes:[request.body.scopes].filter(Boolean);
   const {client,apiKey}=await createApiClient({user:request.user,store:request.store,name:request.body.name,scopes,requestsPerMinute:Number(request.body.requestsPerMinute||120),expiresAt:request.body.expiresAt||null});
   await writeAudit(request,'integration.api_client_created',{targetType:'api_client',targetPublicId:client.publicId,metadata:{scopes:client.scopes}});
-  const data=await developerPortalData(request.user,request.store);return response.render('developer-portal',{...data,revealedKey:apiKey,revealedSecret:null});
+  const data=await developerPortalData(request.user,request.store);return response.render('approved-dashboard', { workspace: 'seller', initialPage: 'seller-store', allowedWorkspaces: ['seller'],...data,revealedKey:apiKey,revealedSecret:null});
 }));
-router.post('/seller/developers/clients/:id/rotate', asyncHandler(async(request,response)=>{const {client,apiKey}=await rotateApiClient({user:request.user,store:request.store,publicId:request.params.id});await writeAudit(request,'integration.api_client_rotated',{targetType:'api_client',targetPublicId:client.publicId});const data=await developerPortalData(request.user,request.store);response.render('developer-portal',{...data,revealedKey:apiKey,revealedSecret:null});}));
+router.post('/seller/developers/clients/:id/rotate', asyncHandler(async(request,response)=>{const {client,apiKey}=await rotateApiClient({user:request.user,store:request.store,publicId:request.params.id});await writeAudit(request,'integration.api_client_rotated',{targetType:'api_client',targetPublicId:client.publicId});const data=await developerPortalData(request.user,request.store);response.render('approved-dashboard', { workspace: 'seller', initialPage: 'seller-store', allowedWorkspaces: ['seller'],...data,revealedKey:apiKey,revealedSecret:null});}));
 router.post('/seller/developers/clients/:id/revoke', asyncHandler(async(request,response)=>{const client=await revokeApiClient({user:request.user,store:request.store,publicId:request.params.id});await writeAudit(request,'integration.api_client_revoked',{targetType:'api_client',targetPublicId:client.publicId});setFlash(request,'success','API client revoked.');response.redirect('/seller/developers');}));
-router.post('/seller/developers/webhooks', asyncHandler(async(request,response)=>{const events=Array.isArray(request.body.events)?request.body.events:[request.body.events].filter(Boolean);const {endpoint,secret}=await createWebhookEndpoint({user:request.user,store:request.store,url:request.body.url,events});await writeAudit(request,'integration.webhook_created',{targetType:'webhook',targetPublicId:endpoint.publicId,metadata:{events:endpoint.events}});const data=await developerPortalData(request.user,request.store);response.render('developer-portal',{...data,revealedKey:null,revealedSecret:secret});}));
-router.post('/seller/developers/webhooks/:id/rotate', asyncHandler(async(request,response)=>{const {endpoint,secret}=await rotateWebhookSecret({user:request.user,store:request.store,publicId:request.params.id});await writeAudit(request,'integration.webhook_rotated',{targetType:'webhook',targetPublicId:endpoint.publicId});const data=await developerPortalData(request.user,request.store);response.render('developer-portal',{...data,revealedKey:null,revealedSecret:secret});}));
+router.post('/seller/developers/webhooks', asyncHandler(async(request,response)=>{const events=Array.isArray(request.body.events)?request.body.events:[request.body.events].filter(Boolean);const {endpoint,secret}=await createWebhookEndpoint({user:request.user,store:request.store,url:request.body.url,events});await writeAudit(request,'integration.webhook_created',{targetType:'webhook',targetPublicId:endpoint.publicId,metadata:{events:endpoint.events}});const data=await developerPortalData(request.user,request.store);response.render('approved-dashboard', { workspace: 'seller', initialPage: 'seller-store', allowedWorkspaces: ['seller'],...data,revealedKey:null,revealedSecret:secret});}));
+router.post('/seller/developers/webhooks/:id/rotate', asyncHandler(async(request,response)=>{const {endpoint,secret}=await rotateWebhookSecret({user:request.user,store:request.store,publicId:request.params.id});await writeAudit(request,'integration.webhook_rotated',{targetType:'webhook',targetPublicId:endpoint.publicId});const data=await developerPortalData(request.user,request.store);response.render('approved-dashboard', { workspace: 'seller', initialPage: 'seller-store', allowedWorkspaces: ['seller'],...data,revealedKey:null,revealedSecret:secret});}));
 router.post('/seller/developers/webhooks/:id/revoke', asyncHandler(async(request,response)=>{const endpoint=await revokeWebhookEndpoint({user:request.user,store:request.store,publicId:request.params.id});await writeAudit(request,'integration.webhook_revoked',{targetType:'webhook',targetPublicId:endpoint.publicId});setFlash(request,'success','Webhook endpoint revoked.');response.redirect('/seller/developers');}));
 router.post('/seller/developers/webhooks/:id/test', asyncHandler(async(request,response)=>{const endpoint=(await developerPortalData(request.user,request.store)).webhooks.find(x=>x.publicId===request.params.id&&x.status==='active');if(!endpoint)throw new AppError('Webhook endpoint not found.',404,'WEBHOOK_NOT_FOUND');await queueWebhookEvent({storeId:request.store._id,eventType:'integration.test',resourcePublicId:endpoint.publicId,payload:{message:'Classic Mart webhook test'}});await writeAudit(request,'integration.webhook_test_queued',{targetType:'webhook',targetPublicId:endpoint.publicId});setFlash(request,'success','Webhook test queued for delivery.');response.redirect('/seller/developers');}));
 

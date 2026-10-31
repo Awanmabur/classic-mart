@@ -1,0 +1,97 @@
+<%
+  const promoterCampaignFlow = typeof promoterFlow !== 'undefined' ? promoterFlow : (typeof domainFlow !== 'undefined' ? domainFlow : livePromoter.domainFlow);
+  const promoterCampaignMode = promoterCampaignFlow.mode || 'marketplace';
+  const promoterCampaignDraft = promoterCampaignFlow.draft || {};
+  const campaignChoices = promoterCampaignFlow.campaigns || [];
+  const campaignApplications = promoterCampaignFlow.applications || [];
+  const campaignLinks = Array.isArray(promoterCampaignFlow.links) ? promoterCampaignFlow.links : (promoterCampaignFlow.links?.items || []);
+  const campaignKits = promoterCampaignFlow.kits || [];
+  const campaignDetail = promoterCampaignFlow.detail;
+  const campaignStatusLabel = value => String(value || '').replaceAll('_', ' ').replace(/\b\w/g, character => character.toUpperCase());
+  const campaignApplicationFor = campaign => campaign.promoterApplication || campaign.application || campaignApplications.find(application => application.campaignPublicId === campaign.publicId) || null;
+  const campaignVersionFor = campaign => campaign.__v ?? campaign.version;
+  const applicationVersionFor = campaign => campaignApplicationFor(campaign) ? (campaign.applicationVersion ?? campaignApplicationFor(campaign)?.__v ?? campaignApplicationFor(campaign)?.version) : '';
+  const campaignDateLabel = value => typeof formatDate === 'function' ? formatDate(value) : String(value || '');
+  const promoterApprovedCampaigns = campaignChoices;
+  const campaignMarket = promoterCampaignFlow.market || {};
+  const campaignLocale = campaignMarket.locale || 'en-UG';
+%>
+<% if (!promoterCampaignFlow.canPromote) { %><div class="panel dashboard-message platform-flash" data-flash-persistent role="status">Complete promoter verification to apply to campaigns and create promotional links. <a class="plain-link" href="/promoter/profile?section=business">Review Channels &amp; Audience</a></div><% } %>
+<% if (['marketplace', 'campaigns'].includes(promoterCampaignMode) && campaignDetail?.campaign) { const selectedCampaign = campaignDetail.campaign; const selectedApplication = campaignDetail.application || campaignApplicationFor(selectedCampaign); const campaignPath = '/promoter/campaigns/' + encodeURIComponent(selectedCampaign.publicId); %>
+  <section class="panel role-form-section" id="promoterCampaignDetail">
+    <div class="role-panel-head compact"><div><span class="eyebrow">Campaign brief</span><h2><%= selectedCampaign.name %></h2></div><span class="role-status <%= selectedCampaign.status === 'active' ? 'good' : 'warn' %>"><%= campaignStatusLabel(selectedCampaign.status) %></span></div>
+    <p class="form-intro"><%= Number(selectedCampaign.commissionBps || 0) / 100 %>% commission · <%= selectedCampaign.attributionDays %> day attribution<% if (selectedCampaign.startsAt) { %> · Starts <%= campaignDateLabel(selectedCampaign.startsAt) %><% } %><% if (selectedCampaign.endsAt) { %> · Ends <%= campaignDateLabel(selectedCampaign.endsAt) %><% } %></p>
+    <p class="form-intro"><strong>Allowed channels:</strong> <%= selectedCampaign.allowedChannels?.length ? selectedCampaign.allowedChannels.join(', ') : 'All approved channels' %></p>
+    <% if ((campaignDetail.facts || selectedCampaign.facts || []).length) { %><h3>Approved product facts</h3><ul><% for (const fact of campaignDetail.facts || selectedCampaign.facts) { %><li><%= fact %></li><% } %></ul><% } %>
+    <% if (selectedCampaign.disclosureText) { %><p class="form-intro"><strong>Disclosure:</strong> <%= selectedCampaign.disclosureText %></p><% } %>
+    <% if (campaignDetail.products?.length) { %><h3>Campaign products</h3><% for (const product of campaignDetail.products) { %><p><a class="plain-link" href="/products/<%= encodeURIComponent(product.publicId) %>"><%= product.title || product.name || product.publicId %></a></p><% } %><% } %>
+    <% if (selectedApplication) { %><p class="form-intro"><strong>Your application:</strong> <%= campaignStatusLabel(selectedApplication.status) %><%= selectedApplication.reason ? ' · ' + selectedApplication.reason : '' %></p><% if (selectedApplication.note) { %><p class="form-intro"><strong>Your note:</strong> <%= selectedApplication.note %></p><% } %><% } %>
+    <% if (promoterCampaignFlow.canPromote && !selectedApplication && selectedCampaign.status === 'active') { %>
+      <form class="role-create-form" method="post" action="<%= campaignPath %>/apply">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="campaignVersion" value="<%= campaignVersionFor(selectedCampaign) %>"><input type="hidden" name="applicationVersion" value="">
+        <div class="role-create-grid"><label class="role-create-field wide">Application note<textarea name="note" rows="4" maxlength="1000" placeholder="Describe how this campaign fits your audience"><%= promoterCampaignDraft.note || '' %></textarea></label></div>
+        <div class="role-create-actions"><button class="primary-button" type="submit">Apply to Campaign</button></div>
+      </form>
+    <% } else if (selectedApplication?.status === 'approved') { %><div class="role-create-actions"><a class="primary-button" href="/promoter/links">Create Tracking Link</a><a class="outline-button" href="/promoter/content">Open Content Library</a></div><% } %>
+    <% const selectedAssets = (campaignDetail.assets || selectedCampaign.assets || []).filter(asset => asset.approved !== false); if (selectedApplication?.status === 'approved' && selectedAssets.length) { %><h3>Approved campaign assets</h3><% for (const asset of selectedAssets) { if (asset.url) { %><p><a class="plain-link" href="<%= asset.url %>" target="_blank" rel="noopener noreferrer"><%= asset.label || campaignStatusLabel(asset.type) %></a></p><% } } %><% } %>
+  </section>
+<% } %>
+<% if (['links', 'content'].includes(promoterCampaignMode)) { const contentEditor = promoterCampaignMode === 'content'; %>
+  <section class="panel role-form-section" id="promoterCampaignEditor">
+    <div class="role-panel-head compact"><div><span class="eyebrow"><%= contentEditor ? 'Approved campaign copy' : 'Promotion tools' %></span><h2><%= contentEditor ? 'Create Content Kit' : 'Create Tracking Link' %></h2></div><span class="role-required"><%= campaignMarket.name || campaignMarket.country || '' %></span></div>
+    <p class="form-intro"><%= contentEditor ? 'Create copy from approved campaign facts with the required disclosure and a tracked shopping link.' : 'Choose an approved campaign and the Classic Mart page you want to share with your audience.' %></p>
+    <% if (!promoterApprovedCampaigns.length) { %><p class="form-intro">No approved campaigns are available for this market. <a class="plain-link" href="/promoter/marketplace">Browse Campaign Marketplace</a></p><% } %>
+    <% for (const [choiceIndex, campaign] of promoterApprovedCampaigns.entries()) { const allowedChannels = campaign.allowedChannels || []; const draftForCampaign = !promoterCampaignDraft.campaignId || promoterCampaignDraft.campaignId === campaign.publicId ? promoterCampaignDraft : {}; const campaignDefaultDestination = campaign.scope === 'marketplace' ? '/products' : (campaign.products?.[0]?.href || (campaign.products?.[0]?.publicId ? '/products/' + campaign.products[0].publicId : '')); %>
+      <details class="faq-item" <%= draftForCampaign.campaignId === campaign.publicId || (!promoterCampaignDraft.campaignId && choiceIndex === 0) ? 'open' : '' %>>
+        <summary><%= campaign.name %></summary>
+        <form class="role-create-form" method="post" action="<%= contentEditor ? '/promoter/content' : '/promoter/links' %>">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="campaignId" value="<%= campaign.publicId %>"><input type="hidden" name="campaignVersion" value="<%= campaignVersionFor(campaign) %>"><input type="hidden" name="applicationVersion" value="<%= applicationVersionFor(campaign) %>">
+          <div class="role-create-grid">
+            <% if (!contentEditor) { %><label class="role-create-field wide">Destination *<input name="destination" value="<%= draftForCampaign.destination || campaignDefaultDestination %>" maxlength="500" required placeholder="/products/approved-product-reference"><small><%= campaign.scope === 'marketplace' ? 'Use /products or an approved Classic Mart product page.' : 'Use a product page approved for this campaign.' %></small></label><% } %>
+            <label class="role-create-field">Channel<% if (allowedChannels.length) { %><select name="channel" required><% for (const channel of allowedChannels) { %><option value="<%= channel %>" <%= draftForCampaign.channel === channel ? 'selected' : '' %>><%= channel %></option><% } %></select><% } else { %><input name="channel" value="<%= draftForCampaign.channel || '' %>" maxlength="50" placeholder="For example, Instagram"><% } %></label>
+            <% if (contentEditor) { %><label class="role-create-field">Market locale<input value="<%= campaignLocale %>" readonly></label><% } else { %>
+              <label class="role-create-field">Coupon code<input name="couponCode" value="<%= draftForCampaign.couponCode || '' %>" maxlength="32" autocapitalize="characters" placeholder="Optional coupon code"></label>
+              <label class="role-create-field wide">Your tracking reference<input name="subId" value="<%= draftForCampaign.subId || '' %>" maxlength="80" placeholder="For example, weekend-story"></label>
+            <% } %>
+          </div>
+          <div class="role-create-actions"><button class="primary-button" type="submit" <%= promoterCampaignFlow.canPromote ? '' : 'disabled' %>><%= contentEditor ? 'Create Content Kit' : 'Create Tracking Link' %></button></div>
+        </form>
+      </details>
+    <% } %>
+  </section>
+<% } %>
+<% if (promoterCampaignMode === 'links') { %>
+  <section class="panel role-form-section" id="promoterLinkManagement">
+    <div class="role-panel-head compact"><div><span class="eyebrow">Link settings</span><h2>Manage Tracking Links</h2></div></div>
+    <% if (!campaignLinks.length) { %><p class="form-intro">You have no tracking links on this page.</p><% } %>
+    <% for (const link of campaignLinks) { const linkPath = '/promoter/links/' + encodeURIComponent(link.publicId); const linkDraft = promoterCampaignFlow.draftId === link.publicId ? promoterCampaignDraft : {}; %>
+      <details class="faq-item" id="link-<%= link.publicId %>" <%= promoterCampaignFlow.draftId === link.publicId || promoterCampaignFlow.selectedLink?.publicId === link.publicId ? 'open' : '' %>>
+        <summary><%= link.campaignName || link.campaignPublicId || 'Tracking link' %> · <%= link.publicId %> · <%= link.active ? 'Active' : 'Inactive' %></summary>
+        <p class="form-intro">Share link: <a class="plain-link" href="<%= link.url %>"><%= link.url %></a></p>
+        <% if (link.active && promoterCampaignFlow.canPromote) { %>
+          <form class="role-create-form" method="post" action="<%= linkPath %>/update">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= link.__v ?? link.version %>">
+            <div class="role-create-grid"><label class="role-create-field wide">Destination *<input name="destination" value="<%= linkDraft.destination ?? link.destination %>" maxlength="500" required></label><label class="role-create-field">Channel<input name="channel" value="<%= linkDraft.channel ?? link.channel ?? '' %>" maxlength="50"></label><label class="role-create-field">Your tracking reference<input name="subId" value="<%= linkDraft.subId ?? link.subId ?? '' %>" maxlength="80"></label></div>
+            <div class="role-create-actions"><button class="outline-button" type="submit">Save Link Changes</button></div>
+          </form>
+        <% } else { %><p class="form-intro">Destination: <%= link.destination %><%= link.channel ? ' · ' + link.channel : '' %><%= link.subId ? ' · ' + link.subId : '' %></p><% } %>
+        <% if (link.active) { %><form method="post" action="<%= linkPath %>/deactivate"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= link.__v ?? link.version %>"><div class="role-create-actions"><button class="outline-button" type="submit">Deactivate Link</button></div></form><% } %>
+      </details>
+    <% } %>
+  </section>
+<% } %>
+<% if (promoterCampaignMode === 'content') { %>
+  <section class="panel role-form-section" id="promoterContentKits">
+    <div class="role-panel-head compact"><div><span class="eyebrow">Saved content</span><h2>Your Content Kits</h2></div></div>
+    <% if (!campaignKits.length) { %><p class="form-intro">No content kits have been created for your approved campaigns.</p><% } %>
+    <% for (const kit of campaignKits) { %>
+      <details class="faq-item" id="kit-<%= kit.publicId %>" <%= promoterCampaignFlow.selectedKit?.publicId === kit.publicId ? 'open' : '' %>><summary><%= kit.campaignName || 'Campaign content' %><%= kit.channel ? ' · ' + kit.channel : '' %></summary>
+        <div class="role-form-grid"><label class="wide">Approved copy<textarea readonly rows="6"><%= kit.text || kit.caption || '' %></textarea></label><% if (kit.whatsapp) { %><label class="wide">WhatsApp message<textarea readonly rows="5"><%= kit.whatsapp %></textarea></label><% } %><% if (kit.posterText) { %><label class="wide">Poster copy<textarea readonly rows="4"><%= kit.posterText %></textarea></label><% } %></div>
+        <% if (kit.disclosure || kit.disclosureText) { %><p class="form-intro"><strong>Required disclosure:</strong> <%= kit.disclosure || kit.disclosureText %></p><% } %>
+        <% if (kit.trackedUrl) { %><p class="form-intro">Share link: <a class="plain-link" href="<%= kit.trackedUrl %>"><%= kit.trackedUrl %></a></p><% } %>
+        <% if (kit.hashtags) { %><p class="form-intro"><%= kit.hashtags %></p><% } %>
+        <% for (const asset of (kit.assets || []).filter(asset => asset.approved !== false)) { if (asset.url) { %><p><a class="plain-link" href="<%= asset.url %>" target="_blank" rel="noopener noreferrer"><%= asset.label || campaignStatusLabel(asset.type) %></a></p><% } } %>
+      </details>
+    <% } %>
+  </section>
+<% } %>

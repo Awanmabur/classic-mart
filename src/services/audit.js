@@ -37,7 +37,7 @@ export async function writeAudit(request, action, options = {}) {
     await AuditLog.create(document);
   } catch (error) {
     logger.error(
-      { error: error.message, action, requestId: request.id },
+      { err: error, action, requestId: request.id },
       'Failed to write audit record',
     );
   }

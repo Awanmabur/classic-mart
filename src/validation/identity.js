@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { canonicalPhone } from '../core/phone.js';
+import { PUBLIC_ACCOUNT_TYPES } from '../core/registration.js';
 
 const trimmed = (minimum, maximum) =>
   z.string().trim().min(minimum).max(maximum);
@@ -21,6 +23,8 @@ export const signUpSchema = z
       .min(8)
       .max(30)
       .regex(/^\+?[\d\s()-]+$/),
+    phoneCountry: z.string().trim().regex(/^[A-Z]{2}$/).optional(),
+    accountType: z.enum(PUBLIC_ACCOUNT_TYPES).default('customer'),
     password: strongPassword,
     confirmPassword: z.string(),
     acceptTerms: z.literal('on'),
@@ -33,9 +37,8 @@ export const signUpSchema = z
   });
 
 export const loginSchema = z.object({
-  identity: trimmed(3, 254),
+  email: z.string().trim().email().max(254),
   password: z.string().min(1).max(128),
-  remember: z.string().optional(),
   next: z.string().max(500).optional(),
 });
 
@@ -60,7 +63,7 @@ export const resetSchema = z
   });
 
 export const onboardingSchema = z.object({
-  role: z.enum(['customer', 'business', 'seller', 'promoter', 'delivery']),
+  role: z.enum(PUBLIC_ACCOUNT_TYPES),
   publicName: trimmed(2, 100),
   businessName: z.string().trim().max(140).optional(),
   focus: z.string().trim().max(120).optional(),
@@ -70,14 +73,18 @@ export const onboardingSchema = z.object({
   teamSize: z.string().trim().max(30).optional(),
 });
 
+export const sellerEnrollmentSchema = onboardingSchema.extend({
+  role: z.literal('seller'),
+  confirmSeller: z.literal('on'),
+  version: z.string().regex(/^\d{1,15}$/).transform(Number).refine(Number.isSafeInteger),
+});
+
 export const profileSchema = z.object({
   name: trimmed(2, 120),
-  phone: z
-    .string()
-    .trim()
-    .min(8)
-    .max(30)
-    .regex(/^\+?[\d\s()-]+$/),
+  phone: z.string().trim().max(30).transform((value, ctx) => {
+    try { return canonicalPhone(value); }
+    catch (error) { ctx.addIssue({ code: 'custom', message: error.message }); return z.NEVER; }
+  }),
   country: z.string().trim().length(2).toUpperCase(),
   currency: z.string().trim().length(3).toUpperCase(),
   locale: z.string().trim().min(2).max(15),

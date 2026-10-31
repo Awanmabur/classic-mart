@@ -1,0 +1,224 @@
+<%
+const liveCustomer = typeof liveHeader !== 'undefined';
+const sellerLive = typeof liveSeller !== 'undefined';
+const promoterLive = typeof livePromoter !== 'undefined';
+const financeLive = typeof liveFinance !== 'undefined';
+const supportLive = typeof liveSupport !== 'undefined';
+const moderationLive = typeof liveModeration !== 'undefined';
+const adminLive = typeof liveAdmin !== 'undefined';
+const warehouseLive = typeof liveWarehouse !== 'undefined';
+const accountWorkspaceLive = typeof liveAccountWorkspace !== 'undefined';
+const businessLive = typeof liveBusiness !== 'undefined';
+const deliveryLive = typeof liveDelivery !== 'undefined';
+const deliveryOperationsLive = typeof liveDeliveryOperations !== 'undefined';
+const superAdminLive = typeof liveSuperAdmin !== 'undefined';
+const operationalShell = liveCustomer && workspace !== 'customer';
+const memberName = String(user?.name || 'Member').trim().split(/\s+/)[0];
+const realSeller = sellerLive && workspace === 'seller';
+const promoterShell = operationalShell && workspace === 'promoter';
+const financeShell = operationalShell && workspace === 'finance';
+const supportShell = operationalShell && workspace === 'support';
+const moderationShell = operationalShell && workspace === 'moderator';
+const adminShell = operationalShell && workspace === 'admin';
+const operationalNavigation = superAdminLive ? liveSuperAdmin.navigation : businessLive ? liveBusiness.navigation : deliveryLive ? liveDelivery.navigation : deliveryOperationsLive ? liveDeliveryOperations.navigation : adminLive ? liveAdmin.navigation : moderationLive ? liveModeration.navigation : supportLive ? liveSupport.navigation : financeLive ? liveFinance.navigation : promoterLive ? livePromoter.navigation : warehouseLive ? liveWarehouse.navigation : sellerLive ? liveSeller.navigation : accountWorkspaceLive ? liveAccountWorkspace.navigation : [];
+const operationalHome = operationalNavigation.find(item => item.id === `${workspace}-overview` && item.ready) || operationalNavigation.find(item => item.ready);
+const sellerSettings = realSeller && liveSeller.navigation.find(item => item.id === 'seller-store' && item.ready);
+const sellerAddProduct = realSeller && liveSeller.navigation.find(item => item.id === 'seller-add-product' && item.ready);
+const sellerSearch = realSeller && (liveSeller.navigation.find(item => item.id === 'seller-products' && item.ready) || liveSeller.navigation.find(item => item.id === 'seller-orders' && item.ready));
+const operationalSearch = (superAdminLive && operationalNavigation.find(item => item.id === 'super-users' && item.ready)) || (businessLive && operationalNavigation.find(item => item.id === 'business-orders' && item.ready)) || (deliveryLive && operationalNavigation.find(item => item.id === 'delivery-jobs' && item.ready)) || (deliveryOperationsLive && operationalNavigation.find(item => item.id === 'warehouse-deliveries' && item.ready)) || (adminShell && operationalNavigation.find(item => item.id === 'admin-products' && item.ready)) || (moderationShell && operationalNavigation.find(item => item.id === 'moderator-products' && item.ready)) || (supportShell && operationalNavigation.find(item => item.id === 'support-queue' && item.ready)) || sellerSearch || (promoterShell && operationalNavigation.find(item => item.id === 'promoter-marketplace' && item.ready)) || (financeShell && operationalNavigation.find(item => item.id === 'finance-payments' && item.ready));
+const operationalQuick = operationalNavigation.find(item => item.id === (superAdminLive ? 'super-security' : businessLive ? 'business-orders' : deliveryLive ? 'delivery-offers' : accountWorkspaceLive ? liveAccountWorkspace.quickPage : supportShell ? 'support-queue' : financeShell ? 'finance-reconciliation' : promoterShell ? 'promoter-links' : workspace === 'warehouse' ? 'warehouse-dispatch' : workspace === 'moderator' ? 'moderator-products' : '') && item.ready);
+const operationalQuickLabel = superAdminLive ? 'System Health' : businessLive ? 'Orders' : deliveryLive ? 'Job Offers' : accountWorkspaceLive ? liveAccountWorkspace.quickLabel : supportShell ? 'Ticket Queue' : financeShell ? 'Reconcile' : promoterShell ? 'Create Link' : workspace === 'warehouse' ? 'Dispatch' : 'Review Queue';
+const operationalSearchLabel = superAdminLive ? 'Search platform accounts...' : businessLive ? 'Search procurement requests...' : deliveryLive ? 'Search your deliveries...' : accountWorkspaceLive ? liveAccountWorkspace.search : supportShell ? 'Search tickets, customers, orders and disputes...' : financeShell ? 'Search payments and order references...' : promoterShell ? 'Search campaigns, links and conversions...' : workspace === 'warehouse' ? 'Search inventory, orders, shipments and returns...' : 'Search products, reviews, sellers and risk cases...';
+%>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<%- include('partials/brand-icons') %>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <meta name="theme-color" content="#ff6500" />
+  <title>Dashboard | Classic Mart</title>
+  <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/styles.css') %>" />
+  <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/role-workspaces.css') %>" />
+  <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/design-system.css') %>" />
+  <link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/session.css') %>" />
+  <% if (realSeller) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/seller-fidelity.css') %>" /><% } %>
+  <% if (promoterShell) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/promoter-live.css') %>" /><% } %>
+  <% if (adminLive || superAdminLive || businessLive) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/country-admin-live.css') %>" /><% } %>
+  <% if (superAdminLive) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/super-admin-live.css') %>" /><% } %>
+  <% if (moderationShell) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/moderation-live.css') %>" /><% } %>
+  <% if (supportShell) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/support-live.css') %>" /><% } %>
+  <% if (financeShell) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/finance-live.css') %>" /><% } %>
+  <% if (warehouseLive || deliveryLive || deliveryOperationsLive) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/warehouse-live.css') %>" /><% } %>
+  <% if (sellerLive && liveSeller.overviewFlow) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/seller-overview-live.css') %>" /><% } %>
+  <% if (sellerLive && !liveSeller.pageFlow && !liveSeller.overviewFlow && !liveSeller.accountFlow && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow && !liveSeller.orderFlow) { %><link rel="stylesheet" href="<%= assetUrl('/phone-country.css') %>" /><% } %>
+  <% if (liveCustomer) { %><link rel="stylesheet" href="<%= assetUrl('/approved-dashboard/live-controls.css') %>" /><% } %>
+  <% if (typeof section !== 'undefined' && section === 'security') { %><link rel="stylesheet" href="<%= assetUrl('/mfa.css') %>" /><script defer src="<%= assetUrl('/mfa-methods.js') %>"></script><% } %>
+<%- include('partials/flash-assets') %>
+</head>
+<body <% if (adminLive) { %>data-country-admin-density="<%= liveAdmin.preferences.density %>" data-country-admin-idle-minutes="<%= liveAdmin.preferences.idleReminderMinutes %>"<% } %> data-dashboard-live="<%= liveCustomer %>" data-dashboard-workspace="<%= workspace %>" data-dashboard-page="<%= typeof accountPage === 'undefined' ? initialPage : accountPage %>" data-customer-routes="<%= JSON.stringify(typeof customerRoutes === 'undefined' ? {} : customerRoutes) %>" data-dashboard-allowed="<%= JSON.stringify(allowedWorkspaces) %>" <% if (supportLive) { %>data-support-density="<%= liveSupport.preferences.density %>" data-support-idle-minutes="<%= liveSupport.preferences.idleReminderMinutes %>"<% } %> <% if (moderationLive) { %>data-moderation-density="<%= liveModeration.preferences.density %>" data-moderation-idle-minutes="<%= liveModeration.preferences.idleReminderMinutes %>"<% } %>>
+  <meta name="csrf-token" content="<%= csrfToken %>">
+  <script src="<%= assetUrl('/approved-dashboard/session-entry.js') %>" <%= liveCustomer ? 'defer' : '' %>></script>
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-cart" viewBox="0 0 24 24"><path d="M3 4h2l2.1 10.2a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 1.9-1.4L21 8H7"/><circle cx="10" cy="20" r="1.35"/><circle cx="18" cy="20" r="1.35"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.7"/><path d="m16 16 4.4 4.4"/></symbol>
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="8" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="15" width="7" height="6" rx="1.5"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="5" height="5" rx="1"/><rect x="15" y="4" width="5" height="5" rx="1"/><rect x="4" y="15" width="5" height="5" rx="1"/><rect x="15" y="15" width="5" height="5" rx="1"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.7 5.6a5.2 5.2 0 0 0-7.4 0L12 6.9l-1.3-1.3a5.2 5.2 0 0 0-7.4 7.4L12 21l8.7-8a5.2 5.2 0 0 0 0-7.4Z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></symbol>
+    <symbol id="i-bag" viewBox="0 0 24 24"><path d="M5 8h14l1 12H4L5 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M9 5V3h6v2M9 10h6"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 5.1-8 11-8 11S4 15.1 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.3"/></symbol>
+    <symbol id="i-award" viewBox="0 0 24 24"><circle cx="12" cy="10" r="7"/><path d="m8.7 16.2-1 5 4.3-2.4 4.3 2.4-1-5"/><path d="m12 6 1.1 2.1 2.4.4-1.7 1.7.4 2.4-2.2-1.1-2.2 1.1.4-2.4-1.7-1.7 2.4-.4L12 6Z"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4H18a2 2 0 0 1 2 2v13H6a2 2 0 0 1-2-2V6.5Z"/><path d="M4 8h16M15 12h5v4h-5a2 2 0 1 1 0-4Z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8.2A7 7 0 0 1 18.8 7L20 12M4 12l1.2 5a7 7 0 0 0 12.7-1.2"/></symbol>
+    <symbol id="i-support" viewBox="0 0 24 24"><path d="M4 13v-2a8 8 0 0 1 16 0v2"/><path d="M4 12h3v6H5a1 1 0 0 1-1-1v-5ZM20 12h-3v6h2a1 1 0 0 0 1-1v-5ZM17 18c0 2-2 3-5 3"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24"><path d="m3 7 4 4 5-7 5 7 4-4-2 11H5L3 7Z"/><path d="M6 21h12"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9L12 3Z"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3.5 13.3 7a5.6 5.6 0 0 0 3.3 3.3l3.5 1.3-3.5 1.3a5.6 5.6 0 0 0-3.3 3.3L12 19.7l-1.3-3.5a5.6 5.6 0 0 0-3.3-3.3l-3.5-1.3 3.5-1.3A5.6 5.6 0 0 0 10.7 7L12 3.5Z"/><path d="m18.5 3 .6 1.5a2.5 2.5 0 0 0 1.4 1.4l1.5.6-1.5.6a2.5 2.5 0 0 0-1.4 1.4l-.6 1.5-.6-1.5a2.5 2.5 0 0 0-1.4-1.4L15 6.5l1.5-.6a2.5 2.5 0 0 0 1.4-1.4L18.5 3Z"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="8" cy="8" r="1.3"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M7 3h4l2 5-2.5 1.5a15 15 0 0 0 4 4L16 11l5 2v4c0 2-1.8 4-4 4C9.3 21 3 14.7 3 7c0-2.2 2-4 4-4Z"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m7 9 5 5 5-5"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m4 16-.7 4.7L8 20l11-11-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-truck" viewBox="0 0 24 24"><path d="M3 6h11v11H3zM14 10h4l3 3v4h-7z"/><circle cx="7" cy="19" r="2"/><circle cx="18" cy="19" r="2"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="M4 7v10l8 4 8-4V7M12 11v10"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M4 5h16v12H8l-4 4V5Z"/><path d="M8 9h8M8 13h5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8"/><path d="M5 10v11h14V10M9 21v-7h6v7"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <% if (adminLive) { %><%- include('partials/country-admin-header') %><% } else { %>
+    <header class="topbar">
+      <div class="brand-area">
+        <button class="round-icon mobile-menu" id="mobileMenuBtn" aria-label="Open navigation"><svg><use href="#i-menu"></use></svg></button>
+        <a href="<%= operationalShell ? operationalHome?.href || '/account/security' : '/dashboard' %>" class="brand dashboard-brand" data-page-target="<%= operationalShell ? operationalHome?.id || 'profile' : 'dashboard' %>" aria-label="Classic Mart dashboard">
+          <img class="dashboard-brand-logo" src="/approved-dashboard/assets/classic-mart-logo.png" alt="Classic Mart" />
+        </a>
+      </div>
+
+      <form class="search" id="searchForm" <% if (operationalShell) { %>data-dashboard-search-route="<%= operationalSearch?.href || '' %>" data-dashboard-search-key="search"<% } %>>
+        <input id="searchInput" type="search" <% if (adminShell) { %>aria-label="Search your Country Admin workspace"<% } %> placeholder="<%= operationalShell ? realSeller ? sellerSearch?.id === 'seller-orders' ? 'Search orders...' : 'Search products, orders and customers...' : operationalSearchLabel : 'Search products, brands and orders...' %>" <%= operationalShell && !operationalSearch ? 'disabled' : '' %> />
+        <button type="submit" aria-label="Search" <%= operationalShell && !operationalSearch ? 'disabled' : '' %>><svg><use href="#i-search"></use></svg></button>
+      </form>
+
+      <div class="top-actions">
+        <button class="ai-button" id="classicAiBtn" type="button" aria-label="Open Classic AI" title="Classic AI"><svg class="ai-sparkle-icon"><use href="#i-sparkles"></use></svg><span>Classic AI</span></button>
+        <% if (realSeller) { %><button class="categories-button" data-page-target="seller-add-product" <%= sellerAddProduct ? '' : 'disabled' %>><svg><use href="#i-plus"></use></svg><span>Add Product</span></button><% } else if (operationalShell) { %><button class="categories-button" data-page-target="<%= operationalQuick?.id || '' %>" <%= operationalQuick ? '' : 'disabled' %>><svg><use href="#i-<%= promoterShell ? 'plus' : workspace === 'warehouse' ? 'truck' : 'shield' %>"></use></svg><span><%= operationalQuickLabel %></span></button><% } else { %><button class="categories-button" data-page-target="categories"><svg><use href="#i-grid"></use></svg><span>Categories</span></button><% } %>
+        <% if (!operationalShell) { %>
+        <button class="round-icon badge-button" data-page-target="wishlist" aria-label="Wishlist"><svg><use href="#i-heart"></use></svg><b id="wishlistBadge"><%= liveCustomer ? liveHeader.wishlistCount : 5 %></b></button>
+        <button class="round-icon badge-button" data-page-target="cart" aria-label="Cart"><svg><use href="#i-cart"></use></svg><b id="cartBadge"><%= liveCustomer ? liveHeader.cartCount : 3 %></b></button>
+        <% } %>
+        <button class="round-icon badge-button" data-page-target="notifications" aria-label="Notifications"><svg><use href="#i-bell"></use></svg><b class="red" id="notificationBadge"><%= liveCustomer ? liveHeader.unread : 4 %></b></button>
+        <button class="profile-button" id="profileButton">
+          <img src="<%= typeof avatarUrl !== 'undefined' ? avatarUrl : '/approved-dashboard/assets/avatar.svg' %>" alt="<%= user?.name || 'Member' %>" />
+          <span><strong>Hi, <%= memberName %></strong><small><%= superAdminLive ? liveSuperAdmin.profileRole : businessLive ? liveBusiness.profileRole : deliveryLive ? liveDelivery.profileRole : deliveryOperationsLive ? liveDeliveryOperations.profileRole : moderationLive ? liveModeration.profileRole : supportLive ? liveSupport.profileRole : financeLive ? liveFinance.profileRole : promoterLive ? livePromoter.profileRole : warehouseLive ? liveWarehouse.profileRole : sellerLive ? liveSeller.profileRole : accountWorkspaceLive ? liveAccountWorkspace.profileRole : workspace === 'customer' ? 'Customer' : roleLabel(user.role) %></small></span>
+          <svg><use href="#i-chevron-down"></use></svg>
+        </button>
+      </div>
+    </header>
+    <% } %>
+
+    <% if (adminLive) { %><%- include('partials/country-admin-sidebar') %><% } else { %>
+    <aside class="sidebar" id="sidebar">
+      <nav class="side-navigation">
+        <% if (superAdminLive || businessLive || deliveryLive || deliveryOperationsLive || moderationLive || supportLive || financeLive || promoterLive || warehouseLive || sellerLive || accountWorkspaceLive) { let previousGroup = ''; for (const item of operationalNavigation) { %>
+        <% if ((superAdminLive || businessLive || deliveryLive || deliveryOperationsLive || realSeller || promoterShell || financeShell || supportShell || moderationShell || adminShell) && item.group && item.group !== previousGroup) { previousGroup = item.group; %><span class="nav-section-label"><%= item.group %></span><% } %>
+        <% if (item.ready) { %><a class="side-link <%= initialPage === item.id ? 'active' : '' %>" href="<%= item.href %>" data-page-target="<%= item.id %>"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></a><% } else { %><button class="side-link" type="button" disabled title="Not available yet"><svg><use href="#<%= item.icon %>"></use></svg><span><%= item.label %></span></button><% } %>
+        <% } } else { %>
+        <a class="side-link active" href="/dashboard" data-page-target="dashboard"><svg><use href="#i-grid"></use></svg><span>Dashboard</span></a>
+        <a class="side-link" href="/orders" data-page-target="orders"><svg><use href="#i-clipboard"></use></svg><span>My Orders</span></a>
+        <a class="side-link" href="/wishlist" data-page-target="wishlist"><svg><use href="#i-heart"></use></svg><span>Wishlist</span><b><%= liveCustomer ? liveHeader.wishlistCount : 5 %></b></a>
+        <a class="side-link" href="/addresses" data-page-target="addresses"><svg><use href="#i-pin"></use></svg><span>Addresses</span></a>
+        <a class="side-link" href="/rewards" data-page-target="rewards"><svg><use href="#i-award"></use></svg><span>Rewards</span><b id="sidePoints"><%= liveCustomer ? liveHeader.points : 320 %></b></a>
+        <a class="side-link" href="/wallet" data-page-target="wallet"><svg><use href="#i-wallet"></use></svg><span>Wallet</span><b id="sideWallet"><%= liveCustomer ? formatMoney(liveHeader.balanceMinor, liveHeader.currency || user.currency) : "UGX 85,000" %></b></a>
+        <a class="side-link" href="/returns" data-page-target="returns"><svg><use href="#i-refresh"></use></svg><span>Returns &amp; Refunds</span></a>
+        <a class="side-link" href="/support" data-page-target="support"><svg><use href="#i-support"></use></svg><span>Support Tickets</span></a>
+        <a class="side-link" href="/profile" data-page-target="profile"><svg><use href="#i-user"></use></svg><span>Profile Settings</span></a>
+        <% } %>
+      </nav>
+
+      <% if (realSeller) { %><section class="sidebar-club-card">
+        <span class="sidebar-crown"><svg><use href="#i-bag"></use></svg></span>
+        <h3>Store health</h3>
+        <p class="member-copy"><%= liveSeller.store?.name || user.roleProfile?.businessName || 'Your store' %></p>
+        <p><%= liveSeller.store ? liveSeller.store.status.replaceAll('_', ' ') : 'Complete your store setup' %></p>
+        <% if (sellerSettings) { %><button class="primary-button full-button" data-page-target="seller-store">Improve Store</button><% } %>
+      </section><% } else if (moderationShell && moderationLive) { %><section class="sidebar-club-card"><span class="sidebar-crown"><svg><use href="#i-shield"></use></svg></span><h3>Trust health</h3><p class="member-copy"><%= Number.isFinite(liveModeration.sidebar?.decisionQuality) ? Number(liveModeration.sidebar.decisionQuality).toFixed(1) + '% decision quality' : 'No completed quality reviews' %></p><p><%= Number.isSafeInteger(liveModeration.sidebar?.highRiskCount) ? liveModeration.sidebar.highRiskCount : '—' %> high-risk records</p><a class="primary-button full-button" href="/moderation/products">Review Queue</a></section><% } else if (supportShell && supportLive) { %><section class="sidebar-club-card"><span class="sidebar-crown"><svg><use href="#i-support"></use></svg></span><h3>Support performance</h3><p class="member-copy"><%= Number.isSafeInteger(liveSupport.sidebar?.openCount) ? liveSupport.sidebar.openCount : '—' %> open tickets</p><p><%= liveSupport.sidebar?.averageResponseMinutes === null || liveSupport.sidebar?.averageResponseMinutes === undefined ? 'No recorded public responses' : Number(liveSupport.sidebar.averageResponseMinutes).toFixed(1) + ' min average response' %></p><a class="primary-button full-button" href="/support/queue">Open Queue</a></section><% } else if (financeShell) { %><section class="sidebar-club-card"><span class="sidebar-crown"><svg><use href="#i-wallet"></use></svg></span><h3>Finance controls</h3><p class="member-copy"><%= financeLive && liveFinance.sidebar?.matchingRate !== null && liveFinance.sidebar?.matchingRate !== undefined ? Number(liveFinance.sidebar.matchingRate).toFixed(1) + "% recorded matching" : "Matching rate unavailable" %></p><p><%= financeLive && Number.isSafeInteger(liveFinance.sidebar?.exceptionCount) ? liveFinance.sidebar.exceptionCount : "—" %> exceptions</p><a class="primary-button full-button" href="/finance/reconciliation">Reconcile Now</a></section><% } else if (promoterShell) { %><section class="sidebar-club-card"><span class="sidebar-crown"><svg><use href="#i-award"></use></svg></span><h3>This month</h3><p class="member-copy"><%= promoterLive && livePromoter.monthEarnedMinor !== null ? formatMoney(livePromoter.monthEarnedMinor, livePromoter.market.currency) : '—' %> recorded commission</p><p><%= promoterLive && livePromoter.activeCampaigns !== null ? livePromoter.activeCampaigns : '—' %> active campaigns</p><a class="primary-button full-button" href="/promoter/analytics">View Performance</a></section><% } else if (!operationalShell) { %><section class="sidebar-club-card">
+        <span class="sidebar-crown"><svg><use href="#i-crown"></use></svg></span>
+        <h3>Classic Club</h3>
+        <p class="member-copy">You are a <%= liveCustomer ? liveHeader.tier : "Silver" %> Member</p>
+        <p>Shop more to unlock<br />exclusive benefits!</p>
+        <button class="primary-button full-button" data-page-target="club">View Benefits</button>
+      </section>
+      <% } %>
+
+      <button class="logout-button" data-action="logout"><svg><use href="#i-logout"></use></svg><span>Log Out</span></button>
+    </aside>
+    <% } %>
+    <button class="sidebar-overlay" id="sidebarOverlay" aria-label="Close navigation"></button>
+
+    <main class="dashboard page-host" id="pageHost">
+<% if (!liveCustomer) { %><div class="panel dashboard-message platform-flash" role="note">Development preview: this workspace is not connected to live operations yet.</div><% } %>
+<% if (flash?.message) { %><div class="panel dashboard-message <%= flash.type==='error'?'dashboard-message-error':'' %> platform-flash" role="<%= flash.type==='error'?'alert':'status' %>"><%= flash.message %><% if (flash.details) { %><small><%= flash.details %></small><% } %></div><% } %>
+<% if (realSeller && liveSeller.store?.status === 'pending_verification' && !liveSeller.accountFlow) { %><%- include('partials/seller-verification-notice') %><% } %>
+<% if (superAdminLive) { %><%- include('partials/super-admin-main') %><% } else if (businessLive) { %><%- include('partials/business-main') %><% } else if (deliveryLive) { %><%- include('partials/delivery-live') %><% } else if (deliveryOperationsLive) { %><%- include('partials/delivery-operations-live') %><% } else if (adminLive) { %><%- include('partials/country-admin-main') %><% } else if (moderationLive && initialPage === 'moderator-overview') { %><%- include('partials/moderation-overview-live') %><% } else if (moderationLive && initialPage === 'moderator-settings') { %><%- include('partials/moderation-settings-live') %><% } else if (moderationLive) { %><%- include('partials/moderation-standard-live') %><% } else if (supportLive && initialPage === 'support-overview') { %><%- include('partials/support-overview-live') %><% } else if (supportLive && initialPage === 'support-settings') { %><%- include('partials/support-settings-live') %><% } else if (supportLive) { %><%- include('partials/support-standard-live') %><% } else if (financeLive && initialPage === 'finance-overview') { %><%- include('partials/finance-overview-live') %><% } else if (financeLive && initialPage === 'finance-settings') { %><%- include('partials/finance-settings-live') %><% } else if (financeLive) { %><%- include('partials/finance-standard-live') %><% } else if (promoterLive && initialPage === 'promoter-overview') { %><%- include('partials/promoter-overview-live') %><% } else if (promoterLive && initialPage === 'promoter-profile') { %><%- include('partials/promoter-profile-live') %><% } else if (promoterLive) { %><%- include('partials/promoter-standard-live') %><% } else if (warehouseLive) { %><%- include('partials/warehouse-live') %><% } else if (sellerLive && liveSeller.pageFlow) { %><%- include('partials/seller-standard-live') %><% } else if (sellerLive && liveSeller.overviewFlow) { %><%- include('partials/seller-overview-live') %><% } else if (sellerLive && liveSeller.orderFlow) { %><%- include('partials/seller-orders-live') %><% } else if (sellerLive && liveSeller.productFlow) { %><%- include('partials/seller-products-live') %><% } else if (sellerLive && liveSeller.productReviewFlow) { %><%- include('partials/product-review-live') %><% } else if (sellerLive && liveSeller.reviewFlow) { %><%- include('partials/verification-review-live') %><% } else if (sellerLive && liveSeller.verificationFlow) { %><%- include('partials/seller-verification-live') %><% } else if (sellerLive && !liveSeller.accountFlow) { %><%- include('partials/seller-store-live') %><% } else if (typeof storeInvitationFlow !== 'undefined') { %><%- include('partials/store-invitations-live') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'invitation') { %><%- include('partials/approved-account-invitation') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'profile') { %><%- include('partials/customer-live-pages', { pageId: 'profile', pageData, walletIdempotencyKey: '' }) %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'security') { %><%- include('partials/approved-account-security') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'messages') { %><%- include('partials/approved-account-messages') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'privacy') { %><%- include('partials/approved-account-privacy') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'returns') { %><%- include('partials/approved-account-returns') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'rewards') { %><%- include('partials/approved-account-rewards') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'apps') { %><%- include('partials/approved-account-apps') %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'shopping') { %><%- include('partials/customer-live-pages', { pageId: accountPage, pageData, walletIdempotencyKey }) %><% } else if (typeof accountSupplement !== 'undefined' && accountSupplement === 'notifications') { %><%- include('partials/customer-live-pages', { pageId: 'notifications', pageData, walletIdempotencyKey: '' }) %><% } else if (liveCustomer) { %><%- include('partials/customer-live-pages', { pageId: initialPage, pageData, walletIdempotencyKey }) %><% } %>
+</main>
+  </div>
+
+
+  <aside class="ai-drawer" id="classicAiDrawer" aria-hidden="true" aria-labelledby="classicAiTitle">
+    <div class="ai-drawer-backdrop" data-ai-close></div>
+    <section class="ai-drawer-panel" role="dialog" aria-modal="true">
+      <header class="ai-drawer-head">
+        <div class="ai-brand-mark"><svg><use href="#i-sparkles"></use></svg></div>
+        <div><span class="eyebrow">Role-aware copilot</span><h2 id="classicAiTitle">Classic AI</h2><p id="classicAiContext">Ask about your current workspace.</p></div>
+        <button class="round-icon" type="button" data-ai-close aria-label="Close Classic AI"><svg><use href="#i-close"></use></svg></button>
+      </header>
+      <div class="ai-suggestion-list" id="classicAiSuggestions" aria-label="Suggested prompts"></div>
+      <div class="ai-thread" id="classicAiThread" aria-live="polite">
+        <article class="ai-message assistant"><span class="ai-avatar"><svg><use href="#i-sparkles"></use></svg></span><div><strong>Classic AI</strong><p>I can summarize this workspace, surface priority actions, explain a metric, or prepare the next safe step. This standalone demo never sends your data anywhere.</p></div></article>
+      </div>
+      <form class="ai-composer" id="classicAiForm">
+        <label class="sr-only" for="classicAiInput">Ask Classic AI</label>
+        <textarea id="classicAiInput" rows="2" placeholder="Ask Classic AI about this workspace…" required></textarea>
+        <button class="primary-button" type="submit" aria-label="Send message"><svg><use href="#i-arrow-right"></use></svg><span>Send</span></button>
+      </form>
+      <footer class="ai-drawer-foot"><span><svg><use href="#i-shield"></use></svg> Demo assistant · no external requests</span><kbd>Esc</kbd> closes</footer>
+    </section>
+  </aside>
+
+  <div class="profile-menu" id="profileMenu">
+    <button data-page-target="<%= adminLive ? 'admin-settings' : realSeller && sellerSettings ? 'seller-store' : 'profile' %>"><svg><use href="#i-user"></use></svg>Profile</button>
+    <button data-page-target="<%= adminLive ? 'admin-settings' : 'profile' %>" data-profile-tab="security"><svg><use href="#i-shield"></use></svg>Security</button>
+    <button data-action="logout"><svg><use href="#i-logout"></use></svg>Log Out</button>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <% if (!liveCustomer) { %><script src="<%= assetUrl('/approved-dashboard/role-workspaces.js') %>"></script>
+  <script src="<%= assetUrl('/approved-dashboard/script.js') %>"></script>
+  <script src="<%= assetUrl('/approved-dashboard/enhancements.js') %>"></script>
+  <script src="<%= assetUrl('/approved-dashboard/session-controls.js') %>"></script><% } else { %><script defer src="<%= assetUrl('/approved-dashboard/customer-live.js') %>"></script><script defer src="<%= assetUrl('/approved-dashboard/customer-navigation.js') %>"></script><% } %>
+  <% if (adminLive) { %><script defer src="<%= assetUrl('/approved-dashboard/country-admin-live.js') %>"></script><% } %>
+  <% if (moderationLive) { %><script defer src="<%= assetUrl('/approved-dashboard/moderation-preferences.js') %>"></script><% } %>
+  <% if (supportLive) { %><script defer src="<%= assetUrl('/approved-dashboard/support-preferences.js') %>"></script><% } %>
+  <% if (sellerLive) { %><script defer src="<%= assetUrl('/approved-dashboard/seller-store-live.js') %>"></script><% } %>
+  <% if (sellerLive && !liveSeller.pageFlow && !liveSeller.overviewFlow && !liveSeller.accountFlow && !liveSeller.reviewFlow && !liveSeller.verificationFlow && !liveSeller.productFlow && !liveSeller.productReviewFlow && !liveSeller.orderFlow) { %><script defer src="<%= assetUrl('/phone-country.js') %>"></script><% } %>
+</body>
+</html>

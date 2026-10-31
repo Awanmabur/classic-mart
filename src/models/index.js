@@ -18,6 +18,8 @@ export { SellerContactRequest } from './SellerContactRequest.js';
 export { StockItem } from './StockItem.js';
 export { Store } from './Store.js';
 export { User } from './User.js';
+export { MfaChallenge } from './MfaChallenge.js';
+export { PasskeyCredential } from './PasskeyCredential.js';
 export { VerificationDocument } from './VerificationDocument.js';
 export { VerificationToken } from './VerificationToken.js';
 export { Warehouse } from './Warehouse.js';
@@ -76,6 +78,8 @@ export { ApprovalRequest } from './ApprovalRequest.js';
 export { LoyaltyAccount } from './LoyaltyAccount.js';
 export { LoyaltyEntry } from './LoyaltyEntry.js';
 export { Referral } from './Referral.js';
+export { ReferralInvite } from './ReferralInvite.js';
+export { PromoterBrandFollow } from './PromoterBrandFollow.js';
 export { GiftCard } from './GiftCard.js';
 export { MarketingCampaign } from './MarketingCampaign.js';
 export { DataExport } from './DataExport.js';
@@ -129,3 +133,19 @@ export { PlatformGrant } from './PlatformGrant.js';
 
 
 export { WorkerHeartbeat } from './WorkerHeartbeat.js';
+export { Coupon } from './Coupon.js';
+export { SubscriptionPlan } from './SubscriptionPlan.js';
+export { CustomerAddress } from './CustomerAddress.js';
+export { Notification } from './Notification.js';
+export { MarketplaceConversation } from './MarketplaceConversation.js';
+export { SubscriptionEnrollment } from './SubscriptionEnrollment.js';
+
+export { SubscriptionChangeRequest } from './SubscriptionChangeRequest.js';
+export { StoreTeamInvitation } from './StoreTeamInvitation.js';
+export { SubscriptionCharge } from './SubscriptionCharge.js';
+
+export { WalletTopUp } from './WalletTopUp.js';
+export { FinanceDigest } from './FinanceDigest.js';
+export { SupportDigest } from './SupportDigest.js';
+
+export { CustomerReward } from './CustomerReward.js';

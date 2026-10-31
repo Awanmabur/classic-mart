@@ -1,0 +1,114 @@
+[data-notification-type][hidden] { display: none; }
+
+/* The removed workspace field leaves this space to the approved search. */
+.topbar { grid-template-columns: 214px minmax(180px, 1fr) auto; }
+.search { width: 100%; min-width: 0; }
+a.primary-button, a.soft-button, a.outline-button, a.light-button,
+a.support-button, a.view-orders-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  text-decoration: none; text-align: center; font-family: inherit;
+}
+a.full-button, a.view-orders-button { display: flex; }
+.dashboard-form button { font-family: inherit; }
+.settings-nav a { display: block; text-decoration: none; color: inherit; padding: 12px 16px; font-size: 12px; }
+@media (max-width: 1100px) { .topbar { grid-template-columns: auto minmax(140px, 1fr) auto; } }
+@media (max-width: 700px) { .topbar { grid-template-columns: auto 1fr; } .topbar > .search { grid-column: 1 / -1; grid-row: 2; } }
+@media (max-width: 620px) {
+  /* The approved mobile search is fixed with 10px insets on both sides. */
+  .topbar > .search { width: auto; }
+}
+
+/* Keep real forms inside the approved card and button layouts. */
+.primary-button, .soft-button, .outline-button, .light-button, .ghost-light-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: inherit; line-height: 1.35; text-align: center; text-decoration: none;
+}
+.card-actions form { margin: 0; display: inline-flex; }
+.dashboard-form input[type="checkbox"], .dashboard-form input[type="radio"] {
+  width: 16px !important; height: 16px !important; min-width: 16px;
+  min-height: 16px !important; padding: 0 !important; box-shadow: none;
+  border-radius: 4px !important; accent-color: var(--orange);
+}
+.reward-option .dashboard-form { margin-top: 16px; }
+.reward-option .dashboard-form label { min-width: 0; }
+.reward-option .dashboard-form input { min-width: 0; }
+.reward-catalog:has(.dashboard-form) { grid-template-columns: minmax(0, 420px); }
+.account-service-page .settings-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.account-service-page .form-panel { padding: 24px; min-width: 0; }
+.account-service-page .form-panel > h2 { margin: 0 0 14px; font-size: 18px; line-height: 1.4; }
+.account-service-page .form-panel > p { margin: 0 0 14px; color: var(--muted); line-height: 1.6; }
+.account-service-page .form-panel.wide { grid-column: 1 / -1; }
+.account-service-page .dashboard-form + .dashboard-form { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border); }
+.account-service-page .dashboard-form > button { justify-self: start; max-width: 100%; }
+.account-service-page .ticket-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.account-service-page code, .account-service-page small { overflow-wrap: anywhere; }
+[data-order-group][hidden], #orderFilterEmpty[hidden], .rich-order-list > .empty-state[hidden] { display: none !important; }
+@media (max-width: 700px) {
+  .account-service-page .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .account-service-page .form-panel { padding: 20px; }
+  #orderFilters { max-width: 100%; flex-wrap: wrap; }
+}
+.reward-hero .points-text { font-size: inherit; line-height: inherit; opacity: 1; }
+.reward-option:has(.dashboard-form) h3, .reward-option:has(.dashboard-form) p { min-height: 0; }
+.reward-option .dashboard-form > button { justify-self: start; margin: 0; }
+.seller-settings-fields { padding: 0; margin: 0; border: 0; min-width: 0; }
+body:is([data-dashboard-workspace="seller"], [data-dashboard-workspace="moderator"]) .side-link:disabled { cursor: not-allowed; opacity: .55; background: transparent; width: 100%; text-align: left; }
+.seller-verification-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.seller-verification-upload { margin-top: 18px; }
+.seller-verification-declaration { display: flex !important; gap: 10px; align-items: flex-start; }
+.seller-verification-declaration input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex-shrink: 0; }
+.seller-verification-layout { margin-top: 18px; }
+.seller-product-filter { margin-bottom: 18px; }
+.seller-product-image { display: block; width: 100%; max-height: 240px; object-fit: contain; }
+.seller-product-media-card { min-width: 0; }
+.seller-product-action-form { margin-top: 12px; }
+.seller-product-variant-form + .seller-product-variant-form { padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--border); }
+.seller-product-lifecycle { display: grid; gap: 12px; }
+.seller-product-page :is(h1, h2, h3, td), .product-review-page :is(h1, h2, h3, td) { overflow-wrap: anywhere; }
+@media (max-width: 840px) {
+  .seller-product-page .role-table tr { grid-template-columns: minmax(0, 1fr); }
+  .seller-product-page .role-table td:last-child { grid-column: auto; display: grid; justify-content: normal; }
+  .seller-product-page .role-table td:last-child::before { display: block; }
+}
+
+/* Live order controls reuse the approved panels, table cards and pill buttons. */
+.seller-order-page :is(h1, h2, h3, td, dd, li, a, p) { overflow-wrap: anywhere; }
+.seller-order-page .role-side-stack, .seller-order-page .role-table-panel { min-width: 0; }
+.seller-order-search { margin-bottom: 14px; flex-wrap: wrap; }
+.seller-order-search .role-mini-search { flex: 1; min-width: min(205px, 100%); }
+.seller-order-search :is(input, .outline-button) { min-height: 39px; }
+.seller-order-page .seller-order-tabs { flex-wrap: wrap; overflow: visible; }
+.seller-order-tabs a { min-height: 34px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-pill, 999px); color: #526078; background: #fff; font-size: 11.5px; font-weight: 600; line-height: 1.35; text-decoration: none; white-space: nowrap; }
+.seller-order-tabs a.active { color: #fff; border-color: var(--orange); background: var(--orange); }
+.seller-order-page .seller-order-tabs a:focus-visible { outline: 3px solid var(--text, #17213b); outline-offset: 3px; }
+.seller-order-page .role-table { min-width: 0; table-layout: fixed; }
+.seller-order-page .role-table td { white-space: normal; }
+.seller-order-page .role-table td.seller-order-money { white-space: nowrap; overflow-wrap: normal; }
+.seller-order-cell-note { display: block; margin-top: 4px; color: var(--muted); font-size: inherit; }
+.seller-order-facts { display: grid; gap: 12px; margin: 0; }
+.seller-order-facts > div { display: grid; grid-template-columns: minmax(90px, .8fr) minmax(0, 1.2fr); gap: 12px; align-items: start; }
+.seller-order-facts dt { color: var(--muted); font-size: 11.5px; font-weight: 650; }
+.seller-order-facts dd { margin: 0; color: var(--text); font-size: 12px; line-height: 1.6; }
+.seller-order-totals { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+.seller-order-history { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; }
+.seller-order-history li { display: grid; gap: 4px; padding: 12px 0; border-top: 1px solid var(--border); color: var(--text); font-size: 12px; line-height: 1.6; }
+.seller-order-history li:first-child { border-top: 0; padding-top: 0; }
+.seller-order-history time { color: var(--muted); font-size: 11.5px; }
+.seller-order-actions { display: grid; gap: 18px; }
+.seller-order-actions form { margin: 0; min-width: 0; }
+.seller-order-actions form + form { padding-top: 18px; border-top: 1px solid var(--border); }
+.seller-order-warehouse { display: grid; gap: 7px; margin: 0 0 14px; color: var(--text); font-size: 12px; font-weight: 650; }
+.seller-order-warehouse select { width: 100%; max-width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border); color: var(--text); background: #fff; font: inherit; }
+.seller-order-parcel-note { margin-top: 18px; }
+@media (max-width: 840px) {
+  .seller-order-page .role-table tr { grid-template-columns: minmax(0, 1fr); }
+  .seller-order-page .role-table td:last-child { grid-column: auto; display: grid; justify-content: normal; }
+  .seller-order-page .role-table td:last-child::before { display: block; }
+  .seller-order-page .role-table .seller-order-empty { display: block; }
+  .seller-order-page .role-table .seller-order-empty::before { display: none; }
+  .seller-order-page .role-table td { padding-inline: 0; }
+  .seller-order-page .role-table td > .outline-button { justify-self: start; }
+}
+@media (max-width: 380px) {
+  .seller-order-facts > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}

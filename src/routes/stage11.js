@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
+import { accountWorkspaceView } from '../dashboard/account-workspace-view.js';
+import rateLimit from '../middleware/rate-limit.js';
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { asyncHandler, AppError } from '../core/errors.js';
@@ -11,25 +12,27 @@ import { getCountry } from '../services/country.js';
 import { getStorefront, publishedProduct } from '../services/storefront.js';
 import { addCartItem, cartView, clearCart, getOrCreateCart, placeOrder, removeCartItem, reviewCheckout, setCartItemQuantity } from '../services/checkout.js';
 import { initiatePayment } from '../services/payments.js';
+import { checkoutContactSchema } from '../services/checkout-contact.js';
 import { adjustStock } from '../services/inventory.js';
-import { createWarehouseTask, executeWarehouseTask } from '../services/logistics.js';
-import { orderDisplayStatus, refreshOrderLifecycle } from '../services/order-state.js';
+import { assertSellerOrderAccess, sellerOrderList, sellerOrderDetail, transitionSellerOrder } from '../services/seller-orders.js';
+import { orderDisplayStatus } from '../services/order-state.js';
 import {
   auditExternalApi, authenticateApiClient, authenticateMobile, executeExternalIdempotency,
   listMobileSessions, mobileSessionsPage, listPushDevices, mobileLogin, mobileServiceRequest, persistMobileCheckout,
   queueWebhookEvent, refreshMobileTokens, registerPushDevice, requireApiScope, revokeMobileSession,
   revokePushDevice,
 } from '../services/stage11.js';
-import { Order, Parcel, Product, SellerOrder, SellerShipment, Shipment, StockItem, Warehouse } from '../models/index.js';
+import { Order, Product, StockItem } from '../models/index.js';
 
 const router = Router();
-const authLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+const authLimit = rateLimit({ scope: 'stage11:1', windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
 const mobileLoginSchema = z.object({ identity: z.string().trim().min(3).max(254), password: z.string().min(1).max(256), deviceName: z.string().trim().min(1).max(120).optional(), platform: z.enum(['android','ios','web','other']).default('other') });
 const pushSchema = z.object({ platform: z.enum(['web','android','ios']), token: z.string().trim().min(12).max(4096), label: z.string().trim().max(120).optional() });
 const cartAddSchema = z.object({ productId: z.string().min(3).max(120), variantId: z.string().max(120).optional(), quantity: z.coerce.number().int().min(1).max(99) });
 const cartQtySchema = z.object({ quantity: z.coerce.number().int().min(0).max(99) });
-const checkoutSchema = z.object({ city: z.string().trim().max(120).default(''), deliveryMethod: z.enum(['standard','express','pickup']), paymentMethod: z.enum(['card','mobile','cod']), pickupPointId: z.string().trim().max(120).default('') });
-const orderSchema = z.object({ checkoutId: z.string().min(8).max(160), idempotencyKey: z.string().min(8).max(120), deliveryMethod: z.enum(['standard','express','pickup']), paymentMethod: z.enum(['card','mobile','cod']), pickupPointId: z.string().trim().max(120).default(''), contact: z.object({ fullName: z.string().trim().min(2).max(120), email: z.string().email().max(254), phone: z.string().trim().min(6).max(32), address: z.string().trim().min(2).max(240), city: z.string().trim().min(2).max(120), country: z.string().trim().min(2).max(80), note: z.string().trim().max(500).default('') }) });
+const checkoutSchema = z.object({ city: z.string().trim().max(120).default(''), deliveryMethod: z.enum(['standard','express','pickup']), paymentMethod: z.enum(['card','mobile','cod','wallet']), pickupPointId: z.string().trim().max(120).default(''), contact: checkoutContactSchema,
+  rewardPublicId: z.string().trim().max(120).default(''), addressPublicId: z.string().trim().max(120).default(''), addressVersion: z.coerce.number().int().nonnegative().optional() });
+const orderSchema = checkoutSchema.extend({ checkoutId: z.string().min(8).max(160), idempotencyKey: z.string().min(8).max(120) });
 
 function apiEnvelope(response, payload, status = 200, cache = 'private, no-store') {
   response.set('Cache-Control', cache);
@@ -48,7 +51,7 @@ async function anchorFilter(Model, query, after) {
 function pageMeta(rows, limit) { return { limit, hasMore: rows.length === limit, nextCursor: rows.length === limit ? rows.at(-1)?.publicId || null : null }; }
 function expectedVersion(request) {
   const raw = String(request.get('if-match') || '').trim().replace(/^W\//, '').replace(/^"|"$/g, '');
-  if (!/^\d+$/.test(raw)) throw new AppError('If-Match with the current inventory version is required.', 428, 'VERSION_REQUIRED');
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))) throw new AppError('If-Match with the current resource version is required.', 428, 'VERSION_REQUIRED');
   return Number(raw);
 }
 
@@ -81,7 +84,7 @@ router.patch('/api/v1/mobile/cart/items/:variantId', asyncHandler(async (req, re
 router.delete('/api/v1/mobile/cart/items/:variantId', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); return apiEnvelope(res, { cart: await removeCartItem(serviceRequest, req.params.variantId) }); }));
 router.delete('/api/v1/mobile/cart', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); return apiEnvelope(res, { cart: await clearCart(serviceRequest) }); }));
 router.post('/api/v1/mobile/checkout/review', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); const review = await reviewCheckout(serviceRequest, checkoutSchema.parse(req.body)); await persistMobileCheckout(req, serviceRequest); return apiEnvelope(res, { review }); }));
-router.post('/api/v1/mobile/orders', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); const order = await placeOrder(serviceRequest, orderSchema.parse(req.body)); req.mobileSession.checkoutReview = null; req.mobileSession.markModified('checkoutReview'); await req.mobileSession.save(); return apiEnvelope(res, { order: orderPublic(order) }, 201); }));
+router.post('/api/v1/mobile/orders', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); const order = await placeOrder(serviceRequest, orderSchema.parse(req.body)); req.mobileSession.checkoutReview = null; req.mobileSession.markModified('checkoutReview'); await req.mobileSession.save(); return apiEnvelope(res, { order }, 201); }));
 router.get('/api/v1/mobile/orders', asyncHandler(async (req, res) => { const limit = pageLimit(req.query.limit); const base = { userId: req.mobileUser._id }; const query = await anchorFilter(Order, base, req.query.after); const rows = await Order.find(query).sort({ _id: -1 }).limit(limit).lean(); return apiEnvelope(res, { data: rows.map(orderPublic), page: pageMeta(rows, limit) }); }));
 router.get('/api/v1/mobile/orders/:id', asyncHandler(async (req, res) => { const row = await Order.findOne({ publicId: req.params.id, userId: req.mobileUser._id }).lean(); if (!row) throw new AppError('Order not found.', 404, 'ORDER_NOT_FOUND'); return apiEnvelope(res, { order: orderPublic(row) }); }));
 router.post('/api/v1/mobile/orders/:id/payment-intents', asyncHandler(async (req, res) => { const serviceRequest = mobileServiceRequest(req); const payment = await initiatePayment(serviceRequest, { orderId: req.params.id, idempotencyKey: String(req.body.idempotencyKey || '') }); return apiEnvelope(res, { payment }, 201); }));
@@ -90,7 +93,7 @@ router.post('/api/v1/mobile/push-devices', asyncHandler(async (req, res) => { co
 router.delete('/api/v1/mobile/push-devices/:id', asyncHandler(async (req, res) => { await revokePushDevice(req.mobileUser, req.params.id); await writeAudit(req, 'mobile.push_revoked', { actor: req.mobileUser, targetType: 'push_device', targetPublicId: req.params.id }); return apiEnvelope(res, { revoked: true }); }));
 
 // Browser account controls for connected mobile clients.
-router.get('/account/apps', noStore, requireAuth, requireVerified, asyncHandler(async (req, res) => { const sessions=await mobileSessionsPage(req.user,req.query.after,50); return res.render('connected-apps', { mobileSessions:sessions.items, mobileSessionPage:sessions.page, pushDevices:await listPushDevices(req.user) }); }));
+router.get('/account/apps', noStore, requireAuth, requireVerified, asyncHandler(async (req, res) => { const sessions=await mobileSessionsPage(req.user,req.query.after,50); return res.render('approved-dashboard', { ...await accountWorkspaceView(req,'apps'), mobileSessions:sessions.items, mobileSessionPage:sessions.page, pushDevices:await listPushDevices(req.user) }); }));
 router.post('/account/apps/:id/revoke', noStore, requireAuth, requireVerified, asyncHandler(async (req, res) => { await revokeMobileSession(req.user, req.params.id); await writeAudit(req, 'mobile.session_revoked', { targetType: 'mobile_session', targetPublicId: req.params.id }); setFlash(req, 'success', 'Connected app session revoked.'); res.redirect('/account/apps'); }));
 router.post('/account/push-devices/:id/revoke', noStore, requireAuth, requireVerified, asyncHandler(async (req, res) => { await revokePushDevice(req.user, req.params.id); await writeAudit(req, 'mobile.push_revoked', { targetType: 'push_device', targetPublicId: req.params.id }); setFlash(req, 'success', 'Push device revoked.'); res.redirect('/account/apps'); }));
 
@@ -99,10 +102,28 @@ router.use('/api/v1/seller', authenticateApiClient);
 router.get('/api/v1/seller/products', requireApiScope('catalogue:read'), asyncHandler(async (req, res) => { const limit = pageLimit(req.query.limit); const base = { storeId: req.apiStore._id }; const query = await anchorFilter(Product, base, req.query.after); const rows = await Product.find(query).select('publicId title status countries updatedAt').sort({ _id: -1 }).limit(limit).lean(); return apiEnvelope(res, { data: rows.map((x) => ({ id: x.publicId, title: x.title, status: x.status, countries: x.countries, updatedAt: x.updatedAt })), page: pageMeta(rows, limit) }); }));
 router.get('/api/v1/seller/inventory', requireApiScope('inventory:read'), asyncHandler(async (req, res) => { const limit = pageLimit(req.query.limit, 100, 200); const base = { storeId: req.apiStore._id }; const query = await anchorFilter(StockItem, base, req.query.after); const rows = await StockItem.find(query).populate('variantId', 'publicId sku title').populate('warehouseId', 'publicId name').sort({ _id: -1 }).limit(limit).lean({ virtuals: true }); return apiEnvelope(res, { data: rows.map((x) => ({ id: x.publicId, version: x.__v, variant: { id: x.variantId?.publicId, sku: x.variantId?.sku, title: x.variantId?.title }, warehouse: { id: x.warehouseId?.publicId, name: x.warehouseId?.name }, onHand: x.onHand, reserved: x.reserved, damaged: x.damaged, quarantined: x.quarantined, available: x.onHand - x.reserved - x.damaged - x.quarantined, reorderPoint: x.reorderPoint, updatedAt: x.updatedAt })), page: pageMeta(rows, limit) }); }));
 router.post('/api/v1/seller/inventory/:id/adjust', requireApiScope('inventory:write'), asyncHandler(async (req, res) => { const result = await executeExternalIdempotency(req, async () => { const stock = await StockItem.findOne({ publicId: req.params.id, storeId: req.apiStore._id }); if (!stock) throw new AppError('Stock item not found.', 404, 'STOCK_NOT_FOUND'); const quantity = Number(req.body.quantity); if (!Number.isSafeInteger(quantity) || quantity === 0) throw new AppError('quantity must be a non-zero whole number.', 422, 'STOCK_INVALID'); const version = expectedVersion(req); const updated = await adjustStock({ stockItemId: stock._id, storeId: req.apiStore._id, quantity, reason: String(req.body.reason || 'External API stock adjustment').slice(0, 240), actorUserId: req.apiClient.createdByUserId, reorderPoint: Number.isSafeInteger(Number(req.body.reorderPoint)) ? Number(req.body.reorderPoint) : stock.reorderPoint, expectedVersion: version }); await queueWebhookEvent({ storeId: req.apiStore._id, eventType: 'inventory.updated', resourcePublicId: updated.publicId, payload: { available: updated.onHand - updated.reserved - updated.damaged - updated.quarantined, version: updated.__v } }); await auditExternalApi(req, 'external.inventory_adjusted', { targetType: 'stock_item', targetPublicId: updated.publicId, metadata: { quantity, versionBefore: version, versionAfter: updated.__v } }); return { statusCode: 200, body: { apiVersion: 'v1', stock: { id: updated.publicId, version: updated.__v, onHand: updated.onHand, reserved: updated.reserved, damaged: updated.damaged, quarantined: updated.quarantined, available: updated.onHand - updated.reserved - updated.damaged - updated.quarantined } } }; }); return apiEnvelope(res, { ...result.body, idempotencyReplayed: result.replayed }, result.statusCode); }));
-router.get('/api/v1/seller/orders', requireApiScope('orders:read'), asyncHandler(async (req, res) => { const limit = pageLimit(req.query.limit, 50, 100); const base = { storeId: req.apiStore._id }; const query = await anchorFilter(SellerOrder, base, req.query.after); const rows = await SellerOrder.find(query).sort({ _id: -1 }).limit(limit).lean(); const sellerShipments=rows.length?await SellerShipment.find({sellerOrderId:{$in:rows.map(row=>row._id)},storeId:req.apiStore._id}).select('publicId sellerOrderId rootShipmentPublicId parcelPublicId status lineCount quantity handedOverAt deliveredAt').lean():[];const bySellerOrder=new Map(sellerShipments.map(row=>[String(row.sellerOrderId),row])); return apiEnvelope(res, { data: rows.map((x) => {const sellerShipment=bySellerOrder.get(String(x._id));return { id: x.publicId, orderId: x.orderPublicId, status: x.status, currency: x.currency, subtotalMinor: x.subtotalMinor, shippingMinor: x.shippingMinor, taxMinor: x.taxMinor, discountMinor: x.discountMinor, items: x.items, sellerShipment:sellerShipment?{id:sellerShipment.publicId,status:sellerShipment.status,rootShipmentId:sellerShipment.rootShipmentPublicId,parcelId:sellerShipment.parcelPublicId,lineCount:sellerShipment.lineCount,quantity:sellerShipment.quantity,handedOverAt:sellerShipment.handedOverAt,deliveredAt:sellerShipment.deliveredAt}:null, updatedAt: x.updatedAt };}), page: pageMeta(rows, limit) }); }));
-router.post('/api/v1/seller/orders/:id/:action', requireApiScope('orders:fulfil'), asyncHandler(async (req, res) => { const result = await executeExternalIdempotency(req, async () => { const action = String(req.params.action); if (!['processing','pick','pack','dispatch'].includes(action)) throw new AppError('Fulfilment action is invalid.', 422, 'FULFILMENT_ACTION_INVALID'); const order = await SellerOrder.findOne({ publicId: req.params.id, storeId: req.apiStore._id }); if (!order) throw new AppError('Seller order not found.', 404, 'SELLER_ORDER_NOT_FOUND'); if (action === 'processing') { if (order.status !== 'confirmed') throw new AppError('Only confirmed seller orders can enter processing.', 409, 'SELLER_ORDER_STATE'); order.status = 'processing'; order.timeline.push({ type: 'fulfilment.processing', message: 'External integration started fulfilment.' }); await order.save(); } else { if (!['confirmed','processing','ready'].includes(order.status)) throw new AppError('Seller order cannot be fulfilled in its current state.', 409, 'SELLER_ORDER_STATE'); const shipment = await Shipment.findOne({ orderPublicId: order.orderPublicId, kind: 'outbound' }); const parcel = shipment ? await Parcel.findOne({ shipmentId: shipment._id, storePublicId: req.apiStore.publicId }) : null; const sellerShipment=shipment&&parcel?await SellerShipment.findOne({sellerOrderId:order._id,storeId:req.apiStore._id,rootShipmentId:shipment._id,parcelId:parcel._id}):null; const warehouse = await Warehouse.findOne({ storeId: req.apiStore._id, active: true }).sort({ createdAt: 1 }); if (!shipment || !parcel || !sellerShipment || !warehouse) throw new AppError('Seller shipment, parcel or warehouse is not ready.', 409, 'FULFILMENT_NOT_READY'); const task = await createWarehouseTask({ warehouseId: warehouse._id, storeId: req.apiStore._id, orderId: order.orderId, shipmentId: shipment._id, parcelId: parcel._id, type: action, reference: order.publicId, notes: `External API fulfilment ${action}`, assignedUserId: req.apiClient.createdByUserId, quantity: 0 }); await executeWarehouseTask({ task, actorUserId: req.apiClient.createdByUserId }); const fresh = await Parcel.findById(parcel._id).lean(); if (fresh.status === 'handed_over') order.status = 'ready'; else if (order.status === 'confirmed') order.status = 'processing'; order.timeline.push({ type: `fulfilment.${action}`, message: `External integration completed ${action}.` }); await order.save(); }
-    await refreshOrderLifecycle(order.orderId);
-    await queueWebhookEvent({ storeId: req.apiStore._id, eventType: 'order.updated', resourcePublicId: order.publicId, payload: { status: order.status } }); await auditExternalApi(req, `external.order_${action}`, { targetType: 'seller_order', targetPublicId: order.publicId }); return { statusCode: 200, body: { apiVersion: 'v1', order: { id: order.publicId, status: order.status } } }; }); return apiEnvelope(res, { ...result.body, idempotencyReplayed: result.replayed }, result.statusCode); }));
+router.get('/api/v1/seller/orders', requireApiScope('orders:read'), asyncHandler(async (req, res) => {
+  const listing = await sellerOrderList(req, { limit: pageLimit(req.query.limit, 50, 100), after: req.query.after,
+    status: req.query.status, q: req.query.q });
+  return apiEnvelope(res, { data: listing.orders, page: listing.page });
+}));
+router.get('/api/v1/seller/orders/:id', requireApiScope('orders:read'), asyncHandler(async (req, res) => {
+  const detail = await sellerOrderDetail(req);
+  return apiEnvelope(res, { order: detail.order, warehouses: detail.warehouses });
+}));
+router.post('/api/v1/seller/orders/:id/:action', requireApiScope('orders:fulfil'), asyncHandler(async (req, res) => {
+  const action = String(req.params.action);
+  if (!['processing','pick','pack','dispatch'].includes(action)) throw new AppError('Fulfilment action is invalid.', 422, 'FULFILMENT_ACTION_INVALID');
+  req.body = { ...req.body, version: expectedVersion(req) };
+  // Replays must pass today's membership, key and resource scope checks too.
+  await assertSellerOrderAccess(req, { mutation: true });
+  const result = await executeExternalIdempotency(req, async receipt => {
+    req.externalIdempotency = receipt;
+    const order = await transitionSellerOrder(req, action);
+    return { statusCode: 200, body: { apiVersion: 'v1', order } };
+  });
+  return apiEnvelope(res, { ...result.body, idempotencyReplayed: result.replayed }, result.statusCode);
+}));
 router.post('/api/v1/seller/webhooks/test', requireApiScope('webhooks:manage'), asyncHandler(async (req, res) => { const result = await executeExternalIdempotency(req, async () => { const queued = await queueWebhookEvent({ storeId: req.apiStore._id, eventType: 'integration.test', resourcePublicId: req.apiClient.publicId, payload: { message: 'Classic Mart signed webhook test', requestedByApiClient: req.apiClient.publicId } }); await auditExternalApi(req, 'external.webhook_test_queued', { metadata: { queued } }); return { statusCode: 202, body: { apiVersion: 'v1', queued } }; }); return apiEnvelope(res, { ...result.body, idempotencyReplayed: result.replayed }, result.statusCode); }));
 
 export default router;

@@ -1,0 +1,110 @@
+<% const caseFlow = supportFlow; const selectedSupportCase = caseFlow.selected; const isGoodsReturn = caseFlow.caseKind === 'returns'; %>
+<% if (selectedSupportCase) { %>
+<section class="panel role-form-section" aria-labelledby="support-selected-case-heading">
+  <div class="role-panel-head"><h2 id="support-selected-case-heading"><%= isGoodsReturn ? 'Return details' : 'Escalation details' %></h2><span class="role-status"><%= selectedSupportCase.status.replaceAll('_', ' ') %></span></div>
+  <div class="role-form-grid">
+    <div><span>Record</span><strong><%= selectedSupportCase.publicId %></strong></div>
+    <div><span>Order</span><strong><%= selectedSupportCase.orderPublicId %></strong></div>
+    <div><span>Market</span><strong><%= selectedSupportCase.country %><%= selectedSupportCase.currency ? ' · ' + selectedSupportCase.currency : '' %></strong></div>
+    <% if (isGoodsReturn) { %><div><span>Requested resolution</span><strong><%= selectedSupportCase.resolution %> · <%= formatMoney(selectedSupportCase.amountMinor, selectedSupportCase.currency) %></strong></div><% } else { %><div><span>Assigned operator</span><strong><%= selectedSupportCase.assigned ? selectedSupportCase.assigned.name : 'Unassigned' %></strong></div><% } %>
+    <div class="wide"><span><%= isGoodsReturn ? 'Buyer details' : selectedSupportCase.subject %></span><p class="form-intro"><%= isGoodsReturn ? selectedSupportCase.details : selectedSupportCase.description %></p></div>
+  </div>
+  <% if (selectedSupportCase.evidence && selectedSupportCase.evidence.length) { %>
+  <div class="role-form-grid"><div class="wide"><span>Accepted private evidence</span><div class="role-inline-action"><% for (const evidence of selectedSupportCase.evidence) { %><a class="soft-button" href="<%= evidence.href %>" target="_blank" rel="noopener"><%= evidence.description || evidence.publicId %></a><% } %></div></div></div>
+  <% } %>
+  <% if (isGoodsReturn) { %>
+    <div class="role-form-grid"><% for (const item of selectedSupportCase.items) { %><div><span><%= item.title %> · <%= item.quantity %> unit(s)</span><strong><%= item.sku || item.orderLineId %></strong><p class="form-intro">Receipt: <%= item.intakeReceivedAt ? 'warehouse intake recorded' : selectedSupportCase.returnMethod === 'pickup' ? 'verified pickup delivery required' : 'awaiting warehouse receipt' %>. Inspection: <%= item.warehouseInspectionStatus || 'not started' %><%= item.stockDisposition ? ' · ' + item.stockDisposition : '' %>.</p></div><% } %></div>
+    <% for (const sellerCase of selectedSupportCase.sellerCases || []) { %>
+      <div class="role-form-grid"><div class="wide"><span>Seller response · <%= sellerCase.storePublicId %> · <%= sellerCase.status %></span><p class="form-intro"><%= sellerCase.responseMessage || 'No seller response has been recorded.' %></p><div class="role-inline-action"><% for (const evidence of sellerCase.evidence || []) { %><a class="soft-button" href="<%= evidence.href %>" target="_blank" rel="noopener"><%= evidence.description || 'View seller evidence' %></a><% } %></div></div></div>
+    <% } %>
+    <% if (selectedSupportCase.status === 'requested') { %>
+    <form method="post" action="/support/returns/<%= encodeURIComponent(selectedSupportCase.publicId) %>/decision" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <label><span>Decision</span><select name="decision" required><option value="approve">Approve eligible return</option><option value="reject">Reject return</option></select></label>
+      <label class="wide"><span>Reason shared with buyer</span><textarea name="note" minlength="10" maxlength="300" rows="3" required></textarea></label>
+      <div class="wide"><button class="primary-button" type="submit">Save return decision</button></div>
+    </form>
+    <% } %>
+    <% if (selectedSupportCase.canReceive) { %>
+    <form method="post" action="/support/returns/<%= encodeURIComponent(selectedSupportCase.publicId) %>/receive" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <p class="wide form-intro">Saved physical receipt evidence is present. Confirming receipt creates authoritative warehouse inspection tasks.</p>
+      <label class="wide"><span>Receipt note</span><textarea name="note" maxlength="300" rows="2"></textarea></label>
+      <div class="wide"><button class="primary-button" type="submit">Confirm verified receipt</button></div>
+    </form>
+    <% } else if (['approved', 'awaiting_return'].includes(selectedSupportCase.status)) { %><p class="form-intro"><%= selectedSupportCase.returnMethod === 'pickup' ? 'The carrier must complete verified delivery before this return can be received.' : 'The receiving warehouse must record each exact line and upload its receipt before Support can advance this return.' %></p><% } %>
+    <% if (selectedSupportCase.canInspect) { %>
+    <form method="post" action="/support/returns/<%= encodeURIComponent(selectedSupportCase.publicId) %>/inspect" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <label><span>Final condition</span><select name="condition" required><option value="good">Good</option><option value="unopened">Unopened</option><option value="damaged">Damaged</option><option value="wrong_item">Wrong item</option><option value="missing_parts">Missing parts</option><option value="counterfeit_suspected">Suspected counterfeit · quarantined</option></select></label>
+      <label class="wide"><span>Outcome supported by warehouse inspection</span><textarea name="notes" minlength="10" maxlength="1000" rows="3" required></textarea></label>
+      <div class="wide"><button class="primary-button" type="submit">Save inspected outcome</button></div>
+    </form>
+    <% } else if (selectedSupportCase.status === 'received') { %><p class="form-intro">Every returned order line must complete warehouse inspection and stock disposition before Support records the outcome.</p><% } %>
+    <% if (selectedSupportCase.status === 'refund_pending' && !selectedSupportCase.financeReferral) { %>
+    <form method="post" action="/support/returns/<%= encodeURIComponent(selectedSupportCase.publicId) %>/refer-finance" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <p class="wide form-intro">Finance reviews the inspected goods and confirms any actual refund. This action records a referral.</p>
+      <label class="wide"><span>Finance referral note</span><textarea name="note" minlength="10" maxlength="500" rows="3" required></textarea></label>
+      <div class="wide"><button class="primary-button" type="submit">Refer refund to Finance</button></div>
+    </form>
+    <% } else if (selectedSupportCase.financeReferral && !['refunded', 'closed'].includes(selectedSupportCase.status)) { %><p class="form-intro">Finance referral saved. <%= selectedSupportCase.refundPublicId ? 'Refund record ' + selectedSupportCase.refundPublicId + ' awaits its confirmed outcome.' : 'No refund disbursement has been confirmed.' %></p><% } %>
+    <% if (selectedSupportCase.status === 'exchange_pending') { %>
+    <% if (selectedSupportCase.resolutionChange?.status === 'proposed' && new Date(selectedSupportCase.resolutionChange.expiresAt).getTime() > Date.now()) { %>
+    <p class="form-intro">The buyer is reviewing refund alternative <%= selectedSupportCase.resolutionChange.publicId %>. An exchange cannot be reserved while that decision is pending.</p>
+    <% } else { %>
+    <form method="post" action="/support/returns/<%= encodeURIComponent(selectedSupportCase.publicId) %>/exchange" class="role-inline-action">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>"><button class="primary-button" type="submit">Reserve exchange replacement</button>
+    </form>
+    <% if (!selectedSupportCase.resolutionChange) { %><form method="post" action="/support/returns/<%= encodeURIComponent(selectedSupportCase.publicId) %>/refund-proposal" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <label class="wide"><span>Explain the refund alternative to the buyer</span><textarea name="reason" minlength="20" maxlength="1000" rows="3" required></textarea></label>
+      <p class="wide form-intro">This offers a refund for the inspected goods to their original payment. The buyer must explicitly accept before the exchange resolution changes, and Finance must verify the actual refund.</p>
+      <div class="wide"><button class="outline-button" type="submit">Offer refund alternative</button></div>
+    </form><% } else { %><p class="form-intro">Refund alternative <%= selectedSupportCase.resolutionChange.status %>. The saved buyer decision remains in the return history.</p><% } %>
+    <% } %>
+    <% } %>
+    <% if (selectedSupportCase.replacementOrderPublicId) { %><p class="form-intro">Saved exchange replacement: <%= selectedSupportCase.replacementOrderPublicId %>. Seller fulfilment continues from its actual reserved stock.</p><% } %>
+    <% if (selectedSupportCase.timeline && selectedSupportCase.timeline.length) { %><div class="role-form-grid"><div class="wide"><span>Recorded return history</span><% for (const event of selectedSupportCase.timeline) { %><p class="form-intro"><%= event.message %></p><% } %></div></div><% } %>
+  <% } else { %>
+    <% if (!['resolved', 'rejected', 'closed'].includes(selectedSupportCase.status)) { %>
+    <form method="post" action="/support/escalations/<%= encodeURIComponent(selectedSupportCase.publicId) %>/assign" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <% if (!selectedSupportCase.assigned) { %><div class="wide"><button class="primary-button" type="submit">Claim case</button></div><% } else if (selectedSupportCase.assignedToMe) { %>
+      <label><span>Transfer to scoped Support operator ID</span><input name="assignee" minlength="5" maxlength="100" required autocomplete="off"></label><div class="wide"><button class="soft-button" type="submit">Transfer case</button></div><% } %>
+    </form>
+    <% if (selectedSupportCase.assignedToMe) { %>
+    <form method="post" action="/support/escalations/<%= encodeURIComponent(selectedSupportCase.publicId) %>/review" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <label><span>Review status</span><select name="status" required><option value="investigating">Investigating</option><option value="awaiting_customer">Awaiting customer</option></select></label>
+      <label class="wide"><span>Private review notes</span><textarea name="notes" minlength="20" maxlength="1000" rows="3" required><%= selectedSupportCase.review ? selectedSupportCase.review.notes : '' %></textarea></label>
+      <label class="wide"><span>Customer update</span><textarea name="message" minlength="10" maxlength="1000" rows="3" required></textarea></label>
+      <div class="wide"><button class="primary-button" type="submit">Save review and update customer</button></div>
+    </form>
+    <% if (selectedSupportCase.review) { %>
+    <form method="post" action="/support/escalations/<%= encodeURIComponent(selectedSupportCase.publicId) %>/escalate" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <label><span>Department</span><select name="department" required><option value="finance">Finance</option><option value="delivery">Delivery</option><option value="moderation">Moderation</option><option value="seller">Seller support</option><option value="support">Support specialist</option></select></label>
+      <label class="wide"><span>Private handoff reason</span><textarea name="reason" minlength="20" maxlength="1000" rows="3" required></textarea></label>
+      <label><span>Seller store (for a seller request)</span><select name="storePublicId"><option value="">Choose an order store</option><% for (const store of selectedSupportCase.orderStores || []) { %><option value="<%= store.publicId %>"><%= store.publicId %></option><% } %></select></label>
+      <label class="wide"><span>Separate message to seller (for a seller request)</span><textarea name="sellerMessage" maxlength="1000" rows="3"></textarea><small>Private review notes and buyer evidence are withheld from the seller.</small></label>
+      <label class="wide"><span>Customer update</span><textarea name="message" minlength="10" maxlength="1000" rows="3" required></textarea></label>
+      <div class="wide"><button class="soft-button" type="submit">Save departmental referral</button></div>
+    </form>
+    <form method="post" action="/support/escalations/<%= encodeURIComponent(selectedSupportCase.publicId) %>/resolve" class="role-form-grid">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= selectedSupportCase.version %>">
+      <label><span>Resolution</span><select name="decision" required><option value="customer_service">Customer service resolved</option><option value="no_action">No action after review</option><option value="refund_confirmed">Finance refund confirmed</option><option value="exchange_confirmed">Exchange replacement confirmed</option></select></label>
+      <label class="wide"><span>Decision shared with customer</span><textarea name="summary" minlength="20" maxlength="1000" rows="3" required></textarea></label>
+      <p class="wide form-intro">Financial and exchange resolutions require their actual completed backend records. A departmental referral alone does not resolve the case.</p>
+      <div class="wide"><button class="primary-button" type="submit">Save case decision</button></div>
+    </form>
+    <% } %>
+    <% } %>
+    <% } %>
+    <% if (selectedSupportCase.escalation) { %><p class="form-intro">Recorded <%= selectedSupportCase.escalation.department %> handoff: <%= selectedSupportCase.escalation.referralTicketPublicId %>.</p><% } %>
+    <% for (const referral of selectedSupportCase.specialistReferrals || []) { %><section class="role-form-grid"><div class="wide"><h3><%= referral.department %> assessment · <%= referral.status %></h3><p class="form-intro"><%= referral.publicId %></p><% if (referral.response) { %><p><%= referral.response.summary %></p><small>Specialist recommendation; verify any actual financial or delivery outcome separately.</small><% } else { %><p class="form-intro">Awaiting the receiving team’s recorded response.</p><% } %><% for (const evidence of referral.evidence || []) { %><p><a class="plain-link" href="<%= evidence.href %>"><%= evidence.description || 'Private specialist evidence' %></a></p><% } %></div></section><% } %>
+    <% if (selectedSupportCase.resolution) { %><p class="form-intro">Saved resolution: <%= selectedSupportCase.resolution.summary %></p><% } %>
+    <div class="role-form-grid"><div class="wide"><span>Case history</span><% for (const event of selectedSupportCase.events || []) { %><p class="form-intro"><strong><%= event.visibility === 'internal' ? 'Private review: ' : 'Customer update: ' %></strong><%= event.message %></p><% } %></div></div>
+  <% } %>
+</section>
+<% } %>

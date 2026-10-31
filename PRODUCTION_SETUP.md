@@ -1,5 +1,13 @@
 # Classic Mart Production Launch Setup
 
+Start with the [launch handoff](docs/production/LAUNCH.md) for the complete
+configuration, migration, administrator, provider and deployment checklist.
+
+Read [staged launch operations](docs/production/staged-launch.md) for released
+registration types, staff provisioning, MFA-protected launch evidence, current
+worker readiness, logging and verification limits. Use the actual HTTPS domain
+and launch markets; example values do not establish production readiness.
+
 This production package contains no development database bootstrap, reset tooling, demo marketplace records, stock-photo downloader, seed-product assets, unused dashboard mock assets, test suites or CI fixtures. Its staged `package.json` also removes `devDependencies`, and the Docker image installs runtime dependencies only.
 
 ## Required real services
@@ -9,22 +17,50 @@ This production package contains no development database bootstrap, reset toolin
 3. HTTPS public domain in `BASE_URL`.
 4. Live Pesapal API 3.0 merchant key/secret with `PESAPAL_SANDBOX=false`. The first HTTPS deploy may start without `PESAPAL_IPN_ID`; checkout remains fail-closed until you register `BASE_URL/webhooks/pesapal`, store the returned IPN ID, and redeploy.
 5. SMTP credentials for transactional email.
-6. Twilio credentials for phone verification, unless another SMS adapter is implemented before launch.
-7. ClamAV scanning for untrusted uploads. The production Docker image includes `clamscan` and refreshes virus definitions during image build, so the default Render launch does not require a separate ClamAV service.
+6. Yoola SMS credentials and an approved sender for phone verification.
+7. ClamAV scanning for untrusted uploads. The production Docker image includes `clamscan` and fetches signed definitions during image build. Keep definitions current through frequent rebuilds or a managed, continuously updated private `clamd` service; build-time freshness does not last indefinitely. Uploads reject stale definitions. See the scanner freshness requirements in the operating guide.
 8. Private Cloudflare R2 bucket for marketplace media. Production requires `MEDIA_STORAGE_DRIVER=r2`, the Cloudflare S3 endpoint, bucket name, Access Key ID and Secret Access Key. Keep the bucket private; do not enable `r2.dev` or public access for this launch because KYC/evidence shares the storage boundary.
 9. Durable mounted filesystem at `PERSISTENT_STORAGE_ROOT` for temporary exports/privacy files only. Marketplace uploads are stored in R2. On Render, mount `/var/data` and use `/var/data/classic-mart` as the root for those temporary operational files.
-10. SIEM endpoint/collector and the Stage 12 launch-evidence controls required by `npm run launch:check`.
+10. SIEM endpoint/collector and the Stage 12 launch-evidence controls required by `node scripts/launch-check.js`.
 
 
 ## Render same-day deployment
 
 The repository now includes `render.yaml`. Create/sync a Render Blueprint from the repository and provide every value marked as a secret prompt. The Blueprint pins the web service to Render `1c-2g` (1 CPU / 2 GB RAM), uses the Dockerfile, one service instance, `/health/ready`, a persistent disk mounted at `/var/data`, and runs migration + production bootstrap + development-data rejection before each deploy. Render persistent disks require a paid web-service plan.
 
+The final Docker image contains the Node runtime and installed application
+dependencies. It excludes npm and npx; dependency installation runs in a
+separate build stage. The Blueprint and Render Shell commands below invoke
+Node directly. Source checkouts and extracted archives can still use their
+`package.json` command aliases after installing the committed lockfile.
+
 Render does not mount a service disk during `preDeployCommand`. Classic Mart therefore keeps pre-deploy work database-only; the running web and worker processes verify `/var/data/classic-mart` is writable after the disk is mounted at runtime.
 
 The first deploy requires `ADMIN_PASSWORD`. It does not require `PESAPAL_IPN_ID`, which is intentionally configured after the public HTTPS endpoint exists. After confirming Super Admin login, remove only `ADMIN_PASSWORD` from the Render environment; future deploys can rerun the bootstrap safely because the existing administrator is detected.
 
 Do not upload the local `storage`, `.classic-mart`, `.env`, test data, or the development seed media to Render. The production artifact excludes them.
+
+Builds behind a trusted TLS-inspection proxy can supply its verified CA through
+BuildKit without embedding it in the image. Set `BUILD_SHA` to the full reviewed
+Git commit before running:
+
+```bash
+docker build --pull --no-cache --secret id=build_ca,src=/absolute/path/to/trusted-ca.pem --build-arg BUILD_SHA="$BUILD_SHA" -t classic-mart .
+```
+
+The optional CA applies only to dependency installation; normal builds use
+Node's default trust. Never disable certificate or package-integrity checks.
+Scanner definition downloads still require separately permitted official
+ClamAV access and verified signatures.
+
+Definition refresh builds must bypass the cached definition layer, including
+when rebuilding the same commit. CI uses `--no-cache`; `--pull` alone does not
+refresh definitions when the base image is unchanged. On Render use **Clear
+build cache & deploy** for the scheduled refresh, unless its changing build
+arguments have separately been verified. The runtime `RENDER_GIT_COMMIT`
+fallback identifies code; it cannot invalidate Docker's build cache. Schedule
+refreshes before the two-day scanner age limit, or use continuously updated
+private `clamd`.
 
 ## Cloudflare R2 media storage
 
@@ -45,7 +81,7 @@ R2_TIMEOUT_MS=10000
 Never commit the Access Key ID/Secret to Git. After adding the values to Render, verify the integration from the Render Shell:
 
 ```bash
-NODE_ENV=production npm run media:r2:check
+NODE_ENV=production node scripts/check-r2.js
 ```
 
 Expected success:
@@ -56,14 +92,25 @@ Cloudflare R2 media storage is ready.
 
 The check writes a short random probe object, reads it back, verifies its checksum and deletes it. Startup and `launch:check` perform the same fail-closed R2 readiness validation.
 
-Uploaded marketplace media now goes to R2. The Render disk is not used for product/KYC/evidence images in production; it remains only for temporary export/privacy artifacts. The v2.13.49 development path is also R2-first when using `.env.example`; the initial catalogue import uploads its processed product images directly to the configured private R2 bucket.
+`R2_TIMEOUT_MS` covers each complete request, including its response body, and
+is bounded to 3,000–60,000 ms. A successful check establishes readiness at that
+moment; a later startup request can still encounter a network timeout. The
+private readiness probe retries transient timeouts, connection resets and
+temporary provider errors up to three times per operation, using the same key
+and bytes. Permission, missing-object and checksum errors fail immediately.
+Deletion must succeed before the probe reports ready. Application uploads are
+not automatically replayed. Permanent failure reports a sanitized storage error
+and startup exits nonzero after cleanup; stopping startup cancels the probe and
+prevents the HTTP listener or worker from starting afterwards.
+
+Uploaded marketplace media now goes to R2. The Render disk is not used for product/KYC/evidence images in production; it remains only for temporary export/privacy artifacts. The v2.13.51 development path is also R2-first when using `.env.example`; the initial catalogue import uploads its processed product images directly to the configured private R2 bucket.
 
 ## First production bootstrap
 
 Copy `.env.production.example` values into the deployment secret/environment manager and replace every placeholder. Keep `ADMIN_PASSWORD` only for the one-time bootstrap.
 
 ```bash
-NODE_ENV=production npm run bootstrap:production
+NODE_ENV=production node scripts/bootstrap-production.js
 ```
 
 This creates only: selected launch-country settings, the canonical marketplace taxonomy, the initial Super Admin identity/grant, and required indexes. It creates no seller, product, order, promoter, review, campaign, warehouse, stock or transaction demo data.
@@ -75,7 +122,7 @@ After verifying Super Admin login, remove `ADMIN_PASSWORD` from runtime environm
 Register the live Pesapal IPN after the first public HTTPS deploy is reachable:
 
 ```bash
-NODE_ENV=production npm run pesapal:register-ipn
+NODE_ENV=production node scripts/pesapal-register-ipn.js
 ```
 
 Store the returned notification/IPN ID as `PESAPAL_IPN_ID` in Render, redeploy, then complete a real low-value payment certification and verify callback/IPN/provider-status reconciliation. Until the ID is configured, the storefront can run but Pesapal order submission returns a controlled configuration error instead of sending an invalid payment request.
@@ -83,9 +130,9 @@ Store the returned notification/IPN ID as `PESAPAL_IPN_ID` in Render, redeploy, 
 ## Database migration and launch gates
 
 ```bash
-NODE_ENV=production npm run migrate:plan
-NODE_ENV=production npm run migrate:apply
-NODE_ENV=production npm run launch:check
+NODE_ENV=production node scripts/migrate-production.js
+NODE_ENV=production node scripts/migrate-production.js --apply
+NODE_ENV=production node scripts/launch-check.js
 ```
 
 Do not bypass a failed launch gate. Resolve the reported evidence/provider/security issue first.

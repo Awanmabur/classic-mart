@@ -1,0 +1,33 @@
+<%
+  const overview = liveSeller.overviewFlow;
+  const metrics = overview.metrics;
+  const store = overview.store;
+  const money = value => formatMoney(value, store.currency);
+  const currencyDivisor = 10 ** new Intl.NumberFormat('en', { style: 'currency', currency: store.currency }).resolvedOptions().maximumFractionDigits;
+  const chartMaximum = Math.max(1, ...overview.trend.map(bucket => Math.abs(bucket.netMinor)));
+  const periodLabels = { '7months': 'Last 7 months', '30days': 'Last 30 days', year: 'This year' };
+  const cards = [
+    ['Net paid sales', money(metrics.netSalesMinor), 'After completed item refunds', 'i-wallet'],
+    ['Orders', metrics.orders.toLocaleString('en'), periodLabels[overview.period], 'i-clipboard'],
+    ['Published products', metrics.publishedProducts.toLocaleString('en'), `${metrics.products} catalogue products`, 'i-box'],
+    ['Store rating', metrics.rating === null ? 'No reviews yet' : `${metrics.rating} / 5`, `${metrics.reviews} published reviews`, 'i-award'],
+  ];
+  const status = store.status === 'verified' ? 'Verified' : 'Pending';
+  const eventDate = value => new Intl.DateTimeFormat(user?.locale || 'en-UG', { timeZone: overview.timeZone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+%>
+<section class="app-page role-page active seller-overview-page" data-page="seller-overview" data-role="seller" data-page-kind="overview">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow">Store</span><h1>Seller Overview</h1><p>See sales, orders, inventory risk, customer satisfaction, and store actions at a glance.</p></div><a class="primary-button icon-button" href="/seller/products/new"><svg aria-hidden="true"><use href="#i-plus"></use></svg> Add Product</a></div>
+  <section class="role-welcome panel"><div><span class="eyebrow">Seller workspace</span><h2>Good day, <%= user?.name?.split(' ')[0] || store.name %>.</h2><p>Your most important marketplace numbers and actions are ready.</p><div><a class="primary-button" href="/seller/orders?status=processing">Open priority queue</a><% if (overview.entitlements?.analyticsExport) { %><a class="outline-button" href="/seller/overview/summary.csv?period=<%= overview.period %>">Download summary</a><% } %></div></div><div class="role-welcome-score"><small>Store status</small><strong><%= status %></strong><span><%= store.status === 'verified' ? 'Approved store' : 'Verification needed' %></span></div></section>
+  <section class="role-metric-grid"><% for (const [index, [label, value, note, icon]] of cards.entries()) { %><article class="role-metric panel"><span class="role-metric-icon tone-<%= index + 1 %>"><svg aria-hidden="true"><use href="#<%= icon %>"></use></svg></span><div><small><%= label %></small><strong title="<%= value %>"><%= value %></strong><span><%= note %></span></div></article><% } %></section>
+  <div class="role-overview-grid">
+    <section class="panel role-chart-panel"><div class="role-panel-head"><div><h2>Performance trend</h2><p>Paid item sales after completed refunds · <%= store.currency %> · <%= overview.timeZone %></p></div><form method="get" action="/seller/overview" class="seller-overview-period"><label class="sr-only" for="sellerChartPeriod">Chart period</label><select id="sellerChartPeriod" name="period"><% for (const [value, label] of Object.entries(periodLabels)) { %><option value="<%= value %>" <%= value === overview.period ? 'selected' : '' %>><%= label %></option><% } %></select><button type="submit" class="plain-link">Apply</button></form></div>
+      <div class="role-chart" role="img" aria-label="Net paid sales chart. <%= overview.trend.map(bucket => `${bucket.label}: ${money(bucket.netMinor)}`).join('; ') %>"><% for (const bucket of overview.trend) { %><div><span style="height:<%= Math.abs(bucket.netMinor) / chartMaximum * 80 %>%" data-zero="<%= bucket.netMinor === 0 %>" data-negative="<%= bucket.netMinor < 0 %>" title="<%= `${bucket.label}: ${money(bucket.netMinor)}` %>"><b><%= new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(bucket.netMinor / currencyDivisor) %></b></span><small><%= bucket.label %></small></div><% } %></div>
+      <div class="role-chart-legend"><span><i></i> Net paid sales</span><strong><%= money(metrics.netSalesMinor) %></strong></div>
+    </section>
+    <section class="panel role-focus-panel"><div class="role-panel-head compact"><div><span class="eyebrow">Today</span><h2>Priority actions</h2></div><strong><%= overview.priority.length %></strong></div><div class="role-focus-list"><% for (const [index, item] of overview.priority.entries()) { %><form method="get" action="<%= item.href.split('?')[0] %>"><% if (item.href.includes('?')) { %><input type="hidden" name="status" value="processing"><% } %><button type="submit"><span><%= index + 1 %></span><p><%= item.text %></p><svg aria-hidden="true"><use href="#i-chevron-right"></use></svg></button></form><% } %></div></section>
+  </div>
+  <div class="role-bottom-grid">
+    <section class="panel role-activity-feed"><div class="role-panel-head"><div><h2>Marketplace activity</h2><p>Important changes in your workspace.</p></div><a class="plain-link" href="/seller/orders">View orders</a></div><% for (const [index, item] of overview.activity.entries()) { %><article><span class="tone-<%= index + 1 %>"><svg aria-hidden="true"><use href="#<%= item.icon %>"></use></svg></span><div><strong><a href="<%= item.href %>"><%= item.text %></a></strong><small><time datetime="<%= new Date(item.at).toISOString() %>"><%= eventDate(item.at) %></time></small></div></article><% } %><% if (!overview.activity.length) { %><p class="form-intro">No store activity yet. Add your first product to get started.</p><% } %></section>
+    <section class="panel role-team-panel"><div class="role-panel-head"><div><h2>Team coverage</h2><p>Active members of this store.</p></div><span class="role-live"><i></i> Active</span></div><div class="role-avatar-stack"><% for (const person of overview.team.people) { %><span title="<%= person.name %>"><%= person.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() %></span><% } %><% if (overview.team.total > overview.team.people.length) { %><b>+<%= overview.team.total - overview.team.people.length %></b><% } %></div><div class="role-team-stats"><div><small>Members</small><strong><%= overview.team.total %></strong></div><div><small>Store roles</small><strong><%= overview.team.roles %></strong></div><div><small>Preparing</small><strong><%= metrics.preparation %></strong></div></div><a class="soft-button full-button" href="/seller/store">Open store settings</a></section>
+  </div>
+</section>

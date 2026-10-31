@@ -470,7 +470,51 @@
           "200": {
             "description": "Scoped seller orders"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Opaque cursor returned by page.next."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "processing",
+                "shipped",
+                "delivered",
+                "pending_payment",
+                "cancelled"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          }
+        ]
       }
     },
     "/api/v1/seller/orders/{id}/{action}": {
@@ -512,6 +556,16 @@
               "type": "string",
               "minLength": 8
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(W/)?\"?[0-9]+\"?$"
+            },
+            "description": "Current seller order version returned by list or detail."
           }
         ],
         "responses": {
@@ -519,7 +573,27 @@
             "description": "Updated seller order"
           },
           "409": {
-            "description": "Invalid order/warehouse state"
+            "description": "Stale order version, invalid preparation sequence, or payment/cancellation conflict."
+          },
+          "428": {
+            "description": "If-Match with the current seller order version is required."
+          }
+        },
+        "description": "Requires orders:fulfil scope and current owner/admin or fulfilment membership. Pick follows the committed reservation warehouses. Pack requires the actual consolidation warehouse when more than one warehouse supplied the parcel. Dispatch uses the recorded packing warehouse; a provided warehouse must match it. Dispatch means ready for carrier pickup; delivery is confirmed by the assigned carrier using proof.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "warehousePublicId": {
+                    "type": "string",
+                    "description": "Actual consolidation warehouse from the order detail; required for multi-warehouse pack. Dispatch uses the recorded packing warehouse and rejects a different supplied warehouse."
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -546,6 +620,34 @@
         "responses": {
           "202": {
             "description": "Webhook test queued"
+          }
+        }
+      }
+    },
+    "/api/v1/seller/orders/{id}": {
+      "get": {
+        "summary": "Read the scoped seller order, delivery contact and reservation warehouses",
+        "security": [
+          {
+            "sellerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Seller order with current version and permitted fulfilment actions. Internal stock costs and carrier proof codes are excluded."
+          },
+          "404": {
+            "description": "Seller order unavailable in this store."
           }
         }
       }

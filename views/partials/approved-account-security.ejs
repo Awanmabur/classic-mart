@@ -1,0 +1,32 @@
+<% const securityContinuation = typeof mfaContinuation !== 'undefined' && mfaContinuation ? mfaContinuation : null; %>
+<section class="app-page active account-service-page">
+  <div class="page-heading"><div><h1>Password &amp; security</h1><p>Manage your password, MFA and signed-in devices.</p></div></div>
+  <div class="settings-layout">
+    <section class="panel form-panel">
+      <h2>Change password</h2>
+      <form class="dashboard-form" method="post" action="/account/password">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <label>Current password<input type="password" name="currentPassword" autocomplete="current-password" required></label>
+        <label>New password<input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" required></label>
+        <label>Confirm password<input type="password" name="confirmPassword" minlength="12" maxlength="128" autocomplete="new-password" required></label>
+        <button class="primary-button" type="submit">Update password</button>
+      </form>
+    </section>
+    <%- include('mfa-method-settings', { securityContinuation }) %>
+    <section class="panel form-panel wide">
+      <h2>Signed-in devices</h2>
+      <div class="ticket-list">
+        <% if (!devices.length) { %><div class="empty-state">No device history.</div><% } %>
+        <% devices.forEach(device => { %>
+          <article class="ticket-row">
+            <div><strong><%= device.label %><%= device.publicId === currentDeviceId ? ' · This device' : '' %></strong><p>Last active <%= formatDate(device.lastSeenAt) %><%= device.revokedAt ? ` · Revoked ${formatDate(device.revokedAt)}` : '' %></p></div>
+            <% if (!device.revokedAt) { %>
+              <form method="post" action="/account/devices/<%= device.publicId %>/revoke"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="outline-button" type="submit"><%= device.publicId === currentDeviceId ? 'Sign out' : 'Revoke' %></button></form>
+            <% } %>
+          </article>
+        <% }) %>
+      </div>
+      <% if (queuePages?.devices?.hasMore) { %><p><a class="plain-link" href="/account/security?devicesAfter=<%= encodeURIComponent(queuePages.devices.next) %><%= securityContinuation?.next ? '&next=' + encodeURIComponent(securityContinuation.next) : '' %>">Older devices</a></p><% } %>
+    </section>
+  </div>
+</section>

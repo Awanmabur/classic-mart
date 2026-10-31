@@ -1,1 +1,51 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify sign-in · Classic Mart</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/server-ui.css"></head><body><main class="auth-page"><section class="auth-card"><a class="brand" href="/"><img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"/></a><span class="eyebrow">Secure sign-in</span><h1>Verify it’s you</h1><p>Enter the current 6-digit authenticator code. You can also use one unused recovery code.</p><% if(pageError){%><div class="server-flash error"><strong><%=pageError%></strong></div><%}%><form method="post" action="/mfa" class="auth-form"><input type="hidden" name="_csrf" value="<%=csrfToken%>"><label>Authenticator or recovery code<input name="code" autocomplete="one-time-code" inputmode="numeric" maxlength="32" required autofocus></label><button type="submit" class="primary-button">Continue securely</button></form><p><a href="/login">Cancel and sign in again</a></p></section></main></body></html>
+<% const loginMethods = typeof mfaMethods !== 'undefined' ? mfaMethods : ['totp']; const hasAuthenticator = loginMethods.includes('totp'); %>
+<!doctype html>
+<html lang="en">
+<head>
+  <%- include('partials/brand-icons') %>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Verify sign-in · Classic Mart</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/storefront-pages.css">
+  <link rel="stylesheet" href="/mfa.css">
+  <%- include('partials/flash-assets') %>
+</head>
+<body class="storefront-page auth-standalone-page auth-compact-page mfa-challenge-page">
+  <a class="skip-link" href="#authContent">Skip to sign-in verification</a>
+  <main class="auth-main page-shell" id="authContent">
+    <section class="auth-grid mfa-auth-grid" aria-labelledby="mfaTitle">
+      <article class="auth-card auth-form-card mfa-auth-card">
+        <a class="brand mfa-brand" href="/" aria-label="Classic Mart home"><img class="brand-logo" src="/assets/classic-mart-logo.png" alt="Classic Mart"></a>
+        <div class="auth-form-head">
+          <span class="auth-kicker">Secure sign-in</span>
+          <h1 id="mfaTitle">Verify it’s you</h1>
+          <p><%= hasAuthenticator ? 'Open your authenticator app and enter the current 6-digit code for Classic Mart.' : 'Use your saved passkey, request an SMS code, or enter one unused recovery code.' %></p>
+        </div>
+        <% if (pageError) { %><p class="auth-message error platform-flash" role="alert" id="mfaError"><%= pageError %></p><% } %>
+        <% if (loginMethods.includes('passkey')) { %><form class="auth-form mfa-login-method" method="post" action="/mfa/passkey/options" data-passkey-login-form><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="auth-submit" type="submit" data-passkey-login disabled>Use passkey · fingerprint, face or PIN</button><p class="mfa-code-help" data-passkey-status role="status" aria-live="polite" hidden></p></form><% } %>
+        <% if (loginMethods.includes('sms')) { %><section class="mfa-login-method" aria-label="SMS sign-in">
+          <form class="auth-form" method="post" action="/mfa/sms/send"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><p class="mfa-code-help">Send a security code to <%= mfaPhone %>. It expires after five minutes.</p><button class="button button-secondary" type="submit">Send SMS code</button></form>
+          <% if (smsChallengeId) { %><form class="auth-form" method="post" action="/mfa/sms/verify"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="challengeId" value="<%= smsChallengeId %>"><label class="auth-field">SMS security code<span class="auth-input-wrap"><input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></span></label><button class="auth-submit" type="submit">Verify SMS and continue</button></form><% } %>
+        </section><% } %>
+        <form method="post" action="/mfa" class="auth-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <label class="auth-field" for="mfaCode">
+            <span id="mfaCodeLabel"><%= hasAuthenticator ? 'Authenticator or recovery code' : 'One-time recovery code' %></span>
+            <span class="auth-input-wrap"><img src="/assets/icons/lock.svg" alt=""><input id="mfaCode" name="code" type="text" autocomplete="one-time-code" inputmode="<%= hasAuthenticator ? 'numeric' : 'text' %>" maxlength="32" spellcheck="false" autocapitalize="none" aria-describedby="mfaCodeHelp<%= pageError ? ' mfaError' : '' %>" aria-invalid="<%= pageError ? 'true' : 'false' %>" required <%= hasAuthenticator ? 'autofocus' : 'data-mfa-recovery-only' %>></span>
+          </label>
+          <p class="mfa-code-help" id="mfaCodeHelp"><%= hasAuthenticator ? 'Codes usually refresh every 30 seconds. If a code has just expired, wait for the next one.' : 'Enter one unused recovery code saved when you enabled security. Each recovery code works only once.' %></p>
+          <button type="submit" class="auth-submit">Continue securely</button>
+          <button type="button" class="auth-text-link mfa-mode-toggle" data-mfa-recovery-toggle aria-pressed="false" aria-controls="mfaCode" hidden>Use a recovery code instead</button>
+          <noscript><p class="mfa-code-help">You can also paste one unused recovery code into the same field. Each recovery code works only once.</p></noscript>
+        </form>
+        <p class="auth-switch"><a href="/login">Return to sign in</a></p>
+        <p class="mfa-private-note">Keep your security and recovery codes private. Classic Mart support will never ask you to share them.</p>
+      </article>
+    </section>
+  </main>
+  <script src="/mfa-challenge.js" defer></script>
+  <script src="/mfa-methods.js" defer></script>
+</body>
+</html>

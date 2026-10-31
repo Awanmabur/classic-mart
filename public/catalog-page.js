@@ -20,6 +20,12 @@
     searchId: '',
     autocompleteTimer: null,
   };
+  if (document.body.dataset.initialCategory && !state.params.has('category')) state.params.set('category', document.body.dataset.initialCategory);
+  const filterMedia = window.matchMedia('(max-width: 900px)');
+  const filterPanel = qs('#catalogFilterPanel');
+  const originalFilterAttributes = new Map(['inert', 'role', 'aria-modal', 'aria-label', 'tabindex']
+    .map(name => [name, filterPanel?.getAttribute(name) ?? null]));
+  let filterLastFocused = null;
 
   const escapeHtml = (value) =>
     String(value ?? '').replace(
@@ -70,13 +76,8 @@
       : '';
   }
 
-  function showToast(message) {
-    const toast = qs('#catalogToast');
-    if (!toast) return;
-    toast.textContent = message;
-    toast.classList.add('show');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove('show'), 2_200);
+  function showToast(message, options) {
+    window.ClassicMartFlash.show(message, options);
   }
 
   async function api(path, options = {}) {
@@ -116,7 +117,7 @@
       if (button) button.textContent = 'Added ✓';
       return true;
     } catch (error) {
-      showToast(error.message || 'Product could not be added.');
+      showToast(error.message || 'Product could not be added.', { type: 'error' });
       if (button) button.innerHTML = previous;
       return false;
     } finally {
@@ -384,12 +385,43 @@
     applyFilters();
   }
 
-  function toggleFilters(open) {
-    qs('#catalogFilterPanel').classList.toggle('open', open);
+  function toggleFilters(open, { restoreFocus = true } = {}) {
+    if (!filterPanel || (open && !filterMedia.matches)) return;
+    if (filterPanel.classList.contains('open') === open) return;
     const backdrop = qs('#catalogFilterBackdrop');
+    if (open) filterLastFocused = document.activeElement;
+    filterPanel.classList.toggle('open', open);
+    filterPanel.inert = !open;
     backdrop.hidden = !open;
     backdrop.classList.toggle('show', open);
     document.body.classList.toggle('no-scroll', open);
+    qs('#openCatalogFilters')?.setAttribute('aria-expanded', String(open));
+    if (open) {
+      window.ClassicMartDialogIsolation.activate(filterPanel, [backdrop]);
+      qs('#closeCatalogFilters')?.focus({ preventScroll: true });
+    } else {
+      window.ClassicMartDialogIsolation.release(filterPanel);
+      if (restoreFocus) filterLastFocused?.focus?.();
+    }
+  }
+
+  function syncFilterMode() {
+    if (!filterPanel) return;
+    toggleFilters(false, { restoreFocus: false });
+    if (filterMedia.matches) {
+      filterPanel.setAttribute('role', 'dialog');
+      filterPanel.setAttribute('aria-modal', 'true');
+      filterPanel.setAttribute('aria-label', 'Filter products');
+      filterPanel.setAttribute('tabindex', '-1');
+      filterPanel.inert = true;
+    } else {
+      for (const [name, value] of originalFilterAttributes) {
+        if (value === null) filterPanel.removeAttribute(name);
+        else filterPanel.setAttribute(name, value);
+      }
+    }
+    qs('#openCatalogFilters')?.setAttribute('aria-controls', 'catalogFilterPanel');
+    qs('#openCatalogFilters')?.setAttribute('aria-expanded', 'false');
   }
 
   async function toggleWishlist(productId) {
@@ -536,7 +568,7 @@
         try {
           await toggleWishlist(wishlist.dataset.catalogWishlist);
         } catch (error) {
-          if (error.message !== 'Authentication required') showToast(error.message);
+          if (error.message !== 'Authentication required') showToast(error.message, { type: 'error' });
         }
         return;
       }
@@ -545,7 +577,7 @@
         try {
           await toggleComparison(comparison.dataset.catalogCompare);
         } catch (error) {
-          if (error.message !== 'Authentication required') showToast(error.message);
+          if (error.message !== 'Authentication required') showToast(error.message, { type: 'error' });
         }
         return;
       }
@@ -582,7 +614,18 @@
       qs('#catalogWorkspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') toggleFilters(false);
+      if (!filterPanel?.classList.contains('open')) return;
+      if (event.key === 'Escape') { event.preventDefault(); toggleFilters(false); return; }
+      if (event.key !== 'Tab') return;
+      const controls = [...filterPanel.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+        .filter(element => !element.closest('[hidden], [inert]') && element.getClientRects().length);
+      const first = controls[0], last = controls.at(-1);
+      if (!first) { event.preventDefault(); filterPanel.focus(); }
+      else if (event.shiftKey && (document.activeElement === first || !filterPanel.contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !filterPanel.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
     });
   }
 
@@ -590,6 +633,14 @@
     if (state.params.get('visual') !== '1') return null;
     const payload = await api('/api/v1/storefront/visual-search-results');
     return Array.isArray(payload.products) ? payload.products : [];
+  }
+
+  function initialCatalogueSnapshot() {
+    try {
+      const node = qs('#initialStorefrontData');
+      const data = node?.textContent ? JSON.parse(node.textContent) : null;
+      return data && Array.isArray(data.products) && Array.isArray(data.categories) && data.country?.code ? data : null;
+    } catch { return null; }
   }
 
   async function hydrateCatalog() {
@@ -607,7 +658,12 @@
         ? `/api/v1/storefront/search?${searchParameters}`
         : '/api/v1/storefront/catalogue';
       const visualProducts = await transferredVisualResults();
-      const payload = await api(endpoint);
+      const snapshot = !shouldSearch && visualProducts === null ? initialCatalogueSnapshot() : null;
+      let payload = snapshot || await api(endpoint);
+      if (snapshot && document.body.dataset.storefrontAuthenticated === 'true') {
+        const personal = await api('/api/v1/storefront/state?summary=1');
+        payload = { ...snapshot, state: personal.state, csrfToken: personal.csrfToken };
+      }
       state.products = visualProducts ?? payload.products ?? [];
       state.categories = payload.categories || [];
       state.wishlist = new Set(payload.state?.wishlist || []);
@@ -628,14 +684,20 @@
         if (breadcrumb) breadcrumb.textContent = 'Visual search results';
         if (description) description.textContent = 'Products matched to the image you selected.';
       }
+      return payload;
     } catch (error) {
       qs('#catalogResultCount').textContent =
         'Products could not be loaded. Refresh to try again.';
-      showToast(error.message);
+      showToast(error.message, { type: 'error' });
+      return null;
     }
   }
 
   configurePage();
   bindEvents();
-  hydrateCatalog();
+  syncFilterMode();
+  filterMedia.addEventListener('change', syncFilterMode);
+  // Product previews consume this page's already-resolved public snapshot and
+  // saved-state request. Opening one still fetches its fresh product detail.
+  window.ClassicMartCatalogueReady = hydrateCatalog();
 })();

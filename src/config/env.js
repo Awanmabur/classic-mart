@@ -3,6 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 import { projectMongoUri } from '../core/project-env.js';
+import { openRegistrationTypes } from '../core/registration.js';
+import { assertProductionOrigin } from '../core/production-origin.js';
+import { trustedProxyMatcher } from '../core/trusted-proxy.js';
 
 const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -34,6 +37,12 @@ function csv(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+const trustedProxyCidrs = Object.freeze(csv(process.env.TRUST_PROXY_CIDRS));
+const geolocationTrustedProxyCidrs = Object.freeze(csv(process.env.GEOLOCATION_TRUSTED_PROXY_CIDRS));
+// Validate at startup, including development, rather than accepting malformed or blanket trust.
+trustedProxyMatcher(trustedProxyCidrs);
+trustedProxyMatcher(geolocationTrustedProxyCidrs);
+
 function secret(name, fallback) {
   const configured = process.env[name];
   if (
@@ -57,6 +66,13 @@ function validEncryptionKey(value) {
 }
 
 const nodeEnv = process.env.NODE_ENV || 'development';
+const smsMode = String(process.env.SMS_MODE || (process.env.YOOLA_API_KEY?.trim() ? 'yoola' : (nodeEnv === 'production' ? 'disabled' : 'log'))).trim().toLowerCase();
+const yoolaSenderId = String(process.env.YOOLA_SENDER_ID || '').trim();
+const publicRegistrationTypes = openRegistrationTypes({ production: nodeEnv === 'production' });
+if (nodeEnv === 'production' && boolean(process.env.SIMPLE_LOGIN, false)) {
+  throw new Error('SIMPLE_LOGIN cannot bypass verification or MFA in production.');
+}
+const simpleLoginMode = nodeEnv !== 'production' && boolean(process.env.SIMPLE_LOGIN, false);
 const mediaStorageDriver = String(process.env.MEDIA_STORAGE_DRIVER || (nodeEnv === 'production' ? '' : 'filesystem')).trim().toLowerCase();
 const storagePersistence = String(process.env.STORAGE_PERSISTENCE || '').trim().toLowerCase();
 const persistentStorageRoot = String(process.env.PERSISTENT_STORAGE_ROOT || '').trim();
@@ -72,8 +88,12 @@ if (nodeEnv === 'production') {
       'Production requires SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM with MAIL_MODE=smtp.',
     );
   }
-  if (process.env.SMS_MODE !== 'twilio' || !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_FROM) {
-    throw new Error('Production requires SMS_MODE=twilio with TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM for phone verification.');
+  const smsConfigured = smsMode === 'yoola' && Boolean(process.env.YOOLA_API_KEY?.trim());
+  if (smsMode !== 'disabled' && !smsConfigured) {
+    throw new Error('Production SMS requires SMS_MODE=yoola and YOOLA_API_KEY, or SMS_MODE=disabled until configured.');
+  }
+  if (smsMode === 'yoola' && yoolaSenderId && !/^[A-Za-z0-9]{1,11}$/.test(yoolaSenderId)) {
+    throw new Error('YOOLA_SENDER_ID must contain 1–11 letters or numbers, or remain empty for the provider default.');
   }
   if (!['clamd', 'clamscan'].includes(process.env.MALWARE_SCAN_MODE || '')) {
     throw new Error('Production requires MALWARE_SCAN_MODE=clamd or clamscan for untrusted uploads.');
@@ -97,13 +117,14 @@ if (nodeEnv === 'production') {
   if (!String(process.env.BASE_URL || '').startsWith('https://')) {
     throw new Error('Production requires an HTTPS BASE_URL.');
   }
-  if (integer(process.env.TRUST_PROXY, 0) < 1) {
+  assertProductionOrigin(process.env.BASE_URL);
+  if (integer(process.env.TRUST_PROXY, 0) < 1 && !trustedProxyCidrs.length) {
     throw new Error('Production requires TRUST_PROXY to match the trusted reverse-proxy topology.');
   }
   if (process.env.SECURITY_INTEGRITY_KEY === process.env.SESSION_SECRET || process.env.SECURITY_INTEGRITY_KEY === process.env.TOKEN_PEPPER || process.env.SECURITY_INTEGRITY_KEY === process.env.DATA_ENCRYPTION_KEY) {
     throw new Error('SECURITY_INTEGRITY_KEY must be independent from all other application secrets.');
   }
-  if (!boolean(process.env.PRIVILEGED_MFA_REQUIRED, true)) {
+  if (!simpleLoginMode && !boolean(process.env.PRIVILEGED_MFA_REQUIRED, true)) {
     throw new Error('Production requires PRIVILEGED_MFA_REQUIRED=true.');
   }
   if (!boolean(process.env.IDS_ENABLED, true) || !boolean(process.env.IPS_ENABLED, true)) {
@@ -196,7 +217,13 @@ export const env = Object.freeze({
     process.env.DATA_ENCRYPTION_KEY ||
     'development-only-sensitive-data-encryption-key',
   trustProxy: integer(process.env.TRUST_PROXY, 0),
+  trustedProxyCidrs,
+  geolocationTrustedProxyCidrs,
   metricsToken: process.env.METRICS_TOKEN || '',
+  auth: Object.freeze({
+    simpleLogin: simpleLoginMode,
+    publicRegistrationTypes: Object.freeze(publicRegistrationTypes),
+  }),
   disasterRecovery: Object.freeze({
     maxRpoMinutes: Math.max(1, integer(process.env.DR_MAX_RPO_MINUTES, 60)),
     maxRtoMinutes: Math.max(1, integer(process.env.DR_MAX_RTO_MINUTES, 240)),
@@ -210,7 +237,7 @@ export const env = Object.freeze({
     accessKeyId: String(process.env.R2_ACCESS_KEY_ID || '').trim(),
     secretAccessKey: String(process.env.R2_SECRET_ACCESS_KEY || '').trim(),
     region: String(process.env.R2_REGION || 'auto').trim() || 'auto',
-    timeoutMs: Math.max(3000, integer(process.env.R2_TIMEOUT_MS, 10000)),
+    timeoutMs: Math.min(60_000, Math.max(3000, integer(process.env.R2_TIMEOUT_MS, 10000))),
   }),
   persistentStorageRoot: envStorageRoot(),
   uploadDir: nodeEnv === 'production'
@@ -238,10 +265,9 @@ export const env = Object.freeze({
       '',
   }),
   sms: Object.freeze({
-    mode: process.env.SMS_MODE || 'log',
-    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
-    authToken: process.env.TWILIO_AUTH_TOKEN || '',
-    from: process.env.TWILIO_FROM || '',
+    mode: smsMode,
+    yoolaApiKey: process.env.YOOLA_API_KEY?.trim() || '',
+    yoolaSenderId,
   }),
   pesapal: Object.freeze({
     baseUrl: process.env.PESAPAL_BASE_URL || (boolean(process.env.PESAPAL_SANDBOX, true) ? 'https://cybqa.pesapal.com/pesapalv3' : 'https://pay.pesapal.com/v3'),
@@ -274,7 +300,7 @@ export const env = Object.freeze({
   security: Object.freeze({
     idsEnabled: boolean(process.env.IDS_ENABLED, true),
     ipsEnabled: boolean(process.env.IPS_ENABLED, true),
-    privilegedMfaRequired: boolean(process.env.PRIVILEGED_MFA_REQUIRED, nodeEnv === 'production'),
+    privilegedMfaRequired: simpleLoginMode ? false : boolean(process.env.PRIVILEGED_MFA_REQUIRED, nodeEnv === 'production'),
     integrityKey: secret('SECURITY_INTEGRITY_KEY', 'development-only-security-integrity-key-change-before-production'),
     eventRetentionDays: Math.max(30, integer(process.env.SECURITY_EVENT_RETENTION_DAYS, 180)),
     highEventRetentionDays: Math.max(180, integer(process.env.SECURITY_HIGH_EVENT_RETENTION_DAYS, 730)),
@@ -293,6 +319,13 @@ export const env = Object.freeze({
       udpPort: integer(process.env.SIEM_UDP_PORT, 514),
       timeoutMs: integer(process.env.SIEM_TIMEOUT_MS, 5000),
     }),
+  }),
+  social: Object.freeze({
+    facebook: String(process.env.SOCIAL_FACEBOOK_URL || '').trim(),
+    x: String(process.env.SOCIAL_X_URL || '').trim(),
+    instagram: String(process.env.SOCIAL_INSTAGRAM_URL || '').trim(),
+    youtube: String(process.env.SOCIAL_YOUTUBE_URL || '').trim(),
+    pinterest: String(process.env.SOCIAL_PINTEREST_URL || '').trim(),
   }),
   admin: Object.freeze({
     name: process.env.ADMIN_NAME || 'Classic Mart Super Admin',

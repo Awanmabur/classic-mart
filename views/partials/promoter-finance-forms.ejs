@@ -1,0 +1,38 @@
+<% const promoterFinance = promoterFlow; const promoterDestinations = (promoterFinance.payoutAccounts || []).filter(account => account.status === 'verified'); %>
+<% if (promoterFinance.pageId === 'promoter-payouts') { %>
+<section class="panel role-form-section" id="promoter-payout-request">
+  <div class="role-panel-head"><div><h2>Request a payout</h2><p>Withdraw earned funds to a verified destination.</p></div></div>
+  <% if (!promoterDestinations.length) { %><p class="form-intro">Add a destination below. Finance verifies it before your first withdrawal.</p><% } else { %>
+  <form method="post" action="/promoter/payouts" class="role-form-grid">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="idempotencyKey" value="<%= promoterFinance.idempotencyKey %>">
+    <label>Verified destination<select name="payoutAccountId" required><% for (const account of promoterDestinations) { %><option value="<%= account.publicId %>"><%= account.label %> · <%= account.method.replaceAll('_', ' ') %></option><% } %></select></label>
+    <label>Amount (<%= promoterFinance.currency %>)<input name="amount" type="text" inputmode="decimal" maxlength="30" autocomplete="off" required aria-describedby="promoterPayoutBalance"></label>
+    <p class="wide form-intro" id="promoterPayoutBalance">Available balance: <%= formatMoney(promoterFinance.availableMinor, promoterFinance.currency) %>. A request reserves funds while finance reviews it.</p>
+    <div class="wide"><button class="primary-button" type="submit">Request payout</button></div>
+  </form><% } %>
+</section>
+<section class="panel role-form-section" id="promoter-payout-destination">
+  <div class="role-panel-head"><div><h2>Add a payout destination</h2><p>Use your bank account or mobile-money account.</p></div></div>
+  <form method="post" action="/promoter/payouts/accounts" class="role-form-grid">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label>Method<select name="method" required><option value="mobile_money">Mobile money</option><option value="bank">Bank account</option></select></label>
+    <label>Destination label<input name="label" minlength="2" maxlength="100" required autocomplete="off"></label>
+    <label class="wide">Beneficiary name<input name="beneficiary_name" minlength="2" maxlength="120" required autocomplete="off"></label>
+    <label>Mobile-money network<input name="network" maxlength="40" autocomplete="off"></label>
+    <label>Mobile-money phone<input name="phone" type="tel" maxlength="32" autocomplete="off"></label>
+    <label>Bank name or code<input name="account_bank" maxlength="40" autocomplete="off"></label>
+    <label>Bank account number<input name="account_number" maxlength="80" autocomplete="off"></label>
+    <div class="wide"><button class="primary-button" type="submit">Add destination for verification</button></div>
+  </form>
+  <% if (promoterFinance.payoutAccounts.length) { %><div class="role-table-wrap"><table class="role-table"><thead><tr><th>Destination</th><th>Method</th><th>Status</th></tr></thead><tbody>
+    <% for (const account of promoterFinance.payoutAccounts) { %><tr><td data-label="Destination"><%= account.label %></td><td data-label="Method"><%= account.method.replaceAll('_', ' ') %></td><td data-label="Status"><%= account.status %></td></tr><% } %>
+  </tbody></table></div><% } %>
+</section>
+<% } %>
+<% if (promoterFinance.pageId === 'promoter-commissions') { const appealable = (promoterFinance.commissions || []).filter(row => ['reversed', 'partially_reversed'].includes(row.status) && row.appeal.status !== 'pending'); %>
+<% if (appealable.length) { %><section class="panel role-form-section" id="promoter-commission-appeals"><div class="role-panel-head"><div><h2>Appeal a commission reversal</h2><p>Explain why a recorded reversal needs review.</p></div></div>
+  <% for (const commission of appealable) { %><form method="post" action="/promoter/commissions/<%= commission.publicId %>/appeal" class="role-form-grid">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>"><label class="wide"><%= commission.publicId %> · <%= commission.reversalReason || 'Commission reversal' %><textarea name="message" minlength="10" maxlength="1200" required></textarea></label>
+    <div class="wide"><button class="primary-button" type="submit">Submit appeal</button></div>
+  </form><% } %></section><% } %>
+<% } %>

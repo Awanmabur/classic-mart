@@ -57,6 +57,7 @@ const sellerContactRequestSchema = new Schema(
 );
 
 sellerContactRequestSchema.index({ storeId: 1, status: 1, lastMessageAt: -1 });
+sellerContactRequestSchema.index({ customerUserId: 1, lastMessageAt: -1 });
 sellerContactRequestSchema.index({
   customerUserId: 1,
   storeId: 1,

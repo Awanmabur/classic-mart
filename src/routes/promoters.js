@@ -1,19 +1,28 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { AppError } from '../core/errors.js';
+import rateLimit from '../middleware/rate-limit.js';
+import { asyncHandler, AppError } from '../core/errors.js';
 import { requireAuth, requirePermission, requireVerified } from '../middleware/auth.js';
-import { loadSellerStore, requireStoreCapability } from '../middleware/store.js';
-import { setFlash } from '../middleware/view.js';
-import { cursorScope, cursorSort, pageResult } from '../services/pagination.js';
-import { writeAudit } from '../services/audit.js';
-import { operationalCountryScope } from '../services/authorization.js';
-import { AiJob, AttributionTouch, Campaign, CampaignApplication, CommissionEntry, Product, PromoterContactRequest, PromoterVerification, Store } from '../models/index.js';
+import { verifyDeferredCsrf } from '../middleware/csrf.js';
+import { sellerPageGates } from '../dashboard/seller-page-view.js';
+import { promoterPageGates } from '../dashboard/promoter-page-view.js';
+import { loadPromoterOverview } from '../services/promoter-overview.js';
+import { eligiblePromoterCampaigns, publicCampaignMetadata } from '../services/promoter-campaign-pages.js';
+import { CountrySetting } from '../models/index.js';
 import {
-  appealCommissionReversal, applyToCampaign, buildCampaignContentKit, createCampaign, createPromoterLink, promoterSummary, recordTouch, redeemPromoterCoupon, reviewCommissionAppeal, streamPromoterCommissionCsv,
+  applyToCampaign, createCampaign, createPromoterLink, recordTouch, redeemPromoterCoupon,
   reviewCampaign, reviewCampaignApplication, reviewPromoterVerification, submitCampaign, submitPromoterVerification,
 } from '../services/promoters.js';
 
 const router = Router();
+const sellerCampaignGates = sellerPageGates('growth');
+const promoterMutationLimit = rateLimit({ scope: 'promoters:1', windowMs: 15 * 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+const deferredCsrf = (request, _response, next) => { try { verifyDeferredCsrf(request); next(); } catch (error) { next(error); } };
+router.use(['/api/v1/promoters/verification', '/api/v1/promoters/links', '/api/v1/promoters/campaigns/:id/apply', '/api/v1/promoters/coupons/redeem'], (request, response, next) => request.method === 'POST' ? promoterMutationLimit(request, response, next) : next(), deferredCsrf);
+const sellerCampaignCsrf = (request, _response, next) => {
+  // These legacy endpoints use browser sessions, unlike the bearer Seller API.
+  try { request.csrfDeferred = true; verifyDeferredCsrf(request); next(); } catch (error) { next(error); }
+};
 const adminOnly = (request, _response, next) => ['country_admin', 'super_admin'].includes(request.user?.role) ? next() : next(new AppError('Country or Super Admin required.', 403, 'FORBIDDEN'));
 const campaignInput = z.object({
   name: z.string().trim().min(3).max(140), visibility: z.enum(['public', 'invite_only']).default('public'), commissionBps: z.coerce.number().int().min(0).max(5000), attributionDays: z.coerce.number().int().min(1).max(90),
@@ -22,61 +31,46 @@ const campaignInput = z.object({
   disclosureText: z.string().trim().min(10).max(300).default('Sponsored/affiliate promotion for Classic Mart.'), startsAt: z.coerce.date().optional(), endsAt: z.coerce.date().optional(),
 }).refine(value => !value.startsAt || !value.endsAt || value.endsAt > value.startsAt, { message: 'Campaign end must be after its start.' });
 
-function csv(value){return String(value||'').split(',').map(x=>x.trim()).filter(Boolean);}
-function lines(value){return String(value||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);}
-function campaignForm(body){return campaignInput.parse({name:body.name,visibility:body.visibility,commissionBps:body.commissionBps,attributionDays:body.attributionDays,allowedChannels:csv(body.allowedChannels),facts:lines(body.facts),productPublicIds:csv(body.productPublicIds),assets:[],disclosureText:body.disclosureText,startsAt:body.startsAt||undefined,endsAt:body.endsAt||undefined});}
-
-
 router.get('/r/:token', async (request, response, next) => { try { const { link, touch } = await recordTouch(request, request.params.token); if (touch.status === 'blocked') return response.status(403).render('error', { status: 403, message: 'This promotional visit was blocked by marketplace protection.' }); const separator = link.destination.includes('?') ? '&' : '?'; const params = new URLSearchParams({ utm_source: link.utmSource, utm_medium: link.utmMedium, utm_campaign: link.utmCampaign, ...(link.utmContent ? { utm_content: link.utmContent } : {}), ...(link.subId ? { sub_id: link.subId } : {}) }); response.redirect(302, `${link.destination}${separator}${params}`); } catch (error) { next(error); } });
 
-router.post('/api/v1/promoters/verification', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request, response, next) => { try { const input = z.object({ channels: z.array(z.string().trim().min(2).max(50)).min(1).max(10), niches: z.array(z.string().trim().min(2).max(50)).min(1).max(12) }).parse(request.body); response.status(201).json({ verification: await submitPromoterVerification(request, input) }); } catch (error) { next(error); } });
-router.post('/api/v1/admin/promoters/:id/review', requireAuth, requireVerified, adminOnly, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(500).default('') }).parse(request.body); response.json({ verification: await reviewPromoterVerification(request, request.params.id, input) }); } catch (error) { next(error); } });
 
-router.get('/api/v1/campaigns', async (request, response, next) => { try { const now = new Date(),limit=Math.max(1,Math.min(100,Number(request.query.limit)||50)); const base={ country: request.country.code, status: 'active', $and: [{ $or: [{ startsAt: null }, { startsAt: { $lte: now } }] }, { $or: [{ endsAt: null }, { endsAt: { $gt: now } }] }] }; const [rows,total]=await Promise.all([Campaign.find(cursorScope(base,request.query.after)).select('-ownerUserId').sort(cursorSort()).limit(limit+1).lean(),Campaign.countDocuments(base)]);const page=pageResult(rows,{limit,total}); response.json({ campaigns:page.items,page:page.page }); } catch (error) { next(error); } });
-router.post('/api/v1/seller/campaigns', requireAuth, requireVerified, loadSellerStore, requireStoreCapability('growth'), async (request, response, next) => { try { response.status(201).json({ campaign: await createCampaign(request, campaignInput.parse(request.body)) }); } catch (error) { next(error); } });
-router.post('/api/v1/seller/campaigns/:id/submit', requireAuth, requireVerified, loadSellerStore, requireStoreCapability('growth'), async (request, response, next) => { try { response.json({ campaign: await submitCampaign(request, request.params.id) }); } catch (error) { next(error); } });
-router.post('/api/v1/admin/campaigns/:id/review', requireAuth, requireVerified, adminOnly, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(500).default('') }).parse(request.body); response.json({ campaign: await reviewCampaign(request, request.params.id, input) }); } catch (error) { next(error); } });
+router.post('/api/v1/promoters/verification', ...promoterPageGates(), async (request, response, next) => { try { verifyDeferredCsrf(request); const input = z.object({ channels: z.array(z.string().trim().min(2).max(50)).min(1).max(10), niches: z.array(z.string().trim().min(2).max(50)).min(1).max(12), disclosureAccepted: z.literal(true) }).parse(request.body); response.status(201).json({ verification: await submitPromoterVerification(request, input) }); } catch (error) { next(error); } });
+
+router.post('/api/v1/admin/promoters/:id/review', requireAuth, requireVerified, adminOnly, promoterMutationLimit, deferredCsrf, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), version: z.union([z.number(), z.string().regex(/^\d+$/)]).pipe(z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER)), reason: z.string().trim().max(500).default('') }).parse(request.body); response.json({ verification: await reviewPromoterVerification(request, request.params.id, input) }); } catch (error) { next(error); } });
+
+
+router.get('/api/v1/campaigns', asyncHandler(async (request, response) => {
+  const query = new URL(request.originalUrl, 'http://localhost').searchParams;
+  for (const name of ['limit', 'after']) if (query.getAll(name).length > 1 || [...query.keys()].some(key => key.startsWith(name + '[') || key.startsWith(name + '.'))) throw new AppError('Provide one supported value for each filter.', 422, 'CAMPAIGN_QUERY_INVALID');
+  const input = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50), after: z.string().max(512).default('') }).parse(request.query);
+  const setting = await CountrySetting.findOne({ code: request.country.code, active: true }).lean();
+  if (!setting) throw new AppError('Campaign market is unavailable.', 409, 'CAMPAIGN_MARKET_UNAVAILABLE');
+  const result = await eligiblePromoterCampaigns(setting, { visibility: 'public', limit: input.limit, after: input.after });
+  response.json({ campaigns: result.items.map(publicCampaignMetadata), page: result.page });
+}));
+
+router.post('/api/v1/seller/campaigns', ...sellerCampaignGates, sellerCampaignCsrf, async (request, response, next) => { try { response.status(201).json({ campaign: await createCampaign(request, campaignInput.parse(request.body)) }); } catch (error) { next(error); } });
+
+router.post('/api/v1/seller/campaigns/:id/submit', ...sellerCampaignGates, sellerCampaignCsrf, async (request, response, next) => { try { response.json({ campaign: await submitCampaign(request, request.params.id) }); } catch (error) { next(error); } });
+
+router.post('/api/v1/admin/campaigns/:id/review', requireAuth, requireVerified, adminOnly, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().min(3).max(500), version: z.coerce.number().int().nonnegative() }).parse(request.body); response.json({ campaign: await reviewCampaign(request, request.params.id, input) }); } catch (error) { next(error); } });
+
 
 router.post('/api/v1/promoters/campaigns/:id/apply', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request, response, next) => { try { const input = z.object({ note: z.string().trim().max(1000).default('') }).parse(request.body || {}); response.status(201).json({ application: await applyToCampaign(request, request.params.id, input.note) }); } catch (error) { next(error); } });
-router.post('/api/v1/seller/campaign-applications/:id/review', requireAuth, requireVerified, loadSellerStore, requireStoreCapability('growth'), async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(500).default('') }).parse(request.body); response.json({ application: await reviewCampaignApplication(request, request.params.id, input) }); } catch (error) { next(error); } });
+
+router.post('/api/v1/seller/campaign-applications/:id/review', ...sellerCampaignGates, sellerCampaignCsrf, async (request, response, next) => { try { const input = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().min(3).max(500), version: z.coerce.number().int().nonnegative() }).parse(request.body); response.json({ application: await reviewCampaignApplication(request, request.params.id, input) }); } catch (error) { next(error); } });
+
 router.post('/api/v1/promoters/coupons/redeem', async (request, response, next) => { try { const input = z.object({ code: z.string().trim().min(2).max(32) }).parse(request.body); const { link, touch } = await redeemPromoterCoupon(request, input.code); response.json({ attribution: { linkId: link.publicId, touchId: touch.publicId, status: touch.status } }); } catch (error) { next(error); } });
+
 router.post('/api/v1/promoters/links', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request, response, next) => { try { const input = z.object({ campaignId: z.string().min(4).max(100), destination: z.string().trim().regex(/^\/[A-Za-z0-9/_?&=.%+-]*$/).max(500), couponCode: z.string().trim().max(32).optional(), subId: z.string().trim().max(80).optional(), channel: z.string().trim().max(50).optional(), utmSource: z.string().trim().max(80).optional(), utmMedium: z.string().trim().max(80).optional(), utmCampaign: z.string().trim().max(100).optional(), utmContent: z.string().trim().max(100).optional() }).parse(request.body); const link = await createPromoterLink(request, input); response.status(201).json({ link: { ...link.toObject(), url: `/r/${link.token}` } }); } catch (error) { next(error); } });
 
 
-router.post('/promoter/verification', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request,response,next)=>{try{await submitPromoterVerification(request,{channels:csv(request.body.channels),niches:csv(request.body.niches)});response.redirect('/promoter');}catch(error){next(error);}});
-router.post('/promoter/campaigns/:id/apply', requireAuth, requireVerified, requirePermission('promoter:manage'), async(request,response,next)=>{try{await applyToCampaign(request,request.params.id,String(request.body.note||'').slice(0,1000));response.redirect('/promoter');}catch(error){next(error);}});
-router.post('/promoter/links', requireAuth, requireVerified, requirePermission('promoter:manage'), async(request,response,next)=>{try{const input=z.object({campaignId:z.string().min(4).max(100),destination:z.string().trim().regex(/^\/[A-Za-z0-9/_?&=.%+-]*$/).max(500),couponCode:z.string().trim().max(32).optional(),subId:z.string().trim().max(80).optional(),channel:z.string().trim().max(50).optional(),utmSource:z.string().trim().max(80).optional(),utmMedium:z.string().trim().max(80).optional(),utmCampaign:z.string().trim().max(100).optional(),utmContent:z.string().trim().max(100).optional()}).parse(request.body);await createPromoterLink(request,input);response.redirect('/promoter');}catch(error){next(error);}});
-router.post('/promoter/content-kit', requireAuth, requireVerified, requirePermission('promoter:manage'), async(request,response,next)=>{try{const input=z.object({campaignId:z.string().min(4).max(100),destination:z.string().trim().regex(/^\/[A-Za-z0-9/_?&=.%+-]*$/).max(500),couponCode:z.string().trim().max(32).optional(),subId:z.string().trim().max(80).optional(),channel:z.string().trim().max(50).default(''),utmContent:z.string().trim().max(100).optional()}).parse(request.body);request.session.promoterContentKit=await buildCampaignContentKit(request,input);response.redirect('/promoter#content-kit');}catch(error){next(error);}});
-
-router.post('/promoter/messages/:id/reply', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request,response,next)=>{try{const body=z.string().trim().min(2).max(2000).parse(request.body.message);const thread=await PromoterContactRequest.findOne({publicId:request.params.id,promoterUserId:request.user._id,status:{$ne:'resolved'}});if(!thread)throw new AppError('Conversation not found or already resolved.',404,'CONTACT_NOT_FOUND');thread.replies.push({sender:'promoter',senderUserId:request.user._id,body,at:new Date()});thread.status='read';thread.lastMessageAt=new Date();await thread.save();await writeAudit(request,'promoter_contact.promoter_reply',{targetType:'promoter_contact',targetPublicId:thread.publicId});setFlash(request,'success','Reply sent to the customer.');response.redirect('/promoter#messages');}catch(error){next(error);}});
-router.post('/promoter/messages/:id/resolve', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request,response,next)=>{try{const thread=await PromoterContactRequest.findOne({publicId:request.params.id,promoterUserId:request.user._id});if(!thread)throw new AppError('Conversation not found.',404,'CONTACT_NOT_FOUND');thread.status='resolved';thread.resolvedAt=new Date();thread.lastMessageAt=new Date();await thread.save();await writeAudit(request,'promoter_contact.resolved',{targetType:'promoter_contact',targetPublicId:thread.publicId});setFlash(request,'success','Conversation marked resolved.');response.redirect('/promoter#messages');}catch(error){next(error);}});
-
-router.post('/promoter/commissions/:id/appeal', requireAuth, requireVerified, requirePermission('promoter:manage'), async(request,response,next)=>{try{const message=z.string().trim().min(10).max(1200).parse(request.body.message);await appealCommissionReversal(request,request.params.id,message);response.redirect('/promoter');}catch(error){next(error);}});
-router.post('/admin/commissions/:id/appeal', requireAuth, requireVerified, adminOnly, async(request,response,next)=>{try{const input=z.object({decision:z.enum(['accept','reject']),reason:z.string().trim().min(10).max(1200)}).parse(request.body);await reviewCommissionAppeal(request,request.params.id,input);response.redirect('/admin/promoters');}catch(error){next(error);}});
-
-router.get('/seller/campaigns', requireAuth, requireVerified, loadSellerStore, requireStoreCapability('growth'), async(request,response,next)=>{try{const store=request.store,size=50,campaignBase={storeId:store._id};const campaignIds=await Campaign.find(campaignBase).distinct('_id');const applicationBase=campaignIds.length?{campaignId:{$in:campaignIds}}:{_id:{$in:[]}};const [campaignRows,applicationRows,campaignTotal,applicationTotal,products]=await Promise.all([Campaign.find(cursorScope(campaignBase,request.query.campaignsAfter)).sort(cursorSort()).limit(size+1).lean(),CampaignApplication.find(cursorScope(applicationBase,request.query.applicationsAfter)).sort(cursorSort()).limit(size+1).lean(),Campaign.countDocuments(campaignBase),CampaignApplication.countDocuments(applicationBase),Product.find({storeId:store._id,status:'published',countries:store.country}).select('publicId title').sort({title:1}).lean()]);const campaignPage=pageResult(campaignRows,{limit:size,total:campaignTotal}),applicationPage=pageResult(applicationRows,{limit:size,total:applicationTotal});response.set('Cache-Control','private, no-store').render('seller-campaigns',{campaigns:campaignPage.items,applications:applicationPage.items,products,store,queuePages:{campaigns:campaignPage.page,applications:applicationPage.page}});}catch(error){next(error);}});
-router.post('/seller/campaigns', requireAuth, requireVerified, loadSellerStore, requireStoreCapability('growth'), async(request,response,next)=>{try{await createCampaign(request,campaignForm(request.body));response.redirect('/seller/campaigns');}catch(error){next(error);}});
-router.post('/seller/campaigns/:id/submit', requireAuth, requireVerified, loadSellerStore, requireStoreCapability('growth'), async(request,response,next)=>{try{await submitCampaign(request,request.params.id);response.redirect('/seller/campaigns');}catch(error){next(error);}});
-router.post('/seller/campaign-applications/:id/review', requireAuth, requireVerified, loadSellerStore, requireStoreCapability('growth'), async(request,response,next)=>{try{await reviewCampaignApplication(request,request.params.id,{decision:z.enum(['approve','reject']).parse(request.body.decision),reason:String(request.body.reason||'').slice(0,500)});response.redirect('/seller/campaigns');}catch(error){next(error);}});
-
-router.post('/admin/promoters/:id/review', requireAuth, requireVerified, adminOnly, async(request,response,next)=>{try{await reviewPromoterVerification(request,request.params.id,{decision:z.enum(['approve','reject']).parse(request.body.decision),reason:String(request.body.reason||'').slice(0,500)});response.redirect('/admin/promoters');}catch(error){next(error);}});
-router.post('/admin/campaigns/:id/review', requireAuth, requireVerified, adminOnly, async(request,response,next)=>{try{await reviewCampaign(request,request.params.id,{decision:z.enum(['approve','reject']).parse(request.body.decision),reason:String(request.body.reason||'').slice(0,500)});response.redirect('/admin/promoters');}catch(error){next(error);}});
-
-router.get('/api/v1/promoters/me/summary', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request, response, next) => { try { response.json(await promoterSummary(request.user, request.query)); } catch (error) { next(error); } });
-router.get('/promoter/commissions.csv', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request,response,next)=>{try{const count=await CommissionEntry.countDocuments({promoterUserId:request.user._id});await writeAudit(request,'promoter.commissions_exported',{targetType:'promoter',targetPublicId:String(request.user._id),metadata:{rows:count}});await streamPromoterCommissionCsv(response,request.user);}catch(error){next(error);}});
-router.get('/promoter', requireAuth, requireVerified, requirePermission('promoter:manage'), async (request, response, next) => { try { const size=50; const [summary,aiRows,aiTotal] = await Promise.all([promoterSummary(request.user,request.query),AiJob.find(cursorScope({actorUserId:request.user._id,type:'promoter_content'},request.query.aiAfter)).sort(cursorSort()).limit(size+1).lean(),AiJob.countDocuments({actorUserId:request.user._id,type:'promoter_content'})]); const aiPage=pageResult(aiRows,{limit:size,total:aiTotal}); const contentKit=request.session.promoterContentKit||null; delete request.session.promoterContentKit; response.set('Cache-Control', 'private, no-store'); response.render('promoter-workspace', { summary, contentKit, aiJobs:aiPage.items, aiPage:aiPage.page }); } catch (error) { next(error); } });
-router.get('/admin/promoters', requireAuth, requireVerified, adminOnly, async (request, response, next) => { try {
-  const scope=request.user.role==='super_admin'?{}:operationalCountryScope(request.user,'country');
-  const campaignIds=await Campaign.find(scope).distinct('_id'); const size=50;
-  const fetchPage=async(Model,base,cursor,{select=''}={})=>{let q=Model.find(cursorScope(base,cursor)).sort(cursorSort()).limit(size+1);if(select)q=q.select(select);const [rows,total]=await Promise.all([q.lean(),Model.countDocuments(base)]);return pageResult(rows,{limit:size,total});};
-  const [vp,cp,tp,cmp,ap]=await Promise.all([
-    fetchPage(PromoterVerification,scope,request.query.verificationsAfter),
-    fetchPage(Campaign,scope,request.query.campaignsAfter),
-    fetchPage(AttributionTouch,scope,request.query.touchesAfter,{select:'-ipHash -userAgentHash -referrerHash'}),
-    fetchPage(CommissionEntry,{campaignId:{$in:campaignIds}},request.query.commissionsAfter),
-    fetchPage(CampaignApplication,{campaignId:{$in:campaignIds}},request.query.applicationsAfter),
-  ]);
-  response.render('promoter-admin',{verifications:vp.items,campaigns:cp.items,touches:tp.items,commissions:cmp.items,applications:ap.items,queuePages:{verifications:vp.page,campaigns:cp.page,touches:tp.page,commissions:cmp.page,applications:ap.page}});
-} catch (error) { next(error); } });
+router.get('/api/v1/promoters/me/summary', ...promoterPageGates(), asyncHandler(async (request, response) => {
+  const query = new URL(request.originalUrl, 'http://localhost').searchParams;
+  if (query.getAll('period').length > 1 || [...query.keys()].some(key => /^period(?:\[|\.)/.test(key))) throw new AppError('Select one supported reporting period.', 422, 'PROMOTER_PERIOD_INVALID');
+  const overview = await loadPromoterOverview(request);
+  response.json({ market: overview.market, period: overview.period, analytics: overview.analytics, finance: overview.finance,
+    availableMinor: overview.availableMinor, activeCampaigns: overview.activeCampaigns, monthEarnedMinor: overview.monthEarnedMinor });
+}));
 
 export default router;

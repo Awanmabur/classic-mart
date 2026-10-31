@@ -58,6 +58,7 @@
 
   function getServerTotals() { return serverCart?.totals ? { ...serverCart.totals } : null; }
   function getPromotions() { return Array.isArray(serverCart?.promotions) ? serverCart.promotions.map((row) => ({ ...row })) : []; }
+  function getVersion() { return serverCart?.version; }
 
   function count() {
     return items.reduce((total, item) => total + item.quantity, 0);
@@ -172,7 +173,7 @@
   window.ClassicMartCart = {
     getItems, replace, add, setQuantity, remove, clear, count,
     asLegacyCart, cartUrl, getCsrfToken, navigate, decorateLinks, updateBadges,
-    refresh, ready, getServerTotals, getPromotions,
+    refresh, ready, getServerTotals, getPromotions, getVersion,
   };
 
   initialize();

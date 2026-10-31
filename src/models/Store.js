@@ -44,6 +44,13 @@ const storeSchema = new Schema(
       minlength: 3,
       maxlength: 3,
     },
+    operations: {
+      primaryCategory: { type: String, trim: true, maxlength: 100, default: '' },
+      pickupCity: { type: String, trim: true, maxlength: 120, default: '' },
+      supportEmail: { type: String, trim: true, lowercase: true, maxlength: 254, default: '' },
+      supportPhone: { type: String, trim: true, maxlength: 32, default: '' },
+      fulfillmentMode: { type: String, enum: ['merchant', 'warehouse', 'hybrid'], default: 'merchant' },
+    },
     status: {
       type: String,
       enum: ['pending_verification', 'verified', 'suspended', 'closed'],
@@ -59,5 +66,8 @@ const storeSchema = new Schema(
 );
 
 storeSchema.index({ country: 1, status: 1, createdAt: -1 });
+
+storeSchema.add({ moderationEvidenceReadRevision: { type: Number, min: 0, select: false } });
+storeSchema.add({ checkoutReadRevision: { type: Number, min: 0, select: false } });
 
 export const Store = mongoose.model('Store', storeSchema);

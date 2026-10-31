@@ -1,0 +1,8 @@
+const TIERS=Object.freeze([{id:'classic',label:'Classic',minEarned:0},{id:'silver',label:'Silver',minEarned:1000},{id:'gold',label:'Gold',minEarned:5000}]);
+export function customerClubSummary(loyaltyAccount,spendMinor=0,policy=null){
+  const lifetimeEarned=Math.max(0,Number(loyaltyAccount?.lifetimeEarned||0)),debt=Math.max(0,Number(loyaltyAccount?.reversalDebtPoints||0));
+  const tiers=TIERS.map(tier=>{const benefit=(policy?.growth?.clubBenefits||[]).find(row=>row.tier===tier.id),multiplierBps=Number(benefit?.multiplierBps||10000);return {...tier,minSpendMinor:tier.minEarned,pointsPerTenThousand:policy?.growth?.loyaltyEnabled?Number(policy.growth.loyaltyPointsPer1000Minor||0)*10*multiplierBps/10000:0,multiplierBps,standardShippingDiscountBps:Number(benefit?.standardShippingDiscountBps||0),minimumSpendMinor:Number(benefit?.minimumSpendMinor||0),returnDays:policy?.returnWindowDays??null,freeDeliveryMinor:policy?.freeStandardShippingThresholdMinor>0?policy.freeStandardShippingThresholdMinor:null,benefitsConfigured:Boolean(benefit)};});
+  let current=tiers[0];for(const tier of tiers)if(lifetimeEarned>=tier.minEarned)current=tier;
+  const next=tiers[tiers.indexOf(current)+1]||null,span=next?next.minEarned-current.minEarned:1;
+  return {current,next,progressPercent:next?Math.min(100,Math.floor((lifetimeEarned-current.minEarned)*100/span)):100,spendMinor:Number(spendMinor||0),remainingMinor:next?Math.max(0,next.minEarned-lifetimeEarned):0,remainingPoints:next?Math.max(0,next.minEarned-lifetimeEarned):0,points:Number(loyaltyAccount?.points||0),lifetimeEarned,reversalDebtPoints:debt,benefitsPaused:debt>0,tiers,policyConfigured:Boolean(policy)};
+}

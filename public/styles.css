@@ -162,16 +162,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .blue-disc { background: #c8edff; color: #12375c; }
 .coral-disc { background: #ffecb7; color: #773b2e; }
 .hero-arrow { position: absolute; top: 50%; width: 34px; height: 34px; margin-top: -17px; border: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.9); box-shadow: 0 4px 14px rgba(0,0,0,.15); opacity: 0; cursor: pointer; transition: .2s ease; z-index: 8; }
-.hero-slider:hover .hero-arrow { opacity: 1; }
+.hero-slider:hover .hero-arrow,
+.hero-slider:focus-within .hero-arrow { opacity: 1; }
 .hero-arrow img { width: 10px; }
 .hero-prev { left: 12px; }
 .hero-next { right: 12px; }
-.hero-dots { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 5px; z-index: 8; }
-.hero-dots button { width: 8px; height: 8px; border: 0; border-radius: 50%; padding: 0; background: rgba(255,255,255,.55); cursor: pointer; transition: .2s ease; }
-.hero-dots button.active { width: 20px; border-radius: 5px; background: #fff; }
+.hero-dots { position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); display: flex; gap: 0; z-index: 8; }
+/* Keep the visible dots eight pixels tall while giving each slide its own
+   nonoverlapping touch target. The visible dots still sit 12px above the edge. */
+.hero-dots button { position: relative; width: 24px; height: 24px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.hero-dots button::before { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; transform: translate(-50%, -50%); border-radius: 50%; background: rgba(255,255,255,.55); transition: .2s ease; }
+.hero-dots button.active::before { width: 20px; border-radius: 5px; background: #fff; }
 
 .promo-stack { display: grid; grid-template-rows: repeat(3, 1fr); gap: 8px; }
-.promo-card { min-height: 0; border: 0; border-radius: 7px; padding: 11px 10px 10px 14px; display: grid; grid-template-columns: 1fr 43%; align-items: center; overflow: hidden; cursor: pointer; text-align: left; transition: transform .2s ease, box-shadow .2s ease; }
+.promo-card { position: relative; min-height: 0; border: 0; border-radius: 7px; padding: 11px 10px 10px 14px; display: grid; grid-template-columns: 1fr 43%; align-items: center; overflow: hidden; cursor: pointer; text-align: left; transition: transform .2s ease, box-shadow .2s ease; }
 .promo-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
 .promo-tech { background: #d9f0ff; }
 .promo-home { background: #eaf6e8; }
@@ -442,8 +446,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .filter-drawer select { width: 100%; height: 40px; border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; }
 .filter-drawer .button { width: 100%; margin-bottom: 8px; }
 
-.toast { position: fixed; left: 50%; bottom: 24px; z-index: 700; min-width: 220px; max-width: calc(100% - 32px); border-radius: 8px; background: var(--navy); color: #fff; padding: 11px 16px; text-align: center; font-size: 10px; box-shadow: var(--shadow-lg); transform: translate(-50%, 20px); opacity: 0; visibility: hidden; transition: .25s ease; }
-.toast.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 .back-to-top { position: fixed; right: 22px; bottom: 22px; z-index: 250; width: 40px; height: 40px; border: 0; border-radius: 50%; background: var(--orange); box-shadow: 0 8px 20px rgba(255,101,0,.3); display: grid; place-items: center; cursor: pointer; opacity: 0; visibility: hidden; transform: translateY(8px); transition: .2s ease; }
 .back-to-top.show { opacity: 1; visibility: visible; transform: none; }
 .back-to-top img { width: 12px; filter: brightness(0) invert(1); }
@@ -1542,8 +1544,10 @@ body { font-size: 15px; line-height: 1.55; }
 .hero-mixer { right: -1%; top: 6%; width: 45%; transform: rotate(8deg); }
 .hero-lamp { left: 27%; bottom: -13%; width: 31%; transform: rotate(13deg); }
 
-/* The three right-hand promo cards animate independently with random slide, fade and zoom motions. */
-.promo-card { will-change: transform, opacity; transform-origin: center; }
+/* Approved promotional motions pause while a card is being used. Keep the
+   label and its backing opaque throughout; only the decorative photo fades. */
+.promo-card { transform-origin: center; }
+.promo-card[class*="promo-motion-"] { will-change: transform; }
 .promo-card.promo-motion-slide-left { animation: promoSlideLeft 1.05s cubic-bezier(.22,.61,.36,1); }
 .promo-card.promo-motion-slide-right { animation: promoSlideRight 1.05s cubic-bezier(.22,.61,.36,1); }
 .promo-card.promo-motion-slide-up { animation: promoSlideUp 1.05s cubic-bezier(.22,.61,.36,1); }
@@ -1551,40 +1555,51 @@ body { font-size: 15px; line-height: 1.55; }
 .promo-card.promo-motion-zoom-in { animation: promoZoomIn 1.05s cubic-bezier(.22,.61,.36,1); }
 .promo-card.promo-motion-zoom-out { animation: promoZoomOut 1.05s cubic-bezier(.22,.61,.36,1); }
 .promo-card.promo-motion-fade { animation: promoFade 1.05s ease-in-out; }
+.promo-card.promo-motion-slide-left > img,
+.promo-card.promo-motion-slide-right > img,
+.promo-card.promo-motion-slide-up > img,
+.promo-card.promo-motion-slide-down > img { animation: promoPhotoSlide 1.05s cubic-bezier(.22,.61,.36,1); }
+.promo-card.promo-motion-zoom-in > img,
+.promo-card.promo-motion-zoom-out > img { animation: promoPhotoZoom 1.05s cubic-bezier(.22,.61,.36,1); }
+.promo-card.promo-motion-fade > img { animation: promoPhotoFade 1.05s ease-in-out; }
 @keyframes promoSlideLeft {
-  0%, 100% { opacity: 1; transform: translateX(0) scale(1); }
-  44% { opacity: 0; transform: translateX(-30px) scale(.96); }
-  55% { opacity: 0; transform: translateX(30px) scale(1.03); }
+  0%, 100% { transform: translateX(0) scale(1); }
+  44% { transform: translateX(-30px) scale(.96); }
+  55% { transform: translateX(30px) scale(1.03); }
 }
 @keyframes promoSlideRight {
-  0%, 100% { opacity: 1; transform: translateX(0) scale(1); }
-  44% { opacity: 0; transform: translateX(30px) scale(.96); }
-  55% { opacity: 0; transform: translateX(-30px) scale(1.03); }
+  0%, 100% { transform: translateX(0) scale(1); }
+  44% { transform: translateX(30px) scale(.96); }
+  55% { transform: translateX(-30px) scale(1.03); }
 }
 @keyframes promoSlideUp {
-  0%, 100% { opacity: 1; transform: translateY(0) scale(1); }
-  44% { opacity: 0; transform: translateY(-24px) scale(.96); }
-  55% { opacity: 0; transform: translateY(24px) scale(1.03); }
+  0%, 100% { transform: translateY(0) scale(1); }
+  44% { transform: translateY(-24px) scale(.96); }
+  55% { transform: translateY(24px) scale(1.03); }
 }
 @keyframes promoSlideDown {
-  0%, 100% { opacity: 1; transform: translateY(0) scale(1); }
-  44% { opacity: 0; transform: translateY(24px) scale(.96); }
-  55% { opacity: 0; transform: translateY(-24px) scale(1.03); }
+  0%, 100% { transform: translateY(0) scale(1); }
+  44% { transform: translateY(24px) scale(.96); }
+  55% { transform: translateY(-24px) scale(1.03); }
 }
 @keyframes promoZoomIn {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  48% { opacity: 0; transform: scale(1.18); }
-  56% { opacity: 0; transform: scale(.9); }
+  0%, 100% { transform: scale(1); }
+  48% { transform: scale(1.18); }
+  56% { transform: scale(.9); }
 }
 @keyframes promoZoomOut {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  48% { opacity: 0; transform: scale(.78); }
-  56% { opacity: 0; transform: scale(1.12); }
+  0%, 100% { transform: scale(1); }
+  48% { transform: scale(.78); }
+  56% { transform: scale(1.12); }
 }
 @keyframes promoFade {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0; transform: scale(.98); }
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(.98); }
 }
+/* Unspecified endpoints retain each photo's normal desktop/mobile opacity. */
+@keyframes promoPhotoSlide { 44%, 55% { opacity: 0; } }
+@keyframes promoPhotoZoom { 48%, 56% { opacity: 0; } }
+@keyframes promoPhotoFade { 50% { opacity: 0; } }
 
 /* Keep section scroll arrows at the vertical middle of the section's right edge. */
 .store-section,
@@ -1643,7 +1658,7 @@ body { font-size: 15px; line-height: 1.55; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .promo-card { animation: none !important; }
+  .promo-card, .promo-card > img { animation: none !important; }
 }
 
 /* =========================================================
@@ -1831,7 +1846,8 @@ body { font-size: 15px; line-height: 1.55; }
   color: var(--muted);
   font-size: 12px;
 }
-.search-results-summary strong { color: var(--text); }
+.search-results-summary strong { color: var(--text); display: inline; font-size: inherit; }
+.search-results-summary > span { min-width: 0; overflow-wrap: anywhere; }
 .search-results-summary button {
   width: auto;
   min-height: 30px;
@@ -2120,6 +2136,13 @@ body { font-size: 15px; line-height: 1.55; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
   gap: 9px;
+}
+#searchSuggestionsList {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: inherit;
 }
 .search-results-summary,
 .no-suggestions {
@@ -3171,7 +3194,7 @@ body { font-size: 15px; line-height: 1.55; }
 }
 
 /* Final category hover and account shortcut refinements. */
-.category-panel :is(button,a){border-radius:13px!important;overflow:hidden}.category-panel :is(button,a):hover,.category-panel :is(button,a):focus-visible{border-radius:13px!important;background:#fff1e7!important;color:var(--orange);outline:none}.wishlist-trigger{text-decoration:none;color:inherit}.wishlist-count-badge{background:#e74e5d}.header-actions:has(.wishlist-trigger){gap:16px}@media(max-width:980px){.header-actions:has(.wishlist-trigger){gap:7px}}@media(max-width:760px){.header-actions:has(.wishlist-trigger){gap:3px}.header-actions:has(.wishlist-trigger) .header-action{padding-inline:2px}}
+.category-panel :is(button,a){border-radius:13px!important;overflow:hidden}.category-panel :is(button,a):hover,.category-panel :is(button,a):focus-visible{border-radius:13px!important;background:#fff1e7!important;color: var(--orange);outline:none}.wishlist-trigger{text-decoration:none;color:inherit}.wishlist-count-badge{background:#e74e5d}.header-actions:has(.wishlist-trigger){gap:16px}@media(max-width:980px){.header-actions:has(.wishlist-trigger){gap:7px}}@media(max-width:760px){.header-actions:has(.wishlist-trigger){gap:3px}.header-actions:has(.wishlist-trigger) .header-action{padding-inline:2px}}
 
 .country-switch-popover{position:fixed;z-index:1400;min-width:220px;max-width:calc(100vw - 24px);padding:10px;background:#fff;border:1px solid #e4e7ec;border-radius:16px;box-shadow:0 12px 30px rgba(16,24,40,.14)}
 .country-switch-popover>strong{display:block;padding:6px 8px 10px;font-size:.9rem}.country-switch-form{margin:0}.country-switch-option{width:100%;border:0;background:transparent;border-radius:12px;padding:10px 12px;text-align:left;cursor:pointer;font:inherit;color:inherit}.country-switch-option:hover,.country-switch-option:focus-visible,.country-switch-option[aria-current=true]{background:#f2f4f7;outline:none}.country-switch-option[aria-current=true]{font-weight:700}
@@ -3262,22 +3285,9 @@ body { font-size: 15px; line-height: 1.55; }
 }
 .newsletter-form button:hover { background: var(--orange-dark); }
 .newsletter-form button:disabled { opacity: .72; cursor: wait; }
-.newsletter-status {
-  position: absolute;
-  left: 6px;
-  top: calc(100% + 4px);
-  z-index: 2;
-  margin: 0;
-  color: #fff;
-  font-size: 10px;
-  line-height: 1.25;
-}
-.newsletter-status.is-error { color: #fff2b8; }
-
 /* Product preview must remain in front of the fixed utility/header navigation. */
 .modal-backdrop { z-index: 5000; }
 .modal { z-index: 5010; }
-.product-share-menu { z-index: 5030; }
 
 @media (max-width: 760px) {
   .brand-logo { width: 150px; height: 55px; }
@@ -3749,7 +3759,6 @@ body { font-size: 15px; line-height: 1.55; }
     filter: invert(49%) sepia(97%) saturate(3695%) hue-rotate(359deg) brightness(101%) contrast(105%);
   }
   .back-to-top { bottom: 86px; }
-  .toast { bottom: 88px; }
 }
 
 @media (max-width: 430px) {
@@ -3819,4 +3828,97 @@ body { font-size: 15px; line-height: 1.55; }
     width: 34px;
     height: 34px;
   }
+}
+
+/* v2.13.50 compact marketplace media */
+#trending .product-image { height: 152px; }
+.product-grid .product-image { height: 158px; }
+#categories .category-row {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 4px;
+}
+#categories .category-row::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.site-footer .socials a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 999px;
+  transition: transform .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+.site-footer .socials a:hover,
+.site-footer .socials a:focus-visible {
+  transform: translateY(-2px);
+  background: rgba(255,255,255,.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,.12);
+}
+@media (max-width: 720px) {
+  #trending .product-image, .product-grid .product-image { height: 146px; }
+}
+
+/* v2.13.50 compact secondary shopping media */
+.recommend-card .recommend-image { height: 154px; }
+
+/* Native preview actions keep the existing card typography. */
+.product-preview-button.product-preview-button {
+  width: auto;
+  max-width: 100%;
+  min-height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.search-result-option[aria-selected="true"] { background: #f3f4f6; }
+
+@media (max-width: 900px) {
+  .daily-deals { grid-template-columns: minmax(0, 1fr); }
+  .deal-intro { min-width: 0; }
+}
+
+@media (max-width: 360px) {
+  .deal-intro { grid-template-columns: minmax(0, 1fr); }
+  .deal-intro .countdown { grid-column: 1; grid-row: auto; margin-top: 6px; }
+}
+
+/* The small banners beside the hero are the only homepage frames whose
+   geometry changes. Category circles and product-card corners stay approved. */
+.promo-stack .promo-card { border-radius: 24px; }
+.promo-stack .promo-card > img { border-radius: 20px; clip-path: var(--promo-photo-clip, none); }
+
+/* Supporting photos follow their own approved frame, including responsive
+   gallery and checkout radii. Keep quantity badges outside the photo clip. */
+.gallery-main > img,
+.gallery-thumb > img,
+.product-modal-image > img,
+.cart-page-image > img,
+.checkout-mini-item > span > img,
+.confirm-item > span > img {
+  border-radius: inherit;
+}
+
+/* The server-rendered product remains readable without JavaScript. Its photo
+   follows the homepage product corners and stays inside the viewport. */
+.product-preview-gallery > img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 23px;
+}
+
+/* Real catalogue names and descriptions can exceed editorial banner copy.
+   Keep their product link reachable without changing short copy or CMS slides. */
+.hero-slider[data-hero-source="catalogue"] .hero-copy :is(h1, h2, p) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }

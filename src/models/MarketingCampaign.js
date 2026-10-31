@@ -12,6 +12,10 @@ const marketingCampaignSchema=new mongoose.Schema({
   completedAt:Date,
   eligibleCount:{type:Number,min:0,default:0},
   queuedCount:{type:Number,min:0,default:0},
+  dispatchGrantPublicId:{type:String,maxlength:120,default:''},
+  dispatchActorUserId:{type:mongoose.Schema.Types.ObjectId,ref:'User'},
+  dispatchTokenVersion:{type:Number,min:0},
+  dispatchStoredRole:{type:String,maxlength:30,default:''},
   createdByUserId:{type:mongoose.Schema.Types.ObjectId,ref:'User',required:true},
-},{timestamps:true});
+},{timestamps:true,optimisticConcurrency:true});
 export const MarketingCampaign=mongoose.model('MarketingCampaign',marketingCampaignSchema);

@@ -33,6 +33,8 @@ function orderSnapshot(orderLike) {
       country: order.contact?.country || order.country || '',
     },
     totals: plain(order.totals),
+    funding: plain(order.fundingSnapshot || null),
+    loyalty: plain(order.loyaltySnapshot || null),
     items: (order.items || []).map(item => ({
       linePublicId: item.linePublicId || '',
       productPublicId: item.productPublicId || '',
@@ -78,6 +80,9 @@ function refundSnapshot(refundLike) {
     currency: refund.currency || '',
     allocations: (refund.allocations || []).map(row => ({
       storePublicId: row.storePublicId || '',
+      platformContributionMinor: Number(row.platformContributionMinor || 0),
+      sourceCashOffsetMinor: Number(row.sourceCashOffsetMinor || 0),
+      sourceHash: row.sourceHash || '',
       productPublicId: row.productPublicId || '',
       orderLineId: row.orderLineId || '',
       grossMinor: Number(row.grossMinor || 0),

@@ -1,0 +1,221 @@
+/* Live Country Admin destinations retain the approved workspace geometry. */
+body[data-dashboard-workspace="admin"] .country-admin-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; min-width: 0; }
+body[data-dashboard-workspace="admin"] .country-admin-country-filter { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+body[data-dashboard-workspace="admin"] .country-admin-country-filter select { min-width: 0; max-width: 100%; }
+body[data-dashboard-workspace="admin"] .country-admin-settings-live .role-profile-summary p { overflow-wrap: anywhere; }
+body[data-dashboard-workspace="admin"] .country-admin-settings-live .role-settings-nav { position: static; padding: 0; }
+body[data-dashboard-workspace="admin"] .country-admin-settings-live .role-profile-avatar { font-size: 25px; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-form-grid > div:not(.wide) { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-form-grid > div > span { color: var(--muted); font-size: 11.5px; font-weight: 600; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-form-grid > div > strong { font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-health-ring[data-health-known="false"] { border-color: #ffe8d9; }
+body[data-dashboard-workspace="admin"] .country-admin-case-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+body[data-dashboard-workspace="admin"] .country-admin-case-tabs a { min-height: 31px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-pill, 999px); color: #526078; background: #fff; font-size: 11.5px; font-weight: 600; line-height: 1.35; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .country-admin-case-tabs a.active { color: #fff; border-color: var(--blue); background: var(--blue); }
+body[data-dashboard-workspace="admin"] .country-admin-record-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 0 0 18px; }
+body[data-dashboard-workspace="admin"] .country-admin-record-details > div { min-width: 0; display: grid; gap: 5px; }
+body[data-dashboard-workspace="admin"] .country-admin-record-details dt { color: var(--muted); font-size: 11.5px; font-weight: 600; }
+body[data-dashboard-workspace="admin"] .country-admin-record-details dd { margin: 0; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+body[data-dashboard-workspace="admin"] .country-admin-decision-history { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+body[data-dashboard-workspace="admin"] .country-admin-decision-history li { display: grid; gap: 4px; min-width: 0; }
+body[data-dashboard-workspace="admin"] .country-admin-decision-history li > span { font-size: 12px; font-weight: 650; }
+body[data-dashboard-workspace="admin"] .country-admin-decision-history small { color: var(--muted); font-size: 11.5px; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-form-section > form { margin-top: 18px; }
+body[data-dashboard-workspace="admin"] .country-admin-settings-live .role-payment-method :is(a, .soft-button),
+body[data-dashboard-workspace="admin"] .country-admin-settings-live .role-security-row :is(a, .soft-button) { flex-shrink: 0; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-table-panel > .role-panel-head { flex-wrap: wrap; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-table-tools { max-width: 100%; flex-wrap: wrap; }
+body[data-dashboard-workspace="admin"] .country-admin-compact-filter,
+body[data-dashboard-workspace="admin"] .country-admin-period-filter { margin: 0; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+body[data-dashboard-workspace="admin"] .country-admin-compact-filter .role-mini-search { flex: none; min-width: 160px; width: 170px; height: 36px; }
+body[data-dashboard-workspace="admin"] .country-admin-queue-filter { margin-bottom: 14px; align-items: flex-end; }
+body[data-dashboard-workspace="admin"] .country-admin-queue-filter > label { display: grid; gap: 5px; min-width: 0; color: #35425a; font-size: 11.5px; font-weight: 500; }
+body[data-dashboard-workspace="admin"] .country-admin-queue-filter select { min-width: 0; max-width: 100%; }
+body[data-dashboard-workspace="admin"] .country-admin-queue-filter > .country-admin-overdue-label { display: flex; align-items: center; gap: 7px; min-height: 38px; }
+body[data-dashboard-workspace="admin"] .country-admin-queue-filter .country-admin-overdue-label input { width: 15px; height: 15px; min-height: 0; padding: 0; flex: 0 0 15px; }
+body[data-dashboard-workspace="admin"] .country-admin-record-tabs { flex-wrap: nowrap; overflow-x: auto; }
+body[data-dashboard-workspace="admin"] .country-admin-record-tabs a { min-height: 31px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-pill, 999px); color: #526078; background: #fff; font-size: 11.5px; font-weight: 600; line-height: 1.35; text-decoration: none; white-space: nowrap; }
+body[data-dashboard-workspace="admin"] .country-admin-record-tabs a.active { color: #fff; border-color: var(--blue); background: var(--blue); }
+body[data-dashboard-workspace="admin"] .country-admin-record-action { padding: 1px 6px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-button, 12px); text-decoration: none; }
+body[data-dashboard-workspace="admin"] .country-admin-page-control { min-width: 27px; min-height: 27px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-button, 12px); color: #56647b; background: #fff; font-size: 11px; }
+body[data-dashboard-workspace="admin"] .country-admin-page-control.active { color: #fff; border-color: var(--blue); background: var(--blue); }
+body[data-dashboard-workspace="admin"] .country-admin-page-control[aria-disabled="true"] { opacity: .6; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-workflow-grid a { grid-column: 2; justify-self: start; min-height: 29px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: var(--radius-button, 12px); color: var(--blue); background: #fff8f3; font-size: 11.5px; font-weight: 600; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-metric strong { white-space: normal; overflow-wrap: anywhere; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-chart > div > span[data-zero="true"] { min-height: 0; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-chart > div > span[data-negative="true"] { background: var(--muted); }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-chart > div { min-width: 0; }
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-chart-legend strong { color: inherit; }
+body[data-dashboard-workspace="admin"] .country-admin-empty-chart { align-items: center; justify-content: center; }
+body[data-dashboard-workspace="admin"] .country-admin-performance-records { margin-bottom: 14px; }
+body[data-dashboard-workspace="admin"] .country-admin-overview-live .role-focus-list :is(a, .country-admin-priority-note) { width: 100%; min-height: 51px; padding: 8px 10px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 14px; align-items: center; gap: 8px; border: 1px solid #e5e8eb; border-radius: 12px; background: #fbfcfd; color: #17213b; text-align: left; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .country-admin-overview-live .role-focus-list a:hover { border-color: #f5b287; background: #fff8f4; }
+body[data-dashboard-workspace="admin"] .country-admin-overview-live .role-focus-list :is(a, .country-admin-priority-note) > span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: #d95700; background: var(--orange-soft); font-size: 11px; font-weight: 700; }
+body[data-dashboard-workspace="admin"] .country-admin-overview-live .role-activity-feed a { color: inherit; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .country-admin-overview-live .role-activity-feed a:hover { text-decoration: underline; }
+body[data-dashboard-workspace="admin"] .country-admin-overview-live .role-welcome-score strong { font-size: 20px; line-height: 1.2; white-space: nowrap; }
+body[data-dashboard-workspace="admin"] .role-settings-nav a { min-height: 39px; padding: 0 11px; display: flex; align-items: center; border-radius: 12px; color: #56647b; background: transparent; font: inherit; font-size: 12px; font-weight: 600; text-align: left; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .role-settings-nav a:hover { color: var(--blue); background: #fff4eb; }
+body[data-dashboard-workspace="admin"] .role-settings-nav a.active { color: #fff; background: var(--blue); }
+body[data-dashboard-workspace="admin"] .role-profile-summary .role-settings-nav a { min-height: 44px; width: 100%; padding: 0 16px; justify-content: flex-start; white-space: normal; }
+@media (max-width: 1120px) {
+  body[data-dashboard-workspace="admin"] .role-profile-summary .role-settings-nav a { white-space: nowrap; }
+}
+body[data-dashboard-workspace="admin"] .country-admin-standard-live .form-panel > form.role-form-section { margin-top: 18px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+@media (max-width: 840px) {
+  body[data-dashboard-workspace="admin"] .country-admin-fidelity-page details.faq-item { display: block; min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .country-admin-fidelity-page details.faq-item > summary { min-width: 0; padding-block: 12px; white-space: normal; overflow-wrap: anywhere; }
+  body[data-dashboard-workspace="admin"] .country-admin-fidelity-page details.faq-item > :is(form, div, p) { min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .role-table { width: 100%; min-width: 0; }
+  body[data-dashboard-workspace="admin"] .role-table :is(tbody, tr) { min-width: 0; width: 100%; }
+  body[data-dashboard-workspace="admin"] .role-table tr { grid-template-columns: minmax(0, 1fr); }
+  body[data-dashboard-workspace="admin"] .role-table td { min-width: 0; white-space: normal; }
+  body[data-dashboard-workspace="admin"] .role-table td:last-child { grid-column: auto; display: grid; justify-content: normal; }
+  body[data-dashboard-workspace="admin"] .role-table td:last-child::before { display: block; }
+  body[data-dashboard-workspace="admin"] .role-table td[colspan] { display: block; }
+  body[data-dashboard-workspace="admin"] .role-table td[colspan]::before { display: none; }
+  body[data-dashboard-workspace="admin"] :is(.country-admin-fidelity-page, .role-settings-content) :is(h1, h2, h3, p, td, a, span, small, label) { overflow-wrap: anywhere; }
+  body[data-dashboard-workspace="admin"] :is(.form-panel, .role-form-section, .role-form-grid, .role-form-grid label, .role-panel-head > div) { min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .role-form-grid :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-panel-head { flex-wrap: wrap; }
+  body[data-dashboard-workspace="admin"] .country-admin-period-filter { width: 100%; }
+  body[data-dashboard-workspace="admin"] .role-table-footer { flex-wrap: wrap; }
+}
+@media (max-width: 700px) {
+  body[data-dashboard-workspace="admin"] .country-admin-record-details { grid-template-columns: minmax(0, 1fr); }
+  body[data-dashboard-workspace="admin"] .country-admin-heading-actions { width: 100%; justify-content: flex-start; }
+  body[data-dashboard-workspace="admin"] .country-admin-country-filter { width: 100%; }
+  body[data-dashboard-workspace="admin"] .country-admin-country-filter select { flex: 1; }
+  body[data-dashboard-workspace="admin"] .country-admin-heading-actions > .icon-button { width: 100%; }
+  body[data-dashboard-workspace="admin"] .country-admin-settings-live :is(.role-security-row, .role-payment-method) { flex-wrap: wrap; }
+  body[data-dashboard-workspace="admin"] .country-admin-settings-live .role-profile-summary { max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .country-admin-overview-live .role-welcome-score strong { font-size: 14px; }
+  body[data-dashboard-workspace="admin"] .country-admin-overview-live .role-welcome-score small { font-size: 9px; }
+  body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-table-tools { width: 100%; }
+  body[data-dashboard-workspace="admin"] .country-admin-compact-filter { flex: 1 1 100%; }
+  body[data-dashboard-workspace="admin"] .country-admin-compact-filter .role-mini-search { flex: 1; width: auto; min-width: 140px; }
+  body[data-dashboard-workspace="admin"] .country-admin-overview-live .role-welcome > div:first-child > div { flex-wrap: wrap; }
+}
+body[data-dashboard-workspace="admin"][data-country-admin-density="compact"] .role-table :is(th, td) { padding-top: 8px; padding-bottom: 8px; }
+body[data-dashboard-workspace="admin"] .country-admin-idle-reminder { position: fixed; right: 14px; bottom: 14px; z-index: 70; width: min(390px, calc(100vw - 28px)); padding: 16px; display: grid; gap: 10px; }
+body[data-dashboard-workspace="admin"] .country-admin-idle-reminder p { margin: 0; font-size: 12px; line-height: 1.5; }
+body[data-dashboard-workspace="admin"] .country-admin-idle-reminder > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+body[data-dashboard-workspace="admin"] .country-admin-idle-reminder .outline-button { min-height: 35px; padding: 0 14px; }
+
+body[data-dashboard-workspace="admin"] .role-content-grid { grid-template-columns: minmax(0, 1fr) 292px; }
+body[data-dashboard-workspace="admin"] .country-admin-financial-summary .role-table td { overflow-wrap: anywhere; }
+@media (max-width: 1120px) { body[data-dashboard-workspace="admin"] .role-content-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Live Moderation destinations retain the approved workspace geometry. */
+body[data-dashboard-workspace="admin"] .moderation-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; min-width: 0; }
+body[data-dashboard-workspace="admin"] .moderation-country-filter { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+body[data-dashboard-workspace="admin"] .moderation-country-filter select { min-width: 0; max-width: 100%; }
+body[data-dashboard-workspace="admin"] .moderation-settings-live .role-profile-summary p { overflow-wrap: anywhere; }
+body[data-dashboard-workspace="admin"] .moderation-settings-live .role-settings-nav { position: static; padding: 0; }
+body[data-dashboard-workspace="admin"] .moderation-settings-live .role-profile-avatar { font-size: 25px; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-form-grid > div:not(.wide) { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-form-grid > div > span { color: var(--muted); font-size: 11.5px; font-weight: 600; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-form-grid > div > strong { font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-health-ring[data-health-known="false"] { border-color: #ffe8d9; }
+body[data-dashboard-workspace="admin"] .moderation-case-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+body[data-dashboard-workspace="admin"] .moderation-case-tabs a { min-height: 31px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-pill, 999px); color: #526078; background: #fff; font-size: 11.5px; font-weight: 600; line-height: 1.35; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .moderation-case-tabs a.active { color: #fff; border-color: var(--blue); background: var(--blue); }
+body[data-dashboard-workspace="admin"] .moderation-record-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 0 0 18px; }
+body[data-dashboard-workspace="admin"] .moderation-record-details > div { min-width: 0; display: grid; gap: 5px; }
+body[data-dashboard-workspace="admin"] .moderation-record-details dt { color: var(--muted); font-size: 11.5px; font-weight: 600; }
+body[data-dashboard-workspace="admin"] .moderation-record-details dd { margin: 0; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+body[data-dashboard-workspace="admin"] .moderation-decision-history { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+body[data-dashboard-workspace="admin"] .moderation-decision-history li { display: grid; gap: 4px; min-width: 0; }
+body[data-dashboard-workspace="admin"] .moderation-decision-history li > span { font-size: 12px; font-weight: 650; }
+body[data-dashboard-workspace="admin"] .moderation-decision-history small { color: var(--muted); font-size: 11.5px; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-form-section > form { margin-top: 18px; }
+body[data-dashboard-workspace="admin"] .moderation-settings-live .role-payment-method :is(a, .soft-button),
+body[data-dashboard-workspace="admin"] .moderation-settings-live .role-security-row :is(a, .soft-button) { flex-shrink: 0; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-table-panel > .role-panel-head { flex-wrap: wrap; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-table-tools { max-width: 100%; flex-wrap: wrap; }
+body[data-dashboard-workspace="admin"] .moderation-compact-filter,
+body[data-dashboard-workspace="admin"] .moderation-period-filter { margin: 0; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+body[data-dashboard-workspace="admin"] .moderation-compact-filter .role-mini-search { flex: none; min-width: 160px; width: 170px; height: 36px; }
+body[data-dashboard-workspace="admin"] .moderation-queue-filter { margin-bottom: 14px; align-items: flex-end; }
+body[data-dashboard-workspace="admin"] .moderation-queue-filter > label { display: grid; gap: 5px; min-width: 0; color: #35425a; font-size: 11.5px; font-weight: 500; }
+body[data-dashboard-workspace="admin"] .moderation-queue-filter select { min-width: 0; max-width: 100%; }
+body[data-dashboard-workspace="admin"] .moderation-queue-filter > .moderation-overdue-label { display: flex; align-items: center; gap: 7px; min-height: 38px; }
+body[data-dashboard-workspace="admin"] .moderation-queue-filter .moderation-overdue-label input { width: 15px; height: 15px; min-height: 0; padding: 0; flex: 0 0 15px; }
+body[data-dashboard-workspace="admin"] .moderation-record-tabs { flex-wrap: nowrap; overflow-x: auto; }
+body[data-dashboard-workspace="admin"] .moderation-record-tabs a { min-height: 31px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-pill, 999px); color: #526078; background: #fff; font-size: 11.5px; font-weight: 600; line-height: 1.35; text-decoration: none; white-space: nowrap; }
+body[data-dashboard-workspace="admin"] .moderation-record-tabs a.active { color: #fff; border-color: var(--blue); background: var(--blue); }
+body[data-dashboard-workspace="admin"] .moderation-record-action { padding: 1px 6px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-button, 12px); text-decoration: none; }
+body[data-dashboard-workspace="admin"] .moderation-page-control { min-width: 27px; min-height: 27px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: var(--radius-button, 12px); color: #56647b; background: #fff; font-size: 11px; }
+body[data-dashboard-workspace="admin"] .moderation-page-control.active { color: #fff; border-color: var(--blue); background: var(--blue); }
+body[data-dashboard-workspace="admin"] .moderation-page-control[aria-disabled="true"] { opacity: .6; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-workflow-grid a { grid-column: 2; justify-self: start; min-height: 29px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: var(--radius-button, 12px); color: var(--blue); background: #fff8f3; font-size: 11.5px; font-weight: 600; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-metric strong { white-space: normal; overflow-wrap: anywhere; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-chart > div > span[data-zero="true"] { min-height: 0; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-chart > div > span[data-negative="true"] { background: var(--muted); }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-chart > div { min-width: 0; }
+body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-chart-legend strong { color: inherit; }
+body[data-dashboard-workspace="admin"] .moderation-empty-chart { align-items: center; justify-content: center; }
+body[data-dashboard-workspace="admin"] .moderation-performance-records { margin-bottom: 14px; }
+body[data-dashboard-workspace="admin"] .moderation-overview-live .role-focus-list :is(a, .moderation-priority-note) { width: 100%; min-height: 51px; padding: 8px 10px; display: grid; grid-template-columns: 28px minmax(0, 1fr) 14px; align-items: center; gap: 8px; border: 1px solid #e5e8eb; border-radius: 12px; background: #fbfcfd; color: #17213b; text-align: left; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .moderation-overview-live .role-focus-list a:hover { border-color: #f5b287; background: #fff8f4; }
+body[data-dashboard-workspace="admin"] .moderation-overview-live .role-focus-list :is(a, .moderation-priority-note) > span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: #d95700; background: var(--orange-soft); font-size: 11px; font-weight: 700; }
+body[data-dashboard-workspace="admin"] .moderation-overview-live .role-activity-feed a { color: inherit; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .moderation-overview-live .role-activity-feed a:hover { text-decoration: underline; }
+body[data-dashboard-workspace="admin"] .moderation-overview-live .role-welcome-score strong { font-size: 20px; line-height: 1.2; white-space: nowrap; }
+body[data-dashboard-workspace="admin"] .role-settings-nav a { min-height: 39px; padding: 0 11px; display: flex; align-items: center; border-radius: 12px; color: #56647b; background: transparent; font: inherit; font-size: 12px; font-weight: 600; text-align: left; text-decoration: none; }
+body[data-dashboard-workspace="admin"] .role-settings-nav a:hover { color: var(--blue); background: #fff4eb; }
+body[data-dashboard-workspace="admin"] .role-settings-nav a.active { color: #fff; background: var(--blue); }
+body[data-dashboard-workspace="admin"] .role-profile-summary .role-settings-nav a { min-height: 44px; width: 100%; padding: 0 16px; justify-content: flex-start; white-space: normal; }
+@media (max-width: 1120px) {
+  body[data-dashboard-workspace="admin"] .role-profile-summary .role-settings-nav a { white-space: nowrap; }
+}
+body[data-dashboard-workspace="admin"] .moderation-standard-live .form-panel > form.role-form-section { margin-top: 18px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+@media (max-width: 840px) {
+  body[data-dashboard-workspace="admin"] .moderation-fidelity-page details.faq-item { display: block; min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .moderation-fidelity-page details.faq-item > summary { min-width: 0; padding-block: 12px; white-space: normal; overflow-wrap: anywhere; }
+  body[data-dashboard-workspace="admin"] .moderation-fidelity-page details.faq-item > :is(form, div, p) { min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .role-table { width: 100%; min-width: 0; }
+  body[data-dashboard-workspace="admin"] .role-table :is(tbody, tr) { min-width: 0; width: 100%; }
+  body[data-dashboard-workspace="admin"] .role-table tr { grid-template-columns: minmax(0, 1fr); }
+  body[data-dashboard-workspace="admin"] .role-table td { min-width: 0; white-space: normal; }
+  body[data-dashboard-workspace="admin"] .role-table td:last-child { grid-column: auto; display: grid; justify-content: normal; }
+  body[data-dashboard-workspace="admin"] .role-table td:last-child::before { display: block; }
+  body[data-dashboard-workspace="admin"] .role-table td[colspan] { display: block; }
+  body[data-dashboard-workspace="admin"] .role-table td[colspan]::before { display: none; }
+  body[data-dashboard-workspace="admin"] :is(.moderation-fidelity-page, .role-settings-content) :is(h1, h2, h3, p, td, a, span, small, label) { overflow-wrap: anywhere; }
+  body[data-dashboard-workspace="admin"] :is(.form-panel, .role-form-section, .role-form-grid, .role-form-grid label, .role-panel-head > div) { min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .role-form-grid :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-panel-head { flex-wrap: wrap; }
+  body[data-dashboard-workspace="admin"] .moderation-period-filter { width: 100%; }
+  body[data-dashboard-workspace="admin"] .role-table-footer { flex-wrap: wrap; }
+}
+@media (max-width: 700px) {
+  body[data-dashboard-workspace="admin"] .moderation-record-details { grid-template-columns: minmax(0, 1fr); }
+  body[data-dashboard-workspace="admin"] .moderation-heading-actions { width: 100%; justify-content: flex-start; }
+  body[data-dashboard-workspace="admin"] .moderation-country-filter { width: 100%; }
+  body[data-dashboard-workspace="admin"] .moderation-country-filter select { flex: 1; }
+  body[data-dashboard-workspace="admin"] .moderation-heading-actions > .icon-button { width: 100%; }
+  body[data-dashboard-workspace="admin"] .moderation-settings-live :is(.role-security-row, .role-payment-method) { flex-wrap: wrap; }
+  body[data-dashboard-workspace="admin"] .moderation-settings-live .role-profile-summary { max-width: 100%; }
+  body[data-dashboard-workspace="admin"] .moderation-overview-live .role-welcome-score strong { font-size: 14px; }
+  body[data-dashboard-workspace="admin"] .moderation-overview-live .role-welcome-score small { font-size: 9px; }
+  body[data-dashboard-workspace="admin"] .moderation-fidelity-page .role-table-tools { width: 100%; }
+  body[data-dashboard-workspace="admin"] .moderation-compact-filter { flex: 1 1 100%; }
+  body[data-dashboard-workspace="admin"] .moderation-compact-filter .role-mini-search { flex: 1; width: auto; min-width: 140px; }
+  body[data-dashboard-workspace="admin"] .moderation-overview-live .role-welcome > div:first-child > div { flex-wrap: wrap; }
+}
+body[data-dashboard-workspace="admin"][data-moderation-density="compact"] .role-table :is(th, td) { padding-top: 8px; padding-bottom: 8px; }
+body[data-dashboard-workspace="admin"] .moderation-idle-reminder { position: fixed; right: 14px; bottom: 14px; z-index: 70; width: min(390px, calc(100vw - 28px)); padding: 16px; display: grid; gap: 10px; }
+body[data-dashboard-workspace="admin"] .moderation-idle-reminder p { margin: 0; font-size: 12px; line-height: 1.5; }
+body[data-dashboard-workspace="admin"] .moderation-idle-reminder > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+body[data-dashboard-workspace="admin"] .moderation-idle-reminder .outline-button { min-height: 35px; padding: 0 14px; }
+
+/* Source detail headings include a title, reference and supporting text. Keep
+   those pieces together when the approved content column becomes narrow. */
+body[data-dashboard-workspace="admin"] .country-admin-fidelity-page .role-form-section .role-panel-head.compact > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}

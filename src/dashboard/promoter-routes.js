@@ -1,0 +1,17 @@
+export const PROMOTER_LIVE_ROUTES = Object.freeze({
+  'promoter-overview': '/promoter/overview',
+  'promoter-marketplace': '/promoter/marketplace',
+  'promoter-campaigns': '/promoter/campaigns',
+  'promoter-links': '/promoter/links',
+  'promoter-content': '/promoter/content',
+  'promoter-traffic': '/promoter/traffic',
+  'promoter-conversions': '/promoter/conversions',
+  'promoter-commissions': '/promoter/commissions',
+  'promoter-wallet': '/promoter/wallet',
+  'promoter-payouts': '/promoter/payouts',
+  'promoter-analytics': '/promoter/analytics',
+  'promoter-referrals': '/promoter/referrals',
+  'promoter-brands': '/promoter/brands',
+  'promoter-messages': '/promoter/messages',
+  'promoter-profile': '/promoter/profile',
+});

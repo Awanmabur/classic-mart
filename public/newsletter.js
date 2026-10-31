@@ -15,14 +15,12 @@
   }
 
   document.querySelectorAll('#newsletterForm, [data-newsletter-form]').forEach((form) => {
-    const status = form.querySelector('[data-newsletter-status]');
     const button = form.querySelector('button[type="submit"]');
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const email = String(new FormData(form).get('email') || '').trim();
-      status?.classList.remove('is-error');
       if (!/^\S+@\S+\.\S+$/.test(email)) {
-        if (status) { status.textContent = 'Enter a valid email address.'; status.classList.add('is-error'); }
+        window.ClassicMartFlash.show('Enter a valid email address.', { type: 'error' });
         form.querySelector('input[type="email"]')?.focus();
         return;
       }
@@ -41,10 +39,10 @@
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error?.message || 'Subscription failed.');
-        if (status) status.textContent = payload.message || 'You are subscribed.';
+        window.ClassicMartFlash.show(payload.message || 'You are subscribed.');
         form.reset();
       } catch (error) {
-        if (status) { status.textContent = error.message || 'Subscription failed.'; status.classList.add('is-error'); }
+        window.ClassicMartFlash.show(error.message || 'Subscription failed.', { type: 'error' });
       } finally {
         if (button) { button.disabled = false; button.textContent = original; }
       }

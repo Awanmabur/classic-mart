@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import rateLimit from 'express-rate-limit';
+import rateLimit from '../middleware/rate-limit.js';
 import { z } from 'zod';
 import { publicId } from '../core/ids.js';
 import { randomToken } from '../core/crypto.js';
@@ -24,6 +24,7 @@ import {
 import {
   getStorefront,
   publicIdsForMongoIds,
+  publicCatalogueIdentityMap,
   publishedProduct,
   publishedProductsByPublicIds,
   publishedSeller,
@@ -31,15 +32,18 @@ import {
   searchStorefront,
 } from '../services/storefront.js';
 import { hybridSearch, recommendationsFor } from '../services/ai.js';
+import { optionalProcessingUser } from '../services/optional-processing.js';
+import { currentCustomerAccess, customerTransaction } from '../services/customer-access.js';
 import { activeSponsoredProducts } from '../services/seller-growth.js';
 import { publicPromoter, publicPromoters } from '../services/promoters.js';
 import { scanUpload } from '../services/malware.js';
 import { visualSearchProducts } from '../services/visual-search.js';
+import { storefrontNavigation } from '../services/storefront-navigation.js';
 import { cursorScope, pageResult } from '../services/pagination.js';
 
 const router = Router();
 
-const visualSearchLimit = rateLimit({
+const visualSearchLimit = rateLimit({ scope: 'storefront:1',
   windowMs: 15 * 60_000,
   limit: 12,
   standardHeaders: 'draft-8',
@@ -98,11 +102,11 @@ function browsingSessionKey(request) {
   return request.session.catalogueKey;
 }
 
-async function stateFor(userId) {
+async function stateFor(userId, session = null) {
   return CustomerCatalogueState.findOneAndUpdate(
     { userId },
     { $setOnInsert: { userId } },
-    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true, session },
   );
 }
 
@@ -116,13 +120,24 @@ async function statePayload(userId, country, includeProducts = false) {
     };
   }
   const state =
-    (await CustomerCatalogueState.findOne({ userId })) ||
+    (await CustomerCatalogueState.findOne({ userId }).select('wishlistProductIds comparisonProductIds recentProducts followedStoreIds').lean()) ||
     {
       wishlistProductIds: [],
       comparisonProductIds: [],
       recentProducts: [],
       followedStoreIds: [],
     };
+  if (!includeProducts) {
+    const wishlistIds = (state.wishlistProductIds || []).slice(0, 500);
+    const comparisonIds = (state.comparisonProductIds || []).slice(0, 4);
+    const recentIds = (state.recentProducts || []).slice(0, 50).map(item => item.productId);
+    const [publicIds, followed] = await Promise.all([
+      publicCatalogueIdentityMap([...wishlistIds, ...comparisonIds, ...recentIds], country),
+      state.followedStoreIds?.length ? Store.find({ _id: { $in: state.followedStoreIds.slice(0, 100) }, status: 'verified' }, { slug: 1 }).lean() : [],
+    ]);
+    const visible = ids => ids.map(id => publicIds.get(String(id))).filter(Boolean);
+    return { wishlist: visible(wishlistIds), comparison: visible(comparisonIds), recent: visible(recentIds), followedStores: followed.map(store => store.slug) };
+  }
   const [wishlist, comparison, recent] = await Promise.all([
     publicIdsForMongoIds(state.wishlistProductIds),
     publicIdsForMongoIds(state.comparisonProductIds),
@@ -220,6 +235,18 @@ router.get('/api/v1/storefront/visual-search-results', async (request, response,
   } catch (error) { return next(error); }
 });
 
+router.get('/api/v1/storefront/navigation', async (request, response, next) => {
+  try {
+    const navigation = await storefrontNavigation(request.country);
+    // This representation has no member state or token. Still keep signed-in
+    // browser responses private and vary anonymous market selection correctly.
+    response.vary('Cookie');
+    response.vary('CF-IPCountry');
+    response.set('Cache-Control', request.user ? 'private, no-store' : 'public, max-age=10, stale-while-revalidate=30');
+    return response.json(navigation);
+  } catch (error) { return next(error); }
+});
+
 router.get('/api/v1/storefront/catalogue', async (request, response, next) => {
   try {
     const [catalogue, customerState] = await Promise.all([
@@ -241,8 +268,9 @@ router.get('/api/v1/storefront/catalogue', async (request, response, next) => {
 router.get('/api/v1/storefront/search', async (request, response, next) => {
   try {
     const input = searchSchema.parse(request.query);
+    const optionalAllowed = !request.user || Boolean(await optionalProcessingUser(request.user._id));
     const [catalogue, customerState] = await Promise.all([
-      input.q ? hybridSearch(request.country, {
+      input.q && optionalAllowed ? hybridSearch(request.country, {
         query: input.q,
         category: input.category,
         brand: input.brand,
@@ -257,11 +285,17 @@ router.get('/api/v1/storefront/search', async (request, response, next) => {
       statePayload(request.user?._id, request.country),
     ]);
     if (!request.session.csrfToken) request.session.csrfToken = randomToken();
-    const searchEvent = await SearchEvent.create({
+    const eventInput = {
       publicId: publicId('sea'), sessionKey: browsingSessionKey(request), userId: request.user?._id,
       country: request.country.code, query: input.q, category: input.category, brand: input.brand, seller: input.seller,
       resultCount: catalogue.products.length, zeroResult: catalogue.products.length === 0,
-    });
+    };
+    const searchEvent = !optionalAllowed ? null : request.user ? await customerTransaction(async session => {
+      const actor = await currentCustomerAccess(request, { session, write: true });
+      if (!await optionalProcessingUser(actor._id, { session })) return null;
+      const [event] = await SearchEvent.create([eventInput], { session });
+      return event;
+    }) : await SearchEvent.create(eventInput);
     response.set(
       'Cache-Control',
       request.user ? 'private, no-store' : 'public, max-age=10',
@@ -270,7 +304,7 @@ router.get('/api/v1/storefront/search', async (request, response, next) => {
       ...catalogue,
       state: customerState,
       csrfToken: request.session.csrfToken,
-      searchId: searchEvent.publicId,
+      searchId: searchEvent?.publicId || null,
     });
   } catch (error) {
     next(error);
@@ -435,10 +469,11 @@ router.get(
   async (request, response, next) => {
     try {
       response.set('Cache-Control', request.user ? 'private, no-store' : 'public, max-age=10');
+      const summaryOnly = request.query.summary === '1';
       const baseState = request.user
-        ? await statePayload(request.user._id, request.country, true)
+        ? await statePayload(request.user._id, request.country, !summaryOnly)
         : { wishlist: [], comparison: [], recent: [], followedStores: [], wishlistProducts: [], comparisonProducts: [], recentProducts: [], recommendations: [] };
-      if (request.user) {
+      if (request.user && !summaryOnly) {
         baseState.recommendations = await recommendationsFor(request, { limit: 8 });
       }
       response.json({
@@ -570,17 +605,17 @@ router.post(
   async (request, response, next) => {
     try {
       const { product } = await resolveProduct(request);
-      const state = await stateFor(request.user._id);
-      state.recentProducts = state.recentProducts.filter(
-        (item) => !item.productId.equals(product._id),
-      );
-      state.recentProducts.unshift({
-        productId: product._id,
-        viewedAt: new Date(),
+      const recorded = await customerTransaction(async session => {
+        const actor = await currentCustomerAccess(request, { session, write: true });
+        if (!await optionalProcessingUser(actor._id, { session })) return false;
+        const state = await stateFor(actor._id, session);
+        state.recentProducts = state.recentProducts.filter(item => !item.productId.equals(product._id));
+        state.recentProducts.unshift({ productId: product._id, viewedAt: new Date() });
+        state.recentProducts = state.recentProducts.slice(0, 50);
+        await state.save({ session });
+        return true;
       });
-      state.recentProducts = state.recentProducts.slice(0, 50);
-      await state.save();
-      response.status(201).json({ recorded: true });
+      response.status(recorded ? 201 : 200).json({ recorded });
     } catch (error) {
       next(error);
     }
@@ -710,7 +745,16 @@ router.get('/api/v1/storefront/autocomplete', async (request, response, next) =>
 router.post('/api/v1/storefront/search/:searchId/click', async (request, response, next) => {
   try {
     const productId = z.string().trim().min(4).max(100).parse(request.body.productId);
-    await SearchEvent.updateOne({ publicId: request.params.searchId, sessionKey: browsingSessionKey(request) }, { $set: { clickedProductPublicId: productId } });
+    const scope = { publicId: request.params.searchId, sessionKey: browsingSessionKey(request) };
+    if (request.user) {
+      const recorded = await customerTransaction(async session => {
+        const actor = await currentCustomerAccess(request, { session, write: true });
+        if (!await optionalProcessingUser(actor._id, { session })) return false;
+        await SearchEvent.updateOne({ ...scope, userId: actor._id }, { $set: { clickedProductPublicId: productId } }, { session });
+        return true;
+      });
+      if (!recorded) return response.json({ recorded: false });
+    } else await SearchEvent.updateOne({ ...scope, userId: null }, { $set: { clickedProductPublicId: productId } });
     response.status(204).end();
   } catch (error) { next(error); }
 });

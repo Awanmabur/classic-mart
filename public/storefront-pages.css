@@ -125,7 +125,7 @@ body.storefront-page {
 .auth-form-head p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
 .auth-form { display: grid; gap: 15px; }
 .auth-field { display: grid; gap: 7px; }
-.auth-field > span { font-size: 12px; font-weight: 800; }
+.auth-field > span, .auth-field-label { font-size: 12px; font-weight: 800; }
 .auth-input-wrap {
   min-height: 52px;
   border: 1px solid #dfe3e8;
@@ -138,7 +138,7 @@ body.storefront-page {
 }
 .auth-input-wrap:focus-within { border-color: var(--orange); box-shadow: 0 0 0 4px rgba(255,101,0,.10); }
 .auth-input-wrap > img { width: 16px; margin-left: 18px; opacity: .55; }
-.auth-input-wrap input { width: 100%; min-width: 0; border: 0; outline: 0; padding: 0 13px; background: transparent; font-size: 13px; }
+.auth-input-wrap input { width: 100%; min-width: 0; min-height: 44px; border: 0; outline: 0; padding: 0 13px; background: transparent; font-size: 13px; }
 .auth-input-wrap input::placeholder { color: #a0a7b1; }
 .password-toggle { width: 42px; height: 42px; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; cursor: pointer; }
 .password-toggle:hover { background: #f3f4f6; }
@@ -157,9 +157,6 @@ body.storefront-page {
 .auth-social-button img { width: 17px; height: 17px; }
 .auth-switch { margin: 21px 0 0; text-align: center; color: var(--muted); font-size: 12px; }
 .auth-switch a { color: var(--orange); font-weight: 850; }
-.auth-message { min-height: 18px; margin: 0; border-radius: 14px; padding: 0; font-size: 11px; }
-.auth-message.show { padding: 10px 12px; background: #edf9f2; color: #157347; }
-.auth-message.error { background: #fff0ed; color: #b53b26; }
 .auth-legal { margin: 3px 0 0; color: #8b929e; font-size: 10px; line-height: 1.55; text-align: center; }
 .auth-legal a { color: var(--text); font-weight: 750; }
 
@@ -244,8 +241,6 @@ body.storefront-page {
 .cart-recommend-price strong { color: var(--orange); }
 .cart-recommend-price button { width: 34px; height: 34px; border: 0; border-radius: 50%; display: grid; place-items: center; background: var(--orange); cursor: pointer; }
 .cart-recommend-price img { width: 13px; height: 13px; padding: 0; background: transparent; filter: brightness(0) invert(1); }
-.page-toast { position: fixed; right: 20px; bottom: 20px; z-index: 500; max-width: min(360px, calc(100% - 40px)); border-radius: 999px; padding: 12px 18px; background: var(--navy); color: #fff; box-shadow: 0 16px 40px rgba(18,32,51,.24); font-size: 11px; transform: translateY(120px); opacity: 0; transition: .25s ease; }
-.page-toast.show { transform: none; opacity: 1; }
 
 .header-action-link { text-decoration: none; }
 .full-cart-link { width: 100%; margin-bottom: 8px; border-radius: 999px; }
@@ -639,6 +634,7 @@ body:not(.home-page) :where(main, .onboarding-shell) textarea,
 }
 .preview-purchase-actions .preview-whatsapp-button:hover {
   background: #118a53;
+  color: #000;
 }
 .preview-purchase-actions .preview-whatsapp-button strong {
   font-size: inherit;
@@ -1219,45 +1215,6 @@ body:not(.home-page) :where(main, .onboarding-shell) textarea,
   }
 }
 
-.product-share-menu {
-  position: absolute;
-  top: 66px;
-  right: 16px;
-  z-index: 30;
-  width: 176px;
-  border: 1px solid #e1e5ea;
-  border-radius: 18px;
-  padding: 7px;
-  display: grid;
-  gap: 5px;
-  background: rgba(255,255,255,.98);
-  box-shadow: 0 16px 38px rgba(18,32,51,.16);
-}
-.product-share-menu[hidden] { display: none !important; }
-.product-share-menu a,
-.product-share-menu button {
-  min-height: 40px;
-  border: 0;
-  border-radius: 13px;
-  padding: 0 12px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  background: #f7f8fa;
-  color: var(--text);
-  text-decoration: none;
-  font-size: 10px;
-  font-weight: 850;
-  cursor: pointer;
-}
-.product-share-menu a:hover,
-.product-share-menu button:hover { background: #fff2e9; color: var(--orange); }
-.product-share-menu img { width: 16px; height: 16px; }
-@media (max-width: 430px) {
-  .product-share-menu { top: 56px; right: 10px; width: 164px; }
-}
-
-
 /* July 2026: keep purchase actions and service promises on one phone row. */
 @media (max-width: 640px) {
   .product-detail-modal .preview-purchase-actions,
@@ -1582,3 +1539,45 @@ body:not(.home-page) :where(main, .onboarding-shell) textarea,
   object-fit: cover !important;
   object-position: center !important;
 }
+
+/* v2.13.50 compact related media */
+.preview-related-image { height: 108px; }
+@media (max-width: 720px) { .preview-related-image { height: 96px; } }
+
+/* Preview follow-up actions and their actual supporting photographs. */
+.product-detail-modal .preview-alert-actions {
+  margin-block-start: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.product-detail-modal .preview-related-image,
+.product-detail-modal .preview-related-image > img { border-radius: 14px; }
+
+/* A selectable link is only shown when native sharing and copying are unavailable. */
+.product-share-fallback {
+  position: absolute;
+  z-index: 8;
+  top: 82px;
+  right: 18px;
+  width: min(360px, calc(100% - 36px));
+  padding: 16px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(22, 32, 50, .16);
+}
+.product-share-fallback[hidden] { display: none; }
+.product-share-fallback label { display: block; font-size: 13px; font-weight: 750; }
+.product-share-fallback p { margin: 8px 0 12px; font-size: 12px; line-height: 1.5; }
+.product-share-fallback input {
+  width: 100%;
+  min-width: 0;
+  padding: 11px;
+  border: 0;
+  border-radius: 12px;
+  background: #f4f6f8;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+}
+.product-share-fallback-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }

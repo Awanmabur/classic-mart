@@ -1,0 +1,86 @@
+<%
+const settings = financeFlow;
+const profile = settings.profile || {};
+const preferences = settings.preferences || {};
+const context = settings.context || {};
+const countries = context.countries || settings.countries || [];
+const selectedCountry = settings.country ?? context.country ?? '';
+const section = settings.section || 'profile';
+const draft = settings.draft || {};
+const initials = String(profile.name || user?.name || 'Finance').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+const profileFields = [profile.name, profile.teamName, profile.email, profile.phone, profile.registrationCountry, profile.bio];
+const completion = Math.round(profileFields.filter(value => typeof value === 'string' && value.trim()).length / profileFields.length * 100);
+const tabs = [['profile','Personal information'],['business','Workspace details'],['payments','Payments'],['notifications','Communication'],['security','Password & Security']];
+const sectionHref = value => financePage.href + '?' + new URLSearchParams({ section: value, ...(selectedCountry ? { country: selectedCountry } : {}) });
+const eventDate = value => { const date = new Date(value); if (!value || !Number.isFinite(date.getTime())) return 'Not specified'; try { return new Intl.DateTimeFormat(user?.locale || 'en', { timeZone: settings.timeZone || 'UTC', dateStyle: 'medium', timeStyle: 'short' }).format(date); } catch { return date.toISOString(); } };
+const profileCountry = countries.find(country => country.code === profile.registrationCountry);
+const checked = value => [true, 'true', 'on', '1'].includes(value);
+%>
+<section class="app-page role-page active finance-settings-live finance-fidelity-page" data-page="<%= financePage.id %>" data-role="finance" data-page-kind="settings">
+  <div class="page-heading role-page-heading"><div><span class="eyebrow">Account preferences</span><h1><%= financePage.title %></h1><p><%= financePage.description %></p></div><div class="finance-heading-actions">
+    <% if (countries.length) { %><form class="finance-country-filter" method="get" action="<%= financePage.href %>"><input type="hidden" name="section" value="<%= section %>"><label class="sr-only" for="financeSettingsCountry">Country scope</label><select id="financeSettingsCountry" name="country"><option value="" <%= selectedCountry === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= country.code === selectedCountry ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select><button class="plain-link" type="submit">Apply</button></form><% } %>
+    <a class="outline-button icon-button" href="/account/security"><svg aria-hidden="true"><use href="#i-shield"></use></svg>Security centre</a>
+  </div></div>
+  <% if (settings.error) { %><p class="server-flash error platform-flash" role="alert"><%= settings.error %></p><% } %>
+  <div class="profile-layout role-settings-layout role-profile-settings">
+    <aside class="panel profile-summary role-profile-summary">
+      <div class="profile-avatar-wrap role-profile-avatar-wrap"><span class="role-profile-avatar"><%= initials %></span></div>
+      <h2><%= profile.name || user?.name || 'Finance' %></h2><p><%= profile.email || '' %></p>
+      <span class="member-pill"><svg aria-hidden="true"><use href="#i-shield"></use></svg>Finance</span>
+      <div class="profile-completion"><div><span>Profile completion</span><strong><%= completion %>%</strong></div><div><span style="width:<%= completion %>%"></span></div></div>
+      <nav class="settings-nav role-settings-nav" aria-label="Profile settings sections"><% for (const [value, label] of tabs) { %><a href="<%= sectionHref(value) %>" class="<%= section === value ? 'active' : '' %>" <%= section === value ? 'aria-current=page' : '' %>><%= label %></a><% } %></nav>
+    </aside>
+    <div class="role-settings-content">
+      <% if (section === 'profile') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="profile" method="post" action="/finance/settings/profile">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= profile.version %>">
+        <div class="section-heading"><div><h2>Personal Information</h2><p class="form-intro">Keep the information shown across Classic Mart accurate and consistent.</p></div><% if (user?.emailVerifiedAt) { %><span class="verified-label"><svg aria-hidden="true"><use href="#i-check"></use></svg>Verified</span><% } %></div>
+        <div class="role-form-grid">
+          <label>Display name<input name="name" value="<%= draft.name ?? profile.name ?? '' %>" minlength="2" maxlength="120" autocomplete="name" required></label>
+          <label>Finance team name<input name="teamName" value="<%= draft.teamName ?? profile.teamName ?? '' %>" maxlength="140" autocomplete="organization"></label>
+          <label>Contact email<input type="email" value="<%= profile.email || '' %>" autocomplete="email" readonly></label>
+          <label>Phone number<input type="tel" value="<%= profile.phone || '' %>" autocomplete="tel" readonly></label>
+          <label>Country<input value="<%= profileCountry?.name || profile.registrationCountry || 'Not specified' %>" readonly></label>
+          <label class="wide">About<textarea name="bio" rows="5" maxlength="1000"><%= draft.bio ?? profile.bio ?? '' %></textarea></label>
+        </div>
+        <button class="primary-button" type="submit">Save Changes</button>
+      </form>
+      <% } else if (section === 'business') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="business" method="post" action="/finance/settings" id="finance-report-preferences">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= preferences.version %>">
+        <h2>Workspace &amp; operating preferences</h2><p class="form-intro">These settings keep the workspace aligned with its real operating responsibility.</p>
+        <div class="role-form-grid">
+          <label>Default queue / area<select name="landingPage"><% for (const option of settings.landingOptions || []) { %><option value="<%= option.id %>" <%= option.id === (draft.landingPage ?? preferences.landingPage) ? 'selected' : '' %>><%= option.label %></option><% } %></select></label>
+          <label>Operating region<select name="defaultCountry"><option value="" <%= (draft.defaultCountry ?? preferences.defaultCountry ?? '') === '' ? 'selected' : '' %>>All assigned countries</option><% for (const country of countries) { %><option value="<%= country.code %>" <%= country.code === (draft.defaultCountry ?? preferences.defaultCountry) ? 'selected' : '' %>><%= country.name || country.code %></option><% } %></select></label>
+          <label>Default reporting period<select name="reportingPeriod"><% for (const [value, label] of [['30days','Last 30 days'],['7months','Last 7 months'],['year','This year']]) { %><option value="<%= value %>" <%= value === (draft.reportingPeriod ?? preferences.reportingPeriod) ? 'selected' : '' %>><%= label %></option><% } %></select></label>
+          <label>Escalation level<input value="Independent operator approval" readonly></label>
+          <label>Coverage starts<input value="<%= settings.coverage ? eventDate(settings.coverage.startsAt) : 'Current assigned role' %>" readonly></label>
+          <label>Coverage expires<input value="<%= settings.coverage ? eventDate(settings.coverage.expiresAt) : 'While role remains active' %>" readonly></label>
+        </div><p class="form-intro">Report defaults do not change assigned country access. Manual settlement requires a different authorized operator.</p>
+        <button class="primary-button" type="submit">Save Changes</button>
+      </form>
+      <% } else if (section === 'payments') { %>
+      <section class="panel form-panel role-settings-panel active" data-role-settings-panel="payments">
+        <h2>Payment &amp; payout settings</h2><p class="form-intro">Review the payment configuration and settlement controls for your assigned countries.</p>
+        <div class="role-payment-method"><span><svg aria-hidden="true"><use href="#i-card"></use></svg></span><div><strong>Pesapal · <%= settings.payments?.providerMode || 'Unknown mode' %></strong><small><%= settings.payments?.providerConfigured ? 'Configured' : 'Configuration incomplete' %> · Provider confirmation is required for settlement</small></div><a class="soft-button" href="/finance/reconciliation">Review</a></div>
+        <% for (const market of settings.payments?.countries || []) { const country = countries.find(row => row.code === market.code); const methods = [['card','Card'],['mobile','Mobile money'],['cod','Cash on delivery']].filter(([key]) => market.methods?.[key] === true).map(([, label]) => label); %><div class="role-payment-method"><span><svg aria-hidden="true"><use href="#i-wallet"></use></svg></span><div><strong><%= country?.name || market.code %> · <%= market.currency %></strong><small><%= methods.length ? methods.join(' · ') : 'No payment methods enabled' %></small></div><a class="soft-button" href="<%= '/finance/payouts?country=' + encodeURIComponent(market.code) %>">Review payouts</a></div><% } %>
+        <% if (settings.rows?.length) { %><details class="faq-item"><summary>Country settlement controls</summary><div class="role-table-wrap"><table class="role-table"><thead><tr><% for (const column of settings.columns || []) { %><th><%= column %></th><% } %></tr></thead><tbody><% for (const row of settings.rows) { %><tr><% for (const [index, cell] of (row.cells || []).entries()) { %><td data-label="<%= settings.columns?.[index] || 'Value' %>"><span><%= cell %></span></td><% } %></tr><% } %></tbody></table></div></details><% } %>
+      </section>
+      <% } else if (section === 'notifications') { %>
+      <form class="panel form-panel role-settings-panel active" data-role-settings-panel="notifications" method="post" action="/finance/settings/communication">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="version" value="<%= preferences.version %>">
+        <h2>Communication Preferences</h2><p class="form-intro">Choose which operational updates should reach this account.</p>
+        <div class="role-toggle-list"><% for (const item of [{name:'priorityAlerts',title:'Priority work',description:'Important transaction, queue, or approval updates'},{name:'escalationAlerts',title:'Escalations',description:'Items that require higher-risk or manager attention'},{name:'weeklyReport',title:'Weekly performance report',description:'Workspace summary delivered by email'}]) { %><label><div><strong><%= item.title %></strong><small><%= item.description %></small></div><span class="switch"><input type="checkbox" name="<%= item.name %>" value="on" <%= checked(Object.hasOwn(draft, item.name) ? draft[item.name] : preferences[item.name]) ? 'checked' : '' %>><span></span></span></label><% } %></div>
+        <% if (settings.latestDigest) { %><p class="form-intro">Latest weekly report: <%= settings.latestDigest.status %> · <%= eventDate(settings.latestDigest.processedAt || settings.latestDigest.createdAt) %></p><% } %>
+        <button class="primary-button" type="submit">Save Preferences</button>
+      </form>
+      <% } else if (section === 'security') { %>
+      <section class="panel form-panel role-settings-panel active" data-role-settings-panel="security">
+        <h2>Password &amp; Security</h2><p class="form-intro">Protect the account and review signed-in sessions.</p>
+        <div class="role-security-row"><span><svg aria-hidden="true"><use href="#i-shield"></use></svg></span><div><strong>Two-factor authentication</strong><small><%= settings.security?.mfaEnabled ? 'Authenticator enabled for this account.' : 'Authenticator enrollment is required for privileged money actions.' %></small></div><a class="soft-button" href="/account/security"><%= settings.security?.mfaEnabled ? 'Manage' : 'Enable' %></a></div>
+        <div class="role-security-row"><span><svg aria-hidden="true"><use href="#i-eye"></use></svg></span><div><strong>Active sessions</strong><small><%= settings.security?.activeSessions ?? '—' %> signed-in devices</small></div><a class="outline-button" href="/account/security">Review</a></div>
+      </section>
+      <% } %>
+    </div>
+  </div>
+</section>

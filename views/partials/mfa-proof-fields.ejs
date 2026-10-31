@@ -1,0 +1,16 @@
+<% const methodsForProof = (typeof mfaOptions !== 'undefined' && mfaOptions?.managementMethods) || ['totp'];
+const proofCredentialId = typeof credentialPublicId === 'string' ? credentialPublicId : '';
+const savedChallengeId = typeof mfaOptions !== 'undefined' ? mfaOptions?.smsChallengeIds?.[proofAction + ':' + proofCredentialId] || '' : ''; %>
+<input type="hidden" name="action" value="<%= proofAction %>">
+<input type="hidden" name="credentialPublicId" value="<%= proofCredentialId %>">
+<input type="hidden" name="challengeId" value="<%= savedChallengeId %>">
+<label>Current password<input type="password" name="currentPassword" autocomplete="current-password" maxlength="256" required></label>
+<label>Verification method<select name="mfaMethod" data-mfa-method>
+  <% if (methodsForProof.includes('totp')) { %><option value="totp">Authenticator app</option><% } %>
+  <% if (methodsForProof.includes('passkey')) { %><option value="passkey">Passkey · fingerprint, face or device PIN</option><% } %>
+  <% if (methodsForProof.includes('sms')) { %><option value="sms">SMS to <%= mfaOptions.phone %></option><% } %>
+  <option value="recovery">One-time recovery code</option>
+</select></label>
+<label data-mfa-code-field>Security or recovery code<input type="text" name="code" autocomplete="one-time-code" maxlength="32" required></label>
+<% if (methodsForProof.includes('sms')) { %><button class="outline-button" type="submit" formaction="/account/mfa/sms/send" formnovalidate data-mfa-sms-send>Send SMS code</button><% } %>
+<p class="mfa-code-help" data-passkey-status role="status" aria-live="polite" hidden></p>
