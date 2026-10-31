@@ -108,7 +108,7 @@ const operationalSearchLabel = superAdminLive ? 'Search platform accounts...' : 
     <% if (adminLive) { %><%- include('partials/country-admin-header') %><% } else { %>
     <header class="topbar">
       <div class="brand-area">
-        <button class="round-icon mobile-menu" id="mobileMenuBtn" aria-label="Open navigation"><svg><use href="#i-menu"></use></svg></button>
+        
         <a href="<%= operationalShell ? operationalHome?.href || '/account/security' : '/dashboard' %>" class="brand dashboard-brand" data-page-target="<%= operationalShell ? operationalHome?.id || 'profile' : 'dashboard' %>" aria-label="Classic Mart dashboard">
           <img class="dashboard-brand-logo" src="/approved-dashboard/assets/classic-mart-logo.png" alt="Classic Mart" />
         </a>
@@ -121,6 +121,7 @@ const operationalSearchLabel = superAdminLive ? 'Search platform accounts...' : 
 
       <div class="top-actions">
         <button class="ai-button" id="classicAiBtn" type="button" aria-label="Open Classic AI" title="Classic AI"><svg class="ai-sparkle-icon"><use href="#i-sparkles"></use></svg><span>Classic AI</span></button>
+        <button class="round-icon mobile-menu" id="mobileMenuBtn" aria-label="Open navigation"><svg><use href="#i-menu"></use></svg></button>
         <% if (realSeller) { %><button class="categories-button" data-page-target="seller-add-product" <%= sellerAddProduct ? '' : 'disabled' %>><svg><use href="#i-plus"></use></svg><span>Add Product</span></button><% } else if (operationalShell) { %><button class="categories-button" data-page-target="<%= operationalQuick?.id || '' %>" <%= operationalQuick ? '' : 'disabled' %>><svg><use href="#i-<%= promoterShell ? 'plus' : workspace === 'warehouse' ? 'truck' : 'shield' %>"></use></svg><span><%= operationalQuickLabel %></span></button><% } else { %><button class="categories-button" data-page-target="categories"><svg><use href="#i-grid"></use></svg><span>Categories</span></button><% } %>
         <% if (!operationalShell) { %>
         <button class="round-icon badge-button" data-page-target="wishlist" aria-label="Wishlist"><svg><use href="#i-heart"></use></svg><b id="wishlistBadge"><%= liveCustomer ? liveHeader.wishlistCount : 5 %></b></button>
