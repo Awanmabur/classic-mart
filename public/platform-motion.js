@@ -1,162 +1,137 @@
-LyogU21hbGwsIG9uZS10aW1lIGVudHJhbmNlcyBzaGFyZWQgYnkgc3RvcmVm
-cm9udHMgYW5kIGxpdmUgcm9sZSB3b3Jrc3BhY2VzLgogICBDb250ZW50IHN0
-YXlzIHZpc2libGUgdW50aWwgdGhlIG9ic2VydmVyIHN0YXJ0cyBhbiBhbmlt
-YXRpb247IENTUy9KUyBmYWlsdXJlCiAgIHRoZXJlZm9yZSBuZXZlciBzdHJh
-bmRzIGFuIGludmlzaWJsZSBjYXJkIG9yIGNoYW5nZXMgbmF0aXZlIHNjcm9s
-bGluZy4gKi8KKCgpID0+IHsKICAndXNlIHN0cmljdCc7CiAgaWYgKHdpbmRv
-dy5DbGFzc2ljTWFydE1vdGlvbikgcmV0dXJuOwoKICBjb25zdCBzZWxlY3Rv
-ciA9IFsKICAgICdbZGF0YS1zY3JvbGwtbW90aW9uXScsCiAgICAnbWFpbiAu
-c2VjdGlvbi1oZWFkaW5nJywgJ21haW4gLnBhZ2UtaGVhZGluZycsICdtYWlu
-IC5wYWdlLWhlYWRlcicsCiAgICAnLnBhbmVsJywgJy5zdGF0LWNhcmQnLCAn
-LnN1bW1hcnktY2FyZCcsICcucHJvZHVjdC1jYXJkJywgJy5jb21wYWN0LXBy
-b2R1Y3QnLCAnLnJlY29tbWVuZC1jYXJkJywKICAgICcubWluaS1wcm9kdWN0
-LWNhcmQnLCAnLmNhdGFsb2ctcHJvZHVjdC1jYXJkJywgJy5wZW9wbGUtY2Fy
-ZCcsICcuYmxvZy1jYXJkJywKICAgICcuaW5mby1jYXJkJywgJy5iZW5lZml0
-LWl0ZW0nLCAnLnByb2ZpbGUtaGVybycsICcubWFya2V0cGxhY2UtaW50cm8n
-LAogIF0uam9pbignLCcpOwogIGNvbnN0IGV4Y2x1ZGVkID0gJ25hdiwgaGVh
-ZGVyLCBmb290ZXIsIGZvcm0sIGRpYWxvZywgW3JvbGU9ImRpYWxvZyJdLCBb
-cm9sZT0iYWxlcnQiXSwgW3JvbGU9InN0YXR1cyJdLCBbYXJpYS1saXZlXSwg
-W2hpZGRlbl0sIFtpbmVydF0sIFtkYXRhLW1vdGlvbj0ib2ZmIl0sIFtkYXRh
-LXNjcm9sbC1tb3Rpb249Im9mZiJdLCAubW9kYWwsIC5tb2RhbC1iYWNrZHJv
-cCwgLmZpbHRlci1kcmF3ZXIsIC5zZWFyY2gtc3VnZ2VzdGlvbnMsIC5wcm9t
-by1jYXJkLCAuaGVyby1zbGlkZXIsIC5wbGF0Zm9ybS1mbGFzaC1zdGFjayc7
-CiAgY29uc3QgY29udHJvbHMgPSAnYSwgYnV0dG9uLCBpbnB1dCwgc2VsZWN0
-LCB0ZXh0YXJlYSwgbGFiZWwsIHN1bW1hcnksIFtyb2xlPSJidXR0b24iXSwg
-W3JvbGU9InRhYiJdLCBbY29udGVudGVkaXRhYmxlPSJ0cnVlIl0nOwogIGNv
-bnN0IHZhcmlhbnRzID0gWyd1cCcsICdsZWZ0JywgJ3JpZ2h0JywgJ3pvb20n
-LCAnem9vbS1vdXQnLCAnZG93bicsICdkcm9wJ107CiAgY29uc3QgcmVkdWNl
-ZCA9IHdpbmRvdy5tYXRjaE1lZGlhKCcocHJlZmVycy1yZWR1Y2VkLW1vdGlv
-bjogcmVkdWNlKScpOwogIGNvbnN0IGNvbm5lY3Rpb24gPSBuYXZpZ2F0b3Iu
-Y29ubmVjdGlvbjsKICBjb25zdCBkaXNhYmxlZCA9ICgpID0+IHJlZHVjZWQu
-bWF0Y2hlcyB8fCBjb25uZWN0aW9uPy5zYXZlRGF0YSB8fCBkb2N1bWVudC5k
-b2N1bWVudEVsZW1lbnQuZGF0YXNldC5sb3dEYXRhID09PSAndHJ1ZSc7CiAg
-Y29uc3Qgc2VlbiA9IG5ldyBXZWFrU2V0KCk7CiAgY29uc3QgcGVuZGluZyA9
-IG5ldyBTZXQoKTsKICBjb25zdCBhY3RpdmUgPSBuZXcgTWFwKCk7CiAgY29u
-c3Qgc2NhbnMgPSBuZXcgU2V0KCk7CiAgbGV0IG9ic2VydmVyLCBtdXRhdGlv
-bnMsIGZyYW1lID0gMCwgc2VxdWVuY2UgPSAwLCBzdXNwZW5kZWQgPSBmYWxz
-ZTsKCiAgZnVuY3Rpb24gZmluaXNoKGVsZW1lbnQpIHsKICAgIGNvbnN0IHRp
-bWVyID0gYWN0aXZlLmdldChlbGVtZW50KTsKICAgIGlmICh0aW1lciAhPT0g
-dW5kZWZpbmVkKSB3aW5kb3cuY2xlYXJUaW1lb3V0KHRpbWVyKTsKICAgIGFj
-dGl2ZS5kZWxldGUoZWxlbWVudCk7CiAgICBlbGVtZW50LmNsYXNzTGlzdC5y
-ZW1vdmUoJ3BsYXRmb3JtLW1vdGlvbi1lbnRlcicpOwogICAgZWxlbWVudC5y
-ZW1vdmVBdHRyaWJ1dGUoJ2RhdGEtcGxhdGZvcm0tbW90aW9uJyk7CiAgICBm
-b3IgKGNvbnN0IHByb3BlcnR5IG9mIFsnLS1jbS1tb3Rpb24tZGVsYXknLCAn
-LS1jbS1tb3Rpb24tcmVzdCcsICctLWNtLW1vdGlvbi1vcGFjaXR5J10pIGVs
-ZW1lbnQuc3R5bGUucmVtb3ZlUHJvcGVydHkocHJvcGVydHkpOwogIH0KCiAg
-ZnVuY3Rpb24gcmV2ZWFsKGVsZW1lbnQpIHsKICAgIG9ic2VydmVyPy51bm9i
-c2VydmUoZWxlbWVudCk7CiAgICBwZW5kaW5nLmRlbGV0ZShlbGVtZW50KTsK
-ICAgIC8vIEtleWJvYXJkIGFuZCBwb2ludGVyIGFjdGlvbnMgYWx3YXlzIHdp
-biBvdmVyIGRlY29yYXRpb24uCiAgICBpZiAoIWVsZW1lbnQuaXNDb25uZWN0
-ZWQgfHwgZG9jdW1lbnQuaGlkZGVuIHx8IHN1c3BlbmRlZCB8fCBkaXNhYmxl
-ZCgpIHx8CiAgICAgICAgZWxlbWVudC5jbG9zZXN0KGV4Y2x1ZGVkKSB8fCBl
-bGVtZW50LmNvbnRhaW5zKGRvY3VtZW50LmFjdGl2ZUVsZW1lbnQpIHx8IGVs
-ZW1lbnQubWF0Y2hlcygnOmhvdmVyJykpIHJldHVybjsKICAgIGNvbnN0IHN0
-eWxlID0gZ2V0Q29tcHV0ZWRTdHlsZShlbGVtZW50KTsKICAgIGlmIChzdHls
-ZS5kaXNwbGF5ID09PSAnbm9uZScgfHwgc3R5bGUudmlzaWJpbGl0eSAhPT0g
-J3Zpc2libGUnIHx8IHN0eWxlLmFuaW1hdGlvbk5hbWUgIT09ICdub25lJykg
-cmV0dXJuOwogICAgY29uc3QgcmVxdWVzdGVkID0gZWxlbWVudC5nZXRBdHRy
-aWJ1dGUoJ2RhdGEtc2Nyb2xsLW1vdGlvbicpOwogICAgbGV0IGluZGV4ID0g
-MDsKICAgIGZvciAobGV0IHNpYmxpbmcgPSBlbGVtZW50LnByZXZpb3VzRWxl
-bWVudFNpYmxpbmc7IHNpYmxpbmcgJiYgaW5kZXggPCAzOyBzaWJsaW5nID0g
-c2libGluZy5wcmV2aW91c0VsZW1lbnRTaWJsaW5nKSB7CiAgICAgIGlmIChz
-aWJsaW5nLm1hdGNoZXMoc2VsZWN0b3IpKSBpbmRleCsrOwogICAgfQogICAg
-ZWxlbWVudC5zdHlsZS5zZXRQcm9wZXJ0eSgnLS1jbS1tb3Rpb24tZGVsYXkn
-LCBgJHtNYXRoLm1pbihpbmRleCwgMykgKiA1NX1tc2ApOwogICAgZWxlbWVu
-dC5zdHlsZS5zZXRQcm9wZXJ0eSgnLS1jbS1tb3Rpb24tcmVzdCcsIHN0eWxl
-LnRyYW5zZm9ybSA9PT0gJ25vbmUnID8gJ3RyYW5zbGF0ZTNkKDAsIDAsIDAp
-JyA6IHN0eWxlLnRyYW5zZm9ybSk7CiAgICBlbGVtZW50LnN0eWxlLnNldFBy
-b3BlcnR5KCctLWNtLW1vdGlvbi1vcGFjaXR5Jywgc3R5bGUub3BhY2l0eSk7
-CiAgICBlbGVtZW50LnNldEF0dHJpYnV0ZSgnZGF0YS1wbGF0Zm9ybS1tb3Rp
-b24nLCB2YXJpYW50cy5pbmNsdWRlcyhyZXF1ZXN0ZWQpID8gcmVxdWVzdGVk
-IDogdmFyaWFudHNbc2VxdWVuY2UrKyAlIHZhcmlhbnRzLmxlbmd0aF0pOwog
-ICAgZWxlbWVudC5jbGFzc0xpc3QuYWRkKCdwbGF0Zm9ybS1tb3Rpb24tZW50
-ZXInKTsKICAgIC8vIEFsc28gc2V0dGxlIGlmIENTUyBpcyB1bmF2YWlsYWJs
-ZSBvciBhbmltYXRpb25lbmQgbmV2ZXIgYXJyaXZlcy4KICAgIGFjdGl2ZS5z
-ZXQoZWxlbWVudCwgd2luZG93LnNldFRpbWVvdXQoKCkgPT4gZmluaXNoKGVs
-ZW1lbnQpLCAxXzAwMCkpOwogIH0KCiAgZnVuY3Rpb24gc2Nhbihyb290KSB7
-CiAgICBpZiAoIW9ic2VydmVyIHx8IGRpc2FibGVkKCkgfHwgc3VzcGVuZGVk
-IHx8ICFyb290Py5pc0Nvbm5lY3RlZCkgcmV0dXJuOwogICAgY29uc3QgY2Fu
-ZGlkYXRlcyA9IFsuLi4ocm9vdC5tYXRjaGVzPy4oc2VsZWN0b3IpID8gW3Jv
-b3RdIDogW10pLCAuLi5yb290LnF1ZXJ5U2VsZWN0b3JBbGwoc2VsZWN0b3Ip
-XTsKICAgIGZvciAoY29uc3QgZWxlbWVudCBvZiBjYW5kaWRhdGVzKSB7CiAg
-ICAgIGlmIChzZWVuLmhhcyhlbGVtZW50KSB8fCBlbGVtZW50Lm1hdGNoZXMo
-Y29udHJvbHMpIHx8IGVsZW1lbnQuY2xvc2VzdChleGNsdWRlZCkpIGNvbnRp
-bnVlOwogICAgICAvLyBBbmltYXRlIGEgY2FyZCBvbmNlLCByYXRoZXIgdGhh
-biBtb3ZpbmcgaXRzIGhlYWRpbmcvY2hpbGQgY2FyZCBhZ2Fpbi4KICAgICAg
-aWYgKGVsZW1lbnQucGFyZW50RWxlbWVudD8uY2xvc2VzdChzZWxlY3Rvcikp
-IGNvbnRpbnVlOwogICAgICBzZWVuLmFkZChlbGVtZW50KTsKICAgICAgcGVu
-ZGluZy5hZGQoZWxlbWVudCk7CiAgICAgIG9ic2VydmVyLm9ic2VydmUoZWxl
-bWVudCk7CiAgICB9CiAgfQoKICBmdW5jdGlvbiBxdWV1ZVNjYW4ocm9vdCkg
-ewogICAgaWYgKCFyb290Py5xdWVyeVNlbGVjdG9yQWxsKSByZXR1cm47CiAg
-ICBzY2Fucy5hZGQocm9vdCk7CiAgICBpZiAoIWZyYW1lICYmICFkb2N1bWVu
-dC5oaWRkZW4gJiYgIXN1c3BlbmRlZCkgZnJhbWUgPSByZXF1ZXN0QW5pbWF0
-aW9uRnJhbWUoKCkgPT4gewogICAgICBmcmFtZSA9IDA7CiAgICAgIGNvbnN0
-IHJvb3RzID0gWy4uLnNjYW5zXTsgc2NhbnMuY2xlYXIoKTsKICAgICAgZm9y
-IChjb25zdCBjYW5kaWRhdGUgb2Ygcm9vdHMpIGlmICghcm9vdHMuc29tZShv
-dGhlciA9PiBvdGhlciAhPT0gY2FuZGlkYXRlICYmIG90aGVyLmNvbnRhaW5z
-KGNhbmRpZGF0ZSkpKSBzY2FuKGNhbmRpZGF0ZSk7CiAgICAgIC8vIFJlbW92
-ZWQgY29udGVudCBtdXN0IG5vdCBiZSByZXRhaW5lZCBieSBhIGxvbmctbGl2
-ZWQgZGFzaGJvYXJkIG9ic2VydmVyLgogICAgICBmb3IgKGNvbnN0IGVsZW1l
-bnQgb2YgcGVuZGluZykgaWYgKCFlbGVtZW50LmlzQ29ubmVjdGVkKSB7IG9i
-c2VydmVyPy51bm9ic2VydmUoZWxlbWVudCk7IHBlbmRpbmcuZGVsZXRlKGVs
-ZW1lbnQpOyB9CiAgICAgIGZvciAoY29uc3QgZWxlbWVudCBvZiBhY3RpdmUu
-a2V5cygpKSBpZiAoIWVsZW1lbnQuaXNDb25uZWN0ZWQpIGZpbmlzaChlbGVt
-ZW50KTsKICAgIH0pOwogIH0KCiAgZnVuY3Rpb24gc2V0dGxlQWxsKCkgewog
-ICAgZm9yIChjb25zdCBlbGVtZW50IG9mIGFjdGl2ZS5rZXlzKCkpIGZpbmlz
-aChlbGVtZW50KTsKICAgIG9ic2VydmVyPy5kaXNjb25uZWN0KCk7CiAgICBm
-b3IgKGNvbnN0IGVsZW1lbnQgb2YgcGVuZGluZykgc2Vlbi5kZWxldGUoZWxl
-bWVudCk7CiAgICBwZW5kaW5nLmNsZWFyKCk7CiAgICBjYW5jZWxBbmltYXRp
-b25GcmFtZShmcmFtZSk7IGZyYW1lID0gMDsgc2NhbnMuY2xlYXIoKTsKICB9
-CgogIGZ1bmN0aW9uIHJlZnJlc2goKSB7CiAgICBpZiAoZG9jdW1lbnQuaGlk
-ZGVuIHx8IGRpc2FibGVkKCkgfHwgc3VzcGVuZGVkKSB7CiAgICAgIHNldHRs
-ZUFsbCgpOwogICAgICBkb2N1bWVudC5kb2N1bWVudEVsZW1lbnQuY2xhc3NM
-aXN0LnJlbW92ZSgncGxhdGZvcm0tbW90aW9uLXJlYWR5Jyk7CiAgICAgIHJl
-dHVybjsKICAgIH0KICAgIGRvY3VtZW50LmRvY3VtZW50RWxlbWVudC5jbGFz
-c0xpc3QuYWRkKCdwbGF0Zm9ybS1tb3Rpb24tcmVhZHknKTsKICAgIC8vIFBl
-bmRpbmcgY2FyZHMgcmVtYWluIGVsaWdpYmxlIGFmdGVyIGEgaGlkZGVuIHRh
-YiBvciByZWR1Y2VkLW1vdGlvbiBjaGFuZ2UuCiAgICBzY2FuKGRvY3VtZW50
-LmJvZHkpOwogIH0KCiAgZnVuY3Rpb24gc3RhcnQoKSB7CiAgICBpZiAodHlw
-ZW9mIEludGVyc2VjdGlvbk9ic2VydmVyICE9PSAnZnVuY3Rpb24nKSByZXR1
-cm47CiAgICBvYnNlcnZlciA9IG5ldyBJbnRlcnNlY3Rpb25PYnNlcnZlcihl
-bnRyaWVzID0+IHsKICAgICAgZm9yIChjb25zdCBlbnRyeSBvZiBlbnRyaWVz
-KSBpZiAoZW50cnkuaXNJbnRlcnNlY3RpbmcpIHJldmVhbChlbnRyeS50YXJn
-ZXQpOwogICAgfSwgeyB0aHJlc2hvbGQ6IC4wNiwgcm9vdE1hcmdpbjogJzBw
-eCAwcHggLTE4cHggMHB4JyB9KTsKICAgIG11dGF0aW9ucyA9IG5ldyBNdXRh
-dGlvbk9ic2VydmVyKHJlY29yZHMgPT4gewogICAgICBmb3IgKGNvbnN0IHJl
-Y29yZCBvZiByZWNvcmRzKSB7CiAgICAgICAgaWYgKHJlY29yZC50eXBlID09
-PSAnYXR0cmlidXRlcycpIHsKICAgICAgICAgIGlmIChyZWNvcmQuYXR0cmli
-dXRlTmFtZSAhPT0gJ2NsYXNzJyB8fCByZWNvcmQudGFyZ2V0Lm1hdGNoZXMo
-Jy5hcHAtcGFnZSwgLnBhZ2UtaG9zdCcpKSBxdWV1ZVNjYW4ocmVjb3JkLnRh
-cmdldCk7CiAgICAgICAgICBjb250aW51ZTsKICAgICAgICB9CiAgICAgICAg
-Zm9yIChjb25zdCBub2RlIG9mIHJlY29yZC5hZGRlZE5vZGVzKSBpZiAobm9k
-ZS5ub2RlVHlwZSA9PT0gMSkgcXVldWVTY2FuKG5vZGUpOwogICAgICAgIGlm
-IChyZWNvcmQucmVtb3ZlZE5vZGVzLmxlbmd0aCkgcXVldWVTY2FuKHJlY29y
-ZC50YXJnZXQpOwogICAgICB9CiAgICB9KTsKICAgIGNvbnN0IHdhdGNoT3B0
-aW9ucyA9IHsgY2hpbGRMaXN0OiB0cnVlLCBzdWJ0cmVlOiB0cnVlLCBhdHRy
-aWJ1dGVzOiB0cnVlLCBhdHRyaWJ1dGVGaWx0ZXI6IFsnaGlkZGVuJywgJ2lu
-ZXJ0JywgJ2NsYXNzJ10gfTsKICAgIG11dGF0aW9ucy5vYnNlcnZlKGRvY3Vt
-ZW50LmJvZHksIHdhdGNoT3B0aW9ucyk7CiAgICBkb2N1bWVudC5hZGRFdmVu
-dExpc3RlbmVyKCdhbmltYXRpb25lbmQnLCBldmVudCA9PiB7IGlmIChhY3Rp
-dmUuaGFzKGV2ZW50LnRhcmdldCkgJiYgZXZlbnQuYW5pbWF0aW9uTmFtZS5z
-dGFydHNXaXRoKCdjbUVudHJhbmNlJykpIGZpbmlzaChldmVudC50YXJnZXQp
-OyB9KTsKICAgIGNvbnN0IGludGVycnVwdCA9IGV2ZW50ID0+IHsKICAgICAg
-Zm9yIChjb25zdCBlbGVtZW50IG9mIGFjdGl2ZS5rZXlzKCkpIGlmIChlbGVt
-ZW50LmNvbnRhaW5zKGV2ZW50LnRhcmdldCkpIGZpbmlzaChlbGVtZW50KTsK
-ICAgIH07CiAgICBkb2N1bWVudC5hZGRFdmVudExpc3RlbmVyKCdmb2N1c2lu
-JywgaW50ZXJydXB0LCB0cnVlKTsKICAgIGRvY3VtZW50LmFkZEV2ZW50TGlz
-dGVuZXIoJ3BvaW50ZXJvdmVyJywgaW50ZXJydXB0LCB7IHBhc3NpdmU6IHRy
-dWUgfSk7CiAgICBkb2N1bWVudC5hZGRFdmVudExpc3RlbmVyKCd2aXNpYmls
-aXR5Y2hhbmdlJywgcmVmcmVzaCk7CiAgICByZWR1Y2VkLmFkZEV2ZW50TGlz
-dGVuZXIoJ2NoYW5nZScsIHJlZnJlc2gpOwogICAgY29ubmVjdGlvbj8uYWRk
-RXZlbnRMaXN0ZW5lcj8uKCdjaGFuZ2UnLCByZWZyZXNoKTsKICAgIHdpbmRv
-dy5hZGRFdmVudExpc3RlbmVyKCdwYWdlaGlkZScsICgpID0+IHsgc3VzcGVu
-ZGVkID0gdHJ1ZTsgc2V0dGxlQWxsKCk7IG11dGF0aW9ucy5kaXNjb25uZWN0
-KCk7IH0pOwogICAgd2luZG93LmFkZEV2ZW50TGlzdGVuZXIoJ3BhZ2VzaG93
-JywgKCkgPT4geyBzdXNwZW5kZWQgPSBmYWxzZTsgbXV0YXRpb25zLm9ic2Vy
-dmUoZG9jdW1lbnQuYm9keSwgd2F0Y2hPcHRpb25zKTsgcmVmcmVzaCgpOyB9
-KTsKICAgIHJlZnJlc2goKTsKICB9CgogIHdpbmRvdy5DbGFzc2ljTWFydE1v
-dGlvbiA9IE9iamVjdC5mcmVlemUoeyByZWZyZXNoOiAoKSA9PiBxdWV1ZVNj
-YW4oZG9jdW1lbnQuYm9keSkgfSk7CiAgaWYgKGRvY3VtZW50LnJlYWR5U3Rh
-dGUgPT09ICdsb2FkaW5nJykgZG9jdW1lbnQuYWRkRXZlbnRMaXN0ZW5lcign
-RE9NQ29udGVudExvYWRlZCcsIHN0YXJ0LCB7IG9uY2U6IHRydWUgfSk7CiAg
-ZWxzZSBzdGFydCgpOwp9KSgpOwo=
+/* Small, one-time entrances shared by storefronts and live role workspaces.
+   Content stays visible until the observer starts an animation; CSS/JS failure
+   therefore never strands an invisible card or changes native scrolling. */
+(() => {
+  'use strict';
+  if (window.ClassicMartMotion) return;
+
+  const selector = [
+    '[data-scroll-motion]',
+    'main .section-heading', 'main .page-heading', 'main .page-header',
+    '.panel', '.stat-card', '.summary-card', '.product-card', '.compact-product', '.recommend-card',
+    '.mini-product-card', '.catalog-product-card', '.people-card', '.blog-card',
+    '.info-card', '.benefit-item', '.profile-hero', '.marketplace-intro',
+  ].join(',');
+  const excluded = 'nav, header, footer, form, dialog, [role="dialog"], [role="alert"], [role="status"], [aria-live], [hidden], [inert], [data-motion="off"], [data-scroll-motion="off"], .modal, .modal-backdrop, .filter-drawer, .search-suggestions, .promo-card, .hero-slider, .platform-flash-stack';
+  const controls = 'a, button, input, select, textarea, label, summary, [role="button"], [role="tab"], [contenteditable="true"]';
+  const variants = ['up', 'left', 'right', 'zoom', 'zoom-out', 'down', 'drop'];
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const connection = navigator.connection;
+  const disabled = () => reduced.matches || connection?.saveData || document.documentElement.dataset.lowData === 'true';
+  const seen = new WeakSet();
+  const pending = new Set();
+  const active = new Map();
+  const scans = new Set();
+  let observer, mutations, frame = 0, sequence = 0, suspended = false;
+
+  function finish(element) {
+    const timer = active.get(element);
+    if (timer !== undefined) window.clearTimeout(timer);
+    active.delete(element);
+    element.classList.remove('platform-motion-enter');
+    element.removeAttribute('data-platform-motion');
+    for (const property of ['--cm-motion-delay', '--cm-motion-rest', '--cm-motion-opacity']) element.style.removeProperty(property);
+  }
+
+  function reveal(element) {
+    observer?.unobserve(element);
+    pending.delete(element);
+    // Keyboard and pointer actions always win over decoration.
+    if (!element.isConnected || document.hidden || suspended || disabled() ||
+        element.closest(excluded) || element.contains(document.activeElement) || element.matches(':hover')) return;
+    const style = getComputedStyle(element);
+    if (style.display === 'none' || style.visibility !== 'visible' || style.animationName !== 'none') return;
+    const requested = element.getAttribute('data-scroll-motion');
+    let index = 0;
+    for (let sibling = element.previousElementSibling; sibling && index < 3; sibling = sibling.previousElementSibling) {
+      if (sibling.matches(selector)) index++;
+    }
+    element.style.setProperty('--cm-motion-delay', `${Math.min(index, 3) * 55}ms`);
+    element.style.setProperty('--cm-motion-rest', style.transform === 'none' ? 'translate3d(0, 0, 0)' : style.transform);
+    element.style.setProperty('--cm-motion-opacity', style.opacity);
+    element.setAttribute('data-platform-motion', variants.includes(requested) ? requested : variants[sequence++ % variants.length]);
+    element.classList.add('platform-motion-enter');
+    // Also settle if CSS is unavailable or animationend never arrives.
+    active.set(element, window.setTimeout(() => finish(element), 1_000));
+  }
+
+  function scan(root) {
+    if (!observer || disabled() || suspended || !root?.isConnected) return;
+    const candidates = [...(root.matches?.(selector) ? [root] : []), ...root.querySelectorAll(selector)];
+    for (const element of candidates) {
+      if (seen.has(element) || element.matches(controls) || element.closest(excluded)) continue;
+      // Animate a card once, rather than moving its heading/child card again.
+      if (element.parentElement?.closest(selector)) continue;
+      seen.add(element);
+      pending.add(element);
+      observer.observe(element);
+    }
+  }
+
+  function queueScan(root) {
+    if (!root?.querySelectorAll) return;
+    scans.add(root);
+    if (!frame && !document.hidden && !suspended) frame = requestAnimationFrame(() => {
+      frame = 0;
+      const roots = [...scans]; scans.clear();
+      for (const candidate of roots) if (!roots.some(other => other !== candidate && other.contains(candidate))) scan(candidate);
+      // Removed content must not be retained by a long-lived dashboard observer.
+      for (const element of pending) if (!element.isConnected) { observer?.unobserve(element); pending.delete(element); }
+      for (const element of active.keys()) if (!element.isConnected) finish(element);
+    });
+  }
+
+  function settleAll() {
+    for (const element of active.keys()) finish(element);
+    observer?.disconnect();
+    for (const element of pending) seen.delete(element);
+    pending.clear();
+    cancelAnimationFrame(frame); frame = 0; scans.clear();
+  }
+
+  function refresh() {
+    if (document.hidden || disabled() || suspended) {
+      settleAll();
+      document.documentElement.classList.remove('platform-motion-ready');
+      return;
+    }
+    document.documentElement.classList.add('platform-motion-ready');
+    // Pending cards remain eligible after a hidden tab or reduced-motion change.
+    scan(document.body);
+  }
+
+  function start() {
+    if (typeof IntersectionObserver !== 'function') return;
+    observer = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting) reveal(entry.target);
+    }, { threshold: .06, rootMargin: '0px 0px -18px 0px' });
+    mutations = new MutationObserver(records => {
+      for (const record of records) {
+        if (record.type === 'attributes') {
+          if (record.attributeName !== 'class' || record.target.matches('.app-page, .page-host')) queueScan(record.target);
+          continue;
+        }
+        for (const node of record.addedNodes) if (node.nodeType === 1) queueScan(node);
+        if (record.removedNodes.length) queueScan(record.target);
+      }
+    });
+    const watchOptions = { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'inert', 'class'] };
+    mutations.observe(document.body, watchOptions);
+    document.addEventListener('animationend', event => { if (active.has(event.target) && event.animationName.startsWith('cmEntrance')) finish(event.target); });
+    const interrupt = event => {
+      for (const element of active.keys()) if (element.contains(event.target)) finish(element);
+    };
+    document.addEventListener('focusin', interrupt, true);
+    document.addEventListener('pointerover', interrupt, { passive: true });
+    document.addEventListener('visibilitychange', refresh);
+    reduced.addEventListener('change', refresh);
+    connection?.addEventListener?.('change', refresh);
+    window.addEventListener('pagehide', () => { suspended = true; settleAll(); mutations.disconnect(); });
+    window.addEventListener('pageshow', () => { suspended = false; mutations.observe(document.body, watchOptions); refresh(); });
+    refresh();
+  }
+
+  window.ClassicMartMotion = Object.freeze({ refresh: () => queueScan(document.body) });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+})();
