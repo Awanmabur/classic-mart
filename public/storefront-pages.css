@@ -634,7 +634,6 @@ body:not(.home-page) :where(main, .onboarding-shell) textarea,
 }
 .preview-purchase-actions .preview-whatsapp-button:hover {
   background: #118a53;
-  color: #000;
 }
 .preview-purchase-actions .preview-whatsapp-button strong {
   font-size: inherit;
