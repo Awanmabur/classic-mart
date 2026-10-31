@@ -36,7 +36,7 @@
       indicator.setAttribute('aria-atomic', 'true');
       const brand = document.createElement('img');
       brand.className = 'platform-loading-brand';
-      brand.src = '/assets/classic-mart-icon.png';
+      brand.src = '/approved-dashboard/assets/classic-mart-icon.png';
       brand.alt = '';
       brand.width = 32;
       brand.height = 32;
