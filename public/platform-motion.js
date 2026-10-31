@@ -14,7 +14,7 @@
   ].join(',');
   const excluded = 'nav, header, footer, form, dialog, [role="dialog"], [role="alert"], [role="status"], [aria-live], [hidden], [inert], [data-motion="off"], [data-scroll-motion="off"], .modal, .modal-backdrop, .filter-drawer, .search-suggestions, .promo-card, .hero-slider, .platform-flash-stack';
   const controls = 'a, button, input, select, textarea, label, summary, [role="button"], [role="tab"], [contenteditable="true"]';
-  const variants = ['up', 'left', 'right', 'zoom', 'zoom-out', 'down', 'drop'];
+  const variants = ['up', 'left', 'right', 'zoom', 'zoom-out', 'down', 'drop', 'flip-x', 'flip-y'];
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   const connection = navigator.connection;
   const disabled = () => reduced.matches || connection?.saveData || document.documentElement.dataset.lowData === 'true';

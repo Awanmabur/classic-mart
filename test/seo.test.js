@@ -54,3 +54,21 @@ test('explicit country URLs set a matching anonymous API preference without shar
   const filtered = await request(app).get('/products?sort=price').expect(200);
   assert.match(filtered.headers['x-robots-tag'], /noindex/);
 });
+
+test('public marketplace metadata emphasizes actual shopping, sellers, promoter commissions and assistant without keyword stuffing', () => {
+  const home = pageSeo(page('/'));
+  const promoters = pageSeo(page('/promoters'));
+  const sellers = pageSeo(page('/sellers'));
+  assert.match(home.title, /Shop Products, Sell & Earn as a Promoter/);
+  assert.match(home.description, /eligible products for commissions without owning stock/i);
+  assert.match(promoters.description, /qualifying sales/i);
+  assert.match(sellers.description, /verified Classic Mart sellers/i);
+  assert.equal(home.canonical, SITE_URL + '/');
+  assert.ok(!home.noindex);
+  const parsed = JSON.parse(home.jsonLd);
+  assert.ok(parsed['@graph'].some(item => item['@type'] === 'Organization' && item.url === SITE_URL + '/'));
+  assert.ok(parsed['@graph'].some(item => item['@type'] === 'WebSite' && item.url === SITE_URL + '/'));
+  assert.ok(!home.description.includes('guaranteed income'));
+  assert.ok(!home.description.includes('best cheapest'));
+  assert.equal(canonicalUrl('/sitemap.xml'), SITE_URL + '/sitemap.xml');
+});

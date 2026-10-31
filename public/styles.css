@@ -3874,7 +3874,9 @@ body { font-size: 15px; line-height: 1.55; }
   font: inherit;
   text-align: inherit;
   cursor: pointer;
+  text-decoration: none;
 }
+.product-preview-button.product-preview-button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .search-result-option[aria-selected="true"] { background: #f3f4f6; }
 
 @media (max-width: 900px) {
@@ -3921,4 +3923,14 @@ body { font-size: 15px; line-height: 1.55; }
   -webkit-line-clamp: 3;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+
+/* Touch devices scroll product shelves by swipe: do not draw a redundant
+   previous/left arrow over product images or title rows. Right-side navigation
+   and accessible desktop controls keep their existing approved behavior. */
+@media (max-width: 760px) {
+  .slider-arrow.prev,
+  .section-prev-button,
+  .section-scroll-prev,
+  [data-scroll-prev] { display: none !important; }
 }

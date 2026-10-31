@@ -11,7 +11,7 @@ test('scroll entrances cover storefront and dashboard cards, dynamic content, fo
     for (const dashboard of [false, true]) {
       const page = await browser.newPage({ viewport: { width: 390, height: 780 } });
       const errors = []; page.on('pageerror', error => errors.push(error.message));
-      await page.setContent(`<html><head><style>body{margin:0;overflow-x:hidden}main{padding:20px}article{height:130px;margin:20px 0;padding:16px;background:#eee}button{margin:10px}.spacer{height:900px}${css}</style></head><body ${dashboard ? 'data-dashboard-workspace="customer"' : ''}><main><h1>Marketplace</h1><div class="spacer"></div>${['up','down','left','right','zoom','zoom-out','drop'].map((name, i) => `<article id="card${i}" class="${dashboard ? 'stat-card panel' : 'product-card'}" data-scroll-motion="${name}"><button>Open ${i}</button></article>`).join('')}<section id="closed" hidden><article class="panel" id="unhidden">Later dashboard page</article></section></main></body></html>`);
+      await page.setContent(`<html><head><style>body{margin:0;overflow-x:hidden}main{padding:20px}article{height:130px;margin:20px 0;padding:16px;background:#eee}button{margin:10px}.spacer{height:900px}${css}</style></head><body ${dashboard ? 'data-dashboard-workspace="customer"' : ''}><main><h1>Marketplace</h1><div class="spacer"></div>${['up','down','left','right','zoom','zoom-out','drop','flip-x','flip-y'].map((name, i) => `<article id="card${i}" class="${dashboard ? 'stat-card panel' : 'product-card'}" data-scroll-motion="${name}"><button>Open ${i}</button></article>`).join('')}<section id="closed" hidden><article class="panel" id="unhidden">Later dashboard page</article></section></main></body></html>`);
       await page.mouse.move(380, 5);
       await page.evaluate(() => { window.motionStarts = []; document.addEventListener('animationstart', event => { if (event.animationName.startsWith('cmEntrance')) window.motionStarts.push({ id: event.target.id, name: event.animationName }); }); });
       await page.addScriptTag({ content: motion });
@@ -23,6 +23,10 @@ test('scroll entrances cover storefront and dashboard cards, dynamic content, fo
       await expect.poll(() => page.evaluate(() => window.motionStarts.some(item => item.name === 'cmEntranceZoomOut'))).toBe(true);
       await page.locator('#card6').scrollIntoViewIfNeeded();
       await expect.poll(() => page.evaluate(() => window.motionStarts.some(item => item.id === 'card6'))).toBe(true);
+      await page.locator('#card7').scrollIntoViewIfNeeded();
+      await expect.poll(() => page.evaluate(() => window.motionStarts.some(item => item.name === 'cmEntranceFlipX'))).toBe(true);
+      await page.locator('#card8').scrollIntoViewIfNeeded();
+      await expect.poll(() => page.evaluate(() => window.motionStarts.some(item => item.name === 'cmEntranceFlipY'))).toBe(true);
       await page.locator('#card6 button').focus();
       await expect(page.locator('#card6')).not.toHaveClass(/platform-motion-enter/);
       await page.evaluate(() => { document.activeElement.blur(); const card = document.createElement('article'); card.id = 'dynamic'; card.className = 'panel'; card.textContent = 'New live data'; document.querySelector('main').append(card); });

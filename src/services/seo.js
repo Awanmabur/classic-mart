@@ -6,12 +6,12 @@ if (!['https:', 'http:'].includes(configuredBase.protocol) || configuredBase.use
 export const SITE_URL = configuredBase.href.replace(/\/+$/, '');
 export const PRIVATE_PATHS = Object.freeze(['/dashboard','/orders','/wishlist','/compare','/addresses','/rewards','/wallet','/support','/profile','/notifications','/club','/account','/cart','/checkout','/api','/webhooks','/login','/signup','/verify-email','/verify-phone','/onboarding','/forgot-password','/reset-password','/mfa','/track-order','/ask-classic','/seller','/promoter','/admin','/super-admin','/super','/delivery','/operations','/finance','/warehouse','/moderation','/business','/evidence','/receipts','/offline']);
 export const PUBLIC_PAGE_META = Object.freeze({
-  '/': ['Classic Mart — Online Marketplace', 'Shop published products from verified sellers on Classic Mart. Browse categories, compare current prices and check availability in your country.'],
-  '/products': ['Browse Products — Classic Mart', 'Browse published marketplace products, current prices and availability from verified Classic Mart sellers.'],
+  '/': ['Classic Mart | Shop Products, Sell & Earn as a Promoter', 'Shop products from verified sellers. Sell through your own store or promote eligible products for commissions without owning stock. Explore Classic Mart AI shopping help.'],
+  '/products': ['Shop Products Online | Classic Mart Marketplace', 'Find products, compare current prices and browse available stock from verified sellers in your country on Classic Mart.'],
   '/categories': ['Shop by Category — Classic Mart', 'Explore Classic Mart product categories and discover published listings from verified marketplace sellers.'],
-  '/sellers': ['Verified Sellers — Classic Mart', 'Explore verified Classic Mart stores and their published product listings.'],
-  '/promoters': ['Marketplace Promoters — Classic Mart', 'Discover verified Classic Mart promoters and their active product campaigns.'],
-  '/about': ['About Classic Mart', 'Learn about Classic Mart, its marketplace and the people connecting buyers with sellers.'],
+  '/sellers': ['Verified Online Sellers & Stores | Classic Mart', 'Discover verified Classic Mart sellers and published products. Marketplace promoters can help sellers reach buyers through eligible campaigns.'],
+  '/promoters': ['Earn Commissions Promoting Products | Classic Mart', 'Explore Classic Mart product promoters. Eligible members can promote approved seller products and earn commissions on qualifying sales without holding stock.'],
+  '/about': ['About Classic Mart | Shopping, Selling & Product Promotion', 'Classic Mart connects buyers, verified sellers and product promoters, with AI-assisted discovery and eligible sales commission opportunities.'],
   '/contact': ['Contact Classic Mart', 'Find Classic Mart contact information and ways to get help with marketplace enquiries.'],
   '/careers': ['Careers at Classic Mart', 'Explore career information and published opportunities at Classic Mart.'],
   '/press': ['News & Buying Guides — Classic Mart', 'Read published Classic Mart marketplace announcements, product guides and updates.'],
@@ -57,7 +57,12 @@ export function pageSeo(request, overrides = {}) {
     description: meta?.[1] || 'Classic Mart marketplace.',
     canonical: isPublicPath(path) ? canonicalUrl(path, request.country?.code) : '',
     type: 'website', image: '', imageAlt: '', locale: String(request.country?.locale || 'en').replace('-', '_'),
-    noindex: !meta || isPrivatePath(path) || hasDuplicateQuery(request), schema: [], ...overrides,
+    noindex: !meta || isPrivatePath(path) || hasDuplicateQuery(request),
+    schema: path === '/' ? [
+      { '@context': 'https://schema.org', '@type': 'Organization', name: SITE_NAME,
+        url: SITE_URL + '/', description: 'Marketplace connecting buyers, verified sellers and eligible product promoters.' },
+      { '@context': 'https://schema.org', '@type': 'WebSite', name: SITE_NAME, url: SITE_URL + '/' },
+    ] : [], ...overrides,
   };
   seo.title = plainText(seo.title, 180);
   seo.description = plainText(seo.description, 220);
