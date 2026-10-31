@@ -1,63 +1,54 @@
-LyogVmlzaWJsZSBieSBkZWZhdWx0OiBvbmx5IGludGVyc2VjdGluZyBlbGVt
-ZW50cyBhY3F1aXJlIHRoaXMgdGVtcG9yYXJ5IGNsYXNzLgogICBOZXZlciBj
-aGFuZ2UgbGF5b3V0LCBzY3JvbGxpbmcsIHBvaW50ZXIgZXZlbnRzLCBvciB0
-aGUgYXBwcm92ZWQgY29sb3VyIHN5c3RlbS4gKi8KQG1lZGlhIChwcmVmZXJz
-LXJlZHVjZWQtbW90aW9uOiBuby1wcmVmZXJlbmNlKSB7CiAgLnBsYXRmb3Jt
-LW1vdGlvbi1yZWFkeSAuYXBwLXBhZ2UgeyBhbmltYXRpb246IG5vbmU7IH0K
-ICAucGxhdGZvcm0tbW90aW9uLWVudGVyIHsKICAgIGFuaW1hdGlvbi1kdXJh
-dGlvbjogNTgwbXM7CiAgICBhbmltYXRpb24tZGVsYXk6IHZhcigtLWNtLW1v
-dGlvbi1kZWxheSwgMG1zKTsKICAgIGFuaW1hdGlvbi10aW1pbmctZnVuY3Rp
-b246IGN1YmljLWJlemllciguMiwgLjcsIC4yLCAxKTsKICAgIGFuaW1hdGlv
-bi1maWxsLW1vZGU6IGJhY2t3YXJkczsKICAgIHdpbGwtY2hhbmdlOiB0cmFu
-c2Zvcm0sIG9wYWNpdHk7CiAgfQogIC5wbGF0Zm9ybS1tb3Rpb24tZW50ZXJb
-ZGF0YS1wbGF0Zm9ybS1tb3Rpb249InVwIl0geyBhbmltYXRpb24tbmFtZTog
-Y21FbnRyYW5jZVVwOyB9CiAgLnBsYXRmb3JtLW1vdGlvbi1lbnRlcltkYXRh
-LXBsYXRmb3JtLW1vdGlvbj0iZG93biJdIHsgYW5pbWF0aW9uLW5hbWU6IGNt
-RW50cmFuY2VEb3duOyB9CiAgLnBsYXRmb3JtLW1vdGlvbi1lbnRlcltkYXRh
-LXBsYXRmb3JtLW1vdGlvbj0ibGVmdCJdIHsgYW5pbWF0aW9uLW5hbWU6IGNt
-RW50cmFuY2VMZWZ0OyB9CiAgLnBsYXRmb3JtLW1vdGlvbi1lbnRlcltkYXRh
-LXBsYXRmb3JtLW1vdGlvbj0icmlnaHQiXSB7IGFuaW1hdGlvbi1uYW1lOiBj
-bUVudHJhbmNlUmlnaHQ7IH0KICAucGxhdGZvcm0tbW90aW9uLWVudGVyW2Rh
-dGEtcGxhdGZvcm0tbW90aW9uPSJ6b29tIl0geyBhbmltYXRpb24tbmFtZTog
-Y21FbnRyYW5jZVpvb207IH0KICAucGxhdGZvcm0tbW90aW9uLWVudGVyW2Rh
-dGEtcGxhdGZvcm0tbW90aW9uPSJ6b29tLW91dCJdIHsgYW5pbWF0aW9uLW5h
-bWU6IGNtRW50cmFuY2Vab29tT3V0OyB9CiAgLnBsYXRmb3JtLW1vdGlvbi1l
-bnRlcltkYXRhLXBsYXRmb3JtLW1vdGlvbj0iZHJvcCJdIHsgYW5pbWF0aW9u
-LW5hbWU6IGNtRW50cmFuY2VEcm9wOyBhbmltYXRpb24tZHVyYXRpb246IDY0
-MG1zOyB9Cn0KQGtleWZyYW1lcyBjbUVudHJhbmNlVXAgewogIGZyb20geyBv
-cGFjaXR5OiAwOyB0cmFuc2Zvcm06IHRyYW5zbGF0ZTNkKDAsIDIycHgsIDAp
-IHZhcigtLWNtLW1vdGlvbi1yZXN0KTsgfQogIHRvIHsgb3BhY2l0eTogdmFy
-KC0tY20tbW90aW9uLW9wYWNpdHksIDEpOyB0cmFuc2Zvcm06IHZhcigtLWNt
-LW1vdGlvbi1yZXN0KTsgfQp9CkBrZXlmcmFtZXMgY21FbnRyYW5jZURvd24g
-ewogIGZyb20geyBvcGFjaXR5OiAwOyB0cmFuc2Zvcm06IHRyYW5zbGF0ZTNk
-KDAsIC0yMHB4LCAwKSB2YXIoLS1jbS1tb3Rpb24tcmVzdCk7IH0KICB0byB7
-IG9wYWNpdHk6IHZhcigtLWNtLW1vdGlvbi1vcGFjaXR5LCAxKTsgdHJhbnNm
-b3JtOiB2YXIoLS1jbS1tb3Rpb24tcmVzdCk7IH0KfQpAa2V5ZnJhbWVzIGNt
-RW50cmFuY2VMZWZ0IHsKICBmcm9tIHsgb3BhY2l0eTogMDsgdHJhbnNmb3Jt
-OiB0cmFuc2xhdGUzZCgtMjRweCwgMCwgMCkgdmFyKC0tY20tbW90aW9uLXJl
-c3QpOyB9CiAgdG8geyBvcGFjaXR5OiB2YXIoLS1jbS1tb3Rpb24tb3BhY2l0
-eSwgMSk7IHRyYW5zZm9ybTogdmFyKC0tY20tbW90aW9uLXJlc3QpOyB9Cn0K
-QGtleWZyYW1lcyBjbUVudHJhbmNlUmlnaHQgewogIGZyb20geyBvcGFjaXR5
-OiAwOyB0cmFuc2Zvcm06IHRyYW5zbGF0ZTNkKDI0cHgsIDAsIDApIHZhcigt
-LWNtLW1vdGlvbi1yZXN0KTsgfQogIHRvIHsgb3BhY2l0eTogdmFyKC0tY20t
-bW90aW9uLW9wYWNpdHksIDEpOyB0cmFuc2Zvcm06IHZhcigtLWNtLW1vdGlv
-bi1yZXN0KTsgfQp9CkBrZXlmcmFtZXMgY21FbnRyYW5jZVpvb20gewogIGZy
-b20geyBvcGFjaXR5OiAwOyB0cmFuc2Zvcm06IHNjYWxlKC45NikgdmFyKC0t
-Y20tbW90aW9uLXJlc3QpOyB9CiAgdG8geyBvcGFjaXR5OiB2YXIoLS1jbS1t
-b3Rpb24tb3BhY2l0eSwgMSk7IHRyYW5zZm9ybTogdmFyKC0tY20tbW90aW9u
-LXJlc3QpOyB9Cn0KQGtleWZyYW1lcyBjbUVudHJhbmNlWm9vbU91dCB7CiAg
-ZnJvbSB7IG9wYWNpdHk6IDA7IHRyYW5zZm9ybTogc2NhbGUoMS4wMzUpIHZh
-cigtLWNtLW1vdGlvbi1yZXN0KTsgfQogIHRvIHsgb3BhY2l0eTogdmFyKC0t
-Y20tbW90aW9uLW9wYWNpdHksIDEpOyB0cmFuc2Zvcm06IHZhcigtLWNtLW1v
-dGlvbi1yZXN0KTsgfQp9CkBrZXlmcmFtZXMgY21FbnRyYW5jZURyb3Agewog
-IDAlIHsgb3BhY2l0eTogMDsgdHJhbnNmb3JtOiB0cmFuc2xhdGUzZCgwLCAt
-MjhweCwgMCkgc2NhbGUoLjk4NSkgdmFyKC0tY20tbW90aW9uLXJlc3QpOyB9
-CiAgNzIlIHsgb3BhY2l0eTogdmFyKC0tY20tbW90aW9uLW9wYWNpdHksIDEp
-OyB0cmFuc2Zvcm06IHRyYW5zbGF0ZTNkKDAsIDJweCwgMCkgdmFyKC0tY20t
-bW90aW9uLXJlc3QpOyB9CiAgMTAwJSB7IG9wYWNpdHk6IHZhcigtLWNtLW1v
-dGlvbi1vcGFjaXR5LCAxKTsgdHJhbnNmb3JtOiB2YXIoLS1jbS1tb3Rpb24t
-cmVzdCk7IH0KfQpAbWVkaWEgKHByZWZlcnMtcmVkdWNlZC1tb3Rpb246IHJl
-ZHVjZSkgewogIC5wbGF0Zm9ybS1tb3Rpb24tZW50ZXIgeyBhbmltYXRpb246
-IG5vbmUgIWltcG9ydGFudDsgfQp9CkBtZWRpYSBwcmludCB7CiAgLnBsYXRm
-b3JtLW1vdGlvbi1lbnRlciB7IGFuaW1hdGlvbjogbm9uZSAhaW1wb3J0YW50
-OyB9Cn0K
+/* Visible by default: only intersecting elements acquire this temporary class.
+   Never change layout, scrolling, pointer events, or the approved colour system. */
+@media (prefers-reduced-motion: no-preference) {
+  .platform-motion-ready .app-page { animation: none; }
+  .platform-motion-enter {
+    animation-duration: 580ms;
+    animation-delay: var(--cm-motion-delay, 0ms);
+    animation-timing-function: cubic-bezier(.2, .7, .2, 1);
+    animation-fill-mode: backwards;
+    will-change: transform, opacity;
+  }
+  .platform-motion-enter[data-platform-motion="up"] { animation-name: cmEntranceUp; }
+  .platform-motion-enter[data-platform-motion="down"] { animation-name: cmEntranceDown; }
+  .platform-motion-enter[data-platform-motion="left"] { animation-name: cmEntranceLeft; }
+  .platform-motion-enter[data-platform-motion="right"] { animation-name: cmEntranceRight; }
+  .platform-motion-enter[data-platform-motion="zoom"] { animation-name: cmEntranceZoom; }
+  .platform-motion-enter[data-platform-motion="zoom-out"] { animation-name: cmEntranceZoomOut; }
+  .platform-motion-enter[data-platform-motion="drop"] { animation-name: cmEntranceDrop; animation-duration: 640ms; }
+}
+@keyframes cmEntranceUp {
+  from { opacity: 0; transform: translate3d(0, 22px, 0) var(--cm-motion-rest); }
+  to { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
+}
+@keyframes cmEntranceDown {
+  from { opacity: 0; transform: translate3d(0, -20px, 0) var(--cm-motion-rest); }
+  to { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
+}
+@keyframes cmEntranceLeft {
+  from { opacity: 0; transform: translate3d(-24px, 0, 0) var(--cm-motion-rest); }
+  to { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
+}
+@keyframes cmEntranceRight {
+  from { opacity: 0; transform: translate3d(24px, 0, 0) var(--cm-motion-rest); }
+  to { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
+}
+@keyframes cmEntranceZoom {
+  from { opacity: 0; transform: scale(.96) var(--cm-motion-rest); }
+  to { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
+}
+@keyframes cmEntranceZoomOut {
+  from { opacity: 0; transform: scale(1.035) var(--cm-motion-rest); }
+  to { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
+}
+@keyframes cmEntranceDrop {
+  0% { opacity: 0; transform: translate3d(0, -28px, 0) scale(.985) var(--cm-motion-rest); }
+  72% { opacity: var(--cm-motion-opacity, 1); transform: translate3d(0, 2px, 0) var(--cm-motion-rest); }
+  100% { opacity: var(--cm-motion-opacity, 1); transform: var(--cm-motion-rest); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .platform-motion-enter { animation: none !important; }
+}
+@media print {
+  .platform-motion-enter { animation: none !important; }
+}
