@@ -2,11 +2,11 @@
 .platform-loading {
   position: fixed;
   z-index: 5500;
-  top: 50%;
-  left: 50%;
-  right: auto;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  left: auto;
   bottom: auto;
-  transform: translate(-50%, -50%);
+  transform: none;
   display: inline-flex;
   align-items: center;
   gap: 9px;
@@ -28,6 +28,11 @@
 .platform-loading[hidden] { display: none; }
 .platform-loading-brand { display: none; }
 .platform-loading--splash {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
   flex-direction: column;
   gap: 14px;
   min-width: min(230px, calc(100vw - 32px));
