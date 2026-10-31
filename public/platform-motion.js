@@ -49,7 +49,19 @@
     element.style.setProperty('--cm-motion-delay', `${Math.min(index, 3) * 55}ms`);
     element.style.setProperty('--cm-motion-rest', style.transform === 'none' ? 'translate3d(0, 0, 0)' : style.transform);
     element.style.setProperty('--cm-motion-opacity', style.opacity);
-    element.setAttribute('data-platform-motion', variants.includes(requested) ? requested : variants[sequence++ % variants.length]);
+    let variant = variants.includes(requested) ? requested : variants[sequence++ % variants.length];
+    // CSS transforms can temporarily enlarge the document's scrollWidth, even
+    // though layout boxes fit. Avoid horizontal motion near a viewport edge;
+    // preserve the same animation for cards with sufficient clearance.
+    const rect = element.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const leftRoom = rect.left;
+    const rightRoom = viewportWidth - rect.right;
+    if ((variant === 'left' && leftRoom < 28) ||
+        (variant === 'right' && rightRoom < 28)) variant = 'up';
+    if (variant === 'zoom-out' && (leftRoom < rect.width * 0.018 ||
+        rightRoom < rect.width * 0.018)) variant = 'zoom';
+    element.setAttribute('data-platform-motion', variant);
     element.classList.add('platform-motion-enter');
     // Also settle if CSS is unavailable or animationend never arrives.
     active.set(element, window.setTimeout(() => finish(element), 1_000));

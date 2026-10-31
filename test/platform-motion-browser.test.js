@@ -46,3 +46,22 @@ test('scroll entrances cover storefront and dashboard cards, dynamic content, fo
     await lowData.close();
   } finally { await browser.close(); }
 });
+
+
+test('motion near a narrow viewport edge never creates horizontal scrolling during entrance', { timeout: 30_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox'] });
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 700 } });
+    await page.setContent(`<!doctype html><html><head><style>
+      html,body{margin:0}main{padding:4px}article{margin:4px 0;height:120px;background:#eee}
+      ${css}
+    </style></head><body><main><article class="panel" data-scroll-motion="right">Wide panel</article>
+    <article class="panel" data-scroll-motion="zoom-out">Wide zoom panel</article></main></body></html>`);
+    await page.addScriptTag({ content: motion });
+    await expect(page.locator('article').first()).toHaveAttribute('data-platform-motion', 'up');
+    await expect(page.locator('article').last()).toHaveAttribute('data-platform-motion', 'zoom');
+    const geometry = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
+    assert.ok(geometry.scroll <= geometry.width + 1, JSON.stringify(geometry));
+    await page.close();
+  } finally { await browser.close(); }
+});
