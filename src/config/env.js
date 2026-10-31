@@ -5,6 +5,7 @@ import 'dotenv/config';
 import { projectMongoUri } from '../core/project-env.js';
 import { openRegistrationTypes } from '../core/registration.js';
 import { assertProductionOrigin } from '../core/production-origin.js';
+import { trustedProxyMatcher } from '../core/trusted-proxy.js';
 
 const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -35,6 +36,12 @@ function privateIp(value) {
 function csv(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
 }
+
+const trustedProxyCidrs = Object.freeze(csv(process.env.TRUST_PROXY_CIDRS));
+const geolocationTrustedProxyCidrs = Object.freeze(csv(process.env.GEOLOCATION_TRUSTED_PROXY_CIDRS));
+// Validate explicit proxy ranges at startup; never accept blanket trust.
+trustedProxyMatcher(trustedProxyCidrs);
+trustedProxyMatcher(geolocationTrustedProxyCidrs);
 
 function secret(name, fallback) {
   const configured = process.env[name];
@@ -111,7 +118,7 @@ if (nodeEnv === 'production') {
     throw new Error('Production requires an HTTPS BASE_URL.');
   }
   assertProductionOrigin(process.env.BASE_URL);
-  if (integer(process.env.TRUST_PROXY, 0) < 1) {
+  if (integer(process.env.TRUST_PROXY, 0) < 1 && !trustedProxyCidrs.length) {
     throw new Error('Production requires TRUST_PROXY to match the trusted reverse-proxy topology.');
   }
   if (process.env.SECURITY_INTEGRITY_KEY === process.env.SESSION_SECRET || process.env.SECURITY_INTEGRITY_KEY === process.env.TOKEN_PEPPER || process.env.SECURITY_INTEGRITY_KEY === process.env.DATA_ENCRYPTION_KEY) {
@@ -210,6 +217,8 @@ export const env = Object.freeze({
     process.env.DATA_ENCRYPTION_KEY ||
     'development-only-sensitive-data-encryption-key',
   trustProxy: integer(process.env.TRUST_PROXY, 0),
+  trustedProxyCidrs,
+  geolocationTrustedProxyCidrs,
   metricsToken: process.env.METRICS_TOKEN || '',
   auth: Object.freeze({
     simpleLogin: simpleLoginMode,
