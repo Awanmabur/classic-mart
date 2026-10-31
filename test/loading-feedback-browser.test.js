@@ -60,6 +60,11 @@ test('loading feedback follows actual work without changing requests, cancelled 
       await expect(loader).toBeVisible();
       await expect(loader).toHaveAttribute('role', 'status');
       await expect(loader).toHaveText('Working…');
+      const center = await loader.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        return { x: Math.abs(box.x + box.width / 2 - innerWidth / 2), y: Math.abs(box.y + box.height / 2 - innerHeight / 2) };
+      });
+      assert.ok(center.x <= 1 && center.y <= 1, 'pending-work indicator is centered in the viewport');
       const write = requests.find(request => request.method() === 'POST');
       assert.equal(write.postData(), 'intent=publish&_csrf=fixture');
       assert.equal(write.headers()['x-fixture'], 'write');
@@ -327,14 +332,15 @@ test('loading feedback follows actual work without changing requests, cancelled 
         const topmost = element.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
         element.style.removeProperty('pointer-events');
         return { host: element.parentElement.id, topmost, left: box.left, right: box.right, top: box.top,
+          centerX: Math.abs(box.x + box.width / 2 - innerWidth / 2), centerY: Math.abs(box.y + box.height / 2 - innerHeight / 2),
           inert: Boolean(element.closest('[inert]')), position: getComputedStyle(element).position };
       });
       assert.equal(placement.host, 'record-dialog');
       assert.equal(placement.topmost, true, 'The native dialog backdrop must not cover the loading indicator.');
       assert.equal(placement.inert, false);
       assert.equal(placement.position, 'fixed');
-      assert.ok(placement.left >= 0 && placement.right <= 390 && placement.top >= 0 && placement.top <= 16,
-        'Top-layer hosting must preserve the viewport position despite an overflowing transformed ancestor.');
+      assert.ok(placement.left >= 0 && placement.right <= 390 && placement.top >= 0 && placement.centerX <= 1 && placement.centerY <= 1,
+        'Top-layer hosting must keep loading centered despite an overflowing transformed ancestor.');
       await page.evaluate(() => document.querySelector('#record-dialog').close());
       await expect.poll(() => loader.evaluate(element => element.parentElement === document.body)).toBe(true);
       await expect(loader).toBeVisible();
