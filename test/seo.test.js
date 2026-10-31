@@ -63,7 +63,7 @@ test('public marketplace metadata emphasizes actual shopping, sellers, promoter 
   assert.match(home.description, /eligible products for commissions without owning stock/i);
   assert.match(promoters.description, /qualifying sales/i);
   assert.match(sellers.description, /verified Classic Mart sellers/i);
-  assert.equal(home.canonical, SITE_URL + '/');
+  assert.equal(home.canonical, SITE_URL + '/?country=UG');
   assert.ok(!home.noindex);
   const parsed = JSON.parse(home.jsonLd);
   assert.ok(parsed['@graph'].some(item => item['@type'] === 'Organization' && item.url === SITE_URL + '/'));
