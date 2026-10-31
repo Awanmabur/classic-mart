@@ -16,13 +16,14 @@ export function accountRateLimitKey(request) {
   return actor ? digest('account:' + actor) : '';
 }
 
-export function deviceRateLimitKey(request) {
+export function deviceRateLimitKey(request, { allowSession = true } = {}) {
   const actor = actorId(request);
   const device = request.device || request.mobileSession;
   if (actor && device && !device.revokedAt && boundedIdentity(device.userId) === actor) {
     const id = boundedIdentity(device._id || device.publicId);
     if (id) return digest('device:' + actor + ':' + id);
   }
+  if (!allowSession) return '';
   // Express supplies this server-side session after signature/store validation.
   // A user-agent, arbitrary device header, or raw cookie never establishes identity.
   const session = boundedIdentity(request.sessionID);
@@ -53,9 +54,10 @@ export default function rateLimit({ scope, accountLimit, deviceLimit, ...options
       requestPropertyName: 'ipRateLimit', identifier: scope + '-ip' }));
   }
   limiters.push(primary);
+  const deviceKey = request => deviceRateLimitKey(request, { allowSession: deviceLimit !== undefined });
   for (const [kind, key, limit] of [
     ['account', accountRateLimitKey, accountLimit ?? options.limit],
-    ['device', deviceRateLimitKey, deviceLimit ?? options.limit],
+    ['device', deviceKey, deviceLimit ?? options.limit],
   ]) {
     limiters.push(makeLimiter(scope + ':' + kind, { ...shared,
       ...(limit === undefined ? {} : { limit }),
