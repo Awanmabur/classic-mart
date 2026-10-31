@@ -333,15 +333,18 @@ test('loading feedback follows actual work without changing requests, cancelled 
         element.style.pointerEvents = 'auto';
         const topmost = element.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
         element.style.removeProperty('pointer-events');
+        const host = element.parentElement.getBoundingClientRect();
         return { host: element.parentElement.id, topmost, left: box.left, right: box.right, top: box.top,
+          centreX: box.left + box.width / 2, centreY: box.top + box.height / 2,
+          modalCentreX: host.left + host.width / 2, modalCentreY: host.top + host.height / 2,
           inert: Boolean(element.closest('[inert]')), position: getComputedStyle(element).position };
       });
       assert.equal(placement.host, 'record-dialog');
       assert.equal(placement.topmost, true, 'The native dialog backdrop must not cover the loading indicator.');
       assert.equal(placement.inert, false);
-      assert.equal(placement.position, 'fixed');
-      assert.ok(placement.left >= 0 && placement.right <= 390 && placement.top >= 0 && placement.top <= 16,
-        'Top-layer hosting must preserve the viewport position despite an overflowing transformed ancestor.');
+      assert.equal(placement.position, 'absolute', 'native modal owns its centered loader');
+      assert.ok(Math.abs(placement.centreX - placement.modalCentreX) <= 2 && Math.abs(placement.centreY - placement.modalCentreY) <= 2,
+        'The single loading indicator must stay centered inside its native dialog.');
       await page.evaluate(() => document.querySelector('#record-dialog').close());
       await expect.poll(() => loader.evaluate(element => element.parentElement === document.body)).toBe(true);
       await expect(loader).toBeVisible();
