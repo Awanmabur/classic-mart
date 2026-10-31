@@ -42,7 +42,7 @@ export function viewLocals(request, response, next) {
     currentPath: request.originalUrl || request.url || '/',
     deliveryCity: String(request.session?.deliveryCity || ''),
     deliveryLocation: request.session?.deliveryCity ? `${request.session.deliveryCity}, ${request.country?.name || ''}`.replace(/,\s*$/, '') : request.country?.name,
-    formatMoney(value, currency = request.user?.currency || request.country?.currency || 'UGX') {
+    formatMoney(value, currency = request.country?.currency || request.user?.currency || 'UGX') {
       const code = String(currency || 'UGX').toUpperCase();
       const minor = Number(value || 0);
       const zeroDecimal = ZERO_DECIMAL;
