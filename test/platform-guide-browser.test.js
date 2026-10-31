@@ -40,6 +40,18 @@ test('floating guide uses a private session, safe real-price cards, accessible m
           trigger: document.querySelector('.classic-guide-trigger')?.outerHTML || null,
           scripts: [...document.scripts].map(el => el.src)
         }))));
+      const guideMarkup = await page.locator('.classic-guide-trigger').evaluate(element => ({
+        label: element.getAttribute('aria-label'),
+        html: element.outerHTML,
+        hidden: element.hidden,
+        display: getComputedStyle(element).display,
+        visibility: getComputedStyle(element).visibility,
+        rect: element.getBoundingClientRect().toJSON(),
+      }));
+      assert.equal(guideMarkup.label, 'Ask Classic — open AI voice and shopping guide');
+      assert.equal(guideMarkup.display !== 'none' && guideMarkup.visibility !== 'hidden', true,
+        'The guide launcher must be visible. Actual DOM: ' + JSON.stringify(guideMarkup));
+      console.log('[guide-launcher-diagnostics]', JSON.stringify(guideMarkup));
       await page.getByRole('button', { name: 'Ask Classic — open AI voice and shopping guide' }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
       await expect(page.locator('.classic-guide-status')).toContainText('Shopping in UG');
