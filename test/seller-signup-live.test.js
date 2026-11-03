@@ -310,7 +310,7 @@ test('seller registration survives verification, onboarding and later login with
       }
     });
     await t.test('seller enrolment meets the checked accessibility rules at both viewport sizes', () => {
-      assert.deepEqual(enrollmentAccessibility, [], 'the seller enrolment form meets the checked accessibility rules');
+      assert.deepEqual(enrollmentAccessibility, [], `the seller enrolment form meets the checked accessibility rules; violations: ${JSON.stringify(enrollmentAccessibility)}`);
     });
   } finally {
     await browser?.close();
