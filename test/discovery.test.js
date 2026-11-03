@@ -31,6 +31,8 @@ test('public crawling and AI source discovery exclude private and duplicate page
   assert.ok(pages.text.includes('/promoters?country=UG</loc>'));
   assert.ok(!llms.text.includes(`${SITE_URL}/dashboard`));
   assert.match(llms.text, /does not grant account access/);
+  assert.match(llms.text, /info@classictechgroup.com/);
+  assert.match(llms.text, /256773364680/);
 });
 test('sitemaps use full public eligibility, bounded pagination, authoritative canonicals and cached results', async t => {
   clearDiscoveryCache();

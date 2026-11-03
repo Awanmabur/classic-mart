@@ -60,7 +60,8 @@ export function pageSeo(request, overrides = {}) {
     noindex: !meta || isPrivatePath(path) || hasDuplicateQuery(request),
     schema: path === '/' ? [
       { '@context': 'https://schema.org', '@type': 'Organization', name: SITE_NAME,
-        url: SITE_URL + '/', description: 'Marketplace connecting buyers, verified sellers and eligible product promoters.' },
+        url: SITE_URL + '/', description: 'Marketplace connecting buyers, verified sellers and eligible product promoters.',
+        contactPoint: { '@type': 'ContactPoint', contactType: 'customer support', telephone: '+256773364680', email: 'info@classictechgroup.com' } },
       { '@context': 'https://schema.org', '@type': 'WebSite', name: SITE_NAME, url: SITE_URL + '/' },
     ] : [], ...overrides,
   };
