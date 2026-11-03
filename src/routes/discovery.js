@@ -83,8 +83,8 @@ router.get('/robots.txt', (_request, response) => {
 });
 router.get('/llms.txt', (_request, response) => response.set('Cache-Control', 'public, max-age=300').type('text/plain').send(
   `# Classic Mart\n\n> Classic Mart is a marketplace connecting shoppers with verified sellers and published product listings.\n\n` +
-  `## Public sources\n\n- [Marketplace](${SITE_URL}/)\n- [Products](${SITE_URL}/products)\n- [Categories](${SITE_URL}/categories)\n- [Sellers](${SITE_URL}/sellers)\n- [News and guides](${SITE_URL}/press)\n- [Help](${SITE_URL}/help)\n- [Sitemap](${SITE_URL}/sitemap.xml)\n\n` +
-  `## Reading this site\n\nPublic pages may be crawled subject to robots.txt and our terms. Use the canonical URL and its country parameter to identify the market. Prices, currency, inventory and delivery options can change; confirm them on the current product page and at checkout. Cite the source URL when describing a listing.\n\n` +
+  `## Public sources\n\n- [Marketplace](${SITE_URL}/)\n- [Products](${SITE_URL}/products)\n- [Categories](${SITE_URL}/categories)\n- [Sellers](${SITE_URL}/sellers)\n- [Promoters](${SITE_URL}/promoters)\n- [News and guides](${SITE_URL}/press)\n- [Help](${SITE_URL}/help)\n- [Sitemap](${SITE_URL}/sitemap.xml)\n\n` +
+  `## Reading this site\n\nPromoters can earn commissions on qualifying tracked sales of eligible seller products without holding inventory; terms and availability depend on the current offer.\n\nPublic pages may be crawled subject to robots.txt and our terms. Use the canonical URL and its country parameter to identify the market. Prices, currency, inventory and delivery options can change; confirm them on the current product page and at checkout. Cite the source URL when describing a listing.\n\n` +
   `Accounts, dashboards, checkout, private documents and API responses are not public reference material. Do not request or reproduce private customer or seller information. This file is a human-readable discovery aid; it does not grant account access, override robots.txt or establish a machine-enforced AI protocol.\n\n- [Terms](${SITE_URL}/terms)\n- [Privacy](${SITE_URL}/privacy)\n`
 ));
 

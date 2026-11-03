@@ -26,6 +26,10 @@ test('public crawling and AI source discovery exclude private and duplicate page
   const llms = await request(app()).get('/llms.txt').expect(200);
   assert.match(llms.text, /Prices, currency, inventory and delivery options can change/);
   assert.ok(llms.text.includes(`${SITE_URL}/sitemap.xml`));
+  assert.ok(llms.text.includes(`[Promoters](${SITE_URL}/promoters)`));
+  assert.match(llms.text, /without holding inventory/);
+  assert.ok(pages.text.includes('/promoters?country=UG</loc>'));
+  assert.ok(!llms.text.includes(`${SITE_URL}/dashboard`));
   assert.match(llms.text, /does not grant account access/);
 });
 test('sitemaps use full public eligibility, bounded pagination, authoritative canonicals and cached results', async t => {
