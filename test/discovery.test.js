@@ -21,6 +21,8 @@ test('public crawling and AI source discovery exclude private and duplicate page
   const pages = await request(app()).get('/sitemaps/pages.xml').expect(200);
   assert.ok(pages.text.includes('/return-policy?country=UG</loc>'));
   assert.ok(pages.text.includes('/products?country=UG</loc>'));
+  assert.ok(pages.text.includes(`<loc>${SITE_URL}/</loc>`), 'default Uganda homepage is submitted at the stable root');
+  assert.ok(!pages.text.includes(`<loc>${SITE_URL}/?country=UG</loc>`), 'default homepage must not compete with a query URL');
   assert.ok(!pages.text.includes('/dashboard'));
   assert.ok(!pages.text.includes('/search'));
   const llms = await request(app()).get('/llms.txt').expect(200);
