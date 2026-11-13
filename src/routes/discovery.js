@@ -105,7 +105,8 @@ router.get('/sitemap.xml', asyncHandler(async (request, response) => {
         for (let page = 1; page <= pages; page++) entries.push(sitemapUrl(kind, country.code, page));
       }
       const [articleCount] = await CmsContent.aggregate([...articlePipeline(country), { $count: 'total' }]).option({ maxTimeMS: 15_000 });
-      const articlePages = Math.max(1, Math.ceil((articleCount?.total || 0) / PAGE_SIZE));
+      // Do not advertise a guaranteed-empty article sitemap.
+      const articlePages = Math.ceil((articleCount?.total || 0) / PAGE_SIZE);
       if (entries.length + articlePages > MAX_SITEMAPS) throw new AppError('Sitemap index capacity exceeded.', 503, 'SITEMAP_CAPACITY');
       for (let page = 1; page <= articlePages; page++) entries.push(sitemapUrl('articles', country.code, page));
       if (entries.length > MAX_SITEMAPS) throw new AppError('Sitemap index capacity exceeded.', 503, 'SITEMAP_CAPACITY');
@@ -118,7 +119,16 @@ router.get('/sitemaps/pages.xml', asyncHandler(async (request, response) => {
   query(request, []);
   sendXml(response, await cached('pages', async () => {
     const countries = await launchCountries();
-    const entries = Object.keys(PUBLIC_PAGE_META).flatMap(path => isCountryPage(path) ? countries.map(country => ({ url: canonicalUrl(path, country.code) })) : [{ url: canonicalUrl(path) }]);
+    // The journal is indexable only in markets with genuinely published CMS entries.
+    // Match the same active-revision eligibility used by article sitemap URLs.
+    const activeJournalMarkets = new Set();
+    for (const country of countries) {
+      const [count] = await CmsContent.aggregate([...articlePipeline(country), { $count: 'total' }]).option({ maxTimeMS: 15_000 });
+      if (count?.total > 0) activeJournalMarkets.add(country.code);
+    }
+    const entries = Object.keys(PUBLIC_PAGE_META).flatMap(path => isCountryPage(path)
+      ? countries.filter(country => path !== '/press' || activeJournalMarkets.has(country.code)).map(country => ({ url: canonicalUrl(path, country.code) }))
+      : [{ url: canonicalUrl(path) }]);
     return urlset(entries);
   }));
 }));
