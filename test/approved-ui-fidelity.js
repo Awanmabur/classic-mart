@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 
-// Retire only the frozen notification blocks requested by the user. Every other
-// byte, including colours, layout and whitespace, still belongs to the reference.
+// Preserve the frozen reference byte-for-byte, except explicitly enumerated
+// user-approved changes: retired toasts, transparent mobile overlay, restored
+// brand colours, and the checkout security icon. Reject all other drift.
 export function approvedAssetWithSharedFlash(name, reference) {
   let expected = Buffer.from(reference);
   if (name === 'styles.css' || name === 'design-system.css') {
