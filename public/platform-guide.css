@@ -25,6 +25,8 @@
   user-select: none;
   -webkit-user-select: none;
 }
+/* Preserve the approved orange launcher; dark branded text meets WCAG AA (5.22:1). */
+.classic-guide-trigger > span { color: #14253d; }
 .classic-guide-trigger[data-dragging="true"] { cursor: grabbing; }
 .classic-guide-trigger svg { width: 22px; height: 22px; flex: none; pointer-events: none; }
 .classic-guide-trigger:focus-visible,
