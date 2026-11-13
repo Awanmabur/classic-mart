@@ -135,7 +135,9 @@ router.get('/press', async (request, response, next) => {
       ? await publishedCmsList({ prefix: 'press.article.', type: 'press', country: request.country?.code, limit: 50 })
       : [];
     publicCache(response, 'public, max-age=30, stale-while-revalidate=120');
-    setSeo(request, response, { schema: [collectionSchema(request, 'Classic Mart news and buying guides', pressArticles.map(article => [article.title, '/press/' + encodeURIComponent(article.key)]))] });
+    // Keep the public journal usable, but do not invite indexing an empty CMS directory.
+    // The page becomes indexable automatically when a real published article appears.
+    setSeo(request, response, { noindex: !pressArticles.length || hasDuplicateQuery(request), schema: [collectionSchema(request, 'Classic Mart news and buying guides', pressArticles.map(article => [article.title, '/press/' + encodeURIComponent(article.key)]))] });
     return response.render('press', { cmsContent: null, pressArticles });
   } catch (error) { return next(error); }
 });
