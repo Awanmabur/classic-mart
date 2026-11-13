@@ -237,7 +237,7 @@ test('SMS MFA completes seller enrollment and login with one-time phone-bound co
       ]);
       assert.equal(sent.status(), 200);
       assert.equal(new URL(customer.page.url()).pathname, '/verify-phone');
-      assert.match(await customer.page.locator('[role="status"]').innerText(), /accepted for sending/);
+      assert.match(await customer.page.locator('[data-platform-flash-inline][role="status"]').innerText(), /accepted for sending/);
       const token = await fixture.models.VerificationToken.findOne({ userId: customer.user._id, purpose: 'verify_phone' }).select('+tokenHash');
       assert.equal(token.consumedAt, undefined);
       const code = lastMessage(customer).code;
