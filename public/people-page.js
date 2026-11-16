@@ -34,7 +34,7 @@
 
   function promoterCard(person) {
     return `<article class="person-card"><div class="person-cover"></div><div class="person-content">
-      <img class="person-avatar" src="${escapeHtml(person.image)}" alt="${escapeHtml(person.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/image-placeholder.svg'">
+      <img class="person-avatar" src="${escapeHtml(person.image)}" alt="${escapeHtml(person.name)}" loading="lazy" decoding="async" data-fallback-src="/assets/image-placeholder.svg">
       <span class="person-verified"><img src="/assets/icons/circle-check.svg" alt="">Verified</span>
       <h2>${escapeHtml(person.name)}</h2><p class="person-role">${escapeHtml(person.country)} marketplace promoter</p>
       <p class="person-bio">${escapeHtml(person.description || 'Verified Classic Mart marketplace promoter.')}</p>
@@ -46,7 +46,7 @@
 
   function sellerCard(person) {
     return `<article class="person-card"><div class="person-cover"></div><div class="person-content">
-      <img class="person-avatar" src="${escapeHtml(person.image)}" alt="${escapeHtml(person.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'">
+      <img class="person-avatar" src="${escapeHtml(person.image)}" alt="${escapeHtml(person.name)}" loading="lazy" decoding="async" data-fallback-src="/assets/product-placeholder.svg">
       <span class="person-verified"><img src="/assets/icons/circle-check.svg" alt="">Verified</span>
       <h2>${escapeHtml(person.name)}</h2><p class="person-role">${escapeHtml(person.country)} marketplace seller</p>
       <p class="person-bio">${escapeHtml(person.description || 'Verified Classic Mart marketplace store.')}</p>
