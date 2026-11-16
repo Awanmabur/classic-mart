@@ -12,9 +12,16 @@ import { homeHero } from '../services/home-hero.js';
 
 const router = Router();
 
-function publicCache(response, value = 'public, max-age=10, stale-while-revalidate=30') {
+export function publicCache(response, value = 'public, max-age=10, stale-while-revalidate=30') {
   response.vary('Cookie');
   response.vary('CF-IPCountry');
+  // Logged-in headers include the visitor's account and role. A shared CDN
+  // cannot be trusted to key its cache on Cookie merely because Vary exists.
+  // Keep authenticated HTML private even when the handler renders a public URL.
+  if (response.req?.user) {
+    response.set('Cache-Control', 'private, no-store');
+    return;
+  }
   if (!response.get('Set-Cookie') && !String(response.get('Cache-Control') || '').includes('no-store')) response.set('Cache-Control', value);
 }
 function setSeo(request, response, overrides = {}) {
