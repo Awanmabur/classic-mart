@@ -40,6 +40,7 @@ import { scanUpload } from '../services/malware.js';
 import { visualSearchProducts } from '../services/visual-search.js';
 import { storefrontNavigation } from '../services/storefront-navigation.js';
 import { cursorScope, pageResult } from '../services/pagination.js';
+import { noStoreMarketJson } from '../middleware/market-json-cache.js';
 
 const router = Router();
 
@@ -238,11 +239,8 @@ router.get('/api/v1/storefront/visual-search-results', async (request, response,
 router.get('/api/v1/storefront/navigation', async (request, response, next) => {
   try {
     const navigation = await storefrontNavigation(request.country);
-    // This representation has no member state or token. Still keep signed-in
-    // browser responses private and vary anonymous market selection correctly.
-    response.vary('Cookie');
-    response.vary('CF-IPCountry');
-    response.set('Cache-Control', request.user ? 'private, no-store' : 'public, max-age=10, stale-while-revalidate=30');
+    // The market is selected from the visitor cookie or trusted edge, not URL.
+    noStoreMarketJson(response);
     return response.json(navigation);
   } catch (error) { return next(error); }
 });
@@ -253,8 +251,7 @@ router.get('/api/v1/storefront/catalogue', async (request, response, next) => {
       getStorefront(request.country).then((catalogue) => withSponsored(catalogue, request.country.code)),
       statePayload(request.user?._id, request.country),
     ]);
-    if (request.user) response.set('Cache-Control', 'private, no-store');
-    else response.set('Cache-Control', 'public, max-age=10, stale-while-revalidate=30');
+    noStoreMarketJson(response);
     response.json({
       ...catalogue,
       state: customerState,
@@ -296,10 +293,9 @@ router.get('/api/v1/storefront/search', async (request, response, next) => {
       const [event] = await SearchEvent.create([eventInput], { session });
       return event;
     }) : await SearchEvent.create(eventInput);
-    response.set(
-      'Cache-Control',
-      request.user ? 'private, no-store' : 'public, max-age=10',
-    );
+    // Search results may contain a one-time session CSRF token and search ID.
+    // The same protection also applies to country-dependent seller results.
+    noStoreMarketJson(response);
     response.json({
       ...catalogue,
       state: customerState,
@@ -337,7 +333,7 @@ router.get(
         questionPage=pageResult(questionRows,{limit:initialLimit,total:questionTotal});
         ratingDistribution=Object.fromEntries([1,2,3,4,5].map((rating)=>[rating,Number(ratingRows.find((row)=>Number(row._id)===rating)?.count||0)]));
       }
-      response.set('Cache-Control', 'public, max-age=10, stale-while-revalidate=30');
+      noStoreMarketJson(response);
       const sponsored = await activeSponsoredProducts(request.country.code, [product.id]); response.json({ product: { ...decoratePromotedProduct(product, sponsored.get(product.id)), reviewItems: reviewPage.items, questions: questionPage.items, reviewPage:reviewPage.page, questionPage:questionPage.page, ratingDistribution } });
     } catch (error) {
       next(error);
@@ -354,10 +350,9 @@ router.get('/api/v1/storefront/sellers', async (request, response, next) => {
           (await statePayload(request.user._id, request.country)).followedStores,
         )
       : new Set();
-    response.set(
-      'Cache-Control',
-      request.user ? 'private, no-store' : 'public, max-age=10',
-    );
+    // Search results may contain a one-time session CSRF token and search ID.
+    // The same protection also applies to country-dependent seller results.
+    noStoreMarketJson(response);
     response.json({
       sellers: sellers.map((seller) => ({
         ...seller,
@@ -384,10 +379,7 @@ router.get(
             await statePayload(request.user._id, request.country)
           ).followedStores.includes(seller.slug)
         : false;
-      response.set(
-        'Cache-Control',
-        request.user ? 'private, no-store' : 'public, max-age=10',
-      );
+      noStoreMarketJson(response);
       response.json({
         seller: { ...seller, followed },
         csrfToken: request.user ? request.session.csrfToken : null,
@@ -408,7 +400,7 @@ router.get('/api/v1/storefront/promoters', async (request, response, next) => {
     const state = request.user ? await stateFor(request.user._id) : null;
     const followed = new Set((state?.followedPromoterUserIds || []).map(String));
     const promoters = rows.map(({ userMongoId, earnedMinor, ...row }) => ({ ...row, followed: followed.has(userMongoId) }));
-    response.set('Cache-Control', request.user ? 'private, no-store' : 'public, max-age=10');
+    noStoreMarketJson(response);
     response.json({ promoters, csrfToken: request.user ? request.session.csrfToken : null, page: promoterPage.page });
   } catch (error) { next(error); }
 });
@@ -420,7 +412,7 @@ router.get('/api/v1/storefront/promoters/:id', async (request, response, next) =
     const state = request.user ? await stateFor(request.user._id) : null;
     const followed = (state?.followedPromoterUserIds || []).some((id) => String(id) === row.userMongoId);
     const { userMongoId, earnedMinor, ...promoter } = row;
-    response.set('Cache-Control', request.user ? 'private, no-store' : 'public, max-age=10');
+    noStoreMarketJson(response);
     response.json({ promoter: { ...promoter, followed }, csrfToken: request.user ? request.session.csrfToken : null });
   } catch (error) { next(error); }
 });
@@ -468,7 +460,7 @@ router.get(
   '/api/v1/storefront/state',
   async (request, response, next) => {
     try {
-      response.set('Cache-Control', request.user ? 'private, no-store' : 'public, max-age=10');
+      noStoreMarketJson(response);
       const summaryOnly = request.query.summary === '1';
       const baseState = request.user
         ? await statePayload(request.user._id, request.country, !summaryOnly)
@@ -725,6 +717,7 @@ router.post(
 
 router.get('/api/v1/storefront/autocomplete', async (request, response, next) => {
   try {
+    noStoreMarketJson(response);
     const q = String(request.query.q || '').trim().toLowerCase().slice(0, 80);
     if (q.length < 2) return response.json({ suggestions: [] });
     const catalogue = await getStorefront(request.country);
@@ -738,7 +731,7 @@ router.get('/api/v1/storefront/autocomplete', async (request, response, next) =>
       if (String(product.seller?.name || '').toLowerCase().includes(q)) push('seller', product.seller.name, product.seller.slug);
       if ([product.sku, product.barcode, ...(product.variants || []).flatMap(v => [v.sku, v.barcode])].some(value => String(value || '').toLowerCase().includes(q))) push('product', `${product.name} · ${product.sku}`, product.id);
     });
-    response.set('Cache-Control','public, max-age=15').json({ suggestions });
+    response.json({ suggestions });
   } catch (error) { next(error); }
 });
 
@@ -798,7 +791,7 @@ router.get('/api/v1/storefront/products/:productId/questions', async (request, r
     const base={productId:product._id,country:request.country.code,status:'answered'},limit=Math.min(Math.max(Number(request.query.limit)||50,10),100);
     const [rows,total]=await Promise.all([ProductQuestion.find(cursorScope(base,request.query.after)).select('publicId question answer createdAt').sort({createdAt:-1,_id:-1}).limit(limit+1).lean(),ProductQuestion.countDocuments(base)]);
     const questionPage=pageResult(rows,{limit,total});
-    response.set('Cache-Control','public, max-age=30').json({ questions:questionPage.items, page:questionPage.page });
+    noStoreMarketJson(response).json({ questions:questionPage.items, page:questionPage.page });
   } catch (error) { next(error); }
 });
 

@@ -63,7 +63,8 @@ test('header navigation is small and retains current market and restricted-produ
       assert.deepEqual(response.body.categories.map(row => row.id).sort(), visibleIds);
       for (const row of response.body.categories) assert.deepEqual(Object.keys(row).sort(), ['id', 'name', 'slug']);
       assert.equal(response.headers['set-cookie'], undefined, 'Header metadata must not create a guest session.');
-      assert.match(response.headers['cache-control'], /^public,/);
+      assert.equal(response.headers['cache-control'], 'private, no-store',
+        'Shared caches must never mix cookie/edge-selected countries.');
       assert.match(response.headers.vary, /Cookie/);
       assert.match(response.headers.vary, /CF-IPCountry/);
       const navigationReads = commands.filter(row => row.collection !== 'ipblocks');
