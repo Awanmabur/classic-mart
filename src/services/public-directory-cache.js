@@ -15,8 +15,13 @@ export function createBoundedPublicDirectoryCache({ ttlMs = 10_000, maxEntries =
 
     async get(key, loader) {
       const existing = entries.get(key);
-      if (existing?.value && existing.expiresAt > now()) return existing.value;
-      if (existing?.promise) return existing.promise;
+      // Touch hot entries to implement true LRU eviction, not FIFO eviction.
+      // Keep the promise object unchanged so concurrent requests still share it.
+      if ((existing?.value && existing.expiresAt > now()) || existing?.promise) {
+        entries.delete(key);
+        entries.set(key, existing);
+        return existing.promise || existing.value;
+      }
 
       const requestGeneration = generation;
       const promise = Promise.resolve().then(loader);
