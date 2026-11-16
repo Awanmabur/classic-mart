@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { publicProductImageUrl } from './product-media-url.js';
+import { createBoundedPublicDirectoryCache } from './public-directory-cache.js';
 import { cursorScope, decodeCursor, pageResult } from './pagination.js';
 import {
   Brand,
@@ -25,6 +26,7 @@ const STORE_FIELDS = 'publicId ownerUserId slug name description country currenc
 const CACHE_TTL_MS = 30_000;
 const STALE_CACHE_TTL_MS = 5 * 60_000;
 const cache = new Map();
+const sellerDirectoryCache = createBoundedPublicDirectoryCache({ ttlMs: 10_000, maxEntries: 48 });
 let cacheGeneration = 0;
 
 function key(value) {
@@ -589,6 +591,7 @@ export async function searchStorefront(
 export function clearStorefrontCache() {
   cacheGeneration += 1;
   cache.clear();
+  sellerDirectoryCache.clear();
 }
 
 export async function publishedProductsByPublicIds(publicIds, country) {
@@ -616,6 +619,16 @@ export async function publishedCategory(slug, country) {
 }
 
 export async function publishedSellers(country, { after = '', limit = 50 } = {}) {
+  // Directory content is public and country-scoped. Personalized follow state
+  // is supplied separately by the HTTP route, never retained in this cache.
+  const pageSize = Math.min(Math.max(Number(limit) || 50, 10), 100);
+  const normalizedAfter = decodeCursor(after, { type: 'date' }) ? String(after) : '';
+  const cacheKey = JSON.stringify([country.code, country.currency, normalizedAfter, pageSize]);
+  return sellerDirectoryCache.get(cacheKey, () =>
+    loadPublishedSellers(country, { after: normalizedAfter, limit: pageSize }));
+}
+
+async function loadPublishedSellers(country, { after = '', limit = 50 } = {}) {
   const pageSize=Math.min(Math.max(Number(limit)||50,10),100),countryCode=country.code;
   const cursor=decodeCursor(after,{type:'date'});
   const common=[
