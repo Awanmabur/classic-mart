@@ -29,9 +29,9 @@ export function readSmokeConfig(environment = process.env) {
   };
 }
 
-async function requestText(config, pathname, { fetchImpl, json = false }) {
+async function requestText(config, pathname, { fetchImpl, json = false, requirePrivateMarket = false, jsonMaxBytes = 32 * 1024 }) {
   const controller = new AbortController();
-  const limit = json ? Math.min(config.maxBodyBytes, 32 * 1024) : config.maxBodyBytes;
+  const limit = json ? Math.min(config.maxBodyBytes, jsonMaxBytes) : config.maxBodyBytes;
   let reader;
   let timer;
   let response;
@@ -52,6 +52,16 @@ async function requestText(config, pathname, { fetchImpl, json = false }) {
     const type = response.headers.get('content-type') || '';
     const expectedType = json ? /^application\/(?:[\w.+-]+\+)?json(?:\s*;|$)/i : /^text\/html(?:\s*;|$)/i;
     if (!expectedType.test(type)) throw new Error(`GET ${pathname} has invalid content type; expected ${json ? 'JSON' : 'HTML'}`);
+    if (requirePrivateMarket) {
+      const cache = String(response.headers.get('cache-control') || '').toLowerCase().split(/,\s*/);
+      const vary = String(response.headers.get('vary') || '').toLowerCase().split(/,\s*/);
+      if (!cache.includes('private') || !cache.includes('no-store')) {
+        throw new Error(`GET ${pathname} has unsafe shared-market cache headers`);
+      }
+      if (!vary.includes('cookie') || !vary.includes('cf-ipcountry')) {
+        throw new Error(`GET ${pathname} is missing market Vary headers`);
+      }
+    }
     const declaredLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(declaredLength) && declaredLength > limit) throw new Error(`GET ${pathname} body exceeds ${limit} byte limit`);
     if (!response.body) throw new Error(`GET ${pathname} returned an empty body`);
@@ -114,6 +124,31 @@ export async function probeDeployment(config, { fetchImpl = globalThis.fetch } =
     || !/<body\b[^>]*\sdata-page-mode\s*=["']products["']/i.test(products)) {
     throw new Error('GET /products is missing the expected catalogue HTML markers');
   }
+
+  for (const kind of ['sellers', 'promoters']) {
+    const html = await requestText(config, '/' + kind, { fetchImpl });
+    if (!/<html\b/i.test(html) ||
+      !/<main\b[^>]*\sid\s*=["']catalogMain["']/i.test(html) ||
+      !/<div\b[^>]*\sid\s*=["']peopleGrid["']/i.test(html) ||
+      !new RegExp(`<body\\b[^>]*\\sdata-directory-type\\s*=["']${kind}["']`, 'i').test(html)) {
+      throw new Error(`GET /${kind} is missing the expected directory HTML markers`);
+    }
+  }
+
+  const navigation = await requestJson(config, '/api/v1/storefront/navigation', {
+    fetchImpl, requirePrivateMarket: true,
+  });
+  if (!Array.isArray(navigation.categories)) {
+    throw new Error('GET /api/v1/storefront/navigation has invalid categories');
+  }
+
+  const sellers = await requestJson(config, '/api/v1/storefront/sellers?limit=10', {
+    fetchImpl, requirePrivateMarket: true, jsonMaxBytes: 128 * 1024,
+  });
+  if (!Array.isArray(sellers.sellers) || !sellers.page || typeof sellers.page !== 'object') {
+    throw new Error('GET /api/v1/storefront/sellers has invalid directory paging');
+  }
+
   return { ok: true, version: version.version, buildSha: actualSha, checks: ready.checks };
 }
 
