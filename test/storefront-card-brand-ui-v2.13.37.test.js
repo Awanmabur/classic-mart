@@ -21,7 +21,7 @@ test('product cards show only the live selling price while preview retains compa
 
   const homeCard = block(script, 'function productCard(product)', 'function compactProductCard(product)');
   const dealCard = block(script, 'function compactProductCard(product)', 'function recommendCard(product)');
-  const catalogueCard = block(catalogue, 'function productCard(product)', 'function renderProducts()');
+  const catalogueCard = block(catalogue, 'function productCard(product, index)', 'function renderProducts()');
 
   assert.doesNotMatch(home, /<del>/);
   assert.doesNotMatch(homeCard, /<del>/);
