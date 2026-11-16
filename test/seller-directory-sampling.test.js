@@ -12,7 +12,7 @@ test('directory sampling applies every marketplace eligibility stage before per-
   const group = stages[eligibility.length + 1].$group;
   assert.equal(group._id, '$storeId');
   assert.deepEqual(group.products.$topN, {
-    n: 8, sortBy: { publishedAt: -1, _id: -1 }, output: '$$ROOT'
+    n: 8, sortBy: { publishedAt: -1, _id: -1 }, output: { _id: '$_id', storeId: '$storeId', publishedAt: '$publishedAt', _publicCategory: '$_publicCategory' }
   });
   assert.ok(stages.some(stage => stage.$unwind === '$products'));
   assert.ok(stages.some(stage => stage.$replaceRoot?.newRoot === '$products'));

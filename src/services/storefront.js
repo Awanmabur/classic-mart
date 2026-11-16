@@ -633,7 +633,7 @@ export function publicSellerSampleStages(country, perStore = 8) {
     // MongoDB $topN keeps at most eight products per store in bounded memory.
     { $group: {
       _id: '$storeId',
-      products: { $topN: { n: perStore, sortBy: { publishedAt: -1, _id: -1 }, output: '$ROOT' } },
+      products: { $topN: { n: perStore, sortBy: { publishedAt: -1, _id: -1 }, output: { _id: '$_id', storeId: '$storeId', publishedAt: '$publishedAt', _publicCategory: '$_publicCategory' } } },
     } },
     { $unwind: '$products' },
     { $replaceRoot: { newRoot: '$products' } },
