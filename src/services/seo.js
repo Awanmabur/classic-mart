@@ -4,6 +4,22 @@ export const SITE_NAME = 'Classic Mart';
 const configuredBase = new URL(env.baseUrl);
 if (!['https:', 'http:'].includes(configuredBase.protocol) || configuredBase.username || configuredBase.password || configuredBase.search || configuredBase.hash) throw new Error('BASE_URL must be an HTTP(S) site URL without credentials, query or fragment.');
 export const SITE_URL = configuredBase.href.replace(/\/+$/, '');
+// Homepage routes and generic page SEO must use one support identity.
+export function publicOrganizationSchema() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: SITE_NAME,
+    url: SITE_URL + '/',
+    description: 'Marketplace connecting buyers, verified sellers and eligible product promoters.',
+    contactPoint: {
+      '@type': 'ContactPoint',
+      contactType: 'customer support',
+      telephone: '+256773364680',
+      email: 'info@classictechgroup.com',
+    },
+  };
+}
 export const PRIVATE_PATHS = Object.freeze(['/dashboard','/orders','/wishlist','/compare','/addresses','/rewards','/wallet','/support','/profile','/notifications','/club','/account','/cart','/checkout','/api','/webhooks','/login','/signup','/verify-email','/verify-phone','/onboarding','/forgot-password','/reset-password','/mfa','/track-order','/ask-classic','/seller','/promoter','/admin','/super-admin','/super','/delivery','/operations','/finance','/warehouse','/moderation','/business','/evidence','/receipts','/offline']);
 export const PUBLIC_PAGE_META = Object.freeze({
   '/': ['Classic Mart | Shop Products, Sell & Earn as a Promoter', 'Shop products from verified sellers. Sell through your own store or promote eligible products for commissions without owning stock. Explore Classic Mart AI shopping help.'],
@@ -61,9 +77,7 @@ export function pageSeo(request, overrides = {}) {
     type: 'website', image: '', imageAlt: '', locale: String(request.country?.locale || 'en').replace('-', '_'),
     noindex: !meta || isPrivatePath(path) || hasDuplicateQuery(request),
     schema: path === '/' ? [
-      { '@context': 'https://schema.org', '@type': 'Organization', name: SITE_NAME,
-        url: SITE_URL + '/', description: 'Marketplace connecting buyers, verified sellers and eligible product promoters.',
-        contactPoint: { '@type': 'ContactPoint', contactType: 'customer support', telephone: '+256773364680', email: 'info@classictechgroup.com' } },
+      publicOrganizationSchema(),
       { '@context': 'https://schema.org', '@type': 'WebSite', name: SITE_NAME, url: SITE_URL + '/' },
     ] : [], ...overrides,
   };

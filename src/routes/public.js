@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { getStorefront, publishedCategory, publishedProduct, publishedSeller, publishedSellers } from '../services/storefront.js';
 import { publicPromoter, publicPromoters } from '../services/promoters.js';
 import { AppError } from '../core/errors.js';
-import { absoluteUrl, breadcrumbSchema, canonicalUrl, collectionSchema, hasDuplicateQuery, jsonForHtml, pageSeo, plainText, productSeo } from '../services/seo.js';
+import { absoluteUrl, breadcrumbSchema, canonicalUrl, collectionSchema, hasDuplicateQuery, jsonForHtml, pageSeo, plainText, productSeo, publicOrganizationSchema } from '../services/seo.js';
 import { publishedCms, publishedCmsList } from '../services/stage9.js';
 import { Review, User } from '../models/index.js';
 import { activeSponsoredProducts } from '../services/seller-growth.js';
@@ -125,7 +125,7 @@ router.get('/', async (request, response, next) => {
     const hero = homeHero({ publishedSlides: homeHeroSlides, catalogue, country: request.country });
     publicCache(response);
     setSeo(request, response, { schema: [
-      { '@context': 'https://schema.org', '@type': 'Organization', '@id': absoluteUrl('/') + '#organization', name: 'Classic Mart', url: absoluteUrl('/') },
+      { ...publicOrganizationSchema(), '@id': absoluteUrl('/') + '#organization' },
       { '@context': 'https://schema.org', '@type': 'WebSite', name: 'Classic Mart', url: absoluteUrl('/') },
     ] });
     return response.render('index', {
