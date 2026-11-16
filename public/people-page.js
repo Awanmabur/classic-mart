@@ -99,5 +99,32 @@
   query?.addEventListener('input', render); sort?.addEventListener('change', render);
   document.addEventListener('click', (event) => { const button = event.target.closest('[data-follow]'); if (button) toggleFollow(button); });
   loadMore?.addEventListener('click', () => { if (nextCursor) loadPeople(nextCursor); });
-  loadPeople();
+
+  let initialSnapshot = null;
+  try {
+    const payload = document.getElementById('initialPeopleData')?.textContent;
+    if (payload) {
+      const parsed = JSON.parse(payload);
+      if (Array.isArray(parsed.people) && parsed.page && typeof parsed.page === 'object') initialSnapshot = parsed;
+    }
+  } catch { /* Missing or malformed snapshot: fetch the authoritative API. */ }
+
+  if (initialSnapshot) {
+    people = initialSnapshot.people;
+    nextCursor = initialSnapshot.page.next || '';
+    directoryTotal = Number(initialSnapshot.page.total ?? people.length) || people.length;
+    if (loadMore) { loadMore.hidden = !initialSnapshot.page.hasMore; loadMore.disabled = false; }
+    // The server has already rendered these cards. Avoid rebuilding the same
+    // DOM on first paint unless the visitor supplied a search query.
+    if (initialQuery) render();
+    else {
+      count.textContent = `${people.length} shown · ${directoryTotal || people.length} verified ${singular}${(directoryTotal || people.length) === 1 ? '' : 's'}`;
+      empty.hidden = Boolean(people.length);
+      grid.hidden = !people.length;
+      updateHero();
+    }
+  } else {
+    // Signed-in people need their personalized follow state and CSRF token.
+    loadPeople();
+  }
 })();
