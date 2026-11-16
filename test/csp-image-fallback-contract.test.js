@@ -41,6 +41,10 @@ test('cart first paint uses country currency rather than a US-dollar placeholder
   const view = read('views/cart.ejs');
   assert.doesNotMatch(view, /\$0\.00/);
   assert.ok(view.includes('<strong data-total-final=""><%= formatMoney(0) %></strong>'));
+  assert.ok(view.includes('data-market-currency='));
+  assert.ok(view.includes('data-market-locale='));
+  assert.ok(read('public/cart-page.js').includes('document.body.dataset.marketCurrency'));
+  assert.ok(read('public/cart-page.js').includes('document.body.dataset.marketLocale'));
 });
 
 test('first catalog card photos are eager, later images remain lazy', () => {
