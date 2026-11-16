@@ -619,6 +619,28 @@ export async function publishedCategory(slug, country) {
   return { category: { id: category.slug, name: category.name, note: category.description || `Shop ${category.name}` }, catalogue: await hydrateProducts(products, country) };
 }
 
+export function publicSellerSampleStages(country, perStore = 8) {
+  if (!Number.isInteger(perStore) || perStore < 1 || perStore > 8) {
+    throw new RangeError('Public seller sample size must be between 1 and 8 per store.');
+  }
+  return [
+    // Apply ALL marketplace eligibility rules before sampling: restricted
+    // categories, store verification, brand approval, independent moderation
+    // and a valid active in-market priced variant.
+    ...publicEligibilityStages(country),
+    { $project: { _id: 1, storeId: 1, publishedAt: 1, '_publicCategory.name': 1 } },
+    // A global top-N would let one large store starve other verified sellers.
+    // MongoDB $topN keeps at most eight products per store in bounded memory.
+    { $group: {
+      _id: '$storeId',
+      products: { $topN: { n: perStore, sortBy: { publishedAt: -1, _id: -1 }, output: '$ROOT' } },
+    } },
+    { $unwind: '$products' },
+    { $replaceRoot: { newRoot: '$products' } },
+    { $sort: { storeId: 1, publishedAt: -1, _id: -1 } },
+  ];
+}
+
 export async function publishedSellers(country, { after = '', limit = 50 } = {}) {
   // Directory content is public and country-scoped. Personalized follow state
   // is supplied separately by the HTTP route, never retained in this cache.
@@ -652,10 +674,7 @@ async function loadPublishedSellers(country, { after = '', limit = 50 } = {}) {
   // store/market scope and available selling variant before accepting a sample.
   const sampleProducts = await Product.aggregate([
     { $match: { storeId: { $in: storeIds }, status: 'published', countries: countryCode } },
-    ...publicEligibilityStages(country),
-    { $sort: { publishedAt: -1, _id: -1 } },
-    { $limit: Math.min(800, storeIds.length * 8) },
-    { $project: { _id: 1, storeId: 1, '_publicCategory.name': 1 } },
+    ...publicSellerSampleStages(country),
   ]).option({ maxTimeMS: 15_000 });
   const productIds = sampleProducts.map(product => product._id);
   const [media, reviewMetrics, salesMetrics] = productIds.length
