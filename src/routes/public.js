@@ -73,7 +73,14 @@ for (const [path, view] of pages) {
       if (path === '/promoters') {
         const result = mongoose.connection.readyState === 1 ? await publicPromoters(request.country, { limit: 50 }) : { items: [] };
         setSeo(request, response, { schema: [collectionSchema(request, 'Marketplace promoters', result.items.map(person => [person.name, '/promoters/' + encodeURIComponent(person.id)]))] });
-        return response.render(view, { cmsContent: null, initialPeople: result.items });
+        // Never serialize internal user IDs or earnings in the public snapshot.
+        const publicPeople = result.items.map(({ userMongoId, earnedMinor, ...person }) => person);
+        const page = result.page || { count: publicPeople.length, total: publicPeople.length, next: '', hasMore: false };
+        return response.render(view, {
+          cmsContent: null,
+          initialPeople: publicPeople,
+          initialPeopleJson: request.user ? null : jsonForHtml({ people: publicPeople, page }),
+        });
       }
       const key = cmsPageKeys.get(path);
       const cmsContent = key && mongoose.connection.readyState === 1 ? await publishedCms(key, request.country?.code) : null;
@@ -135,7 +142,9 @@ router.get('/press', async (request, response, next) => {
       ? await publishedCmsList({ prefix: 'press.article.', type: 'press', country: request.country?.code, limit: 50 })
       : [];
     publicCache(response, 'public, max-age=30, stale-while-revalidate=120');
-    setSeo(request, response, { schema: [collectionSchema(request, 'Classic Mart news and buying guides', pressArticles.map(article => [article.title, '/press/' + encodeURIComponent(article.key)]))] });
+    // Keep the public journal usable, but do not invite indexing an empty CMS directory.
+    // The page becomes indexable automatically when a real published article appears.
+    setSeo(request, response, { noindex: !pressArticles.length || hasDuplicateQuery(request), schema: [collectionSchema(request, 'Classic Mart news and buying guides', pressArticles.map(article => [article.title, '/press/' + encodeURIComponent(article.key)]))] });
     return response.render('press', { cmsContent: null, pressArticles });
   } catch (error) { return next(error); }
 });
@@ -188,7 +197,13 @@ router.get('/sellers', async (request, response, next) => {
     const result = mongoose.connection.readyState === 1 ? await publishedSellers(request.country, { limit: 50 }) : { items: [] };
     setSeo(request, response, { schema: [collectionSchema(request, 'Verified marketplace sellers', result.items.map(seller => [seller.name, '/sellers/' + encodeURIComponent(seller.slug)]))] });
     publicCache(response);
-    return response.render('sellers', { initialPeople: result.items });
+    const page = result.page || { count: result.items.length, total: result.items.length, next: '', hasMore: false };
+    return response.render('sellers', {
+      initialPeople: result.items,
+      // Public snapshot avoids fetching the same directory immediately again.
+      // User-specific followed flags and CSRF still require the private API.
+      initialPeopleJson: request.user ? null : jsonForHtml({ people: result.items, page }),
+    });
   } catch (error) { next(error); }
 });
 router.get('/sellers/profile', (request, response) => {
