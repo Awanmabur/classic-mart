@@ -287,7 +287,7 @@
   }
 
   function imageWithFallback(image, alt, className = '') {
-    return `<img class="${className}" src="${escapeHtml(image || '/assets/product-placeholder.svg')}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg';">`;
+    return `<img class="${className}" src="${escapeHtml(image || '/assets/product-placeholder.svg')}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async" data-fallback-src="/assets/product-placeholder.svg">`;
   }
 
   function escapeHtml(value) {
