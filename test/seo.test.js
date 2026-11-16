@@ -63,7 +63,11 @@ test('public marketplace metadata emphasizes actual shopping, sellers, promoter 
   assert.match(home.description, /eligible products for commissions without owning stock/i);
   assert.match(promoters.description, /qualifying sales/i);
   assert.match(sellers.description, /verified Classic Mart sellers/i);
-  assert.equal(home.canonical, SITE_URL + '/?country=UG');
+  assert.equal(home.canonical, SITE_URL + '/');
+  assert.equal(canonicalUrl('/', 'UG'), SITE_URL + '/', 'default Uganda homepage consolidates to the brand root');
+  assert.equal(canonicalUrl('/', 'KE'), SITE_URL + '/?country=KE', 'other active markets retain distinct homepage canonicals');
+  assert.equal(canonicalUrl('/products', 'UG'), SITE_URL + '/products?country=UG', 'default-market shopping pages preserve country-specific inventory canonicals');
+  assert.equal(canonicalUrl('/categories/fashion', 'UG'), SITE_URL + '/categories/fashion?country=UG', 'categories preserve market identity');
   assert.ok(!home.noindex);
   const parsed = JSON.parse(home.jsonLd);
   assert.ok(parsed['@graph'].some(item => item['@type'] === 'Organization' && item.url === SITE_URL + '/'));
