@@ -12,7 +12,7 @@
 <link href="/storefront-pages.css" rel="stylesheet"/>
 <%- include('partials/flash-assets') %>
 </head>
-<body class="storefront-page checkout-page" data-checkout-entry="<%= typeof checkoutEntry !== 'undefined' && checkoutEntry ? 'true' : 'false' %>" data-signed-in="<%= user ? 'true' : 'false' %>">
+<body class="storefront-page checkout-page" data-checkout-entry="<%= typeof checkoutEntry !== 'undefined' && checkoutEntry ? 'true' : 'false' %>" data-signed-in="<%= user ? 'true' : 'false' %>" data-market-currency="<%= country?.currency || 'UGX' %>" data-market-locale="<%= country?.locale || 'en-UG' %>">
 <a class="skip-link" href="#cartContent">Skip to checkout</a><%- include("partials/storefront-header") %>
 <main class="checkout-main page-shell" id="cartContent">
 <header class="checkout-heading">
