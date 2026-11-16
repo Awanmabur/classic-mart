@@ -127,7 +127,7 @@
   }
 
   function imageWithFallback(image, alt, className = '') {
-    return `<img class="${escapeHtml(className)}" src="${escapeHtml(image || '/assets/product-placeholder.svg')}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg';">`;
+    return `<img class="${escapeHtml(className)}" src="${escapeHtml(image || '/assets/product-placeholder.svg')}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async" data-fallback-src="/assets/product-placeholder.svg">`;
   }
 
   function badgeClass(product) {
@@ -375,9 +375,9 @@
 
         <div class="product-preview-main">
           <div class="product-gallery">
-            <div class="gallery-main"><img id="previewMainImage" src="${escapeHtml(images[0] || product.image)}" alt="${escapeHtml(product.name)}" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg';"></div>
+            <div class="gallery-main"><img id="previewMainImage" src="${escapeHtml(images[0] || product.image)}" alt="${escapeHtml(product.name)}" referrerpolicy="no-referrer" data-fallback-src="/assets/product-placeholder.svg"></div>
             <div class="gallery-thumbnails" aria-label="Product images">
-              ${images.map((image, imageIndex) => `<button class="gallery-thumb ${imageIndex === 0 ? 'active' : ''}" data-gallery-thumb="${escapeHtml(image)}" type="button" aria-label="View image ${imageIndex + 1}"><img src="${escapeHtml(image)}" alt="${escapeHtml(product.name)} view ${imageIndex + 1}" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg';"></button>`).join('')}
+              ${images.map((image, imageIndex) => `<button class="gallery-thumb ${imageIndex === 0 ? 'active' : ''}" data-gallery-thumb="${escapeHtml(image)}" type="button" aria-label="View image ${imageIndex + 1}"><img src="${escapeHtml(image)}" alt="${escapeHtml(product.name)} view ${imageIndex + 1}" loading="lazy" referrerpolicy="no-referrer" data-fallback-src="/assets/product-placeholder.svg"></button>`).join('')}
             </div>
           </div>
 
