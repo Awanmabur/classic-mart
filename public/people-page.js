@@ -34,7 +34,7 @@
 
   function promoterCard(person) {
     return `<article class="person-card"><div class="person-cover"></div><div class="person-content">
-      <img class="person-avatar" src="${escapeHtml(person.image)}" alt="${escapeHtml(person.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/image-placeholder.svg'">
+      <img class="person-avatar" src="${escapeHtml(person.image)}" alt="${escapeHtml(person.name)}" loading="lazy" decoding="async" data-fallback-src="/assets/image-placeholder.svg">
       <span class="person-verified"><img src="/assets/icons/circle-check.svg" alt="">Verified</span>
       <h2>${escapeHtml(person.name)}</h2><p class="person-role">${escapeHtml(person.country)} marketplace promoter</p>
       <p class="person-bio">${escapeHtml(person.description || 'Verified Classic Mart marketplace promoter.')}</p>
@@ -46,7 +46,7 @@
 
   function sellerCard(person) {
     return `<article class="person-card"><div class="person-cover"></div><div class="person-content">
-      <img class="person-avatar" src="${escapeHtml(person.image)}" alt="${escapeHtml(person.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'">
+      <img class="person-avatar" src="${escapeHtml(person.image)}" alt="${escapeHtml(person.name)}" loading="lazy" decoding="async" data-fallback-src="/assets/product-placeholder.svg">
       <span class="person-verified"><img src="/assets/icons/circle-check.svg" alt="">Verified</span>
       <h2>${escapeHtml(person.name)}</h2><p class="person-role">${escapeHtml(person.country)} marketplace seller</p>
       <p class="person-bio">${escapeHtml(person.description || 'Verified Classic Mart marketplace store.')}</p>
@@ -99,5 +99,32 @@
   query?.addEventListener('input', render); sort?.addEventListener('change', render);
   document.addEventListener('click', (event) => { const button = event.target.closest('[data-follow]'); if (button) toggleFollow(button); });
   loadMore?.addEventListener('click', () => { if (nextCursor) loadPeople(nextCursor); });
-  loadPeople();
+
+  let initialSnapshot = null;
+  try {
+    const payload = document.getElementById('initialPeopleData')?.textContent;
+    if (payload) {
+      const parsed = JSON.parse(payload);
+      if (Array.isArray(parsed.people) && parsed.page && typeof parsed.page === 'object') initialSnapshot = parsed;
+    }
+  } catch { /* Missing or malformed snapshot: fetch the authoritative API. */ }
+
+  if (initialSnapshot) {
+    people = initialSnapshot.people;
+    nextCursor = initialSnapshot.page.next || '';
+    directoryTotal = Number(initialSnapshot.page.total ?? people.length) || people.length;
+    if (loadMore) { loadMore.hidden = !initialSnapshot.page.hasMore; loadMore.disabled = false; }
+    // The server has already rendered these cards. Avoid rebuilding the same
+    // DOM on first paint unless the visitor supplied a search query.
+    if (initialQuery) render();
+    else {
+      count.textContent = `${people.length} shown · ${directoryTotal || people.length} verified ${singular}${(directoryTotal || people.length) === 1 ? '' : 's'}`;
+      empty.hidden = Boolean(people.length);
+      grid.hidden = !people.length;
+      updateHero();
+    }
+  } else {
+    // Signed-in people need their personalized follow state and CSRF token.
+    loadPeople();
+  }
 })();

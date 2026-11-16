@@ -6,11 +6,15 @@
     if (image.dataset.classicMartImageFallback === 'true') return;
     image.dataset.classicMartImageFallback = 'true';
     image.removeAttribute('srcset');
-    image.src = image.closest(
-      '.product-card, .catalog-product-card, .wishlist-card, .profile-product, .person-card',
-    )
-      ? '/assets/product-placeholder.svg'
-      : '/assets/image-placeholder.svg';
+    // Rendered cards declare their fallback as inert data. Inline event handlers
+    // cannot run under the current strict Content Security Policy.
+    const declared = image.getAttribute('data-fallback-src');
+    const fallback = declared === '/assets/product-placeholder.svg' || declared === '/assets/image-placeholder.svg'
+      ? declared
+      : image.closest('.product-card, .catalog-product-card, .wishlist-card, .profile-product, .person-card')
+        ? '/assets/product-placeholder.svg'
+        : '/assets/image-placeholder.svg';
+    image.src = fallback;
   }
 
   document.addEventListener(

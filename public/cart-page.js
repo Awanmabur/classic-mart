@@ -4,7 +4,7 @@
   const $ = selector => document.querySelector(selector);
   const $$ = selector => [...document.querySelectorAll(selector)];
 
-  let displayLocale = 'en-UG';
+  let displayLocale = document.body.dataset.marketLocale || 'en-UG';
 
   function money(value) {
     return new Intl.NumberFormat(displayLocale, { style: 'currency', currency: displayCurrency }).format(Number(value) || 0);
@@ -37,7 +37,7 @@
   let highestStep = 1;
   let checkoutReview = null;
   let orderIdempotencyKey = '';
-  let displayCurrency = 'UGX';
+  let displayCurrency = document.body.dataset.marketCurrency || 'UGX';
   let catalog = [];
   let csrfToken = '';
   let savedAddresses = [];
@@ -71,8 +71,8 @@
     window.ClassicMartFlash.show(message, options);
   }
 
-  function imageMarkup(product) {
-    return `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'">`;
+  function imageMarkup(product, prioritize = false) {
+    return `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="${prioritize ? 'eager' : 'lazy'}" ${prioritize ? 'fetchpriority="high"' : ''} referrerpolicy="no-referrer" data-fallback-src="/assets/product-placeholder.svg">`;
   }
 
   function selectedDelivery() {
@@ -120,10 +120,10 @@
 
     const itemsContainer = $('#cartPageItems');
     if (!itemsContainer) return;
-    itemsContainer.innerHTML = list.map(({ lineId, product, quantity }) => `
+    itemsContainer.innerHTML = list.map(({ lineId, product, quantity }, index) => `
       <article class="cart-page-item" data-cart-id="${escapeHtml(lineId)}">
         <button class="cart-delete-button" data-remove-item="${escapeHtml(lineId)}" type="button" aria-label="Remove ${escapeHtml(product.name)} from cart"><img src="/assets/icons/trash-can.svg" alt=""></button>
-        <a class="cart-page-image" href="/products/${encodeURIComponent(product.id)}">${imageMarkup(product)}</a>
+        <a class="cart-page-image" href="/products/${encodeURIComponent(product.id)}">${imageMarkup(product, index === 0)}</a>
         <div class="cart-item-copy">
           <div class="cart-item-meta"><span>${escapeHtml(product.category || 'product')}</span><b>${escapeHtml(product.brand || 'Classic Mart')}</b></div>
           <a href="/products/${encodeURIComponent(product.id)}"><h3>${escapeHtml(product.name)}</h3></a>
