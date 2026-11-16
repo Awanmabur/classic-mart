@@ -40,7 +40,7 @@
       .map(
         (product) => `
         <article class="wishlist-card">
-          <a class="wishlist-card-image" href="/products/${encodeURIComponent(product.id)}"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'"></a>
+          <a class="wishlist-card-image" href="/products/${encodeURIComponent(product.id)}"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" data-fallback-src="/assets/product-placeholder.svg"></a>
           <button class="wishlist-remove" data-remove-comparison="${escapeHtml(product.id)}" aria-label="Remove ${escapeHtml(product.name)}"><img src="/assets/icons/xmark.svg" alt=""></button>
           <div class="wishlist-card-body">
             <span class="wishlist-card-badge">${product.stock > 0 ? `${product.stock} in stock` : 'Unavailable'}</span>
