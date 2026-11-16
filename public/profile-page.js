@@ -17,7 +17,7 @@
     const container = byId('profileProducts');
     const rows = (products || []).slice(0, 9);
     if (!rows.length) { container.innerHTML = '<p>No currently available campaign products.</p>'; return; }
-    container.innerHTML = rows.map((product) => `<article class="profile-product"><a href="/products/${encodeURIComponent(product.id)}"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'"></a><div><h3>${escapeHtml(product.name)}</h3><strong>${money(product.price, product.currency, profile.locale)}</strong></div></article>`).join('');
+    container.innerHTML = rows.map((product) => `<article class="profile-product"><a href="/products/${encodeURIComponent(product.id)}"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" data-fallback-src="/assets/product-placeholder.svg"></a><div><h3>${escapeHtml(product.name)}</h3><strong>${money(product.price, product.currency, profile.locale)}</strong></div></article>`).join('');
   }
 
   function renderSeller() {
