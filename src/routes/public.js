@@ -18,7 +18,9 @@ export function publicCache(response, value = 'public, max-age=10, stale-while-r
   // Logged-in headers include the visitor's account and role. A shared CDN
   // cannot be trusted to key its cache on Cookie merely because Vary exists.
   // Keep authenticated HTML private even when the handler renders a public URL.
-  if (response.req?.user) {
+  const req = response.req;
+  const hasSessionCookie = /(?:^|;\\s*)cm\\.sid=/.test(String(req?.headers?.cookie || ''));
+  if (req?.user || req?.session?.userId || req?.session?.deliveryCity || response.locals?.flash || hasSessionCookie) {
     response.set('Cache-Control', 'private, no-store');
     return;
   }

@@ -40,3 +40,23 @@ test('explicit private no-store cannot be overwritten by public cache helper', a
   assert.match(response.headers['cache-control'], /no-store/);
   assert.ok(!response.headers['cache-control']?.includes('public'));
 });
+
+test('guest requests carrying a marketplace session cookie remain private', async () => {
+  const app = express().get('/probe', (req, res) => {
+    publicCache(res);
+    res.status(200).send('guest with session');
+  });
+  const response = await request(app).get('/probe').set('Cookie', 'cm.sid=opaque').expect(200);
+  assert.equal(response.headers['cache-control'], 'private, no-store');
+});
+
+test('one-time flash or stored delivery location is not publicly cached', async () => {
+  const app = express().get('/probe', (req, res) => {
+    req.session = { deliveryCity: 'Kampala' };
+    res.locals.flash = { type: 'info', message: 'Account updated' };
+    publicCache(res);
+    res.status(200).send('session-derived message');
+  });
+  const response = await request(app).get('/probe').expect(200);
+  assert.equal(response.headers['cache-control'], 'private, no-store');
+});
