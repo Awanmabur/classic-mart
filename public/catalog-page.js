@@ -209,9 +209,9 @@
   function renderCategoryDirectory() {
     qs('#categoryDirectoryGrid').innerHTML = state.categories
       .map(
-        (category) => `
+        (category, index) => `
         <a class="category-directory-card" href="/products?category=${encodeURIComponent(category.id)}">
-          <div class="category-directory-image"><img src="${escapeHtml(category.image)}" alt="${escapeHtml(category.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'"><span><img src="/assets/icons/tags.svg" alt=""></span></div>
+          <div class="category-directory-image"><img src="${escapeHtml(category.image)}" alt="${escapeHtml(category.name)}" loading="${index === 0 ? 'eager' : 'lazy'}" ${index === 0 ? 'fetchpriority="high"' : ''} decoding="async" data-fallback-src="/assets/product-placeholder.svg"><span><img src="/assets/icons/tags.svg" alt=""></span></div>
           <div><h3>${escapeHtml(category.name)}</h3><p>${escapeHtml(category.note)}</p><b>${category.count} product${category.count === 1 ? '' : 's'} <img src="/assets/icons/chevron-right.svg" alt=""></b></div>
         </a>`,
       )
@@ -303,7 +303,7 @@
     renderActiveFilters(filters);
   }
 
-  function productCard(product) {
+  function productCard(product, index) {
     const wished = state.wishlist.has(product.id);
     const compared = state.comparison.has(product.id);
     const discount =
@@ -311,7 +311,7 @@
         ? Math.round((1 - product.price / product.oldPrice) * 100)
         : 0;
     return `<article class="catalog-product-card" data-product-id="${escapeHtml(product.id)}">
-      <a class="catalog-product-image" href="/products/${encodeURIComponent(product.id)}" aria-label="View ${escapeHtml(product.name)} details"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'"><span class="catalog-status-badge">${escapeHtml(product.badge)}</span>${promoterBadge(product)}</a>
+      <a class="catalog-product-image" href="/products/${encodeURIComponent(product.id)}" aria-label="View ${escapeHtml(product.name)} details"><img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="${index === 0 ? 'eager' : 'lazy'}" ${index === 0 ? 'fetchpriority="high"' : ''} decoding="async" data-fallback-src="/assets/product-placeholder.svg"><span class="catalog-status-badge">${escapeHtml(product.badge)}</span>${promoterBadge(product)}</a>
       <button class="catalog-wishlist ${wished ? 'active' : ''}" data-catalog-wishlist="${escapeHtml(product.id)}" type="button" aria-label="${wished ? 'Remove from' : 'Add to'} wishlist"><img src="/assets/icons/${wished ? 'heart.svg' : 'heart-regular.svg'}" alt=""></button>
       <div class="catalog-product-info"><div class="catalog-product-category">${escapeHtml(categoryLabel(product.category))}</div><a href="/products/${encodeURIComponent(product.id)}"><h3>${escapeHtml(product.name)}</h3></a><p>${escapeHtml(product.subtitle)} · ${escapeHtml(product.brand)}</p><div class="catalog-card-commerce"><div class="catalog-card-price"><strong>${money(product.price, product.currency)}</strong>${discount ? `<b>-${discount}%</b>` : ''}</div><div class="catalog-card-rating" aria-label="${product.reviews ? `Rated ${product.rating.toFixed(1)} from ${product.reviews} reviews` : 'No reviews yet'}"><span aria-hidden="true">★</span><strong>${product.reviews ? product.rating.toFixed(1) : 'New'}</strong>${product.reviews ? `<small>(${reviewCount(product.reviews)})</small>` : ''}</div></div><div class="catalog-card-meta"><span><img src="/assets/icons/truck-fast.svg" alt=""> Delivery at checkout</span><span>${product.stock > 0 ? `${product.stock} in stock` : 'Out of stock'}</span></div><div class="catalog-card-actions"><button data-catalog-add="${escapeHtml(product.id)}" type="button" ${product.stock < 1 ? 'disabled' : ''}><img src="/assets/icons/cart-plus.svg" alt=""> Add to cart</button><button class="${compared ? 'active' : ''}" data-catalog-compare="${escapeHtml(product.id)}" type="button">${compared ? 'Compared' : 'Compare'}</button></div></div>
     </article>`;

@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { getStorefront, publishedCategory, publishedProduct, publishedSeller, publishedSellers } from '../services/storefront.js';
 import { publicPromoter, publicPromoters } from '../services/promoters.js';
 import { AppError } from '../core/errors.js';
-import { absoluteUrl, breadcrumbSchema, canonicalUrl, collectionSchema, hasDuplicateQuery, jsonForHtml, pageSeo, plainText, productSeo } from '../services/seo.js';
+import { absoluteUrl, breadcrumbSchema, canonicalUrl, collectionSchema, hasDuplicateQuery, jsonForHtml, pageSeo, plainText, productSeo, publicOrganizationSchema } from '../services/seo.js';
 import { publishedCms, publishedCmsList } from '../services/stage9.js';
 import { Review, User } from '../models/index.js';
 import { activeSponsoredProducts } from '../services/seller-growth.js';
@@ -12,9 +12,18 @@ import { homeHero } from '../services/home-hero.js';
 
 const router = Router();
 
-function publicCache(response, value = 'public, max-age=10, stale-while-revalidate=30') {
+export function publicCache(response, value = 'public, max-age=10, stale-while-revalidate=30') {
   response.vary('Cookie');
   response.vary('CF-IPCountry');
+  // Logged-in headers include the visitor's account and role. A shared CDN
+  // cannot be trusted to key its cache on Cookie merely because Vary exists.
+  // Keep authenticated HTML private even when the handler renders a public URL.
+  const req = response.req;
+  const hasSessionCookie = String(req?.headers?.cookie || '').split(';').some(cookie => cookie.trimStart().startsWith('cm.sid='));
+  if (req?.user || req?.session?.userId || req?.session?.deliveryCity || response.locals?.flash || hasSessionCookie) {
+    response.set('Cache-Control', 'private, no-store');
+    return;
+  }
   if (!response.get('Set-Cookie') && !String(response.get('Cache-Control') || '').includes('no-store')) response.set('Cache-Control', value);
 }
 function setSeo(request, response, overrides = {}) {
@@ -73,7 +82,14 @@ for (const [path, view] of pages) {
       if (path === '/promoters') {
         const result = mongoose.connection.readyState === 1 ? await publicPromoters(request.country, { limit: 50 }) : { items: [] };
         setSeo(request, response, { schema: [collectionSchema(request, 'Marketplace promoters', result.items.map(person => [person.name, '/promoters/' + encodeURIComponent(person.id)]))] });
-        return response.render(view, { cmsContent: null, initialPeople: result.items });
+        // Never serialize internal user IDs or earnings in the public snapshot.
+        const publicPeople = result.items.map(({ userMongoId, earnedMinor, ...person }) => person);
+        const page = result.page || { count: publicPeople.length, total: publicPeople.length, next: '', hasMore: false };
+        return response.render(view, {
+          cmsContent: null,
+          initialPeople: publicPeople,
+          initialPeopleJson: request.user ? null : jsonForHtml({ people: publicPeople, page }),
+        });
       }
       const key = cmsPageKeys.get(path);
       const cmsContent = key && mongoose.connection.readyState === 1 ? await publishedCms(key, request.country?.code) : null;
@@ -118,7 +134,7 @@ router.get('/', async (request, response, next) => {
     const hero = homeHero({ publishedSlides: homeHeroSlides, catalogue, country: request.country });
     publicCache(response);
     setSeo(request, response, { schema: [
-      { '@context': 'https://schema.org', '@type': 'Organization', '@id': absoluteUrl('/') + '#organization', name: 'Classic Mart', url: absoluteUrl('/') },
+      { ...publicOrganizationSchema(), '@id': absoluteUrl('/') + '#organization' },
       { '@context': 'https://schema.org', '@type': 'WebSite', name: 'Classic Mart', url: absoluteUrl('/') },
     ] });
     return response.render('index', {
@@ -135,7 +151,9 @@ router.get('/press', async (request, response, next) => {
       ? await publishedCmsList({ prefix: 'press.article.', type: 'press', country: request.country?.code, limit: 50 })
       : [];
     publicCache(response, 'public, max-age=30, stale-while-revalidate=120');
-    setSeo(request, response, { schema: [collectionSchema(request, 'Classic Mart news and buying guides', pressArticles.map(article => [article.title, '/press/' + encodeURIComponent(article.key)]))] });
+    // Keep the public journal usable, but do not invite indexing an empty CMS directory.
+    // The page becomes indexable automatically when a real published article appears.
+    setSeo(request, response, { noindex: !pressArticles.length || hasDuplicateQuery(request), schema: [collectionSchema(request, 'Classic Mart news and buying guides', pressArticles.map(article => [article.title, '/press/' + encodeURIComponent(article.key)]))] });
     return response.render('press', { cmsContent: null, pressArticles });
   } catch (error) { return next(error); }
 });
@@ -188,7 +206,13 @@ router.get('/sellers', async (request, response, next) => {
     const result = mongoose.connection.readyState === 1 ? await publishedSellers(request.country, { limit: 50 }) : { items: [] };
     setSeo(request, response, { schema: [collectionSchema(request, 'Verified marketplace sellers', result.items.map(seller => [seller.name, '/sellers/' + encodeURIComponent(seller.slug)]))] });
     publicCache(response);
-    return response.render('sellers', { initialPeople: result.items });
+    const page = result.page || { count: result.items.length, total: result.items.length, next: '', hasMore: false };
+    return response.render('sellers', {
+      initialPeople: result.items,
+      // Public snapshot avoids fetching the same directory immediately again.
+      // User-specific followed flags and CSRF still require the private API.
+      initialPeopleJson: request.user ? null : jsonForHtml({ people: result.items, page }),
+    });
   } catch (error) { next(error); }
 });
 router.get('/sellers/profile', (request, response) => {

@@ -9,6 +9,8 @@ const expectedSha = '0123456789abcdef0123456789abcdef01234567';
 const expectedVersion = '2.13.74';
 const checks = { mongo: true, redis: true, worker: true };
 const catalogueHtml = '<!doctype html><html><body data-page-mode="products"><main id="catalogMain"><div id="catalogProductGrid"></div></main></body></html>';
+const directoryHtml = kind => `<!doctype html><html><body data-directory-type="${kind}"><main id="catalogMain"><div id="peopleGrid"></div></main></body></html>`;
+const privateMarketHeaders = { 'cache-control': 'private, no-store', vary: 'Cookie, CF-IPCountry' };
 const encoder = new TextEncoder();
 
 function config(overrides = {}) {
@@ -52,6 +54,10 @@ function deploymentFetch(overrides = {}) {
     '/health/version': () => jsonResponse({ status: 'ok', version: expectedVersion, buildSha: expectedSha }),
     '/health/live': () => jsonResponse({ status: 'ok' }),
     '/products': () => htmlResponse(),
+    '/sellers': () => htmlResponse(directoryHtml('sellers')),
+    '/promoters': () => htmlResponse(directoryHtml('promoters')),
+    '/api/v1/storefront/navigation': () => jsonResponse({ categories: [] }, { headers: privateMarketHeaders }),
+    '/api/v1/storefront/sellers': () => jsonResponse({ sellers: [], page: { count: 0, total: 0, next: '', hasMore: false } }, { headers: privateMarketHeaders }),
     ...overrides,
   };
   const fetchImpl = async (input, options = {}) => {
@@ -114,7 +120,11 @@ test('deployment smoke accepts healthy exact build identity and the products cat
   const result = await probeDeployment(config(), { fetchImpl });
   assert.deepEqual(result, { ok: true, version: expectedVersion, buildSha: expectedSha, checks });
   assert.deepEqual(calls.slice(0, 2).map(({ url }) => url.pathname).sort(), ['/health/ready', '/health/version']);
-  assert.deepEqual(calls.slice(2).map(({ url }) => url.pathname), ['/health/live', '/products']);
+  assert.deepEqual(calls.slice(2).map(({ url }) => url.pathname), [
+    '/health/live', '/products', '/sellers', '/promoters',
+    '/api/v1/storefront/navigation', '/api/v1/storefront/sellers',
+  ]);
+  assert.equal(calls.at(-1).url.search, '?limit=10');
 });
 
 test('deployment smoke rejects products redirects and error pages without following them', async (t) => {
@@ -283,4 +293,43 @@ test('deployment smoke polling preserves the final readiness failure with a fake
   }), /timed out.*worker/i);
   assert.ok(sleeps.length > 0);
   assert.ok(messages.length > 0);
+});
+
+test('deployment smoke requires Sellers and Promoters SSR directories to be functional', async (t) => {
+  for (const kind of ['sellers', 'promoters']) {
+    await t.test(kind, async () => {
+      const { fetchImpl } = deploymentFetch({ ['/' + kind]: () => htmlResponse('<html><body>Sign in</body></html>') });
+      await assert.rejects(probeDeployment(config(), { fetchImpl }), new RegExp(kind + '.*directory HTML markers'));
+    });
+  }
+});
+
+test('deployment smoke rejects shared-cacheable market API responses', async (t) => {
+  for (const endpoint of ['/api/v1/storefront/navigation', '/api/v1/storefront/sellers']) {
+    await t.test(endpoint, async () => {
+      const { fetchImpl } = deploymentFetch({
+        [endpoint]: () => jsonResponse(
+          endpoint.endsWith('/navigation') ? { categories: [] } : { sellers: [], page: {} },
+          { headers: { 'cache-control': 'public, max-age=600', vary: 'Cookie, CF-IPCountry' } },
+        ),
+      });
+      await assert.rejects(probeDeployment(config(), { fetchImpl }), /unsafe shared-market cache headers/);
+    });
+  }
+});
+
+test('deployment smoke rejects market JSON without cookie and geo isolation', async () => {
+  const { fetchImpl } = deploymentFetch({
+    '/api/v1/storefront/navigation': () => jsonResponse({ categories: [] }, {
+      headers: { 'cache-control': 'private, no-store', vary: 'Accept-Encoding' },
+    }),
+  });
+  await assert.rejects(probeDeployment(config(), { fetchImpl }), /missing market Vary headers/);
+});
+
+test('deployment smoke rejects broken seller pagination even with safe cache headers', async () => {
+  const { fetchImpl } = deploymentFetch({
+    '/api/v1/storefront/sellers': () => jsonResponse({ sellers: {}, page: null }, { headers: privateMarketHeaders }),
+  });
+  await assert.rejects(probeDeployment(config(), { fetchImpl }), /invalid directory paging/);
 });
