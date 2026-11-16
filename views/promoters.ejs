@@ -34,6 +34,7 @@
 <div class="newsletter-perks"><span><img alt="" src="/assets/icons/percent.svg"/><b>Exclusive Deals</b></span><span><img alt="" src="/assets/icons/gift.svg"/><b>New Arrivals</b></span><span><img alt="" src="/assets/icons/location-dot.svg"/><b>Shopping Tips</b></span></div>
 </div>
 </section><%- include("partials/storefront-footer") %><script src="/cart-store.js"></script>
+<% if (typeof initialPeopleJson === 'string') { %><script id="initialPeopleData" type="application/json"><%- initialPeopleJson %></script><% } %>
 <script src="/people-page.js"></script>
 <script src="/shared-shell.js"></script><script src="/image-fallback.js"></script><script src="/country-switcher.js"></script><script src="/search-tools.js"></script><script src="/newsletter.js"></script></body>
 </html>
