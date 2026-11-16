@@ -7,8 +7,9 @@ import { CmsContent, Product } from '../src/models/index.js';
 import { SITE_URL } from '../src/services/seo.js';
 
 const app = () => express().use(discovery).use((error, _request, response, _next) => response.status(error.status || 500).json({ code: error.code }));
-test('public crawling and AI source discovery exclude private and duplicate pages', async () => {
+test('public crawling and AI source discovery exclude private and duplicate pages', async t => {
   clearDiscoveryCache();
+  t.mock.method(CmsContent, 'aggregate', () => ({ option: async () => [{ total: 0 }] }));
   const result = await request(app()).get('/robots.txt').expect(200);
   assert.match(result.text, /User-agent: \*\nAllow: \/\n/);
   assert.match(result.text, /Allow: \/sellers/);
@@ -21,6 +22,8 @@ test('public crawling and AI source discovery exclude private and duplicate page
   const pages = await request(app()).get('/sitemaps/pages.xml').expect(200);
   assert.ok(pages.text.includes('/return-policy?country=UG</loc>'));
   assert.ok(pages.text.includes('/products?country=UG</loc>'));
+  assert.ok(pages.text.includes(`<loc>${SITE_URL}/</loc>`), 'default Uganda homepage is submitted at the stable root');
+  assert.ok(!pages.text.includes(`<loc>${SITE_URL}/?country=UG</loc>`), 'default homepage must not compete with a query URL');
   assert.ok(!pages.text.includes('/dashboard'));
   assert.ok(!pages.text.includes('/search'));
   const llms = await request(app()).get('/llms.txt').expect(200);
@@ -76,7 +79,9 @@ test('empty eligible catalogues advertise no nonexistent product/category/seller
   assert.ok(!index.text.includes('/products.xml'));
   assert.ok(!index.text.includes('/categories.xml'));
   assert.ok(!index.text.includes('/sellers.xml'));
-  assert.ok(index.text.includes('/articles.xml?country=UG'));
+  assert.ok(!index.text.includes('/articles.xml?country=UG'), 'do not advertise a sitemap with zero published articles');
+  const pages = await request(app()).get('/sitemaps/pages.xml').expect(200);
+  assert.ok(!pages.text.includes('/press?country=UG</loc>'), 'do not submit the empty press journal');
 });
 test('article discovery paginates active public revisions rather than truncating the journal feed', async t => {
   clearDiscoveryCache();
@@ -94,4 +99,20 @@ test('article discovery paginates active public revisions rather than truncating
   assert.ok(index.text.includes('/articles.xml?country=UG&amp;page=2'));
   const page = await request(app()).get('/sitemaps/articles.xml?country=UG&page=2').expect(200);
   assert.ok(page.text.includes('/press/press.article.published-guide?country=UG</loc>'));
+});
+
+test('published CMS journal becomes discoverable without a deployment when a real article appears', async t => {
+  clearDiscoveryCache();
+  let published = false;
+  t.mock.method(CmsContent, 'aggregate', () => ({ option: async () => [{ total: published ? 1 : 0 }] }));
+  const server = app();
+  const before = await request(server).get('/sitemaps/pages.xml').expect(200);
+  assert.ok(!before.text.includes('/press?country=UG</loc>'));
+  published = true;
+  clearDiscoveryCache();
+  const after = await request(server).get('/sitemaps/pages.xml').expect(200);
+  assert.ok(after.text.includes('/press?country=UG</loc>'));
+  t.mock.method(Product, 'aggregate', () => ({ option: async () => [{ products: [], categories: [], sellers: [] }] }));
+  const index = await request(server).get('/sitemap.xml').expect(200);
+  assert.ok(index.text.includes('/articles.xml?country=UG'));
 });

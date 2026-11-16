@@ -39,7 +39,9 @@ export function canonicalUrl(path, country) {
   const cleanPath = String(path || '/').split(/[?#]/)[0];
   const url = new URL(SITE_URL);
   url.pathname = url.pathname.replace(/\/+$/, '') + '/' + cleanPath.replace(/^[\\/]+/, '');
-  if (country && isCountryPage(cleanPath)) url.searchParams.set('country', String(country).toUpperCase());
+  // The default Uganda homepage is the stable brand/site-name URL.
+  // Keep market-specific canonicals for shopping pages and other countries.
+  if (country && isCountryPage(cleanPath) && !(cleanPath === '/' && String(country).toUpperCase() === 'UG')) url.searchParams.set('country', String(country).toUpperCase());
   return url.href;
 }
 export function hasDuplicateQuery(request) {
