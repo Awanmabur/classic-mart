@@ -72,7 +72,7 @@
   }
 
   function imageMarkup(product) {
-    return `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/assets/product-placeholder.svg'">`;
+    return `<img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" referrerpolicy="no-referrer" data-fallback-src="/assets/product-placeholder.svg">`;
   }
 
   function selectedDelivery() {
