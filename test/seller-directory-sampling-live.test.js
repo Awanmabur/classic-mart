@@ -22,7 +22,6 @@ test('public sellers fairly sample products per verified store after genuine dat
     for (const Model of Object.values(mongoose.models)) await Model.init();
 
     const country = { code: 'UG', name: 'Uganda', currency: 'UGX', locale: 'en-UG' };
-    const owner = new mongoose.Types.ObjectId();
     const categoryId = new mongoose.Types.ObjectId();
     const restrictedCategoryId = new mongoose.Types.ObjectId();
 
@@ -36,12 +35,14 @@ test('public sellers fairly sample products per verified store after genuine dat
     const stores = Array.from({ length: 2 }, (_, index) => ({
       _id: new mongoose.Types.ObjectId(),
       publicId: 'str_sample_' + suffix + '_' + index,
-      ownerUserId: owner,
+      ownerUserId: new mongoose.Types.ObjectId(),
       name: 'Verified sample seller ' + index,
       slug: 'sample-' + suffix + '-' + index,
       country: 'UG', currency: 'UGX', status: 'verified',
       createdAt: new Date(Date.now() - index * 1000),
     }));
+    assert.notEqual(String(stores[0].ownerUserId), String(stores[1].ownerUserId),
+      'Store owners must be unique: production enforces ownerUserId_1.');
     await Store.collection.insertMany(stores);
 
     const products = [], variants = [], media = [];
@@ -54,7 +55,7 @@ test('public sellers fairly sample products per verified store after genuine dat
         const product = {
           _id: productId,
           publicId: 'prd_sample_' + suffix + '_' + counter,
-          storeId: stores[storeNo]._id, ownerUserId: owner,
+          storeId: stores[storeNo]._id, ownerUserId: stores[storeNo].ownerUserId,
           categoryId: restricted ? restrictedCategoryId : categoryId,
           title: 'Approved sample ' + storeNo + ' ' + i,
           slug: 'sample-' + suffix + '-' + counter,
