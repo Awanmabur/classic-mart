@@ -105,6 +105,9 @@ for(const file of files){
         if (file === path.join('views', 'partials', 'seo-meta.ejs') && expression === 'pageMetadata.jsonLd') allowed.add(expression);
         if (file === path.join('views', 'products.ejs') && expression === "include('partials/catalogue-cards')") allowed.add(expression);
         if (['sellers.ejs','promoters.ejs'].some(name => file === path.join('views',name)) && /^include\("partials\/people-cards", \{directoryKind: "(?:sellers|promoters)"\}\)$/.test(expression)) allowed.add(expression);
+        // Only the public JSON snapshot serialized by jsonForHtml() in
+        // src/routes/public.js may be emitted raw in these two pages.
+        if (['sellers.ejs','promoters.ejs'].some(name => file === path.join('views', name)) && expression === 'initialPeopleJson') allowed.add(expression);
         if (['seller-profile.ejs','promoter-profile.ejs'].some(name => file === path.join('views',name)) && expression === 'include("partials/profile-products")') allowed.add(expression);
         if (file === path.join('views','index.ejs') && expression === "include('partials/product-details-readable')") allowed.add(expression);
         if (/^include\('partials\/approved-account-(security|messages|privacy|returns|rewards|apps|invitation)'\)$/.test(expression) && file === path.join('views','approved-dashboard.ejs')) allowed.add(expression);
