@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 import { publicProductImageUrl } from './product-media-url.js';
+import { createBoundedPublicDirectoryCache } from './public-directory-cache.js';
+import { assembleSellerDirectoryCards } from './seller-directory-cards.js';
 import { cursorScope, decodeCursor, pageResult } from './pagination.js';
 import {
   Brand,
@@ -25,6 +27,7 @@ const STORE_FIELDS = 'publicId ownerUserId slug name description country currenc
 const CACHE_TTL_MS = 30_000;
 const STALE_CACHE_TTL_MS = 5 * 60_000;
 const cache = new Map();
+const sellerDirectoryCache = createBoundedPublicDirectoryCache({ ttlMs: 10_000, maxEntries: 48 });
 let cacheGeneration = 0;
 
 function key(value) {
@@ -589,6 +592,7 @@ export async function searchStorefront(
 export function clearStorefrontCache() {
   cacheGeneration += 1;
   cache.clear();
+  sellerDirectoryCache.clear();
 }
 
 export async function publishedProductsByPublicIds(publicIds, country) {
@@ -616,6 +620,16 @@ export async function publishedCategory(slug, country) {
 }
 
 export async function publishedSellers(country, { after = '', limit = 50 } = {}) {
+  // Directory content is public and country-scoped. Personalized follow state
+  // is supplied separately by the HTTP route, never retained in this cache.
+  const pageSize = Math.min(Math.max(Number(limit) || 50, 10), 100);
+  const normalizedAfter = decodeCursor(after, { type: 'date' }) ? String(after) : '';
+  const cacheKey = JSON.stringify([country.code, country.currency, normalizedAfter, pageSize]);
+  return sellerDirectoryCache.get(cacheKey, () =>
+    loadPublishedSellers(country, { after: normalizedAfter, limit: pageSize }));
+}
+
+async function loadPublishedSellers(country, { after = '', limit = 50 } = {}) {
   const pageSize=Math.min(Math.max(Number(limit)||50,10),100),countryCode=country.code;
   const cursor=decodeCursor(after,{type:'date'});
   const common=[
@@ -632,9 +646,38 @@ export async function publishedSellers(country, { after = '', limit = 50 } = {})
   const rawPage=pageResult(stores,{field:'createdAt',direction:-1,type:'date',limit:pageSize,total});
   if(!rawPage.items.length)return {items:[],page:rawPage.page};
   const storeIds=rawPage.items.map(store=>store._id);
-  const sampleProducts=await Product.find({storeId:mongoose.trusted({$in:storeIds}),status:'published',countries:countryCode}).sort({publishedAt:-1}).limit(Math.min(800,storeIds.length*8)).lean();
-  const hydrated=await hydrateProducts(sampleProducts,country),derivedBySlug=new Map(hydrated.sellers.map(seller=>[seller.slug,seller]));
-  const items=rawPage.items.map(store=>{const derived=derivedBySlug.get(store.slug);return{id:store.publicId,slug:store.slug,name:store.name,description:store.description,country:store.country,currency:store.currency,verified:true,image:derived?.image||'/assets/product-placeholder.svg',productImages:derived?.productImages||[],productCount:Number(store.productCount||0),categories:derived?.categories||[],rating:derived?.rating||0,reviews:derived?.reviews||0,sold:derived?.sold||0,followed:false};});
+  // The directory needs a seller cover, category names and public review/sales
+  // totals—not the full catalogue's variants, warehouse stock, brand and store
+  // hydration. The eligibility pipeline still enforces every public approval,
+  // store/market scope and available selling variant before accepting a sample.
+  const sampleProducts = await Product.aggregate([
+    { $match: { storeId: { $in: storeIds }, status: 'published', countries: countryCode } },
+    ...publicEligibilityStages(country),
+    { $sort: { publishedAt: -1, _id: -1 } },
+    { $limit: Math.min(800, storeIds.length * 8) },
+    { $project: { _id: 1, storeId: 1, '_publicCategory.name': 1 } },
+  ]).option({ maxTimeMS: 15_000 });
+  const productIds = sampleProducts.map(product => product._id);
+  const [media, reviewMetrics, salesMetrics] = productIds.length
+    ? await Promise.all([
+      ProductMedia.find({ productId: mongoose.trusted({ $in: productIds }), status: 'approved' })
+        .select('publicId productId source originalName altText position createdAt')
+        .sort({ productId: 1, position: 1, createdAt: 1 }).lean(),
+      Review.aggregate([
+        { $match: { productId: { $in: productIds }, status: 'published', verifiedPurchase: true } },
+        { $group: { _id: '$productId', reviews: { $sum: 1 }, rating: { $avg: '$rating' } } },
+      ]),
+      Order.aggregate([
+        { $match: { country: country.code, status: { $in: ['confirmed', 'paid', 'partially_refunded'] }, 'items.productId': { $in: productIds } } },
+        { $unwind: '$items' },
+        { $match: { 'items.productId': { $in: productIds } } },
+        { $group: { _id: '$items.productId', sold: { $sum: '$items.quantity' } } },
+      ]),
+    ])
+    : [[], [], []];
+  const items = assembleSellerDirectoryCards({
+    stores: rawPage.items, products: sampleProducts, media, reviewMetrics, salesMetrics,
+  });
   return {items,page:rawPage.page};
 }
 

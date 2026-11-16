@@ -14,7 +14,8 @@
   border: 1px solid var(--orange, #ff6500);
   border-radius: 999px;
   background: var(--orange, #ff6500);
-  color: #fff;
+  /* Navy ink on approved orange remains WCAG AA readable (5.83:1). */
+  color: #111a34;
   font-family: inherit;
   font-size: 14px;
   font-weight: 700;
